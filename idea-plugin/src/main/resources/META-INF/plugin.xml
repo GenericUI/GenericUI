@@ -1,0 +1,44 @@
+<idea-plugin>
+    <id>com.nexustools.genericui.idea</id>
+    <name>GenericUI Project Creator &amp; Target Manager</name>
+    <vendor email="support@nexustools.com" url="https://nexustools.com">NexusTools</vendor>
+
+    <description><![CDATA[
+        Official IntelliJ IDEA plugin for creating and managing <b>GenericUI</b> Kotlin Multiplatform projects.
+        <ul>
+            <li><b>New GenericUI Project Wizard</b>: Interactive checkboxes for selecting target backends
+                (<code>windows</code>, <code>macos</code>, <code>gtk</code>, <code>qt</code>, <code>swing</code>,
+                <code>android</code>, <code>ios</code>, <code>web</code>) with quick presets
+                (<i>All Except Swing</i>, <i>Desktop Only (No Swing)</i>, <i>Mobile Only</i>, <i>Select All</i>).</li>
+            <li><b>11 First-Party Extension Modules</b>: Select <code>gpu</code>, <code>imageProcessing</code>,
+                <code>canvas2d</code>, <code>canvas3d</code>, <code>media</code>, <code>webView</code>,
+                <code>codeEditor</code>, <code>aiChat</code>, <code>threeJs</code>, <code>box2d</code>, and
+                <code>box3d</code> with automatic transitive dependency resolution.</li>
+            <li><b>Manage GenericUI Targets &amp; Extensions</b>: Inspect and update an existing project's
+                <code>build.gradle.kts</code> target backends and extension modules in-place via checkboxes.</li>
+        </ul>
+    ]]></description>
+
+    <depends>com.intellij.modules.platform</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <projectService
+            serviceImplementation="com.nexustools.genericui.ide.service.GenericUiProjectManagerService"/>
+    </extensions>
+
+    <actions>
+        <group id="GenericUI.MenuGroup" text="GenericUI" description="GenericUI Project Creation and Target Management">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+            <action
+                id="GenericUI.NewProject"
+                class="com.nexustools.genericui.ide.service.GenericUiPluginActions"
+                text="New GenericUI Project..."
+                description="Create a new GenericUI Kotlin Multiplatform project and choose target backends and extensions via checkboxes"/>
+            <action
+                id="GenericUI.ManageTargets"
+                class="com.nexustools.genericui.ide.service.GenericUiPluginActions"
+                text="Manage GenericUI Targets &amp; Extensions..."
+                description="Inspect and update enabled GenericUI target backends and extensions in build.gradle.kts"/>
+        </group>
+    </actions>
+</idea-plugin>

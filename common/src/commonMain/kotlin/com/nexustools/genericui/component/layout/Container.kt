@@ -1,0 +1,24 @@
+package com.nexustools.genericui.component.layout
+
+import com.nexustools.genericui.core.AbstractContainer
+import com.nexustools.genericui.core.NativeFactory
+import com.nexustools.genericui.nativeimpl.layout.ContainerNativeImpl
+
+/**
+ * Standard Bootstrap 5 container (`Container`) and base class for layout containers and [com.nexustools.genericui.component.fragment.Fragment].
+ */
+open class Container(
+    classPrefix: String = "container"
+) : AbstractContainer(classPrefix) {
+
+    init {
+        if (classPrefix.isNotBlank()) {
+            setClass(classPrefix)
+        }
+    }
+
+    constructor(tagName: String, classPrefix: String) : this(classPrefix)
+
+    override fun createNativeImpl(factory: NativeFactory): ContainerNativeImpl<*> =
+        factory.createContainer(componentClassPrefix)
+}

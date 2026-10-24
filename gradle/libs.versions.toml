@@ -1,0 +1,47 @@
+[versions]
+agp = "9.1.1"
+android-compileSdk = "37"
+android-minSdk = "24"
+android-targetSdk = "37"
+androidx-appcompat = "1.8.0"
+androidx-core = "1.19.1"
+androidx-espresso = "3.7.0"
+androidx-recyclerview = "1.4.0"
+androidx-testExt = "1.3.0"
+google-material = "1.13.0"
+junit = "4.13.2"
+kotlin = "2.4.20"
+kotlin-wrappers = "2026.9.3"
+kotlinx-coroutines = "1.11.0"
+lwjgl = "3.3.6"
+vlcj = "4.8.3"
+
+[libraries]
+kotlin-test = { module = "org.jetbrains.kotlin:kotlin-test", version.ref = "kotlin" }
+kotlin-testJunit = { module = "org.jetbrains.kotlin:kotlin-test-junit", version.ref = "kotlin" }
+kotlin-gradle-plugin = { module = "org.jetbrains.kotlin:kotlin-gradle-plugin", version.ref = "kotlin" }
+junit = { module = "junit:junit", version.ref = "junit" }
+androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "androidx-core" }
+androidx-testExt-junit = { module = "androidx.test.ext:junit", version.ref = "androidx-testExt" }
+androidx-espresso-core = { module = "androidx.test.espresso:espresso-core", version.ref = "androidx-espresso" }
+androidx-appcompat = { module = "androidx.appcompat:appcompat", version.ref = "androidx-appcompat" }
+androidx-recyclerview = { module = "androidx.recyclerview:recyclerview", version.ref = "androidx-recyclerview" }
+google-material = { module = "com.google.android.material:material", version.ref = "google-material" }
+kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "kotlinx-coroutines" }
+kotlinx-coroutinesSwing = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-swing", version.ref = "kotlinx-coroutines" }
+kotlinx-coroutinesAndroid = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "kotlinx-coroutines" }
+wrappers-browser = { module = "org.jetbrains.kotlin-wrappers:kotlin-browser", version.ref = "kotlin-wrappers" }
+lwjgl-core = { module = "org.lwjgl:lwjgl", version.ref = "lwjgl" }
+lwjgl-jawt = { module = "org.lwjgl:lwjgl-jawt", version.ref = "lwjgl" }
+lwjgl-egl = { module = "org.lwjgl:lwjgl-egl", version.ref = "lwjgl" }
+lwjgl-opengles = { module = "org.lwjgl:lwjgl-opengles", version.ref = "lwjgl" }
+lwjgl-opengl = { module = "org.lwjgl:lwjgl-opengl", version.ref = "lwjgl" }
+lwjgl-vulkan = { module = "org.lwjgl:lwjgl-vulkan", version.ref = "lwjgl" }
+lwjgl-shaderc = { module = "org.lwjgl:lwjgl-shaderc", version.ref = "lwjgl" }
+lwjgl-vma = { module = "org.lwjgl:lwjgl-vma", version.ref = "lwjgl" }
+vlcj = { module = "uk.co.caprica:vlcj", version.ref = "vlcj" }
+
+[plugins]
+androidMultiplatformLibrary = { id = "com.android.kotlin.multiplatform.library", version.ref = "agp" }
+kotlinJvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
+kotlinMultiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }

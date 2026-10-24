@@ -1,0 +1,15 @@
+[submodule "extensions"]
+	path = extensions
+	url = git@github.com:GenericUI/Extensions.git
+[submodule "mobile"]
+	path = mobile
+	url = git@github.com:GenericUI/Mobile.git
+[submodule "desktop"]
+	path = desktop
+	url = git@github.com:GenericUI/Desktop.git
+[submodule "lib/NJS"]
+	path = lib/NJS
+	url = git@github.com:NexusTools/KNJS.git
+[submodule "web"]
+	path = web
+	url = git@github.com:GenericUI/Web.git
