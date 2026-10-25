@@ -3,6 +3,7 @@ package com.nexustools.genericui.component.fragment.helper
 import com.nexustools.genericui.component.action.Button
 import com.nexustools.genericui.component.layout.Container
 import com.nexustools.genericui.component.layout.HStack
+import com.nexustools.genericui.component.typography.Heading
 import com.nexustools.genericui.enums.bootstrap.BootstrapSize
 import com.nexustools.genericui.enums.bootstrap.BootstrapType
 import kotlin.io.encoding.Base64
@@ -29,10 +30,11 @@ abstract class ValidatedStepPageFragment(
     }
 ) {
 
+    val headerTitle: Heading = Heading("Character Creator", level = 2)
     val stepBar: HStack = HStack().apply {
-        addClass("mb-2 justify-content-center")
+        addClass("mb-2 chargennav nowrap justify-content-center")
     }
-    val contentContainer: Container = Container("div", "step-content")
+    val contentContainer: Container = Container("div", "step-content cgcontent")
 
     var stepStorage: Any? = null
         protected set
@@ -62,11 +64,16 @@ abstract class ValidatedStepPageFragment(
         for (i in stepNames.indices) {
             val stepTitle = stepNames[i]
             val btn = Button(stepTitle, BootstrapType.SECONDARY, BootstrapSize.SM).apply {
+                addClass("step$i")
                 if (i < stepNames.lastIndex) {
                     addClass("me-1")
                 }
                 when {
-                    i < currentStepOrdinal -> {
+                    i == currentStepOrdinal -> {
+                        isEnabled = true
+                        addClass("btn-active")
+                    }
+                    i < currentStepOrdinal || i <= args.size -> {
                         isEnabled = true
                         setOnClick {
                             val targetPage = createStepPage(i)
@@ -75,12 +82,9 @@ abstract class ValidatedStepPageFragment(
                             }
                         }
                     }
-                    i == currentStepOrdinal -> {
-                        isEnabled = false
-                        addClass("btn-active")
-                    }
                     else -> {
                         isEnabled = false
+                        addClass("disabled")
                     }
                 }
             }
@@ -91,6 +95,7 @@ abstract class ValidatedStepPageFragment(
         contentContainer.clearChildren()
         buildStepView(contentContainer, args)
 
+        menu.addChild(headerTitle)
         menu.addChild(stepBar)
         menu.addChild(contentContainer)
     }

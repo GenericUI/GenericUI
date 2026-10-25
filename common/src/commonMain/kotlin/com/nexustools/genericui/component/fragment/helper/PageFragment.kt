@@ -22,7 +22,6 @@ abstract class PageFragment(
         internal set
 
     var pageArgs: List<Any?> = emptyList()
-        internal set
 
     init {
         addClass("page")

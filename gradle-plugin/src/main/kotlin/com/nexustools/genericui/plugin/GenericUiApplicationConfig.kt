@@ -165,6 +165,16 @@ open class GenericUiApplicationConfig(
             desktop.linuxIcon = value
         }
 
+    /**
+     * Web icon path relative to project root overriding the default icon for the Web splash screen
+     * and the generated `index.html` favicon. `.svg` icons (e.g. `"icon.svg"`) are preferred.
+     */
+    var webIcon: String
+        get() = desktop.webIcon
+        set(value) {
+            desktop.webIcon = value
+        }
+
     /** Default initial window width in pixels. */
     var windowWidth: Int
         get() = desktop.windowWidth
@@ -211,14 +221,29 @@ open class GenericUiApplicationConfig(
         desktop.linuxIcon(path)
     }
 
+    /**
+     * Sets the Web icon path overriding the default project icon for the Web splash screen and
+     * `index.html` favicon. `.svg` icons (e.g. `"icon.svg"`) are preferred for the Web target.
+     */
+    fun webIcon(path: String) {
+        desktop.webIcon(path)
+    }
+
+    /**
+     * Resolves the effective icon path for the Web splash screen and `index.html` favicon,
+     * preferring [webIcon] first and falling back to [icon], [linuxIcon], [macIcon], or [windowsIcon].
+     */
+    fun resolveEffectiveWebIconPath(): String = desktop.resolveEffectiveWebIconPath()
+
     /** Configures platform icons in a single call. */
     fun icons(
         windows: String = desktop.windowsIcon,
         mac: String = desktop.macIcon,
         linux: String = desktop.linuxIcon,
+        web: String = desktop.webIcon,
         common: String = desktop.icon
     ) {
-        desktop.icons(windows = windows, mac = mac, linux = linux, common = common)
+        desktop.icons(windows = windows, mac = mac, linux = linux, web = web, common = common)
     }
 
     /** Configures desktop application identity and OS resource metadata. */

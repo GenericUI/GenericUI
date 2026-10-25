@@ -287,22 +287,53 @@ class GenericUiGradlePluginTest {
         val expectedSourceSets = listOf(
             "commonMain",
             "common",
+            "commonTest",
+            "web",
+            "webMain",
+            "webTest",
+            "systemCommon",
+            "systemMain",
+            "systemTest",
             "desktopCommon",
             "desktopMain",
+            "desktopTest",
+            "swing",
+            "swingMain",
+            "swingTest",
+            "desktopNativeCommon",
+            "desktopNativeMain",
+            "desktopNativeTest",
             "nativeDesktopCommon",
             "nativeDesktopMain",
+            "nativeDesktopTest",
+            "windows",
             "windowsMain",
+            "windowsTest",
+            "mac",
             "macMain",
             "macosMain",
+            "macTest",
+            "macosTest",
             "linuxCommon",
             "linuxMain",
+            "linuxTest",
+            "gtk",
             "gtkMain",
+            "gtkTest",
+            "qt",
             "qtMain",
-            "swingMain",
+            "qtTest",
             "mobileCommon",
             "mobileMain",
+            "mobileTest",
+            "android",
+            "androidMain",
+            "androidTest",
+            "ios",
             "iosMain",
-            "webMain"
+            "iosTest",
+            "wasmJsMain",
+            "jsMain"
         )
         for (expected in expectedSourceSets) {
             assertTrue(
@@ -310,6 +341,30 @@ class GenericUiGradlePluginTest {
                 "Expected GenericUI sourceSet '$expected' to be created in kotlin.sourceSets (found: $sourceSetNames)"
             )
         }
+
+        // Verify the exact hierarchical dependsOn graph:
+        // common -> web
+        // common -> systemCommon -> desktopCommon -> swing
+        //                        -> desktopCommon -> desktopNativeCommon -> (windows, mac, linuxCommon -> (gtk, qt))
+        //                        -> mobileCommon -> (android, ios)
+        val ss = kotlin.sourceSets
+        assertTrue(ss.getByName("common") in ss.getByName("web").dependsOn)
+        assertTrue(ss.getByName("common") in ss.getByName("systemCommon").dependsOn)
+        assertTrue(ss.getByName("systemMain") in ss.getByName("desktopCommon").dependsOn)
+        assertTrue(ss.getByName("systemMain") in ss.getByName("mobileCommon").dependsOn)
+        assertTrue(ss.getByName("desktopMain") in ss.getByName("swing").dependsOn)
+        assertTrue(ss.getByName("desktopMain") in ss.getByName("desktopNativeCommon").dependsOn)
+        assertTrue(ss.getByName("nativeDesktopMain") in ss.getByName("linuxCommon").dependsOn)
+        assertTrue(ss.getByName("linuxCommon") in ss.getByName("linuxMain").dependsOn)
+        assertTrue(ss.getByName("nativeDesktopTest") in ss.getByName("linuxTest").dependsOn)
+        assertTrue(ss.getByName("linuxMain") in ss.getByName("gtk").dependsOn)
+        assertTrue(ss.getByName("linuxMain") in ss.getByName("qt").dependsOn)
+        assertTrue(ss.getByName("linuxTest") in ss.getByName("gtkTest").dependsOn)
+        assertTrue(ss.getByName("linuxTest") in ss.getByName("qtTest").dependsOn)
+        assertTrue(ss.getByName("nativeDesktopMain") in ss.getByName("windows").dependsOn)
+        assertTrue(ss.getByName("nativeDesktopMain") in ss.getByName("mac").dependsOn)
+        assertTrue(ss.getByName("mobileMain") in ss.getByName("android").dependsOn)
+        assertTrue(ss.getByName("mobileMain") in ss.getByName("ios").dependsOn)
 
         val expectedBuildTargetTasks = listOf(
             "windowsDevelopment",
@@ -329,7 +384,8 @@ class GenericUiGradlePluginTest {
             "iosDevelopment",
             "iosProduction",
             "webDevelopment",
-            "webProduction"
+            "webProduction",
+            "packageGenericUiWebDistribution"
         )
         for (taskName in expectedBuildTargetTasks) {
             assertNotNull(
@@ -337,5 +393,52 @@ class GenericUiGradlePluginTest {
                 "Expected GenericUI build target task '$taskName' to be registered"
             )
         }
+    }
+
+    @Test
+    fun `packageGenericUiWebDistribution generates index html with svg favicon splash icon and hashed wasm js loader scripts`() {
+        val project = ProjectBuilder.builder().build()
+        project.pluginManager.apply("com.nexustools.genericui")
+        val ext = project.extensions.getByType(GenericUiExtension::class.java)
+
+        ext.application {
+            appName = "Test Web Studio"
+            baseName = "test-web-studio"
+            icons(
+                windows = "win-icon.ico",
+                linux = "linux-icon.png",
+                web = "web-icon.svg",
+                common = "common-icon.png"
+            )
+        }
+        ext.backends {
+            web()
+        }
+
+        kotlin.test.assertEquals("web-icon.svg", ext.application.resolveEffectiveWebIconPath())
+        java.io.File(project.projectDir, "web-icon.svg").writeText("<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 256 256\"></svg>")
+
+        val webDistTask = project.tasks.getByName("packageGenericUiWebDistribution") as GenericUiWebDistributionTask
+        webDistTask.packageWebDistribution()
+
+        val distDir = webDistTask.outputDirectory.get().asFile
+        val indexHtmlFile = java.io.File(distDir, "index.html")
+        val loaderJsFile = java.io.File(distDir, "genericui-loader.js")
+        val stagedIconFile = java.io.File(distDir, "web-icon.svg")
+
+        assertTrue(indexHtmlFile.exists(), "index.html should be generated in build/dist/web")
+        assertTrue(loaderJsFile.exists(), "genericui-loader.js should be generated in build/dist/web")
+        assertTrue(stagedIconFile.exists(), "web-icon.svg should be staged in build/dist/web")
+
+        val html = indexHtmlFile.readText()
+        assertTrue(html.contains("<link id=\"genericui-favicon\" rel=\"icon\" type=\"image/svg+xml\" href=\"web-icon.svg\">"))
+        assertTrue(html.contains("<img id=\"genericui-splash-icon\" src=\"web-icon.svg\""))
+        assertTrue(html.contains("width=\"256\" height=\"256\""))
+        assertTrue(html.contains("id=\"genericui-splash-progress-bar\""))
+        assertTrue(html.contains("id=\"genericui-splash-error-stack\""))
+        assertTrue(html.contains("<script type=\"loader-wasm\" src=\"wasm/test-web-studio-wasm-js.js?"))
+        assertTrue(html.contains("<script type=\"loader-js\" src=\"js/test-web-studio.js?"))
+        assertTrue(html.contains("<script id=\"genericui-loader-script\" src=\"genericui-loader.js?"))
+        assertTrue(html.contains("src=\"https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js\""))
     }
 }

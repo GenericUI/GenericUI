@@ -43,10 +43,25 @@ genericui {
         }
         android(true)
         ios(true)
-        web(true)
+        web(true) // Compiles both Kotlin/Wasm (wasmJs, default) and Kotlin/JS IR (js, automatic fallback)
     }
 
-    // 2. Native GPU Drivers, Translation Layers, Shader Compilers, & :desktop VLC HDR
+    // 2. Application Identity, Platform Icons, & Web Icon (.svg Preferred for Web)
+    application {
+        appName = "My GenericUI App"
+        // The Web splash screen (#genericui-splash) and index.html favicon use the project icons,
+        // with `webIcon` overriding the Web icon (.svg vector icons are preferred for the Web icon):
+        webIcon("icon.svg")
+        icons(
+            windows = "icon.ico",
+            mac = "icon.icns",
+            linux = "icon.png",
+            web = "icon.svg", // Preferred: .svg (image/svg+xml) for crisp favicon & splash rendering
+            common = "icon.png"
+        )
+    }
+
+    // 3. Native GPU Drivers, Translation Layers, Shader Compilers, & :extensions:media VLC HDR
     graphics {
         bundleAngleOnWindows = true               // Stage Google ANGLE (libEGL.dll, libGLESv2.dll, d3dcompiler_47.dll)
         angleBackendRenderer = "d3d11"            // "d3d11", "d3d12", or "vulkan"
@@ -54,7 +69,7 @@ genericui {
         bundleShaderc = true                      // Include Shaderc for runtime GLSL -> SPIR-V compilation
         enableVulkanValidationLayersInDebug = true
         preferOpenGLES31 = true
-        bundleVlcOnDesktop = true                 // Enable shared :desktop VLC engine on :windows, :macos, :gtk, :qt
+        bundleVlcOnDesktop = true                 // Enable :extensions:media:desktop VLC engine on :windows, :macos, :gtk, :qt
         vlcPrimaryShaderBackend = "vulkan"        // Primary VLC YUV & HDR tone-mapping pipeline (#version 450 SPIR-V)
         vlcFallbackShaderBackend = "opengles"     // Automatic fallback pipeline (#version 300 es, via ANGLE on Windows)
         enableVlcHdrToneMapping = true            // Enable ST 2084 PQ / HLG / Dolby Vision tone-mapping
@@ -76,7 +91,7 @@ genericui {
         box3d()            // Single KMP Project:  :extensions:box3d (transitively enables canvas3d + threeJs -> gpu)
     }
 
-    // 4. SASS / CSS Compilation Pipeline
+    // 5. SASS / CSS Compilation Pipeline
     styles {
         compileSass = true
         sourceDir = "src/commonMain/resources/styles"
@@ -84,12 +99,60 @@ genericui {
         minify = false
         includeBootstrapVariables = true
     }
+
+    // 6. Hierarchical Multiplatform SourceSet Configuration
+    sourceSets {
+        common {
+            implementation("org.jetbrains.kotlinx:kotlinx-datetime:0.6.1")
+        }
+        systemCommon {
+            // Shared across all OS/system targets (Desktop + Mobile, excluding Web)
+        }
+        desktopCommon {
+            // Shared across all Desktop targets (Swing + Native Desktop)
+        }
+        desktopNativeCommon {
+            // Shared across all Native Desktop targets (Windows, macOS, Linux/GTK/Qt)
+        }
+        linuxCommon {
+            // Shared across Linux GTK and Qt targets (linuxCommon / linuxMain / linuxTest)
+        }
+        mobileCommon {
+            // Shared across Mobile targets (Android, iOS)
+        }
+        web {
+            // Shared across Web targets (Kotlin/Wasm + Kotlin/JS IR)
+        }
+    }
 }
 ```
 
 ---
 
-## 3. Optional LWJGL OpenGL ES & Vulkan Wiring on `:swing`
+## 3. Hierarchical SourceSet Tree
+
+`GenericUiMultiplatformConfigurator` automatically constructs and wires the following sourceSet hierarchy so shared code can be placed at the exact level of granularity needed:
+
+```text
+- common (common / commonMain / commonTest)
+  - web (web / webMain / webTest -> wasmJsMain, jsMain / wasmJsTest, jsTest)
+  - systemCommon (systemCommon / systemMain / systemTest)
+    - desktopCommon (desktopCommon / desktopMain / desktopTest)
+      - swing (swing / swingMain / swingTest -> jvmMain / jvmTest)
+      - desktopNativeCommon (desktopNativeCommon / desktopNativeMain / desktopNativeTest, alias: nativeDesktopCommon)
+        - windows (windows / windowsMain / windowsTest -> mingwX64Main / mingwX64Test)
+        - mac (mac / macMain / macosMain / macTest / macosTest -> macosArm64Main, macosX64Main)
+        - linuxCommon (linuxCommon / linuxMain / linuxTest -> linuxX64Main, linuxArm64Main)
+          - gtk (gtk / gtkMain / gtkTest)
+          - qt (qt / qtMain / qtTest)
+    - mobileCommon (mobileCommon / mobileMain / mobileTest)
+      - android (android / androidMain / androidTest)
+      - ios (ios / iosMain / iosTest -> iosArm64Main, iosSimulatorArm64Main)
+```
+
+---
+
+## 4. Optional LWJGL OpenGL ES & Vulkan Wiring on `:swing`
 
 By design, `:swing` has **zero mandatory native dependencies** when only 2D widgets and `Canvas2D` (`Java2D` / `Graphics2D`) are used. When hardware-accelerated `GLCanvas` or `VKCanvas` is desired on Java/Swing, enabling `useLwjglGL` or `useVulkan` inside `backends { swing { ... } }` instructs `GenericUiGradlePlugin` to wire the exact LWJGL 3 artifacts and native classifiers:
 
@@ -115,6 +178,7 @@ By design, `:swing` has **zero mandatory native dependencies** when only 2D widg
 | `bundleGenericUiAngle` | `AngleNativeBundleTask` | `build/generated/genericui/angle` | Generates `angle-runtime-manifest.json` and per-architecture descriptors for `libEGL.dll`, `libGLESv2.dll`, and `d3dcompiler_47.dll` (`EGL_PLATFORM_ANGLE_TYPE_D3D11_ANGLE`). |
 | `bundleGenericUiVulkan` | `VulkanNativeBundleTask` | `build/generated/genericui/vulkan` | Generates `vulkan-runtime-manifest.json` and `MoltenVK_icd.json` for Vulkan 1.2+ swapchains, MoltenVK Metal translation, and `shaderc`. |
 | `compileGenericUiSass` | `GenericUiSassCompileTask` | `build/generated/genericui/styles` | Compiles `.scss` and `.sass` files into `.css` bundles, substitutes `$variables`, injects `:root` Bootstrap 5 CSS custom properties, optionally minifies CSS, and outputs `styles-manifest.json`. |
+| `packageGenericUiWebDistribution` | `GenericUiWebDistributionTask` | `build/dist/web` | Packages the Wasm-primary (`wasmJs`) and JS-IR-fallback (`js`) Web distribution alongside `genericui-loader.js`, the resolved Web icon (`.svg` preferred for favicon and splash icon), and `index.html` with SHA-1 hashes appended to `<script type="loader-wasm">`, `<script type="loader-js">`, and `#genericui-loader-script`. |
 
 ---
 

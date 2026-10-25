@@ -2,6 +2,8 @@
 
 `GenericUI` is a Kotlin Multiplatform (KMP) UI, windowing, docking, media, and hardware-accelerated GPU canvas framework engineered for native OS responsiveness and zero runtime bloat.
 
+- **Navigation**: [GenericUI README](../README.md) | [Master Documentation Index](README.md) | [Hierarchical SourceSet Setup](sourcesets.md) | [Platform Backends](backends.md) | [First-Party Extensions](extensions.md) | [Gradle Plugin](gradle-plugin.md) | [Testing (`JestElectricRunner`)](testing.md)
+
 ---
 
 ## 1. Why GenericUI? (Replacing NW.js / Electron with Native-First KMP)

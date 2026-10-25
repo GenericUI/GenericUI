@@ -1,6 +1,8 @@
-# GenericUI Components, Fragments, & Docking Guide
+# GenericUI Components, Fragments, Docking, & Styling Guide
 
-This guide covers GenericUI's native widget catalog, `Application` vs. `FragmentApplication`, the 1:1 Android `Activity`-compatible `Fragment` lifecycle, `Fragment.setNavBar(TitleBar)`, and the built-in helper fragments (`AdaptiveSplitTabFragment` and `DockWorkspaceFragment`).
+This guide covers GenericUI's native widget catalog, `Application` vs. `FragmentApplication`, the 1:1 Android `Activity`-compatible `Fragment` lifecycle, `Fragment.setNavBar(TitleBar)`, the built-in helper fragments (`AdaptiveSplitTabFragment`, `DockWorkspaceFragment`, `OverlayDockWorkspaceFragment`), and Dual-Mode Styling (including `LinearGradient` and `RadialGradient` background gradients).
+
+- **Navigation**: [GenericUI README](../README.md) | [Master Documentation Index](README.md) | [Hierarchical SourceSet Setup](sourcesets.md) | [Platform Backends](backends.md) | [First-Party Extensions](extensions.md) | [Declarative DSL Guide](../extensions/docs/dsl.md)
 
 ---
 

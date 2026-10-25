@@ -24,7 +24,9 @@ open class MasterDetailStepSelect : VStack() {
     )
 
     val filterHeaderContainer: Container = Container("div", "vhselect-header")
-    val mainSplitRow: HStack = HStack()
+    val mainSplitRow: HStack = HStack().apply {
+        addClass("vhlisting")
+    }
     val scrollView: StepScrollView = StepScrollView()
     val detailContainer: Container = Container("div", "itemdescriptions ms-1").apply {
         displayMode = DisplayMode.NONE

@@ -52,8 +52,18 @@ open class GenericUiDesktopConfig {
             macIcon = value
         }
 
-    /** Linux `.png` or `.svg` icon path relative to project root (e.g. `"icon.png"`). */
+    /** Linux `.png` or `.svg` icon path relative to project root (e.g. `"icon.png"` or `"icon.svg"`). */
     var linuxIcon: String = ""
+
+    /**
+     * Web icon path relative to project root used for both the `#genericui-splash` splash screen
+     * and the `<link rel="icon">` favicon of the generated `index.html`.
+     *
+     * Note: `.svg` vector icons (`image/svg+xml`, e.g. `"icon.svg"`) are preferred for the Web icon
+     * for crisp resolution-independent scaling across both the favicon and the splash screen.
+     * Falls back to [icon], [linuxIcon], [macIcon], or [windowsIcon] when not explicitly set.
+     */
+    var webIcon: String = ""
 
     /** Default initial window title (defaults to [appName] when blank). */
     var windowTitle: String = ""
@@ -154,16 +164,37 @@ open class GenericUiDesktopConfig {
         this.linuxIcon = path
     }
 
+    /**
+     * Sets the Web icon path overriding the default project icon for the Web splash screen and
+     * `index.html` favicon. `.svg` icons (e.g. `"icon.svg"`) are preferred for the Web target.
+     */
+    fun webIcon(path: String) {
+        this.webIcon = path
+    }
+
+    /**
+     * Resolves the effective icon path for the Web splash screen and `index.html` favicon,
+     * preferring [webIcon] first and falling back to the project's configured icons
+     * ([icon], [linuxIcon], [macIcon], [windowsIcon]).
+     */
+    fun resolveEffectiveWebIconPath(): String =
+        listOf(webIcon, icon, linuxIcon, macIcon, windowsIcon)
+            .firstOrNull { it.isNotBlank() }
+            ?.trim()
+            .orEmpty()
+
     /** Configures platform icons in a single call. */
     fun icons(
         windows: String = this.windowsIcon,
         mac: String = this.macIcon,
         linux: String = this.linuxIcon,
+        web: String = this.webIcon,
         common: String = this.icon
     ) {
         if (windows.isNotBlank()) this.windowsIcon = windows
         if (mac.isNotBlank()) this.macIcon = mac
         if (linux.isNotBlank()) this.linuxIcon = linux
+        if (web.isNotBlank()) this.webIcon = web
         if (common.isNotBlank()) this.icon = common
     }
 

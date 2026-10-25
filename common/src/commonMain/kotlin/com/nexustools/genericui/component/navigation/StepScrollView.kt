@@ -26,7 +26,7 @@ open class StepScrollView(
         textAlignment = TextAlignment.CENTER
     }
 
-    val viewport: Container = Container("div", "viewport").apply {
+    val viewport: Container = Container("div", "viewport w-100").apply {
         overflowBehavior = OverflowBehavior.HIDDEN
         positionMode = PositionMode.RELATIVE
         transition = "height .5s ease"
@@ -60,7 +60,7 @@ open class StepScrollView(
     var onScrollOffsetChanged: ((topOffsetPx: Int) -> Unit)? = null
 
     init {
-        addClass("scrollview")
+        addClass("scrollview selectitemlisting")
         viewport.addChild(contentTable)
         addChild(upButton)
         addChild(viewport)

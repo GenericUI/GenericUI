@@ -56,7 +56,7 @@ Every `.kt` file across all modules strictly adheres to the **1 Public Class / I
 | **`:mobile:shared`** | Shared Mobile KMP (`mobile/shared`) | Automatically included by `:mobile:android` and `:mobile:ios`. Houses shared mobile posture/safe-area coordination (`MobileAdaptiveFragmentCoordinator`), multi-touch gesture & fling physics (`MobileGestureRecognizer`, `MobileFlingPhysics`), PiP (`MobilePipController`), media sessions (`MobileMediaSessionBridge`), and `MobileLazyViewportPool`. |
 | **`:mobile:android`** | Android SDK (API 24+) + `:mobile:shared` (`mobile/android`) | Android Views, Material `Toolbar`, `RecyclerView`-backed lazy views, and `GenericUiFragmentActivity` SAF file/folder picker (`ACTION_OPEN_DOCUMENT`, `ACTION_CREATE_DOCUMENT`, `ACTION_OPEN_DOCUMENT_TREE`). |
 | **`:mobile:ios`** | Apple iOS UIKit + `:mobile:shared` (`mobile/ios`) | Native UIKit (`UIWindow`, `UINavigationBar`, `UIView`, `UICollectionView`/`UITableView` cell reuse, `UIDocumentPickerViewController`). |
-| **`:web`** | Kotlin/JS & Wasm Browser (`web`) | Semantic HTML5 DOM widgets, virtualized DOM lazy views, and invisible `<input type="file">` (`webkitdirectory`, `accept`) file/folder dialog. |
+| **`:web`** | Kotlin/Wasm (`wasmJs`, default) & Kotlin/JS IR (`js`, automatic fallback) (`web`) | Compiles both Wasm and JS IR with `genericui-loader.js` (attempting Wasm first and falling back to JS IR if unsupported), Bootstrap splash screen (`#genericui-splash`) with project/web icon (`.svg` preferred), download progress bar, fade-out, error stacktrace display, SHA-1 cache-busting hashes, semantic HTML5 DOM widgets, virtualized DOM lazy views, and invisible `<input type="file">` (`webkitdirectory`, `accept`) file/folder dialog. |
 | **`:gradle-plugin`** | Gradle Kotlin DSL Plugin (`gradle-plugin`) | Plugin `id("com.nexustools.genericui")` providing the `genericui { ... }` DSL for backend selection, Project-of-Projects vs. Single-Project extension wiring, optional LWJGL OpenGL ES / Vulkan injection, Google ANGLE & MoltenVK staging, and SASS compilation. |
 
 ### B. First-Party Extension Modules (`:extensions:*`)
@@ -101,7 +101,20 @@ genericui {
         }
         android()
         ios()
-        web()
+        web() // Compiles both wasmJs (default) and js(IR) (fallback) with genericui-loader.js
+    }
+
+    application {
+        appName = "My GenericUI App"
+        // SVG icons (.svg) are preferred for the Web icon (used for both the splash screen and index.html favicon):
+        webIcon("icon.svg")
+        icons(
+            windows = "icon.ico",
+            mac = "icon.icns",
+            linux = "icon.png",
+            web = "icon.svg",
+            common = "icon.png"
+        )
     }
 
     graphics {
@@ -288,11 +301,80 @@ val player = VideoPlayer().apply {
 
 ---
 
-## Documentation Suite
+## Categorized Documentation & Submodule Directory
 
-- [**AGENTS.md**](./AGENTS.md) — Authoritative architectural rules & coding standards for AI agents and human engineers.
-- [**docs/architecture.md**](./docs/architecture.md) — Deep dive into the core & extension module hierarchy, Project-of-Projects vs. Single-Project extensions, base Image API, Deferred Upward `NativeImpl` Resolution, `TitleBar` instructions, and Dual-Mode Styling.
-- [**docs/gradle-plugin.md**](./docs/gradle-plugin.md) — Complete reference for `id("com.nexustools.genericui")`, transitive extension resolution, LWJGL OpenGL ES / Vulkan dependency wiring, Google ANGLE, MoltenVK, and SASS compilation.
-- [**docs/components-and-docking.md**](./docs/components-and-docking.md) — Comprehensive guide to widgets, `Fragment`s, `Fragment.setNavBar`, `AdaptiveSplitTabFragment`, `DockWorkspaceFragment`, `FileBrowserDialog`, and True Lazy Views.
-- [**docs/media-and-canvases.md**](./docs/media-and-canvases.md) — Complete reference for Base `:common` Image API, `:extensions:gpu`, `:extensions:imageprocessing`, `:extensions:canvas2d`, `:extensions:canvas3d`, `:extensions:media` (including `:extensions:media:desktop` VLC HDR & HW/SW decode), and `:extensions:webview` (Chromium + `NJS` Native JIT Engine on Desktop).
-- [**docs/extensions.md**](./docs/extensions.md) — Guide to all 11 first-party extensions (`:extensions:gpu`, `:extensions:imageprocessing`, `:extensions:canvas2d`, `:extensions:canvas3d`, `:extensions:media`, `:extensions:webview`, `:extensions:codeeditor`, `:extensions:aichat`, `:extensions:threejs`, `:extensions:box2d`, `:extensions:box3d`).
+All documentation across `GenericUI` and its submodules is organized by category and cross-referenced. Start with the [**Master Documentation Index (`docs/README.md`)**](./docs/README.md) or browse by category below:
+
+### Category 1 — Core Architecture, Hierarchical SourceSets, & UI Components
+- [**Master Documentation Index (`docs/README.md`)**](./docs/README.md) — Central navigation hub for all guides across the framework and its submodules.
+- [**Core Architecture (`docs/architecture.md`)**](./docs/architecture.md) — Deferred Upward `NativeImpl` Resolution, Native-First widgets, `TitleBar` instruction descriptors, 1-Class-Per-File standard, and symmetrical 17-subpackage structure.
+- [**Hierarchical SourceSet Setup (`docs/sourcesets.md`)**](./docs/sourcesets.md) — Full guide to the multi-tier KMP sourceSet tree:
+  - `common` (`common` / `commonMain` / `commonTest`)
+    - `web` (`web` / `webMain` / `webTest` $\to$ `wasmJsMain`, `jsMain`)
+    - `systemCommon` (`systemCommon` / `systemMain` / `systemTest`)
+      - `desktopCommon` (`desktopCommon` / `desktopMain` / `desktopTest`)
+        - `swing` (`swing` / `swingMain` / `swingTest` $\to$ `jvmMain`)
+        - `desktopNativeCommon` (`desktopNativeCommon` / `desktopNativeMain` / `desktopNativeTest`, alias `nativeDesktopCommon`)
+          - `windows` (`windows` / `windowsMain` / `windowsTest`)
+          - `mac` (`mac` / `macMain` / `macosMain` / `macTest` / `macosTest`)
+          - `linuxCommon` (`linuxCommon` / `linuxMain` / `linuxTest`) $\to$ `gtk` (`gtk` / `gtkMain` / `gtkTest`) & `qt` (`qt` / `qtMain` / `qtTest`)
+      - `mobileCommon` (`mobileCommon` / `mobileMain` / `mobileTest`) $\to$ `android` (`android` / `androidMain` / `androidTest`) & `ios` (`ios` / `iosMain` / `iosTest`)
+- [**Components, Fragments, Docking, & Styling (`docs/components-and-docking.md`)**](./docs/components-and-docking.md) — Widgets, `FragmentApplication`, 1:1 Android `Activity`-compatible `Fragment`s, `DockWorkspaceFragment`, `OverlayDockWorkspaceFragment`, `AdaptiveSplitTabFragment`, Dual-Mode Bootstrap Enums + SASS/CSS, and `LinearGradient` / `RadialGradient` background styling.
+- [**Media & Hardware Canvases (`docs/media-and-canvases.md`)**](./docs/media-and-canvases.md) — Base `:common` Image API, `AbstractCanvas` (`registerVBlankRender` with `deltaMs`), Google ANGLE on Windows, MoltenVK on Apple, and `:extensions:media` VLC HDR playback.
+- [**Agent & Developer Guidelines (`AGENTS.md`)**](./AGENTS.md) — Authoritative engineering rules and invariants.
+
+### Category 2 — Build System, Gradle Plugin, & IDE Tooling
+- [**Gradle Plugin Guide (`docs/gradle-plugin.md`)**](./docs/gradle-plugin.md) — Full `genericui { ... }` DSL reference (`backends`, `application` & `.svg` `webIcon`, `graphics`, `extensions`, `styles`, `resources`, `sourceSets`, `packageGenericUiWebDistribution`, and lifecycle `*Development` / `*Production` tasks).
+- [**IntelliJ IDEA Plugin Guide (`docs/idea-plugin.md`)**](./docs/idea-plugin.md) — New Project Wizard and live `Manage GenericUI Targets & Extensions` checkbox dialog (`:idea-plugin`).
+
+### Category 3 — Platform Backends (8 Backends Across 3 Submodules)
+- [**Platform Backends Overview (`docs/backends.md`)**](./docs/backends.md) — Feature comparison and build task reference across all 8 backends.
+- [**Desktop Submodule (`desktop/README.md`)**](./desktop/README.md) *(Contains zero VLC/media code; all VLC/media code is strictly in `:extensions:media`)*:
+  - [`:desktop:shared` — Shared Native Desktop Core (`desktop/docs/shared.md`)](./desktop/docs/shared.md)
+  - [`:desktop:windows` — Windows Win32 / Direct2D / Google ANGLE / Vulkan (`desktop/docs/windows.md`)](./desktop/docs/windows.md)
+  - [`:desktop:macos` — macOS AppKit / CoreGraphics / MoltenVK (`desktop/docs/macos.md`)](./desktop/docs/macos.md)
+  - [`:desktop:gtk` — Linux GTK4 / Cairo / EGL / Vulkan (`desktop/docs/gtk.md`)](./desktop/docs/gtk.md)
+  - [`:desktop:qt` — Linux Qt6 / QPainter / QVulkanWindow (`desktop/docs/qt.md`)](./desktop/docs/qt.md)
+  - [`:desktop:swing` — JVM Swing / Java2D / Optional LWJGL OpenGL ES & Vulkan (`desktop/docs/swing.md`)](./desktop/docs/swing.md)
+- [**Mobile Submodule (`mobile/README.md`)**](./mobile/README.md):
+  - [`:mobile:shared` — Shared Mobile Layout, Gestures, PiP, & Lazy Pool (`mobile/docs/shared.md`)](./mobile/docs/shared.md)
+  - [`:mobile:android` — Android Material 3 / RecyclerView / SAF / Vulkan (`mobile/docs/android.md`)](./mobile/docs/android.md)
+  - [`:mobile:ios` — iOS UIKit / CADisplayLink / UIDocumentPicker / MoltenVK (`mobile/docs/ios.md`)](./mobile/docs/ios.md)
+- [**Web Submodule (`web/README.md`)**](./web/README.md):
+  - [`:web` — HTML5 DOM / Canvas2D / WebGL2 / WebGPU Backend (`web/docs/web-backend.md`)](./web/docs/web-backend.md)
+  - [`:web` — Wasm-Default + JS IR Fallback Loader, Bootstrap Splash Screen, SHA-1 Hashing, & `.svg` Web Icon (`web/docs/wasm-js-loader-and-splash.md`)](./web/docs/wasm-js-loader-and-splash.md)
+
+### Category 4 — First-Party Extensions (12 Extensions + 9 `:dsl` Submodules)
+- [**Extensions Overview (`docs/extensions.md`)**](./docs/extensions.md) | [**Extensions Submodule Index (`extensions/README.md`)**](./extensions/README.md)
+- **GPU Compute, Image Processing, & Canvases**:
+  - [`:extensions:gpu` — Cross-Platform Vulkan & OpenGL ES GPU Compute (`extensions/docs/gpu.md`)](./extensions/docs/gpu.md)
+  - [`:extensions:imageprocessing` — Offscreen GPU Filters & Layer Compositor (`extensions/docs/imageprocessing.md`)](./extensions/docs/imageprocessing.md)
+  - [`:extensions:canvas2d` & `:extensions:canvas2d:dsl` — Extended 2D Canvas & Curve Editor (`extensions/docs/canvas2d.md`)](./extensions/docs/canvas2d.md)
+  - [`:extensions:canvas3d` & `:extensions:canvas3d:dsl` — Extended OpenGL ES & Vulkan Canvases (`extensions/docs/canvas3d.md`)](./extensions/docs/canvas3d.md)
+- **Multimedia & Embedded Web Engines**:
+  - [`:extensions:media` & `:extensions:media:dsl` — VideoPlayer, AudioPlayer, AudioAnalyzer, & Desktop VLC HDR Engine (`extensions/docs/media.md`)](./extensions/docs/media.md)
+  - [`:extensions:webview` & `:extensions:webview:dsl` — Embedded WebView & `:NJS` Bridge (`extensions/docs/webview.md`)](./extensions/docs/webview.md)
+  - [**`:NJS` — Nexus JavaScript & TypeScript Engine (`lib/NJS/README.md`)**](./lib/NJS/README.md) | [**NJS Master Docs Index (`lib/NJS/docs/README.md`)**](./lib/NJS/docs/README.md):
+    - [NJS Core Architecture (`lib/NJS/docs/architecture.md`)](./lib/NJS/docs/architecture.md)
+    - [`:NJS:common` — Lexer, Parser, ES2024+/TS AST, & Bytecode IR (`lib/NJS/docs/common.md`)](./lib/NJS/docs/common.md)
+    - [`:NJS:native` — AsmJit / SLJIT Native JIT Engine (`lib/NJS/docs/native-jit.md`)](./lib/NJS/docs/native-jit.md)
+    - [`:NJS:jvm` — Java/JVM Bytecode Compiler System (`lib/NJS/docs/jvm-compiler.md`)](./lib/NJS/docs/jvm-compiler.md)
+    - [`:NJS:runtime` — Execution Contexts, Event Loop, & Promises (`lib/NJS/docs/runtime.md`)](./lib/NJS/docs/runtime.md)
+    - [`:NJS:compiler` — Optimizer, TypeScript Stripper, & Bundler (`lib/NJS/docs/compiler.md`)](./lib/NJS/docs/compiler.md)
+    - [`:NJS:nodejs` — Node.js Standard Library Compatibility (`lib/NJS/docs/nodejs-compat.md`)](./lib/NJS/docs/nodejs-compat.md)
+    - [`:NJS:app` — CLI REPL & GenericUI `:extensions:webview` Embedding (`lib/NJS/docs/cli-and-embedding.md`)](./lib/NJS/docs/cli-and-embedding.md)
+    - [`:NJS:gradle-plugin` — NJS Gradle Plugin (`lib/NJS/docs/gradle-plugin.md`)](./lib/NJS/docs/gradle-plugin.md)
+- **Code Editing & Multi-Provider AI Agents**:
+  - [`:extensions:codeeditor` & `:extensions:codeeditor:dsl` — Syntax-Highlighted IDE Code Editor (`extensions/docs/codeeditor.md`)](./extensions/docs/codeeditor.md)
+  - [`:extensions:aichat` & `:extensions:aichat:dsl` — Multi-Provider AI Chat & Tool-Call Loop (`extensions/docs/aichat.md`)](./extensions/docs/aichat.md)
+- **3D Scene Graph & 2D/3D Rigid-Body Physics**:
+  - [`:extensions:threejs` & `:extensions:threejs:dsl` — Kotlin Multiplatform Three.js 3D Engine (`extensions/docs/threejs.md`)](./extensions/docs/threejs.md)
+  - [`:extensions:box2d` & `:extensions:box2d:dsl` — 2D Rigid-Body Physics Engine (`extensions/docs/box2d.md`)](./extensions/docs/box2d.md)
+  - [`:extensions:box3d` & `:extensions:box3d:dsl` — 3D Rigid-Body Physics Engine (`extensions/docs/box3d.md`)](./extensions/docs/box3d.md)
+- **Declarative Kotlin UI & Style DSL**:
+  - [`:extensions:dsl` & Extension `:dsl` Submodules (`extensions/docs/dsl.md`)](./extensions/docs/dsl.md)
+
+### Category 5 — Automated Cross-Platform UI Testing (`JestElectricRunner`)
+- [**Testing Overview (`docs/testing.md`)**](./docs/testing.md) | [**Tests Submodule Index (`tests/README.md`)**](./tests/README.md)
+- [`JestElectricRunner` BDD & Robolectric API Guide (`tests/docs/jest-electric-runner.md`)](./tests/docs/jest-electric-runner.md)
+- [Platform Test Runners & Live Visual Windows Testing (`tests/docs/platform-test-runners.md`)](./tests/docs/platform-test-runners.md)

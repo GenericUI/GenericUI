@@ -144,6 +144,31 @@ class GenericUiGradlePlugin : Plugin<Project> {
             outputDirectory.set(project.layout.buildDirectory.dir("generated/genericui/desktop-resources"))
         }
 
+        val webDistTask = project.tasks.register(
+            "packageGenericUiWebDistribution",
+            GenericUiWebDistributionTask::class.java
+        ) {
+            group = TASK_GROUP
+            description = "Packages the unified GenericUI Web distribution with Wasm primary + JS IR fallback, splash screen icon, favicon, genericui-loader.js, and SHA-1 cache-busting hashes."
+            projectRootPath.set(project.projectDir.absolutePath)
+            projectBuildPath.set(project.layout.buildDirectory.asFile.map { it.absolutePath })
+            baseName.set(project.provider {
+                extension.application.baseName.trim().ifEmpty { project.name }
+            })
+            appName.set(project.provider {
+                extension.application.desktop.appName.trim().ifEmpty {
+                    extension.application.baseName.trim().ifEmpty { project.name }
+                }
+            })
+            webIconPath.set(project.provider { extension.application.desktop.webIcon })
+            fallbackIconPath.set(project.provider { extension.application.desktop.icon })
+            linuxIconPath.set(project.provider { extension.application.desktop.linuxIcon })
+            macIconPath.set(project.provider { extension.application.desktop.macIcon })
+            windowsIconPath.set(project.provider { extension.application.desktop.windowsIcon })
+            webCssBundleFileName.set(project.provider { extension.styles.webCssBundleFileName })
+            outputDirectory.set(project.layout.buildDirectory.dir("dist/web"))
+        }
+
         val projectPath = project.path
         project.tasks.register("windowsVisualTest", GenericUiVisualTestTask::class.java) {
             group = "verification"
@@ -168,7 +193,7 @@ class GenericUiGradlePlugin : Plugin<Project> {
                 println("Backends:   ${extension.backends.enabledBackendModulePaths()}")
                 println("Extensions: ${extension.extensions.enabledExtensionModulePaths()}")
                 println("Sass Dir:   ${extension.styles.sourceDir} (compile=${extension.styles.compileSass}, webCss=${extension.styles.generateWebCss})")
-                println("Icons:      win=${extension.application.desktop.windowsIcon}, mac=${extension.application.desktop.macIcon}, linux=${extension.application.desktop.linuxIcon}")
+                println("Icons:      win=${extension.application.desktop.windowsIcon}, mac=${extension.application.desktop.macIcon}, linux=${extension.application.desktop.linuxIcon}, web=${extension.application.desktop.webIcon}")
             }
         }
 
@@ -190,6 +215,17 @@ class GenericUiGradlePlugin : Plugin<Project> {
             wireDesktopResourceTasks(project, desktopResourcesTask.name)
             wireCompanionDependencyBuildTasks(project, extension, desktopResourcesTask.name)
             wireBuildLifecycleTasks(project, angleTask.name, vulkanTask.name, sassTask.name, resourcesTask.name, desktopResourcesTask.name)
+            webDistTask.configure {
+                mustRunAfter(
+                    project.tasks.matching { t ->
+                        t.name == "compileGenericUiSass" ||
+                            t.name.endsWith("ProcessResources") ||
+                            (t.name.startsWith("compile") && (t.name.contains("KotlinWasmJs") || t.name.contains("KotlinJs"))) ||
+                            t.name.endsWith("CompileSync") ||
+                            (t.name.endsWith("Distribution") && t.name != "packageGenericUiWebDistribution")
+                    }
+                )
+            }
         }
     }
 
@@ -361,8 +397,10 @@ class GenericUiGradlePlugin : Plugin<Project> {
         if (backends.requiresSharedDesktopModule) {
             addTestDepIfConfigExists(
                 ":tests:desktop:shared",
+                "desktopNativeTestImplementation",
+                "desktopNativeCommonTestImplementation",
+                "nativeDesktopTestImplementation",
                 "nativeDesktopCommonTestImplementation",
-                "desktopCommonTestImplementation",
                 "mingwX64TestImplementation",
                 "linuxX64TestImplementation",
                 "linuxArm64TestImplementation",
@@ -401,7 +439,7 @@ class GenericUiGradlePlugin : Plugin<Project> {
             addTestDepIfConfigExists(":tests:mobile:ios", "iosTestImplementation", "iosArm64TestImplementation", "iosSimulatorArm64TestImplementation")
         }
         if (backends.webEnabled) {
-            addTestDepIfConfigExists(":tests:web", "webTestImplementation", "jsTestImplementation")
+            addTestDepIfConfigExists(":tests:web", "webTestImplementation", "jsTestImplementation", "wasmJsTestImplementation")
         }
     }
 
@@ -737,9 +775,12 @@ class GenericUiGradlePlugin : Plugin<Project> {
                 )
             ":desktop:gtk" ->
                 allExisting(
+                    "gtkImplementation",
                     "gtkMainImplementation",
                     "linuxCommonImplementation",
                     "linuxMainImplementation",
+                    "desktopNativeCommonImplementation",
+                    "desktopNativeMainImplementation",
                     "nativeDesktopCommonImplementation",
                     "linuxX64MainImplementation",
                     "linuxArm64MainImplementation",
@@ -748,9 +789,12 @@ class GenericUiGradlePlugin : Plugin<Project> {
                 )
             ":desktop:qt" ->
                 allExisting(
+                    "qtImplementation",
                     "qtMainImplementation",
                     "linuxCommonImplementation",
                     "linuxMainImplementation",
+                    "desktopNativeCommonImplementation",
+                    "desktopNativeMainImplementation",
                     "nativeDesktopCommonImplementation",
                     "linuxX64MainImplementation",
                     "linuxArm64MainImplementation",
@@ -759,10 +803,10 @@ class GenericUiGradlePlugin : Plugin<Project> {
                 )
             ":desktop:shared" ->
                 allExisting(
+                    "desktopNativeCommonImplementation",
+                    "desktopNativeMainImplementation",
                     "nativeDesktopCommonImplementation",
                     "nativeDesktopMainImplementation",
-                    "desktopCommonImplementation",
-                    "desktopMainImplementation",
                     "mingwX64MainImplementation",
                     "linuxX64MainImplementation",
                     "linuxArm64MainImplementation",
@@ -770,11 +814,12 @@ class GenericUiGradlePlugin : Plugin<Project> {
                     "macosArm64MainImplementation"
                 )
             ":desktop:swing" ->
-                allExisting("swingMainImplementation", "jvmMainImplementation")
+                allExisting("swingImplementation", "swingMainImplementation", "jvmMainImplementation")
             ":mobile:android" ->
-                allExisting("androidMainImplementation")
+                allExisting("androidImplementation", "androidMainImplementation")
             ":mobile:ios" ->
                 allExisting(
+                    "iosImplementation",
                     "iosMainImplementation",
                     "iosArm64MainImplementation",
                     "iosSimulatorArm64MainImplementation",
@@ -791,7 +836,7 @@ class GenericUiGradlePlugin : Plugin<Project> {
                     "iosX64MainImplementation"
                 )
             ":web" ->
-                allExisting("webMainImplementation", "jsMainImplementation", "wasmJsMainImplementation")
+                allExisting("webImplementation", "webMainImplementation", "jsMainImplementation", "wasmJsMainImplementation")
             else -> emptyList()
         }
     }

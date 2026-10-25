@@ -1,6 +1,8 @@
 # GenericUI Image API, GPU, Canvases, & Media Extensions Guide
 
-GenericUI cleanly separates its base multi-format **Image API** (`com.nexustools.genericui.image.*`) and **`AbstractCanvas`** VBlank timing base class in `:common` from its hardware-accelerated GPU, 2D/3D canvas, offscreen image processing, and media playback extensions (`:extensions:gpu`, `:extensions:imageprocessing`, `:extensions:canvas2d`, `:extensions:canvas3d`, and `:extensions:media`).
+GenericUI cleanly separates its base multi-format **Image API** (`com.nexustools.genericui.image.*`) and **`AbstractCanvas`** VBlank timing base class in `:common` from its hardware-accelerated GPU, 2D/3D canvas, offscreen image processing, and media playback extensions ([`:extensions:gpu`](../extensions/docs/gpu.md), [`:extensions:imageprocessing`](../extensions/docs/imageprocessing.md), [`:extensions:canvas2d`](../extensions/docs/canvas2d.md), [`:extensions:canvas3d`](../extensions/docs/canvas3d.md), and [`:extensions:media`](../extensions/docs/media.md)).
+
+- **Navigation**: [GenericUI README](../README.md) | [Master Documentation Index](README.md) | [Hierarchical SourceSet Setup](sourcesets.md) | [Platform Backends](backends.md) | [First-Party Extensions](extensions.md) | [Media Extension Guide](../extensions/docs/media.md)
 
 ---
 
@@ -78,6 +80,12 @@ All canvases inherit from `:common`'s `AbstractCanvas` (viewport sizing, DPI sca
 ---
 
 ## 5. `:extensions:webview` — Chromium (`ChromiumBlinkEngine`) + `NJS` Native JIT Engine on Desktop & Native Platform WebView on Mobile/Web
+
+On Desktop targets (`:desktop:windows`, `:desktop:macos`, `:desktop:gtk`, `:desktop:qt`, and `:desktop:swing`), [`:extensions:webview`](../extensions/docs/webview.md) pairs Chromium's Blink HTML/CSS rendering engine with the [**`NJS` (Nexus JavaScript & TypeScript Engine)**](../lib/NJS/README.md):
+- **Native Desktop (`:windows`, `:macos`, `:gtk`, `:qt`)**: Executes JavaScript and TypeScript via [`:NJS:native`'s AsmJit/SLJIT Native JIT Engine (`lib/NJS/docs/native-jit.md`)](../lib/NJS/docs/native-jit.md) and [`:NJS:runtime` (`lib/NJS/docs/runtime.md`)](../lib/NJS/docs/runtime.md).
+- **JVM Swing (`:desktop:swing`)**: Compiles JavaScript and TypeScript directly to JVM bytecode via [`:NJS:jvm` (`lib/NJS/docs/jvm-compiler.md`)](../lib/NJS/docs/jvm-compiler.md).
+- **Mobile & Web (`:mobile:android`, `:mobile:ios`, `:web`)**: Uses the native platform implementation (`android.webkit.WebView`, `WKWebView`, HTML5 `<iframe>`) and never loads `NJS`.
+- **Full NJS Documentation**: See [NJS Master Documentation Index (`lib/NJS/docs/README.md`)](../lib/NJS/docs/README.md) and [CLI & WebView Host Embedding (`lib/NJS/docs/cli-and-embedding.md`)](../lib/NJS/docs/cli-and-embedding.md).
 
 `WebView` is provided as a dedicated **Project-of-Projects** extension (`:extensions:webview:common`, `:desktop`, `:mobile`, `:swing`, `:web`):
 - **Desktop (`:desktop` / `:windows`, `:macos`, `:gtk`, `:qt`, and `:swing`)**: Uses the **Chromium** project (`ChromiumBlinkEngine`) for HTML/CSS layout & rendering coupled with **`NJS`** (`D:\IdeaProjects\NJS`, symlinked at `D:\IdeaProjects\GenericUI\lib\NJS` for live development and to become a git submodule later) for the JavaScript runtime (`mingwX64`, `linuxX64`, `linuxArm64`, `macosArm64`, `macosX64`, and `jvm`) powered by its **AsmJit / SLJIT Native JIT Engine** (`com.nexustools.njs.jit.*`).

@@ -2,6 +2,8 @@
 
 This document defines the **mandatory architectural rules, file layout invariants, and runtime contracts** for AI coding agents and software engineers working in the `GenericUI` (`D:\IdeaProjects\GenericUI`) repository.
 
+- **Related Documentation**: [GenericUI README](README.md) | [Master Documentation Index](docs/README.md) | [Hierarchical SourceSet Setup](docs/sourcesets.md) | [Platform Backends](docs/backends.md) | [First-Party Extensions](docs/extensions.md) | [Gradle Plugin](docs/gradle-plugin.md) | [Testing (`JestElectricRunner`)](docs/testing.md)
+
 ---
 
 ## 1. Strict "1 Class Per `.kt` File" Rule (NON-NEGOTIABLE)

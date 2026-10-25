@@ -105,12 +105,16 @@ object GenericUiMultiplatformConfigurator {
         }
 
         if (backends.webEnabled) {
+            val existingWasmJs = targets.findByName("wasmJs")
+            val wasmJsTarget = existingWasmJs ?: invokeNoArg(kmp, "wasmJs")
+            if (wasmJsTarget != null) {
+                configureJsTarget(wasmJsTarget, app)
+            }
+
             val existingJs = targets.findByName("js")
-            if (existingJs == null) {
-                val jsTarget = invokeNoArg(kmp, "js")
-                if (jsTarget != null) {
-                    configureJsTarget(jsTarget, app)
-                }
+            val jsTarget = existingJs ?: invokeNoArg(kmp, "js")
+            if (jsTarget != null) {
+                configureJsTarget(jsTarget, app)
             }
         }
 
@@ -118,7 +122,16 @@ object GenericUiMultiplatformConfigurator {
             configureAndroidTargetIfPresent(project, kmp, targets, app)
         }
 
-        // 2. Create and connect GenericUI SourceSets hierarchy
+        // 2. Create and connect GenericUI SourceSets hierarchy:
+        // - common (commonMain / common / commonTest)
+        //   - web (web / webMain / webTest)
+        //   - systemCommon (systemCommon / systemMain / systemTest)
+        //     - desktopCommon (desktopCommon / desktopMain / desktopTest)
+        //       - swing (swing / swingMain / swingTest)
+        //       - desktopNativeCommon (desktopNativeCommon / desktopNativeMain / desktopNativeTest)
+        //         - qt, gtk, windows, mac
+        //     - mobileCommon (mobileCommon / mobileMain / mobileTest)
+        //       - android, ios
         val commonMain = ss.maybeCreate("commonMain").also {
             addKotlinSrcDir(it, "src/common/kotlin")
             addResourcesSrcDir(it, "src/common/resources")
@@ -132,6 +145,29 @@ object GenericUiMultiplatformConfigurator {
             addResourcesSrcDir(it, "src/common/resources")
         }
 
+        if (backends.webEnabled) {
+            val web = ss.maybeCreate("web").also {
+                dependsOnIfNotConnected(it, common)
+                addKotlinSrcDir(it, "src/web/kotlin")
+                addResourcesSrcDir(it, "src/web/resources")
+            }
+            val webMain = ss.maybeCreate("webMain").also {
+                dependsOnIfNotConnected(it, web)
+                addKotlinSrcDir(it, "src/webMain/kotlin")
+                addKotlinSrcDir(it, "src/web/kotlin")
+                addResourcesSrcDir(it, "src/webMain/resources")
+                addResourcesSrcDir(it, "src/web/resources")
+            }
+            val webTest = ss.maybeCreate("webTest").also {
+                dependsOnIfNotConnected(it, commonTest)
+                addKotlinSrcDir(it, "src/webTest/kotlin")
+            }
+            ss.findByName("jsMain")?.let { dependsOnIfNotConnected(it, webMain) }
+            ss.findByName("jsTest")?.let { dependsOnIfNotConnected(it, webTest) }
+            ss.findByName("wasmJsMain")?.let { dependsOnIfNotConnected(it, webMain) }
+            ss.findByName("wasmJsTest")?.let { dependsOnIfNotConnected(it, webTest) }
+        }
+
         val anyDesktop = backends.windowsEnabled ||
             backends.macosEnabled ||
             backends.gtkEnabled ||
@@ -143,31 +179,66 @@ object GenericUiMultiplatformConfigurator {
             backends.gtkEnabled ||
             backends.qtEnabled
 
+        val anyMobile = backends.androidEnabled || backends.iosEnabled
+        val anySystem = anyDesktop || anyMobile
+
+        var systemCommon: Any? = null
+        var systemMain: Any? = null
+        var systemTest: Any? = null
+        if (anySystem) {
+            systemCommon = ss.maybeCreate("systemCommon").also {
+                dependsOnIfNotConnected(it, common)
+                addKotlinSrcDir(it, "src/systemCommon/kotlin")
+                addResourcesSrcDir(it, "src/systemCommon/resources")
+            }
+            systemMain = ss.maybeCreate("systemMain").also {
+                dependsOnIfNotConnected(it, systemCommon)
+                addKotlinSrcDir(it, "src/systemMain/kotlin")
+                addKotlinSrcDir(it, "src/systemCommon/kotlin")
+                addResourcesSrcDir(it, "src/systemMain/resources")
+                addResourcesSrcDir(it, "src/systemCommon/resources")
+            }
+            systemTest = ss.maybeCreate("systemTest").also {
+                dependsOnIfNotConnected(it, commonTest)
+                addKotlinSrcDir(it, "src/systemTest/kotlin")
+                addKotlinSrcDir(it, "src/systemCommonTest/kotlin")
+            }
+        }
+
         var desktopCommon: Any? = null
         var desktopMain: Any? = null
         var desktopTest: Any? = null
-        if (anyDesktop) {
+        if (anyDesktop && systemMain != null && systemTest != null) {
             desktopCommon = ss.maybeCreate("desktopCommon").also {
-                dependsOnIfNotConnected(it, common)
+                dependsOnIfNotConnected(it, systemMain)
                 addKotlinSrcDir(it, "src/desktopCommon/kotlin")
                 addResourcesSrcDir(it, "src/desktopCommon/resources")
             }
             desktopMain = ss.maybeCreate("desktopMain").also {
                 dependsOnIfNotConnected(it, desktopCommon)
                 addKotlinSrcDir(it, "src/desktopMain/kotlin")
+                addKotlinSrcDir(it, "src/desktopCommon/kotlin")
                 addResourcesSrcDir(it, "src/desktopMain/resources")
+                addResourcesSrcDir(it, "src/desktopCommon/resources")
             }
             desktopTest = ss.maybeCreate("desktopTest").also {
-                dependsOnIfNotConnected(it, commonTest)
+                dependsOnIfNotConnected(it, systemTest)
                 addKotlinSrcDir(it, "src/desktopTest/kotlin")
             }
         }
 
         if (backends.swingConfig.enabled && desktopMain != null && desktopTest != null) {
-            val swingMain = ss.maybeCreate("swingMain").also {
+            val swing = ss.maybeCreate("swing").also {
                 dependsOnIfNotConnected(it, desktopMain)
+                addKotlinSrcDir(it, "src/swing/kotlin")
+                addResourcesSrcDir(it, "src/swing/resources")
+            }
+            val swingMain = ss.maybeCreate("swingMain").also {
+                dependsOnIfNotConnected(it, swing)
                 addKotlinSrcDir(it, "src/swingMain/kotlin")
+                addKotlinSrcDir(it, "src/swing/kotlin")
                 addResourcesSrcDir(it, "src/swingMain/resources")
+                addResourcesSrcDir(it, "src/swing/resources")
             }
             val swingTest = ss.maybeCreate("swingTest").also {
                 dependsOnIfNotConnected(it, desktopTest)
@@ -177,12 +248,34 @@ object GenericUiMultiplatformConfigurator {
             ss.findByName("jvmTest")?.let { dependsOnIfNotConnected(it, swingTest) }
         }
 
+        var desktopNativeCommon: Any? = null
+        var desktopNativeMain: Any? = null
+        var desktopNativeTest: Any? = null
         var nativeDesktopCommon: Any? = null
         var nativeDesktopMain: Any? = null
         var nativeDesktopTest: Any? = null
         if (anyNativeDesktop && desktopMain != null && desktopTest != null) {
-            nativeDesktopCommon = ss.maybeCreate("nativeDesktopCommon").also {
+            desktopNativeCommon = ss.maybeCreate("desktopNativeCommon").also {
                 dependsOnIfNotConnected(it, desktopMain)
+                addKotlinSrcDir(it, "src/desktopNativeCommon/kotlin")
+                addResourcesSrcDir(it, "src/desktopNativeCommon/resources")
+                addKotlinSrcDir(it, "src/nativeDesktopCommon/kotlin")
+                addResourcesSrcDir(it, "src/nativeDesktopCommon/resources")
+            }
+            desktopNativeMain = ss.maybeCreate("desktopNativeMain").also {
+                dependsOnIfNotConnected(it, desktopNativeCommon)
+                addKotlinSrcDir(it, "src/desktopNativeMain/kotlin")
+                addKotlinSrcDir(it, "src/desktopNativeCommon/kotlin")
+                addResourcesSrcDir(it, "src/desktopNativeMain/resources")
+                addResourcesSrcDir(it, "src/desktopNativeCommon/resources")
+            }
+            desktopNativeTest = ss.maybeCreate("desktopNativeTest").also {
+                dependsOnIfNotConnected(it, desktopTest)
+                addKotlinSrcDir(it, "src/desktopNativeTest/kotlin")
+                addKotlinSrcDir(it, "src/nativeDesktopTest/kotlin")
+            }
+            nativeDesktopCommon = ss.maybeCreate("nativeDesktopCommon").also {
+                dependsOnIfNotConnected(it, desktopNativeMain)
                 addKotlinSrcDir(it, "src/nativeDesktopCommon/kotlin")
                 addResourcesSrcDir(it, "src/nativeDesktopCommon/resources")
             }
@@ -192,16 +285,23 @@ object GenericUiMultiplatformConfigurator {
                 addResourcesSrcDir(it, "src/nativeDesktopMain/resources")
             }
             nativeDesktopTest = ss.maybeCreate("nativeDesktopTest").also {
-                dependsOnIfNotConnected(it, desktopTest)
+                dependsOnIfNotConnected(it, desktopNativeTest)
                 addKotlinSrcDir(it, "src/nativeDesktopTest/kotlin")
             }
         }
 
         if (backends.windowsEnabled && nativeDesktopMain != null && nativeDesktopTest != null) {
-            val windowsMain = ss.maybeCreate("windowsMain").also {
+            val windows = ss.maybeCreate("windows").also {
                 dependsOnIfNotConnected(it, nativeDesktopMain)
+                addKotlinSrcDir(it, "src/windows/kotlin")
+                addResourcesSrcDir(it, "src/windows/resources")
+            }
+            val windowsMain = ss.maybeCreate("windowsMain").also {
+                dependsOnIfNotConnected(it, windows)
                 addKotlinSrcDir(it, "src/windowsMain/kotlin")
+                addKotlinSrcDir(it, "src/windows/kotlin")
                 addResourcesSrcDir(it, "src/windowsMain/resources")
+                addResourcesSrcDir(it, "src/windows/resources")
             }
             val windowsTest = ss.maybeCreate("windowsTest").also {
                 dependsOnIfNotConnected(it, nativeDesktopTest)
@@ -213,10 +313,17 @@ object GenericUiMultiplatformConfigurator {
         }
 
         if (backends.macosEnabled && nativeDesktopMain != null && nativeDesktopTest != null) {
-            val macMain = ss.maybeCreate("macMain").also {
+            val mac = ss.maybeCreate("mac").also {
                 dependsOnIfNotConnected(it, nativeDesktopMain)
+                addKotlinSrcDir(it, "src/mac/kotlin")
+                addResourcesSrcDir(it, "src/mac/resources")
+            }
+            val macMain = ss.maybeCreate("macMain").also {
+                dependsOnIfNotConnected(it, mac)
                 addKotlinSrcDir(it, "src/macMain/kotlin")
+                addKotlinSrcDir(it, "src/mac/kotlin")
                 addResourcesSrcDir(it, "src/macMain/resources")
+                addResourcesSrcDir(it, "src/mac/resources")
             }
             val macosMain = ss.maybeCreate("macosMain").also {
                 dependsOnIfNotConnected(it, macMain)
@@ -246,11 +353,14 @@ object GenericUiMultiplatformConfigurator {
             val linuxMain = ss.maybeCreate("linuxMain").also {
                 dependsOnIfNotConnected(it, linuxCommon)
                 addKotlinSrcDir(it, "src/linuxMain/kotlin")
+                addKotlinSrcDir(it, "src/linuxCommon/kotlin")
                 addResourcesSrcDir(it, "src/linuxMain/resources")
+                addResourcesSrcDir(it, "src/linuxCommon/resources")
             }
             val linuxTest = ss.maybeCreate("linuxTest").also {
                 dependsOnIfNotConnected(it, nativeDesktopTest)
                 addKotlinSrcDir(it, "src/linuxTest/kotlin")
+                addKotlinSrcDir(it, "src/linuxCommonTest/kotlin")
             }
             ss.findByName("linuxX64Main")?.let { dependsOnIfNotConnected(it, linuxMain) }
             ss.findByName("linuxArm64Main")?.let { dependsOnIfNotConnected(it, linuxMain) }
@@ -262,10 +372,17 @@ object GenericUiMultiplatformConfigurator {
                 File(project.projectDir, "src/qtMain").exists()
 
             if (backends.gtkEnabled) {
-                val gtkMain = ss.maybeCreate("gtkMain").also {
+                val gtk = ss.maybeCreate("gtk").also {
                     dependsOnIfNotConnected(it, linuxMain)
+                    addKotlinSrcDir(it, "src/gtk/kotlin")
+                    addResourcesSrcDir(it, "src/gtk/resources")
+                }
+                val gtkMain = ss.maybeCreate("gtkMain").also {
+                    dependsOnIfNotConnected(it, gtk)
                     addKotlinSrcDir(it, "src/gtkMain/kotlin")
+                    addKotlinSrcDir(it, "src/gtk/kotlin")
                     addResourcesSrcDir(it, "src/gtkMain/resources")
+                    addResourcesSrcDir(it, "src/gtk/resources")
                 }
                 val gtkTest = ss.maybeCreate("gtkTest").also {
                     dependsOnIfNotConnected(it, linuxTest)
@@ -288,10 +405,17 @@ object GenericUiMultiplatformConfigurator {
             }
 
             if (backends.qtEnabled) {
-                val qtMain = ss.maybeCreate("qtMain").also {
+                val qt = ss.maybeCreate("qt").also {
                     dependsOnIfNotConnected(it, linuxMain)
+                    addKotlinSrcDir(it, "src/qt/kotlin")
+                    addResourcesSrcDir(it, "src/qt/resources")
+                }
+                val qtMain = ss.maybeCreate("qtMain").also {
+                    dependsOnIfNotConnected(it, qt)
                     addKotlinSrcDir(it, "src/qtMain/kotlin")
+                    addKotlinSrcDir(it, "src/qt/kotlin")
                     addResourcesSrcDir(it, "src/qtMain/resources")
+                    addResourcesSrcDir(it, "src/qt/resources")
                 }
                 val qtTest = ss.maybeCreate("qtTest").also {
                     dependsOnIfNotConnected(it, linuxTest)
@@ -314,39 +438,56 @@ object GenericUiMultiplatformConfigurator {
             }
         }
 
-        val hasAndroidTarget = ss.findByName("androidMain") != null ||
-            targets.names.any { it.contains("android", ignoreCase = true) }
-        val anyMobileActive = (backends.androidEnabled && hasAndroidTarget) || backends.iosEnabled
-
-        if (anyMobileActive) {
+        if (anyMobile && systemMain != null && systemTest != null) {
             val mobileCommon = ss.maybeCreate("mobileCommon").also {
-                dependsOnIfNotConnected(it, common)
+                dependsOnIfNotConnected(it, systemMain)
                 addKotlinSrcDir(it, "src/mobileCommon/kotlin")
                 addResourcesSrcDir(it, "src/mobileCommon/resources")
             }
             val mobileMain = ss.maybeCreate("mobileMain").also {
                 dependsOnIfNotConnected(it, mobileCommon)
                 addKotlinSrcDir(it, "src/mobileMain/kotlin")
+                addKotlinSrcDir(it, "src/mobileCommon/kotlin")
                 addResourcesSrcDir(it, "src/mobileMain/resources")
+                addResourcesSrcDir(it, "src/mobileCommon/resources")
             }
             val mobileTest = ss.maybeCreate("mobileTest").also {
-                dependsOnIfNotConnected(it, commonTest)
+                dependsOnIfNotConnected(it, systemTest)
                 addKotlinSrcDir(it, "src/mobileTest/kotlin")
             }
 
-            if (backends.androidEnabled && hasAndroidTarget) {
-                ss.findByName("androidMain")?.also {
+            if (backends.androidEnabled) {
+                val android = ss.maybeCreate("android").also {
                     dependsOnIfNotConnected(it, mobileMain)
-                    addKotlinSrcDir(it, "src/androidMain/kotlin")
-                    addResourcesSrcDir(it, "src/androidMain/resources")
+                    addKotlinSrcDir(it, "src/android/kotlin")
+                    addResourcesSrcDir(it, "src/android/resources")
                 }
+                ss.maybeCreate("androidMain").also {
+                    dependsOnIfNotConnected(it, android)
+                    addKotlinSrcDir(it, "src/androidMain/kotlin")
+                    addKotlinSrcDir(it, "src/android/kotlin")
+                    addResourcesSrcDir(it, "src/androidMain/resources")
+                    addResourcesSrcDir(it, "src/android/resources")
+                }
+                val androidTest = ss.maybeCreate("androidTest").also {
+                    dependsOnIfNotConnected(it, mobileTest)
+                    addKotlinSrcDir(it, "src/androidTest/kotlin")
+                }
+                ss.findByName("androidUnitTest")?.let { dependsOnIfNotConnected(it, androidTest) }
             }
 
             if (backends.iosEnabled) {
-                val iosMain = ss.maybeCreate("iosMain").also {
+                val ios = ss.maybeCreate("ios").also {
                     dependsOnIfNotConnected(it, mobileMain)
+                    addKotlinSrcDir(it, "src/ios/kotlin")
+                    addResourcesSrcDir(it, "src/ios/resources")
+                }
+                val iosMain = ss.maybeCreate("iosMain").also {
+                    dependsOnIfNotConnected(it, ios)
                     addKotlinSrcDir(it, "src/iosMain/kotlin")
+                    addKotlinSrcDir(it, "src/ios/kotlin")
                     addResourcesSrcDir(it, "src/iosMain/resources")
+                    addResourcesSrcDir(it, "src/ios/resources")
                 }
                 val iosTest = ss.maybeCreate("iosTest").also {
                     dependsOnIfNotConnected(it, mobileTest)
@@ -357,22 +498,6 @@ object GenericUiMultiplatformConfigurator {
                 ss.findByName("iosArm64Test")?.let { dependsOnIfNotConnected(it, iosTest) }
                 ss.findByName("iosSimulatorArm64Test")?.let { dependsOnIfNotConnected(it, iosTest) }
             }
-        }
-
-        if (backends.webEnabled) {
-            val webMain = ss.maybeCreate("webMain").also {
-                dependsOnIfNotConnected(it, common)
-                addKotlinSrcDir(it, "src/webMain/kotlin")
-                addResourcesSrcDir(it, "src/webMain/resources")
-            }
-            val webTest = ss.maybeCreate("webTest").also {
-                dependsOnIfNotConnected(it, commonTest)
-                addKotlinSrcDir(it, "src/webTest/kotlin")
-            }
-            ss.findByName("jsMain")?.let { dependsOnIfNotConnected(it, webMain) }
-            ss.findByName("jsTest")?.let { dependsOnIfNotConnected(it, webTest) }
-            ss.findByName("wasmJsMain")?.let { dependsOnIfNotConnected(it, webMain) }
-            ss.findByName("wasmJsTest")?.let { dependsOnIfNotConnected(it, webTest) }
         }
 
         // 3. Configure native desktop executable binaries (mingwX64, macosArm64, macosX64, linuxX64, linuxArm64)
@@ -460,8 +585,13 @@ object GenericUiMultiplatformConfigurator {
             val targetSs = ssContainer?.findByName(spec.name)
                 ?: when (spec.name) {
                     "common" -> ssContainer?.findByName("commonMain")
+                    "systemCommon" -> ssContainer?.findByName("systemMain") ?: ssContainer?.findByName("commonMain")
                     "macMain" -> ssContainer?.findByName("macosMain")
-                    "nativeDesktopCommon" -> ssContainer?.findByName("nativeDesktopMain") ?: ssContainer?.findByName("mingwX64Main")
+                    "linuxCommon" -> ssContainer?.findByName("linuxMain") ?: ssContainer?.findByName("linuxX64Main")
+                    "desktopNativeCommon", "nativeDesktopCommon" ->
+                        ssContainer?.findByName("desktopNativeMain")
+                            ?: ssContainer?.findByName("nativeDesktopMain")
+                            ?: ssContainer?.findByName("mingwX64Main")
                     "desktopCommon" -> ssContainer?.findByName("desktopMain") ?: ssContainer?.findByName("commonMain")
                     else -> null
                 }
@@ -491,12 +621,28 @@ object GenericUiMultiplatformConfigurator {
         if (deps.isEmpty()) return
         val cfg = project.configurations.findByName(configName)
             ?: when {
-                configName.startsWith("nativeDesktop") ->
-                    project.configurations.findByName("nativeDesktopMainImplementation")
+                configName.startsWith("linux") ->
+                    project.configurations.findByName("linuxMainImplementation")
+                        ?: project.configurations.findByName("linuxCommonImplementation")
+                        ?: project.configurations.findByName("linuxX64MainImplementation")
+                        ?: project.configurations.findByName("desktopNativeMainImplementation")
+                        ?: project.configurations.findByName("nativeDesktopMainImplementation")
+                        ?: project.configurations.findByName("commonMainImplementation")
+                configName.startsWith("desktopNative") || configName.startsWith("nativeDesktop") ->
+                    project.configurations.findByName("desktopNativeMainImplementation")
+                        ?: project.configurations.findByName("nativeDesktopMainImplementation")
                         ?: project.configurations.findByName("mingwX64MainImplementation")
                         ?: project.configurations.findByName("commonMainImplementation")
                 configName.startsWith("desktop") ->
                     project.configurations.findByName("desktopMainImplementation")
+                        ?: project.configurations.findByName("systemMainImplementation")
+                        ?: project.configurations.findByName("commonMainImplementation")
+                configName.startsWith("system") ->
+                    project.configurations.findByName("systemMainImplementation")
+                        ?: project.configurations.findByName("commonMainImplementation")
+                configName.startsWith("mobile") ->
+                    project.configurations.findByName("mobileMainImplementation")
+                        ?: project.configurations.findByName("systemMainImplementation")
                         ?: project.configurations.findByName("commonMainImplementation")
                 else ->
                     project.configurations.findByName("commonMainImplementation")
@@ -846,25 +992,38 @@ object GenericUiMultiplatformConfigurator {
 
         registerTargetTask(
             name = "webDevelopment",
-            desc = "Builds the Web (HTML5 DOM / Canvas2D / WebGL2 / WebGPU + compiled SASS CSS) Development target.",
+            desc = "Builds the Web (Wasm default + JS IR fallback, HTML5 DOM / Canvas2D / WebGL2 / WebGPU + compiled SASS CSS) Development target.",
             candidateTaskNames = listOf(
                 "compileGenericUiSass",
+                "wasmJsProcessResources",
                 "jsProcessResources",
+                "compileDevelopmentExecutableKotlinWasmJs",
+                "wasmJsDevelopmentExecutableCompileSync",
+                "wasmJsBrowserDevelopmentExecutableDistribution",
+                "compileKotlinWasmJs",
                 "compileDevelopmentExecutableKotlinJs",
                 "jsDevelopmentExecutableCompileSync",
-                "compileKotlinJs"
+                "jsBrowserDevelopmentExecutableDistribution",
+                "compileKotlinJs",
+                "packageGenericUiWebDistribution"
             )
         )
         registerTargetTask(
             name = "webProduction",
-            desc = "Builds the Web (HTML5 DOM / Canvas2D / WebGL2 / WebGPU + compiled SASS CSS) Production distribution target.",
+            desc = "Builds the Web (Wasm default + JS IR fallback, HTML5 DOM / Canvas2D / WebGL2 / WebGPU + compiled SASS CSS) Production distribution target.",
             candidateTaskNames = listOf(
                 "compileGenericUiSass",
+                "wasmJsProcessResources",
                 "jsProcessResources",
+                "compileProductionExecutableKotlinWasmJs",
+                "wasmJsProductionExecutableCompileSync",
+                "wasmJsBrowserDistribution",
+                "compileKotlinWasmJs",
                 "compileProductionExecutableKotlinJs",
                 "jsProductionExecutableCompileSync",
                 "jsBrowserDistribution",
-                "compileKotlinJs"
+                "compileKotlinJs",
+                "packageGenericUiWebDistribution"
             )
         )
     }
@@ -903,9 +1062,31 @@ object GenericUiMultiplatformConfigurator {
     private fun invokeNoArg(target: Any?, methodName: String): Any? {
         if (target == null) return null
         return runCatching {
-            target.javaClass.methods.firstOrNull {
+            val noArgMethod = target.javaClass.methods.firstOrNull {
                 it.name == methodName && it.parameterCount == 0
-            }?.invoke(target)
+            }
+            if (noArgMethod != null) {
+                return@runCatching noArgMethod.invoke(target)
+            }
+            val actionMethod = target.javaClass.methods.firstOrNull {
+                it.name == methodName &&
+                    it.parameterCount == 1 &&
+                    org.gradle.api.Action::class.java.isAssignableFrom(it.parameterTypes[0])
+            }
+            if (actionMethod != null) {
+                val noOpAction = org.gradle.api.Action<Any> {}
+                return@runCatching actionMethod.invoke(target, noOpAction)
+            }
+            val fn1Method = target.javaClass.methods.firstOrNull {
+                it.name == methodName &&
+                    it.parameterCount == 1 &&
+                    Function1::class.java.isAssignableFrom(it.parameterTypes[0])
+            }
+            if (fn1Method != null) {
+                val noOpFn: (Any?) -> Unit = {}
+                return@runCatching fn1Method.invoke(target, noOpFn)
+            }
+            null
         }.getOrNull()
     }
 
