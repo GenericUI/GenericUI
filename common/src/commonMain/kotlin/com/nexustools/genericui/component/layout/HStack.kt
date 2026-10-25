@@ -10,6 +10,6 @@ open class HStack(
     init {
         setDisplay(DisplayMode.FLEX)
         setFlexDirection(FlexDirection.ROW)
-        gap?.let { addClass("gap-${it.scaleValue}") }
+        gap?.let { addClass("gap-${it.token}") }
     }
 }

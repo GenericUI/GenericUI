@@ -10,6 +10,6 @@ open class VStack(
     init {
         setDisplay(DisplayMode.FLEX)
         setFlexDirection(FlexDirection.COLUMN)
-        gap?.let { addClass("gap-${it.scaleValue}") }
+        gap?.let { addClass("gap-${it.token}") }
     }
 }

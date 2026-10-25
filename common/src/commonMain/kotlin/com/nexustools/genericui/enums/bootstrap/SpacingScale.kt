@@ -12,6 +12,9 @@ enum class SpacingScale(val token: String, val remMultiplier: Float) {
     FIVE("5", 3.0f),
     AUTO("auto", 0f);
 
+    val scaleValue: String
+        get() = token
+
     fun toPixels(baseFontSizePx: Float = 16f): Int = (remMultiplier * baseFontSizePx).toInt()
 
     companion object {
