@@ -32,7 +32,9 @@ plugins {
 }
 
 // Symlinked NJS JavaScript & TypeScript Runtime + Native JIT Engine (Desktop Only; will become a git submodule)
-includeBuild("lib/NJS")
+if (gradle.parent == null) {
+    includeBuild("lib/NJS")
+}
 
 include(":common")
 include(":desktop:shared")
@@ -108,13 +110,43 @@ include(":extensions:webview:mobile:android")
 include(":extensions:webview:mobile:ios")
 include(":extensions:webview:web")
 
+fun includeIfExists(projectPath: String) {
+    val relPath = projectPath.trimStart(':').replace(':', '/')
+    if (java.io.File(settingsDir, relPath).isDirectory) {
+        include(projectPath)
+    }
+}
+
 include(":extensions:imageprocessing")
 include(":extensions:aichat")
+includeIfExists(":extensions:aichat:dsl")
 include(":extensions:codeeditor")
+includeIfExists(":extensions:codeeditor:dsl")
 include(":extensions:threejs")
+includeIfExists(":extensions:threejs:dsl")
 include(":extensions:box2d")
+includeIfExists(":extensions:box2d:dsl")
 include(":extensions:box3d")
+includeIfExists(":extensions:box3d:dsl")
+includeIfExists(":extensions:canvas2d:dsl")
+includeIfExists(":extensions:canvas3d:dsl")
+includeIfExists(":extensions:media:dsl")
+includeIfExists(":extensions:webview:dsl")
 include(":extensions:dsl")
+
+// JestElectricRunner Multi-Backend UI Testing Suite (Jest + Robolectric-style API with Native Impls)
+include(":tests")
+include(":tests:common")
+include(":tests:desktop:shared")
+include(":tests:desktop:windows")
+include(":tests:desktop:macos")
+include(":tests:desktop:gtk")
+include(":tests:desktop:qt")
+include(":tests:desktop:swing")
+include(":tests:mobile:shared")
+include(":tests:mobile:android")
+include(":tests:mobile:ios")
+include(":tests:web")
 
 // Custom GenericUI Gradle Plugin Module
 include(":gradle-plugin")

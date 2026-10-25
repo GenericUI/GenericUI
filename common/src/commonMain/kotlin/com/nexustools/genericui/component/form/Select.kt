@@ -16,6 +16,7 @@ open class Select(
 
     var selectedValue: String? = selectedValue
         set(value) {
+            if (field == value) return
             field = value
             typedNative<SelectNativeImpl<*>>()?.setSelectedValue(value)
         }

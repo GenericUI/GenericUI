@@ -2,6 +2,7 @@ package com.nexustools.genericui.style.css
 
 import com.nexustools.genericui.core.AbstractComponent
 import com.nexustools.genericui.style.RgbaColor
+import com.nexustools.genericui.style.gradient.Gradient
 
 /**
  * Cross-platform CSS parser and cascade engine for resolving custom classes, compound/descendant selectors,
@@ -45,8 +46,10 @@ class CssStyleSheet(
 
         val baseRules = matchingRules.filter { it.pseudoClass == null }
         val hoverRules = matchingRules.filter { it.pseudoClass == "hover" }
-        val focusRules = matchingRules.filter { it.pseudoClass == "focus" }
+        val focusRules = matchingRules.filter { it.pseudoClass == "focus" || it.pseudoClass == "focus-visible" }
         val activeRules = matchingRules.filter { it.pseudoClass == "active" }
+        val disabledRules = matchingRules.filter { it.pseudoClass == "disabled" }
+        val checkedRules = matchingRules.filter { it.pseudoClass == "checked" }
 
         val baseDecls = mergeRuleDeclarations(baseRules)
         val hoverStyle = if (hoverRules.isNotEmpty()) {
@@ -64,12 +67,24 @@ class CssStyleSheet(
         } else {
             null
         }
+        val disabledStyle = if (disabledRules.isNotEmpty()) {
+            buildComputedStyleFromDeclarations(mergeRuleDeclarations(baseRules + disabledRules))
+        } else {
+            null
+        }
+        val checkedStyle = if (checkedRules.isNotEmpty()) {
+            buildComputedStyleFromDeclarations(mergeRuleDeclarations(baseRules + checkedRules))
+        } else {
+            null
+        }
 
         val computed = buildComputedStyleFromDeclarations(
             merged = baseDecls,
             hoverStyle = hoverStyle,
             focusStyle = focusStyle,
-            activeStyle = activeStyle
+            activeStyle = activeStyle,
+            disabledStyle = disabledStyle,
+            checkedStyle = checkedStyle
         )
         if (styleLookupCache.size < 2048) {
             styleLookupCache[cacheKey] = computed
@@ -254,11 +269,17 @@ class CssStyleSheet(
             merged: Map<String, String>,
             hoverStyle: ComputedStyle? = null,
             focusStyle: ComputedStyle? = null,
-            activeStyle: ComputedStyle? = null
+            activeStyle: ComputedStyle? = null,
+            disabledStyle: ComputedStyle? = null,
+            checkedStyle: ComputedStyle? = null
         ): ComputedStyle {
+            val tintProp = merged["tint"] ?: merged["-genericui-tint"] ?: merged["accent-color"]
+            val tintColor = tintProp?.let { RgbaColor.fromCss(it) }
             val bgProp = merged["background-color"] ?: merged["background"]
             val bgColor = bgProp?.let { extractColorFromBackgroundShorthand(it) }
-            val bgImage = (merged["background-image"] ?: merged["background"])?.let { extractUrlFromCssValue(it) }
+            val bgImageRaw = merged["background-image"] ?: merged["background"]
+            val bgGradient = bgImageRaw?.let { Gradient.fromCss(it) }
+            val bgImage = bgImageRaw?.let { extractUrlFromCssValue(it) }
             val fgColor = merged["color"]?.let { RgbaColor.fromCss(it) }
 
             var borderColor = merged["border-color"]?.let { RgbaColor.fromCss(it) }
@@ -316,7 +337,9 @@ class CssStyleSheet(
             val pointerEvents = merged["pointer-events"]?.let { !it.equals("none", ignoreCase = true) } ?: true
 
             return ComputedStyle(
+                tint = tintColor,
                 backgroundColor = bgColor,
+                backgroundGradient = bgGradient,
                 textColor = fgColor,
                 borderColor = borderColor,
                 borderWidthPx = borderWidthPx,
@@ -362,14 +385,26 @@ class CssStyleSheet(
                 hoverStyle = hoverStyle,
                 focusStyle = focusStyle,
                 activeStyle = activeStyle,
+                disabledStyle = disabledStyle,
+                checkedStyle = checkedStyle,
                 rawDeclarations = merged
             )
         }
 
         private fun extractColorFromBackgroundShorthand(value: String): RgbaColor? {
+            if (Gradient.fromCss(value) != null && RgbaColor.fromCss(value) == null) {
+                for (token in splitPreservingParens(value)) {
+                    if (!token.lowercase().contains("gradient(")) {
+                        RgbaColor.fromCss(token)?.let { return it }
+                    }
+                }
+                return null
+            }
             RgbaColor.fromCss(value)?.let { return it }
             for (token in splitPreservingParens(value)) {
-                RgbaColor.fromCss(token)?.let { return it }
+                if (!token.lowercase().contains("gradient(")) {
+                    RgbaColor.fromCss(token)?.let { return it }
+                }
             }
             return null
         }

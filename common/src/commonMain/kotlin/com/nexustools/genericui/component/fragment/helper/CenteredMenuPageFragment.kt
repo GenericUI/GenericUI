@@ -59,6 +59,7 @@ abstract class CenteredMenuPageFragment(
 
     override fun onLoadingFinished() {
         menuContainer.removeClass("loading")
+        menuContainer.transform = "translate(-50%, -50%)"
         super.onLoadingFinished()
     }
 

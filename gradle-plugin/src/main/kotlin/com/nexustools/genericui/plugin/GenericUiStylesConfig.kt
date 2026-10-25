@@ -12,6 +12,12 @@ open class GenericUiStylesConfig {
     /** Whether to compile `.scss` and `.sass` files into `.css` bundles and precompiled `.kt` files during the build. */
     var compileSass: Boolean = true
 
+    /**
+     * Whether to generate `.css` files from compiled SASS/SCSS specifically for the Web target (`js`, `wasmJs`, `web`)
+     * and bundle them into the Web target's processed resources and browser distribution.
+     */
+    var generateWebCss: Boolean = true
+
     /** Whether to precompile `.scss` / `.sass` / `.css` files into Kotlin (`PrecompiledStyleSheet`) `.kt` files for runtime efficiency. */
     var precompileToKotlin: Boolean = true
 
@@ -20,6 +26,18 @@ open class GenericUiStylesConfig {
 
     /** Relative path (from project `layout.buildDirectory`) where compiled `.css` bundles are output. */
     var outputDir: String = "generated/genericui/styles"
+
+    /**
+     * Relative path (from project `layout.buildDirectory`) where compiled `.css` files for the Web target
+     * are generated and wired into `jsMain` / `wasmJsMain` / `webMain` resources.
+     */
+    var webCssOutputDir: String = "generated/genericui/web-css"
+
+    /**
+     * Optional combined `.css` filename (e.g. `"styles.css"`) to emit into [webCssOutputDir] in addition
+     * to each individual `<name>.css` file compiled from `<name>.scss` / `<name>.sass`.
+     */
+    var webCssBundleFileName: String = ""
 
     /** Relative path (from project `layout.buildDirectory`) where precompiled `.kt` (`PrecompiledStyleSheet`) files are output. */
     var kotlinOutputDir: String = "generated/genericui/kotlin"

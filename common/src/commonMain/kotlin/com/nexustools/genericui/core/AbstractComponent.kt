@@ -11,8 +11,10 @@ import com.nexustools.genericui.style.color.RgbaColor
 import com.nexustools.genericui.style.css.ComputedStyle
 import com.nexustools.genericui.style.css.CssStyleSheet
 import com.nexustools.genericui.style.css.PrecompiledStyleSheet
+import com.nexustools.genericui.style.gradient.Gradient
 import com.nexustools.genericui.style.mapper.BootstrapClassMapper
 import com.nexustools.genericui.style.mapper.BootstrapStyleSnapshot
+import com.nexustools.genericui.style.state.ComponentStyleBlock
 import com.nexustools.genericui.style.transition.CssTransitionController
 
 /**
@@ -41,6 +43,9 @@ abstract class AbstractComponent(
     // Lightweight pre-attachment Kotlin state
     private var visibleState: Boolean = true
     private var enabledState: Boolean = true
+    private var hoveredState: Boolean = false
+    private var focusedState: Boolean = false
+    private var activePressedState: Boolean = false
     private var opacityState: Float = 1.0f
     private var tooltipTextState: String? = null
     private var preferredSizeState: Size? = null
@@ -188,12 +193,19 @@ abstract class AbstractComponent(
         syncStyleSnapshotToNative(impl)
         impl.setVisible(visibleState)
         impl.setEnabled(enabledState)
+        impl.setHoveredState(hoveredState)
+        impl.setFocusedState(focusedState)
+        impl.setActivePressedState(activePressedState)
         impl.setOpacity(opacityState)
         impl.setTooltipText(tooltipTextState)
         impl.setPreferredSize(preferredSizeState)
         impl.setPadding(padding)
         impl.setMargin(margin)
-        computedStyleState?.let { impl.applyComputedStyle(it) }
+        computedStyleState?.let {
+            impl.applyComputedStyle(it)
+            impl.setTint(it.tint)
+            impl.setBackgroundGradient(it.backgroundGradient)
+        }
         impl.setOnClick(onClick)
         impl.setOnDoubleClick(onDoubleClick)
         impl.setOnContextMenu(onContextMenu)
@@ -568,8 +580,19 @@ abstract class AbstractComponent(
         set(value) {
             visibleState = value
             if (value) {
+                val wasUnrealized = (nativeImpl == null)
                 val impl = ensureNativeImpl()
-                impl?.setVisible(true)
+                if (impl != null) {
+                    impl.setVisible(true)
+                    if (wasUnrealized) {
+                        val parentContainer = parent as? AbstractContainer
+                        val parentImpl = parentContainer?.nativeImpl as? AbstractContainerNativeImpl<*>
+                        if (parentContainer != null && parentImpl != null) {
+                            val idx = parentContainer.children.indexOf(this)
+                            parentImpl.addChildNative(impl, idx)
+                        }
+                    }
+                }
             } else {
                 nativeImpl?.setVisible(false)
             }
@@ -580,6 +603,30 @@ abstract class AbstractComponent(
         set(value) {
             enabledState = value
             nativeImpl?.setEnabled(value)
+        }
+
+    var isHovered: Boolean
+        get() = nativeImpl?.isHoveredState() ?: hoveredState
+        set(value) {
+            hoveredState = value
+            nativeImpl?.setHoveredState(value)
+            notifyParentCacheDirty()
+        }
+
+    var isFocused: Boolean
+        get() = nativeImpl?.isFocusedState() ?: focusedState
+        set(value) {
+            focusedState = value
+            nativeImpl?.setFocusedState(value)
+            notifyParentCacheDirty()
+        }
+
+    var isActivePressed: Boolean
+        get() = nativeImpl?.isActivePressedState() ?: activePressedState
+        set(value) {
+            activePressedState = value
+            nativeImpl?.setActivePressedState(value)
+            notifyParentCacheDirty()
         }
 
     var opacity: Float
@@ -689,6 +736,73 @@ abstract class AbstractComponent(
             val base = computedStyleState ?: ComputedStyle()
             applyComputedStyle(base.copy(backgroundColor = value))
         }
+
+    /**
+     * Component background gradient ([com.nexustools.genericui.style.gradient.LinearGradient] or
+     * [com.nexustools.genericui.style.gradient.RadialGradient]) configured via `style { ... }` or CSS.
+     */
+    var backgroundGradient: Gradient?
+        get() = nativeImpl?.getBackgroundGradient() ?: computedStyleState?.backgroundGradient
+        set(value) {
+            val base = computedStyleState ?: ComputedStyle()
+            applyComputedStyle(base.copy(backgroundGradient = value))
+            nativeImpl?.setBackgroundGradient(value)
+        }
+
+    @kotlin.jvm.JvmName("assignBackgroundGradient")
+    fun setBackgroundGradient(gradient: Gradient?) {
+        this.backgroundGradient = gradient
+    }
+
+    @kotlin.jvm.JvmName("obtainBackgroundGradient")
+    fun getBackgroundGradient(): Gradient? = this.backgroundGradient
+
+    /**
+     * Native system component color tint (`tint: ColorRgba(...)`), which tints the native OS widget's
+     * bevel/surface/chrome while still using the system native component when possible.
+     */
+    var tint: RgbaColor?
+        get() = nativeImpl?.getTint() ?: computedStyleState?.tint
+        set(value) {
+            val base = computedStyleState ?: ComputedStyle()
+            applyComputedStyle(base.copy(tint = value))
+            nativeImpl?.setTint(value)
+        }
+
+    @kotlin.jvm.JvmName("assignTint")
+    fun setTint(color: RgbaColor?) {
+        this.tint = color
+    }
+
+    @kotlin.jvm.JvmName("obtainTint")
+    fun getTint(): RgbaColor? = this.tint
+
+    /**
+     * Configures this component's [ComputedStyle] and CSS pseudo-class states (`hover { ... }`,
+     * `focus { ... }`, `active { ... }`, `disabled { ... }`, `checked { ... }`) using the declarative style DSL.
+     */
+    fun style(block: ComponentStyleBlock.() -> Unit): AbstractComponent {
+        val builder = ComponentStyleBlock()
+        builder.block()
+        val updated = builder.toComputedStyle(computedStyleState)
+        applyComputedStyle(updated)
+        nativeImpl?.setTint(updated.tint)
+        nativeImpl?.setBackgroundGradient(updated.backgroundGradient)
+        return this
+    }
+
+    /**
+     * Resolves the effective [ComputedStyle] for this component's current interactive state
+     * ([isHovered], [isFocused], [isActivePressed], [isEnabled]).
+     */
+    fun resolveEffectiveStyle(checked: Boolean = false): ComputedStyle =
+        (computedStyleState ?: ComputedStyle()).resolveForState(
+            hovered = isHovered,
+            focused = isFocused,
+            active = isActivePressed,
+            enabled = isEnabled,
+            checked = checked
+        )
 
     var textColor: RgbaColor?
         get() = computedStyleState?.textColor

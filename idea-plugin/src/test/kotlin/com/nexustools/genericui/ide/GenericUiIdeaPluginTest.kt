@@ -32,6 +32,7 @@ class GenericUiIdeaPluginTest {
         assertFalse(panel.swingLwjglGlCheckbox.isEnabled)
         assertFalse(panel.swingVulkanCheckbox.isEnabled)
         assertTrue(panel.getDslPreviewText().contains("allExceptSwing()"))
+        assertTrue(panel.getDslPreviewText().contains("application {"))
 
         // Preset: Desktop Only (No Swing) / Native Desktop
         panel.selectNativeDesktop()
@@ -96,7 +97,7 @@ class GenericUiIdeaPluginTest {
     }
 
     @Test
-    fun testGradleScriptGeneratorForPresetsAndCustomSubsets() {
+    fun testGradleScriptGeneratorReliesEntirelyOnGenericUiDsl() {
         val generator = GenericUiGradleScriptGenerator()
 
         // 1. All Except Swing
@@ -108,25 +109,23 @@ class GenericUiIdeaPluginTest {
             selectedExtensions = setOf(GenericUiExtensionModule.AI_CHAT, GenericUiExtensionModule.MEDIA)
         )
         val buildAllExceptSwing = generator.generateBuildGradleKts(allExceptSwingConfig)
+        assertFalse(buildAllExceptSwing.contains("kotlin {"))
+        assertTrue(buildAllExceptSwing.contains("entryPoint = \"com.nexustools.studio.main\""))
+        assertTrue(buildAllExceptSwing.contains("baseName = \"StudioApp\""))
         assertTrue(buildAllExceptSwing.contains("allExceptSwing()"))
-        assertTrue(buildAllExceptSwing.contains("mingwX64()"))
-        assertTrue(buildAllExceptSwing.contains("macosArm64()"))
-        assertTrue(buildAllExceptSwing.contains("linuxX64()"))
-        assertFalse(buildAllExceptSwing.contains("jvm(\"swing\")"))
         assertTrue(buildAllExceptSwing.contains("gpu()"))
         assertTrue(buildAllExceptSwing.contains("media()"))
         assertTrue(buildAllExceptSwing.contains("canvas2d()"))
         assertTrue(buildAllExceptSwing.contains("codeEditor()"))
         assertTrue(buildAllExceptSwing.contains("aiChat()"))
 
-        // 2. Desktop Only Except Swing
+        // 2. Desktop Only Except Swing (allNativeDesktop)
         val desktopOnlyConfig = allExceptSwingConfig.copy(
             selectedBackends = GenericUiTargetBackend.nativeDesktopSet()
         )
         val buildDesktopOnly = generator.generateBuildGradleKts(desktopOnlyConfig)
+        assertFalse(buildDesktopOnly.contains("kotlin {"))
         assertTrue(buildDesktopOnly.contains("allNativeDesktop()"))
-        assertFalse(buildDesktopOnly.contains("iosArm64()"))
-        assertFalse(buildDesktopOnly.contains("js(IR)"))
 
         // 3. Custom Subset: Windows + GTK + Web + Swing
         val customSubsetConfig = allExceptSwingConfig.copy(
@@ -140,6 +139,7 @@ class GenericUiIdeaPluginTest {
             swingUseVulkan = true
         )
         val buildCustom = generator.generateBuildGradleKts(customSubsetConfig)
+        assertFalse(buildCustom.contains("kotlin {"))
         assertTrue(buildCustom.contains("windows()"))
         assertTrue(buildCustom.contains("gtk()"))
         assertTrue(buildCustom.contains("useLwjglGL = true"))
@@ -164,6 +164,7 @@ class GenericUiIdeaPluginTest {
         val initialBuildKts = generator.generateBuildGradleKts(initialConfig)
 
         val parsed = inspector.inspectBuildGradleKts(initialBuildKts, "InspectorDemo", "/tmp/inspector")
+        assertEquals("InspectorDemo", parsed.projectName)
         assertEquals(GenericUiTargetBackend.allExceptSwingSet(), parsed.selectedBackends)
         assertEquals(
             setOf(
@@ -175,9 +176,15 @@ class GenericUiIdeaPluginTest {
             parsed.selectedExtensions
         )
 
-        // Verify parsing of allNativeDesktop() alias as well
-        val nativeDesktopBackends = inspector.parseSelectedBackends("genericui { backends { allNativeDesktop() } }")
-        assertEquals(GenericUiTargetBackend.nativeDesktopSet(), nativeDesktopBackends)
+        // Verify parsing of allNativeDesktop() and allDesktopExceptSwing()
+        assertEquals(
+            GenericUiTargetBackend.nativeDesktopSet(),
+            inspector.parseSelectedBackends("genericui { backends { allNativeDesktop() } }")
+        )
+        assertEquals(
+            GenericUiTargetBackend.nativeDesktopSet(),
+            inspector.parseSelectedBackends("genericui { backends { allDesktopExceptSwing() } }")
+        )
 
         // Update to custom subset (Windows + Qt + Android) and add BOX_3D
         val updatedConfig = parsed.copy(
@@ -189,6 +196,7 @@ class GenericUiIdeaPluginTest {
             selectedExtensions = setOf(GenericUiExtensionModule.BOX_3D)
         )
         val updatedBuildKts = inspector.updateBuildGradleKts(initialBuildKts, updatedConfig)
+        assertFalse(updatedBuildKts.contains("kotlin {"))
 
         val reparsed = inspector.inspectBuildGradleKts(updatedBuildKts, "InspectorDemo", "/tmp/inspector")
         assertEquals(
@@ -231,6 +239,11 @@ class GenericUiIdeaPluginTest {
 
             val settingsText = Files.readString(createdRoot.resolve("settings.gradle.kts"))
             assertTrue(settingsText.contains("includeBuild(\"lib/GenericUI\")"))
+
+            val buildText = Files.readString(createdRoot.resolve("build.gradle.kts"))
+            assertFalse(buildText.contains("kotlin {"))
+            assertTrue(buildText.contains("entryPoint = \"com.nexustools.sampleide.main\""))
+            assertTrue(buildText.contains("baseName = \"SampleDockIde\""))
 
             // Open Manage Targets Dialog on the scaffolded project and modify checkboxes
             val manageDialog = actions.createManageTargetsDialog(createdRoot)

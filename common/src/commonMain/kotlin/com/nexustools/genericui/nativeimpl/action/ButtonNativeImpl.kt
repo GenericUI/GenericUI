@@ -7,4 +7,5 @@ interface ButtonNativeImpl<out W> : NativeImpl<W> {
     fun getText(): String
     fun setIcon(icon: String?)
     fun getIcon(): String?
+    fun isIconOnly(): Boolean = !getIcon().isNullOrBlank() && getText().isBlank()
 }

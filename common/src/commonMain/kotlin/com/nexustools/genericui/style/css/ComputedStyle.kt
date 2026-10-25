@@ -1,13 +1,16 @@
 package com.nexustools.genericui.style.css
 
 import com.nexustools.genericui.style.RgbaColor
+import com.nexustools.genericui.style.gradient.Gradient
 
 /**
  * Resolved style properties computed from Bootstrap Enums, custom CSS classes, SASS stylesheets,
  * responsive `@media` queries, pseudo-classes (`:hover`, `:focus`, `:active`), and inline styles.
  */
 data class ComputedStyle(
+    val tint: RgbaColor? = null,
     val backgroundColor: RgbaColor? = null,
+    val backgroundGradient: Gradient? = null,
     val textColor: RgbaColor? = null,
     val borderColor: RgbaColor? = null,
     val borderWidthPx: Float? = null,
@@ -53,8 +56,39 @@ data class ComputedStyle(
     val hoverStyle: ComputedStyle? = null,
     val focusStyle: ComputedStyle? = null,
     val activeStyle: ComputedStyle? = null,
+    val disabledStyle: ComputedStyle? = null,
+    val checkedStyle: ComputedStyle? = null,
     val rawDeclarations: Map<String, String> = emptyMap()
 ) {
+    /**
+     * Resolves the effective [ComputedStyle] for the given interactive pseudo-class state flags.
+     */
+    fun resolveForState(
+        hovered: Boolean = false,
+        focused: Boolean = false,
+        active: Boolean = false,
+        enabled: Boolean = true,
+        checked: Boolean = false
+    ): ComputedStyle {
+        var resolved = this
+        if (checked && checkedStyle != null) {
+            resolved = resolved.mergeWith(checkedStyle)
+        }
+        if (focused && focusStyle != null) {
+            resolved = resolved.mergeWith(focusStyle)
+        }
+        if (hovered && hoverStyle != null) {
+            resolved = resolved.mergeWith(hoverStyle)
+        }
+        if (active && activeStyle != null) {
+            resolved = resolved.mergeWith(activeStyle)
+        }
+        if (!enabled && disabledStyle != null) {
+            resolved = resolved.mergeWith(disabledStyle)
+        }
+        return resolved
+    }
+
     /**
      * Merges [other] on top of this [ComputedStyle], preferring non-null properties from [other].
      */
@@ -63,7 +97,9 @@ data class ComputedStyle(
         combinedDecls.putAll(rawDeclarations)
         combinedDecls.putAll(other.rawDeclarations)
         return ComputedStyle(
+            tint = other.tint ?: tint,
             backgroundColor = other.backgroundColor ?: backgroundColor,
+            backgroundGradient = other.backgroundGradient ?: backgroundGradient,
             textColor = other.textColor ?: textColor,
             borderColor = other.borderColor ?: borderColor,
             borderWidthPx = other.borderWidthPx ?: borderWidthPx,
@@ -113,6 +149,8 @@ data class ComputedStyle(
             hoverStyle = other.hoverStyle ?: hoverStyle,
             focusStyle = other.focusStyle ?: focusStyle,
             activeStyle = other.activeStyle ?: activeStyle,
+            disabledStyle = other.disabledStyle ?: disabledStyle,
+            checkedStyle = other.checkedStyle ?: checkedStyle,
             rawDeclarations = combinedDecls
         )
     }

@@ -33,12 +33,22 @@ class ToolPalette(
     private val _tools = mutableListOf<ToolPaletteItem>()
     val tools: List<ToolPaletteItem> get() = _tools
 
+    private var isDispatchingToolChange: Boolean = false
+
     var activeToolId: String? = null
         set(value) {
+            if (field == value) return
             field = value
-            typedNative<ToolPaletteNativeImpl<*>>()?.setActiveToolId(value)
-            if (value != null) {
-                onToolSelected?.invoke(value)
+            if (!isDispatchingToolChange) {
+                isDispatchingToolChange = true
+                try {
+                    typedNative<ToolPaletteNativeImpl<*>>()?.setActiveToolId(value)
+                    if (value != null) {
+                        onToolSelected?.invoke(value)
+                    }
+                } finally {
+                    isDispatchingToolChange = false
+                }
             }
         }
 

@@ -21,7 +21,7 @@ kotlin {
 
 dependencies {
     compileOnly(gradleApi())
-    compileOnly(libs.kotlin.gradle.plugin)
+    implementation(libs.kotlin.gradle.plugin)
     testImplementation(libs.kotlin.test)
     testImplementation(gradleTestKit())
 }

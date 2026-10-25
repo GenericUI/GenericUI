@@ -9,6 +9,7 @@ interface DockPanelNativeImpl<out W> : AbstractContainerNativeImpl<W> {
     fun setIcon(icon: String?)
     fun setCollapsed(collapsed: Boolean)
     fun isCollapsed(): Boolean
+    fun setOnCollapsedChanged(listener: ((Boolean) -> Unit)?) = Unit
     fun setFloating(floating: Boolean)
     fun isFloating(): Boolean
     fun setHeaderActions(actions: List<DockHeaderAction>)

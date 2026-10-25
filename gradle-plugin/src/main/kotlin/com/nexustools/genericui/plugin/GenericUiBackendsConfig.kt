@@ -44,6 +44,11 @@ open class GenericUiBackendsConfig {
         macosEnabled = enabled
     }
 
+    /** Alias for [macos]: enables or disables the native `:macos` backend. */
+    fun mac(enabled: Boolean = true) {
+        macosEnabled = enabled
+    }
+
     /** Enables or disables the native `:gtk` (GTK3/4 / Cairo / EGL / Vulkan + `:desktop` VLC) backend. */
     fun gtk(enabled: Boolean = true) {
         gtkEnabled = enabled

@@ -16,6 +16,38 @@ data class RgbaColor(
         a = (a.coerceIn(0f, 1f) * 255f + 0.5f).toInt().coerceIn(0, 255)
     )
 
+    constructor(r: Int, g: Int, b: Int, a: Double) : this(
+        r = r.coerceIn(0, 255),
+        g = g.coerceIn(0, 255),
+        b = b.coerceIn(0, 255),
+        a = (a.coerceIn(0.0, 1.0) * 255.0 + 0.5).toInt().coerceIn(0, 255)
+    )
+
+    /**
+     * Blends this color as a native-control tint over [baseSurfaceColor] by [strength] (`0.0..1.0`),
+     * preserving the native control's luminance/bevel while tinting its hue/saturation.
+     */
+    fun blendOverSurface(baseSurfaceColor: RgbaColor, strength: Float = 0.45f): RgbaColor {
+        val t = (strength * alphaFloat).coerceIn(0f, 1f)
+        val inv = 1f - t
+        return RgbaColor(
+            r = (baseSurfaceColor.r * inv + r * t).toInt().coerceIn(0, 255),
+            g = (baseSurfaceColor.g * inv + g * t).toInt().coerceIn(0, 255),
+            b = (baseSurfaceColor.b * inv + b * t).toInt().coerceIn(0, 255),
+            a = baseSurfaceColor.a
+        )
+    }
+
+    /**
+     * Lightens (`amount > 0`) or darkens (`amount < 0`) this color for hover/active state feedback.
+     */
+    fun adjustBrightness(amount: Int): RgbaColor = RgbaColor(
+        r = (r + amount).coerceIn(0, 255),
+        g = (g + amount).coerceIn(0, 255),
+        b = (b + amount).coerceIn(0, 255),
+        a = a
+    )
+
     val alphaFloat: Float
         get() = a.coerceIn(0, 255) / 255f
 

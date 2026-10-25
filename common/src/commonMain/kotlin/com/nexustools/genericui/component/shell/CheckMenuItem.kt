@@ -22,10 +22,10 @@ class CheckMenuItem(
     override fun createNativeImpl(factory: NativeFactory): MenuItemNativeImpl<*> =
         factory.createMenuItem(checkable = true, radio = false)
 
-    fun setChecked(checked: Boolean) {
+    override fun setChecked(checked: Boolean) {
         checkedState = checked
         typedNative<MenuItemNativeImpl<*>>()?.setChecked(checked)
     }
 
-    fun isChecked(): Boolean = typedNative<MenuItemNativeImpl<*>>()?.isChecked() ?: checkedState
+    override fun isChecked(): Boolean = typedNative<MenuItemNativeImpl<*>>()?.isChecked() ?: checkedState
 }

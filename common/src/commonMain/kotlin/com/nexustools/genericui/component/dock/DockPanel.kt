@@ -37,11 +37,30 @@ open class DockPanel(
     var isFloatable: Boolean = true
     var isCollapsible: Boolean = true
 
+    private var isDispatchingCollapseChange: Boolean = false
+
     var isCollapsed: Boolean = false
         set(value) {
+            if (field == value) return
             field = value
-            typedNative<DockPanelNativeImpl<*>>()?.setCollapsed(value)
+            if (!isDispatchingCollapseChange) {
+                isDispatchingCollapseChange = true
+                try {
+                    typedNative<DockPanelNativeImpl<*>>()?.setCollapsed(value)
+                    onCollapsedChanged?.invoke(value)
+                } finally {
+                    isDispatchingCollapseChange = false
+                }
+            }
         }
+
+    var onCollapsedChanged: ((Boolean) -> Unit)? = null
+
+    fun toggleCollapsed(): Boolean {
+        if (!isCollapsible) return isCollapsed
+        isCollapsed = !isCollapsed
+        return isCollapsed
+    }
 
     var isFloating: Boolean = false
         private set
@@ -95,6 +114,7 @@ open class DockPanel(
         impl.setTitle(title)
         impl.setIcon(iconSvgOrPath)
         impl.setCollapsed(isCollapsed)
+        impl.setOnCollapsedChanged { collapsed -> isCollapsed = collapsed }
         impl.setFloating(isFloating)
         impl.setHeaderActions(_headerActions)
     }

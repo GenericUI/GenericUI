@@ -65,10 +65,14 @@ open class GenericUiExtensionsConfig {
     }
 
     /**
-     * Includes `:extensions:canvas2d` (`Canvas2D`, `Canvas2DContext`, `CurveEditor`).
+     * Includes `:extensions:canvas2d` (`Canvas2D`, `Canvas2DContext`, `CurveEditor` — GPU-accelerated
+     * via `:extensions:gpu` using Vulkan primary and OpenGL ES / ANGLE fallback). Automatically enables `gpu`.
      */
     fun canvas2d(enabled: Boolean = true) {
         canvas2dEnabled = enabled
+        if (enabled) {
+            gpu(true)
+        }
     }
 
     /**
@@ -199,7 +203,7 @@ open class GenericUiExtensionsConfig {
         val resolvedCanvas3d = canvas3dEnabled || resolvedThreeJs || resolvedBox2d || resolvedBox3d
         val resolvedCanvas2d = canvas2dEnabled || resolvedCanvas3d || resolvedCodeEditor || resolvedBox2d
         val resolvedImageProcessing = imageProcessingEnabled
-        val resolvedGpu = gpuEnabled || resolvedImageProcessing || resolvedCanvas3d || resolvedMedia || resolvedThreeJs
+        val resolvedGpu = gpuEnabled || resolvedImageProcessing || resolvedCanvas2d || resolvedCanvas3d || resolvedMedia || resolvedThreeJs
         val resolvedDsl = dslEnabled
 
         return buildList {
@@ -214,7 +218,18 @@ open class GenericUiExtensionsConfig {
             if (resolvedThreeJs) add(":extensions:threejs")
             if (resolvedBox2d) add(":extensions:box2d")
             if (resolvedBox3d) add(":extensions:box3d")
-            if (resolvedDsl) add(":extensions:dsl")
+            if (resolvedDsl) {
+                add(":extensions:dsl")
+                if (resolvedCanvas2d) add(":extensions:canvas2d:dsl")
+                if (resolvedCanvas3d) add(":extensions:canvas3d:dsl")
+                if (resolvedMedia) add(":extensions:media:dsl")
+                if (resolvedWebView) add(":extensions:webview:dsl")
+                if (resolvedCodeEditor) add(":extensions:codeeditor:dsl")
+                if (resolvedAiChat) add(":extensions:aichat:dsl")
+                if (resolvedThreeJs) add(":extensions:threejs:dsl")
+                if (resolvedBox2d) add(":extensions:box2d:dsl")
+                if (resolvedBox3d) add(":extensions:box3d:dsl")
+            }
         }
     }
 }

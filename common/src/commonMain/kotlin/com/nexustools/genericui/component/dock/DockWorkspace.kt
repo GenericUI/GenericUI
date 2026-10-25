@@ -25,6 +25,7 @@ open class DockWorkspace(
         set(value) {
             if (field != value) {
                 field = value
+                typedNative<DockWorkspaceNativeImpl<*>>()?.setWindowModeNative(value.name)
                 applyWindowModeTransition(value)
                 onWindowModeChanged?.invoke(value)
             }
@@ -170,10 +171,9 @@ open class DockWorkspace(
             _floatingWindows.remove(reattached.panelId)?.close()
             areaForPosition(targetPos).addPanel(reattached)
         }
+        areaForPosition(position).addPanel(panel)
         if (windowMode == StudioWindowMode.MULTI_WINDOW && position != DockPosition.CENTER) {
             panel.detachToFloatingWindow()
-        } else {
-            areaForPosition(position).addPanel(panel)
         }
     }
 
@@ -252,6 +252,7 @@ open class DockWorkspace(
     override fun syncStateToNative() {
         super.syncStateToNative()
         val impl = typedNative<DockWorkspaceNativeImpl<*>>() ?: return
+        impl.setWindowModeNative(windowMode.name)
         (leftArea.nativeImpl as? DockAreaNativeImpl<*>)?.let { impl.attachDockAreaNative(DockPosition.LEFT, it) }
         (rightArea.nativeImpl as? DockAreaNativeImpl<*>)?.let { impl.attachDockAreaNative(DockPosition.RIGHT, it) }
         (topArea.nativeImpl as? DockAreaNativeImpl<*>)?.let { impl.attachDockAreaNative(DockPosition.TOP, it) }

@@ -2,10 +2,14 @@ package com.nexustools.genericui.component.layout
 
 import com.nexustools.genericui.enums.bootstrap.DisplayMode
 import com.nexustools.genericui.enums.bootstrap.FlexDirection
+import com.nexustools.genericui.enums.bootstrap.SpacingScale
 
-open class VStack : Container("vstack") {
+open class VStack(
+    var gap: SpacingScale? = null
+) : Container("vstack") {
     init {
         setDisplay(DisplayMode.FLEX)
         setFlexDirection(FlexDirection.COLUMN)
+        gap?.let { addClass("gap-${it.scaleValue}") }
     }
 }

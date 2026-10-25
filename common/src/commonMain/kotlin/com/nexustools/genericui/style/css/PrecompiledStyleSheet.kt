@@ -20,6 +20,10 @@ interface PrecompiledStyleSheet {
     val rawCss: String
         get() = ""
 
+    /** Relative path to the compiled `.css` file generated for the Web target (e.g. `"style.css"`). */
+    val cssResourcePath: String
+        get() = "$name.css"
+
     /**
      * Applies this precompiled stylesheet to [component] and all of its descendants.
      */

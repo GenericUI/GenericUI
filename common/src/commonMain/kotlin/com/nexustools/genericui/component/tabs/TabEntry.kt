@@ -13,6 +13,9 @@ data class TabEntry(
     val id: String
         get() = tab.tabId
 
+    val tabId: String
+        get() = tab.tabId
+
     var title: String
         get() = tab.title
         set(value) {

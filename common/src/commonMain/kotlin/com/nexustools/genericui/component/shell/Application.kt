@@ -50,8 +50,8 @@ open class Application(
         appNativeImpl = impl
         impl.setThemeMode(themeModeState)
         impl.runEventLoop {
-            mainWindow.show(factory)
             onApplicationStarted()
+            mainWindow.show(factory)
         }
     }
 

@@ -15,6 +15,10 @@ class GenericUiGradlePlugin : Plugin<Project> {
 
     override fun apply(project: Project) {
         val extension = project.extensions.create("genericui", GenericUiExtension::class.java)
+        extension.onConfiguredCallback = {
+            GenericUiMultiplatformConfigurator.configureMultiplatform(project, extension)
+        }
+        GenericUiMultiplatformConfigurator.registerBuildTargetTasks(project, extension)
 
         val angleTask = project.tasks.register("bundleGenericUiAngle", AngleNativeBundleTask::class.java) {
             group = TASK_GROUP
@@ -43,8 +47,10 @@ class GenericUiGradlePlugin : Plugin<Project> {
 
         val sassTask = project.tasks.register("compileGenericUiSass", GenericUiSassCompileTask::class.java) {
             group = TASK_GROUP
-            description = "Compiles GenericUI .scss and .sass stylesheets into normalized .css bundles and precompiled .kt PrecompiledStyleSheet objects."
+            description = "Compiles GenericUI .scss and .sass stylesheets into normalized .css bundles for the Web target and precompiled .kt PrecompiledStyleSheet objects."
             compileSass.set(project.provider { extension.styles.compileSass })
+            generateWebCss.set(project.provider { extension.styles.generateWebCss })
+            webCssBundleFileName.set(project.provider { extension.styles.webCssBundleFileName })
             precompileToKotlin.set(project.provider { extension.styles.precompileToKotlin })
             kotlinPackageName.set(project.provider {
                 val configured = extension.styles.kotlinPackageName.trim()
@@ -57,15 +63,102 @@ class GenericUiGradlePlugin : Plugin<Project> {
             })
             minify.set(project.provider { extension.styles.minify })
             includeBootstrapVariables.set(project.provider { extension.styles.includeBootstrapVariables })
-            val srcDir = File(project.projectDir, extension.styles.sourceDir)
-            if (srcDir.exists()) {
-                sourceDirectory.set(srcDir)
+            val resolvedSrcDir = resolveStylesSourceDir(project, extension.styles.sourceDir)
+            if (resolvedSrcDir != null) {
+                sourceDirectory.set(resolvedSrcDir)
             }
-            outputDirectory.set(project.layout.buildDirectory.dir(extension.styles.outputDir))
-            kotlinOutputDirectory.set(project.layout.buildDirectory.dir(extension.styles.kotlinOutputDir))
+            outputDirectory.set(project.layout.buildDirectory.dir(project.provider { extension.styles.outputDir }))
+            webCssOutputDirectory.set(project.layout.buildDirectory.dir(project.provider { extension.styles.webCssOutputDir }))
+            kotlinOutputDirectory.set(project.layout.buildDirectory.dir(project.provider { extension.styles.kotlinOutputDir }))
+        }
+
+        val resourcesTask = project.tasks.register(
+            "compileGenericUiResources",
+            GenericUiResourceCompilerTask::class.java
+        ) {
+            group = TASK_GROUP
+            description = "Compiles Android-like resources (drawable/, values/, raw/, font/) into R.kt / RC.kt and translates native backend bundles."
+            resourcesEnabled.set(project.provider { extension.resources.enabled })
+            projectRootPath.set(project.projectDir.absolutePath)
+            resourcePackageName.set(project.provider {
+                val configured = extension.resources.packageName.trim()
+                if (configured.isNotEmpty()) {
+                    configured
+                } else {
+                    val grp = project.group.toString().trim()
+                    if (grp.isNotEmpty() && grp != "unspecified") "$grp.res" else "com.nexustools.genericui.generated.res"
+                }
+            })
+            candidateSourceDirs.set(project.provider { extension.resources.sourceDirs.toList() })
+            translateForAllBackends.set(project.provider { extension.resources.translateForAllBackends })
+            kotlinOutputDirectory.set(project.layout.buildDirectory.dir("generated/genericui/resources/kotlin/commonMain"))
+            backendOutputDirectory.set(project.layout.buildDirectory.dir("generated/genericui/resources/backends"))
+        }
+
+        val desktopResourcesTask = project.tasks.register(
+            "prepareGenericUiDesktopResources",
+            GenericUiDesktopResourceTask::class.java
+        ) {
+            group = TASK_GROUP
+            description = "Generates and compiles Windows (.rc/.res), macOS (Info.plist), and Linux (.desktop) application icons & metadata."
+            projectRootPath.set(project.projectDir.absolutePath)
+            baseName.set(project.provider {
+                extension.application.baseName.trim().ifEmpty { project.name }
+            })
+            appName.set(project.provider {
+                extension.application.desktop.appName.trim().ifEmpty {
+                    extension.application.baseName.trim().ifEmpty { project.name }
+                }
+            })
+            appId.set(project.provider {
+                extension.application.desktop.appId.trim().ifEmpty {
+                    val grp = project.group.toString().trim()
+                    if (grp.isNotEmpty()) grp else "com.nexustools.${project.name.lowercase()}"
+                }
+            })
+            appVersion.set(project.provider {
+                extension.application.desktop.appVersion.trim().ifEmpty {
+                    val v = project.version.toString().trim()
+                    if (v.isNotEmpty() && v != "unspecified") v else "1.0.0"
+                }
+            })
+            vendor.set(project.provider { extension.application.desktop.vendor })
+            appDescription.set(project.provider { extension.application.desktop.description })
+            copyright.set(project.provider { extension.application.desktop.copyright })
+            license.set(project.provider { extension.application.desktop.license })
+            homepageUrl.set(project.provider { extension.application.desktop.homepageUrl })
+            issuesUrl.set(project.provider { extension.application.desktop.issuesUrl })
+            windowsIconPath.set(project.provider { extension.application.desktop.windowsIcon })
+            macIconPath.set(project.provider { extension.application.desktop.macIcon })
+            linuxIconPath.set(project.provider { extension.application.desktop.linuxIcon })
+            fallbackIconPath.set(project.provider { extension.application.desktop.icon })
+            embedWindowsResources.set(project.provider { extension.application.desktop.embedWindowsResources })
+            macMinimumSystemVersion.set(project.provider { extension.application.desktop.macMinimumSystemVersion })
+            macCategory.set(project.provider { extension.application.desktop.macCategory })
+            macHighResolutionCapable.set(project.provider { extension.application.desktop.macHighResolutionCapable })
+            linuxCategories.set(project.provider { extension.application.desktop.linuxCategories })
+            linuxStartupWmClass.set(project.provider { extension.application.desktop.linuxStartupWmClass })
+            linuxTerminal.set(project.provider { extension.application.desktop.linuxTerminal })
+            customResourceEntries.set(project.provider { extension.application.desktop.customResourceEntries })
+            bundledResourcePaths.set(project.provider { extension.application.desktop.bundledResourcePaths })
+            outputDirectory.set(project.layout.buildDirectory.dir("generated/genericui/desktop-resources"))
         }
 
         val projectPath = project.path
+        project.tasks.register("windowsVisualTest", GenericUiVisualTestTask::class.java) {
+            group = "verification"
+            description = "Runs GenericUI JestElectricRunner tests with a live visual Win32 window on Windows."
+            visualOnWindows.set(project.provider { extension.testing.visualOnWindows })
+            visualStepDelayMs.set(project.provider { extension.testing.visualStepDelayMs })
+        }
+
+        project.tasks.register("runJestElectricWindowsVisualTest", GenericUiVisualTestTask::class.java) {
+            group = TASK_GROUP
+            description = "Alias for windowsVisualTest: runs JestElectricRunner tests in a live Win32 window."
+            visualOnWindows.set(project.provider { extension.testing.visualOnWindows })
+            visualStepDelayMs.set(project.provider { extension.testing.visualStepDelayMs })
+        }
+
         project.tasks.register("printGenericUiConfig") {
             group = TASK_GROUP
             description = "Prints the resolved GenericUI target backends, extensions, and module coordinates."
@@ -74,16 +167,111 @@ class GenericUiGradlePlugin : Plugin<Project> {
                 println("=== GenericUI Configuration ($projectPath) ===")
                 println("Backends:   ${extension.backends.enabledBackendModulePaths()}")
                 println("Extensions: ${extension.extensions.enabledExtensionModulePaths()}")
-                println("Sass Dir:   ${extension.styles.sourceDir} (compile=${extension.styles.compileSass})")
+                println("Sass Dir:   ${extension.styles.sourceDir} (compile=${extension.styles.compileSass}, webCss=${extension.styles.generateWebCss})")
+                println("Icons:      win=${extension.application.desktop.windowsIcon}, mac=${extension.application.desktop.macIcon}, linux=${extension.application.desktop.linuxIcon}")
             }
         }
 
         project.afterEvaluate {
+            GenericUiMultiplatformConfigurator.configureMultiplatform(project, extension)
+            GenericUiMultiplatformConfigurator.applySourceSetDependencies(project, extension)
+            sassTask.configure {
+                val resolvedAfterEval = resolveStylesSourceDir(project, extension.styles.sourceDir)
+                if (resolvedAfterEval != null) {
+                    sourceDirectory.set(resolvedAfterEval)
+                }
+            }
             wireExtensionAndBackendModules(project, extension)
+            wireTestingModules(project, extension)
             wireOptionalSwingGraphicsDependencies(project, extension)
+            wireGeneratedResourceKotlinSources(project, extension, resourcesTask.name)
             wirePrecompiledSassKotlinSources(project, extension, sassTask.name)
-            wireBuildLifecycleTasks(project, angleTask.name, vulkanTask.name, sassTask.name)
+            wireGeneratedWebCssResources(project, extension, sassTask.name)
+            wireDesktopResourceTasks(project, desktopResourcesTask.name)
+            wireCompanionDependencyBuildTasks(project, extension, desktopResourcesTask.name)
+            wireBuildLifecycleTasks(project, angleTask.name, vulkanTask.name, sassTask.name, resourcesTask.name, desktopResourcesTask.name)
         }
+    }
+
+    private fun wireGeneratedResourceKotlinSources(
+        project: Project,
+        extension: GenericUiExtension,
+        resourcesTaskName: String
+    ) {
+        if (!extension.resources.enabled) return
+        val ktResDir = project.layout.buildDirectory.dir("generated/genericui/resources/kotlin/commonMain")
+        val kotlinExt = project.extensions.findByName("kotlin")
+        if (kotlinExt != null) {
+            runCatching {
+                val getSourceSets = kotlinExt.javaClass.methods.firstOrNull {
+                    it.name == "getSourceSets" && it.parameterCount == 0
+                }
+                val sourceSetsContainer = getSourceSets?.invoke(kotlinExt) as? org.gradle.api.NamedDomainObjectContainer<*>
+                val targetSourceSet = sourceSetsContainer?.findByName("commonMain")
+                    ?: sourceSetsContainer?.findByName("common")
+                    ?: sourceSetsContainer?.findByName("main")
+                if (targetSourceSet != null) {
+                    val getKotlin = targetSourceSet.javaClass.methods.firstOrNull {
+                        it.name == "getKotlin" && it.parameterCount == 0
+                    }
+                    val kotlinSourceDirSet = getKotlin?.invoke(targetSourceSet) as? org.gradle.api.file.SourceDirectorySet
+                    kotlinSourceDirSet?.srcDir(ktResDir)
+                }
+            }
+        }
+        project.tasks.matching {
+            it.name.startsWith("compile") && it.name.contains("Kotlin")
+        }.configureEach {
+            dependsOn(resourcesTaskName)
+        }
+    }
+
+    private fun wireCompanionDependencyBuildTasks(
+        project: Project,
+        extension: GenericUiExtension,
+        desktopResourcesTaskName: String
+    ) {
+        val depTasks = GenericUiMultiplatformConfigurator.resolveCompanionDependencyBuildTasks(project, extension)
+        if (depTasks.isEmpty()) return
+
+        project.tasks.matching {
+            (it.name.startsWith("compile") && it.name.contains("Kotlin")) ||
+                it.name == desktopResourcesTaskName ||
+                it.name.endsWith("ProcessResources", ignoreCase = true) ||
+                it.name == "processResources"
+        }.configureEach {
+            for (depTask in depTasks) {
+                if (this != depTask && this.name != depTask.toString()) {
+                    dependsOn(depTask)
+                }
+            }
+        }
+    }
+
+    private fun resolveStylesSourceDir(project: Project, configuredPath: String): File? {
+        val primary = File(project.projectDir, configuredPath)
+        if (primary.exists() && primary.isDirectory) {
+            return primary
+        }
+        val fallbackDirs = listOf(
+            "src/commonMain/resources/styles",
+            "src/commonMain/resources",
+            "src/webMain/resources/styles",
+            "src/webMain/resources",
+            "src/jsMain/resources/styles",
+            "src/jsMain/resources",
+            "src/wasmJsMain/resources/styles",
+            "src/wasmJsMain/resources",
+            "src/main/resources/styles",
+            "src/main/resources"
+        )
+        return fallbackDirs
+            .map { File(project.projectDir, it) }
+            .firstOrNull { dir ->
+                dir.exists() && dir.isDirectory && dir.walkTopDown().any { f ->
+                    f.isFile && f.extension.lowercase() in setOf("scss", "sass", "css")
+                }
+            }
     }
 
     private fun wireExtensionAndBackendModules(project: Project, extension: GenericUiExtension) {
@@ -94,6 +282,7 @@ class GenericUiGradlePlugin : Plugin<Project> {
         if (extension.includeCommon) {
             resolveModuleDependency(project, ":common", version)?.let { dep ->
                 project.dependencies.add(commonConfigName, dep)
+                addDepToEnabledBackendConfigs(project, backends, dep, commonConfigName)
             }
         }
 
@@ -103,6 +292,7 @@ class GenericUiGradlePlugin : Plugin<Project> {
             if (isProjectOfProjects) {
                 resolveModuleDependency(project, "$extPath:common", version)?.let { dep ->
                     project.dependencies.add(commonConfigName, dep)
+                    addDepToEnabledBackendConfigs(project, backends, dep, commonConfigName)
                 }
                 if (backends.requiresSharedDesktopModule) {
                     addBackendModuleDependency(project, ":desktop:shared", "$extPath:desktop:shared", version, commonConfigName)
@@ -137,12 +327,98 @@ class GenericUiGradlePlugin : Plugin<Project> {
                 // Single Multiplatform Project extension (:extensions:<name>)
                 resolveModuleDependency(project, extPath, version)?.let { dep ->
                     project.dependencies.add(commonConfigName, dep)
+                    addDepToEnabledBackendConfigs(project, backends, dep, commonConfigName)
                 }
             }
         }
 
         for (backendPath in backends.enabledBackendModulePaths()) {
             addBackendModuleDependency(project, backendPath, backendPath, version, commonConfigName)
+        }
+    }
+
+    private fun wireTestingModules(project: Project, extension: GenericUiExtension) {
+        if (!extension.testing.enabled) return
+        val version = extension.version
+        val backends = extension.backends
+        val commonTestConfig = listOf("commonTestImplementation", "testImplementation").firstOrNull {
+            project.configurations.findByName(it) != null
+        } ?: return
+
+        resolveModuleDependency(project, ":tests:common", version)?.let { dep ->
+            project.dependencies.add(commonTestConfig, dep)
+        }
+
+        fun addTestDepIfConfigExists(modulePath: String, vararg configNames: String) {
+            val dep = resolveModuleDependency(project, modulePath, version) ?: return
+            for (cfg in configNames) {
+                if (project.configurations.findByName(cfg) != null) {
+                    project.dependencies.add(cfg, dep)
+                }
+            }
+        }
+
+        if (backends.requiresSharedDesktopModule) {
+            addTestDepIfConfigExists(
+                ":tests:desktop:shared",
+                "nativeDesktopCommonTestImplementation",
+                "desktopCommonTestImplementation",
+                "mingwX64TestImplementation",
+                "linuxX64TestImplementation",
+                "linuxArm64TestImplementation",
+                "macosX64TestImplementation",
+                "macosArm64TestImplementation"
+            )
+        }
+        if (backends.windowsEnabled) {
+            addTestDepIfConfigExists(":tests:desktop:windows", "windowsTestImplementation", "mingwX64TestImplementation")
+        }
+        if (backends.macosEnabled) {
+            addTestDepIfConfigExists(":tests:desktop:macos", "macTestImplementation", "macosX64TestImplementation", "macosArm64TestImplementation")
+        }
+        if (backends.gtkEnabled) {
+            addTestDepIfConfigExists(":tests:desktop:gtk", "gtkTestImplementation", "linuxX64TestImplementation", "linuxArm64TestImplementation")
+        }
+        if (backends.qtEnabled) {
+            addTestDepIfConfigExists(":tests:desktop:qt", "qtTestImplementation", "linuxX64TestImplementation", "linuxArm64TestImplementation")
+        }
+        if (backends.swingConfig.enabled) {
+            addTestDepIfConfigExists(":tests:desktop:swing", "swingTestImplementation", "jvmTestImplementation", "testImplementation")
+        }
+        if (backends.requiresSharedMobileModule) {
+            addTestDepIfConfigExists(
+                ":tests:mobile:shared",
+                "mobileCommonTestImplementation",
+                "androidUnitTestImplementation",
+                "iosArm64TestImplementation",
+                "iosSimulatorArm64TestImplementation"
+            )
+        }
+        if (backends.androidEnabled) {
+            addTestDepIfConfigExists(":tests:mobile:android", "androidUnitTestImplementation", "androidInstrumentedTestImplementation")
+        }
+        if (backends.iosEnabled) {
+            addTestDepIfConfigExists(":tests:mobile:ios", "iosTestImplementation", "iosArm64TestImplementation", "iosSimulatorArm64TestImplementation")
+        }
+        if (backends.webEnabled) {
+            addTestDepIfConfigExists(":tests:web", "webTestImplementation", "jsTestImplementation")
+        }
+    }
+
+    private fun addDepToEnabledBackendConfigs(
+        project: Project,
+        backends: GenericUiBackendsConfig,
+        dep: Any,
+        fallbackSingleTargetConfig: String
+    ) {
+        val addedConfigs = mutableSetOf<String>()
+        for (backendKey in backends.enabledBackendModulePaths()) {
+            val targetConfigs = resolveBackendConfigurations(project, backendKey, fallbackSingleTargetConfig)
+            for (cfg in targetConfigs) {
+                if (cfg != fallbackSingleTargetConfig && addedConfigs.add(cfg)) {
+                    project.dependencies.add(cfg, dep)
+                }
+            }
         }
     }
 
@@ -176,6 +452,14 @@ class GenericUiGradlePlugin : Plugin<Project> {
         }
         if (modulePath !in KNOWN_GENERICUI_MODULES) {
             return null
+        }
+        if (modulePath != ":extensions:dsl" && modulePath.endsWith(":dsl")) {
+            val relPath = modulePath.trimStart(':').replace(':', '/')
+            val compositeCandidate = File(project.rootProject.projectDir, "lib/GenericUI/$relPath")
+            val localCandidate = File(project.rootProject.projectDir, relPath)
+            if (!compositeCandidate.isDirectory && !localCandidate.isDirectory) {
+                return null
+            }
         }
         return toMavenCoordinate(modulePath, version)
     }
@@ -277,14 +561,136 @@ class GenericUiGradlePlugin : Plugin<Project> {
         }
     }
 
+    /**
+     * Wires the compiled `.css` files generated by `compileGenericUiSass` (`webCssOutputDirectory`)
+     * into the Web target (`jsMain`, `wasmJsMain`, `webMain`) resource source sets, `jsProcessResources` /
+     * `wasmJsProcessResources` copy tasks, and Web distribution / webpack tasks so the Web target
+     * always has compiled `.css` files generated from `.scss` / `.sass`.
+     */
+    private fun wireGeneratedWebCssResources(
+        project: Project,
+        extension: GenericUiExtension,
+        sassTaskName: String
+    ) {
+        if (!extension.styles.compileSass || !extension.styles.generateWebCss) {
+            return
+        }
+        val webCssOutDir = project.layout.buildDirectory.dir(extension.styles.webCssOutputDir)
+        val kotlinExt = project.extensions.findByName("kotlin")
+        if (kotlinExt != null) {
+            runCatching {
+                val getSourceSets = kotlinExt.javaClass.methods.firstOrNull {
+                    it.name == "getSourceSets" && it.parameterCount == 0
+                }
+                val sourceSetsContainer = getSourceSets?.invoke(kotlinExt) as? org.gradle.api.NamedDomainObjectContainer<*>
+                if (sourceSetsContainer != null) {
+                    val webSourceSetNames = listOf("jsMain", "wasmJsMain", "webMain")
+                    val matchedWebSourceSets = webSourceSetNames.mapNotNull { sourceSetsContainer.findByName(it) }
+                    val targetSourceSets = matchedWebSourceSets.ifEmpty {
+                        listOfNotNull(
+                            sourceSetsContainer.findByName("commonMain")
+                                ?: sourceSetsContainer.findByName("main")
+                        )
+                    }
+                    for (ss in targetSourceSets) {
+                        val getResources = ss.javaClass.methods.firstOrNull {
+                            it.name == "getResources" && it.parameterCount == 0
+                        }
+                        val resourcesDirSet = getResources?.invoke(ss) as? org.gradle.api.file.SourceDirectorySet
+                        resourcesDirSet?.srcDir(webCssOutDir)
+                    }
+                }
+            }
+        }
+
+        val webResourceTaskNames = setOf(
+            "jsProcessResources",
+            "wasmJsProcessResources",
+            "webProcessResources"
+        )
+        project.tasks.matching {
+            it.name in webResourceTaskNames ||
+                (extension.backends.webEnabled && it.name == "processResources")
+        }.configureEach {
+            dependsOn(sassTaskName)
+            if (this is org.gradle.api.tasks.Copy) {
+                from(webCssOutDir)
+                duplicatesStrategy = org.gradle.api.file.DuplicatesStrategy.INCLUDE
+            }
+        }
+
+        val webLifecycleTaskPrefixes = listOf(
+            "jsBrowser",
+            "wasmJsBrowser",
+            "jsDevelopmentExecutableCompileSync",
+            "jsProductionExecutableCompileSync",
+            "wasmJsDevelopmentExecutableCompileSync",
+            "wasmJsProductionExecutableCompileSync"
+        )
+        project.tasks.matching { task ->
+            webLifecycleTaskPrefixes.any { prefix -> task.name.startsWith(prefix) }
+        }.configureEach {
+            dependsOn(sassTaskName)
+        }
+    }
+
+    private fun wireDesktopResourceTasks(
+        project: Project,
+        desktopResourcesTaskName: String
+    ) {
+        val runtimeAssetsDirProvider = project.layout.buildDirectory.dir("generated/genericui/desktop-resources/runtime-assets")
+        project.tasks.matching {
+            it.name.startsWith("link") && it.name.contains("Executable")
+        }.configureEach {
+            dependsOn(desktopResourcesTaskName)
+            doLast {
+                val assetsDir = runtimeAssetsDirProvider.get().asFile
+                if (!assetsDir.exists()) return@doLast
+                val getDestDir = this.javaClass.methods.firstOrNull {
+                    (it.name == "getDestinationDirectory" || it.name == "getOutputDirectory") && it.parameterCount == 0
+                }
+                val destObj = getDestDir?.invoke(this)
+                val destFile: File? = when (destObj) {
+                    is File -> destObj
+                    is org.gradle.api.file.DirectoryProperty -> destObj.orNull?.asFile
+                    else -> {
+                        val getOutputFile = this.javaClass.methods.firstOrNull {
+                            it.name == "getOutputFile" && it.parameterCount == 0
+                        }
+                        (getOutputFile?.invoke(this) as? org.gradle.api.provider.Provider<*>)?.orNull?.let { it as? File }?.parentFile
+                    }
+                }
+                if (destFile != null && destFile.exists()) {
+                    assetsDir.listFiles()?.forEach { asset ->
+                        val target = File(destFile, asset.name)
+                        if (asset.isDirectory) {
+                            asset.copyRecursively(target, overwrite = true)
+                        } else {
+                            asset.copyTo(target, overwrite = true)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     private fun wireBuildLifecycleTasks(
         project: Project,
         angleTaskName: String,
         vulkanTaskName: String,
-        sassTaskName: String
+        sassTaskName: String,
+        resourcesTaskName: String,
+        desktopResourcesTaskName: String
     ) {
-        project.tasks.matching { it.name == "processResources" || it.name == "jvmProcessResources" }.configureEach {
-            dependsOn(angleTaskName, vulkanTaskName, sassTaskName)
+        project.tasks.matching {
+            it.name.endsWith("ProcessResources", ignoreCase = true) || it.name == "processResources"
+        }.configureEach {
+            dependsOn(angleTaskName, vulkanTaskName, sassTaskName, resourcesTaskName, desktopResourcesTaskName)
+        }
+        project.tasks.matching {
+            it.name == desktopResourcesTaskName
+        }.configureEach {
+            dependsOn(resourcesTaskName)
         }
     }
 
@@ -317,62 +723,75 @@ class GenericUiGradlePlugin : Plugin<Project> {
 
         return when (backendPath) {
             ":desktop:windows" ->
-                firstExisting("windowsMainImplementation", "mingwMainImplementation").ifEmpty {
-                    allExisting("mingwX64MainImplementation")
-                }
+                allExisting(
+                    "windowsMainImplementation",
+                    "mingwMainImplementation",
+                    "mingwX64MainImplementation"
+                )
             ":desktop:macos" ->
-                firstExisting("macosMainImplementation").ifEmpty {
-                    allExisting("macosX64MainImplementation", "macosArm64MainImplementation")
-                }
+                allExisting(
+                    "macMainImplementation",
+                    "macosMainImplementation",
+                    "macosX64MainImplementation",
+                    "macosArm64MainImplementation"
+                )
             ":desktop:gtk" ->
-                firstExisting("gtkMainImplementation", "linuxMainImplementation").ifEmpty {
-                    allExisting("linuxX64MainImplementation", "linuxArm64MainImplementation")
-                }
+                allExisting(
+                    "gtkMainImplementation",
+                    "linuxCommonImplementation",
+                    "linuxMainImplementation",
+                    "nativeDesktopCommonImplementation",
+                    "linuxX64MainImplementation",
+                    "linuxArm64MainImplementation",
+                    "linuxX64GtkImplementation",
+                    "linuxArm64GtkImplementation"
+                )
             ":desktop:qt" ->
-                firstExisting("qtMainImplementation", "linuxMainImplementation").ifEmpty {
-                    allExisting("linuxX64MainImplementation", "linuxArm64MainImplementation")
-                }
+                allExisting(
+                    "qtMainImplementation",
+                    "linuxCommonImplementation",
+                    "linuxMainImplementation",
+                    "nativeDesktopCommonImplementation",
+                    "linuxX64MainImplementation",
+                    "linuxArm64MainImplementation",
+                    "linuxX64QtImplementation",
+                    "linuxArm64QtImplementation"
+                )
             ":desktop:shared" ->
-                firstExisting("desktopMainImplementation").ifEmpty {
-                    allExisting(
-                        "mingwX64MainImplementation",
-                        "linuxX64MainImplementation",
-                        "linuxArm64MainImplementation",
-                        "macosX64MainImplementation",
-                        "macosArm64MainImplementation"
-                    )
-                }
+                allExisting(
+                    "nativeDesktopCommonImplementation",
+                    "nativeDesktopMainImplementation",
+                    "desktopCommonImplementation",
+                    "desktopMainImplementation",
+                    "mingwX64MainImplementation",
+                    "linuxX64MainImplementation",
+                    "linuxArm64MainImplementation",
+                    "macosX64MainImplementation",
+                    "macosArm64MainImplementation"
+                )
             ":desktop:swing" ->
-                firstExisting("swingMainImplementation", "jvmMainImplementation")
+                allExisting("swingMainImplementation", "jvmMainImplementation")
             ":mobile:android" ->
-                firstExisting("androidMainImplementation")
+                allExisting("androidMainImplementation")
             ":mobile:ios" ->
-                firstExisting("iosMainImplementation").ifEmpty {
-                    allExisting(
-                        "iosArm64MainImplementation",
-                        "iosSimulatorArm64MainImplementation",
-                        "iosX64MainImplementation"
-                    )
-                }
+                allExisting(
+                    "iosMainImplementation",
+                    "iosArm64MainImplementation",
+                    "iosSimulatorArm64MainImplementation",
+                    "iosX64MainImplementation"
+                )
             ":mobile:shared" ->
-                firstExisting("mobileMainImplementation").ifEmpty {
-                    val mobileTargets = mutableListOf<String>()
-                    mobileTargets.addAll(firstExisting("androidMainImplementation"))
-                    mobileTargets.addAll(
-                        firstExisting("iosMainImplementation").ifEmpty {
-                            allExisting(
-                                "iosArm64MainImplementation",
-                                "iosSimulatorArm64MainImplementation",
-                                "iosX64MainImplementation"
-                            )
-                        }
-                    )
-                    mobileTargets
-                }
+                allExisting(
+                    "mobileCommonImplementation",
+                    "mobileMainImplementation",
+                    "androidMainImplementation",
+                    "iosMainImplementation",
+                    "iosArm64MainImplementation",
+                    "iosSimulatorArm64MainImplementation",
+                    "iosX64MainImplementation"
+                )
             ":web" ->
-                firstExisting("webMainImplementation").ifEmpty {
-                    allExisting("jsMainImplementation", "wasmJsMainImplementation")
-                }
+                allExisting("webMainImplementation", "jsMainImplementation", "wasmJsMainImplementation")
             else -> emptyList()
         }
     }
@@ -418,7 +837,8 @@ class GenericUiGradlePlugin : Plugin<Project> {
             ":extensions:canvas2d",
             ":extensions:canvas3d",
             ":extensions:media",
-            ":extensions:webview"
+            ":extensions:webview",
+            ":tests"
         )
 
         /**
@@ -494,11 +914,32 @@ class GenericUiGradlePlugin : Plugin<Project> {
             ":extensions:webview:web",
             ":extensions:imageprocessing",
             ":extensions:aichat",
+            ":extensions:aichat:dsl",
             ":extensions:codeeditor",
+            ":extensions:codeeditor:dsl",
             ":extensions:threejs",
+            ":extensions:threejs:dsl",
             ":extensions:box2d",
+            ":extensions:box2d:dsl",
             ":extensions:box3d",
-            ":extensions:dsl"
+            ":extensions:box3d:dsl",
+            ":extensions:canvas2d:dsl",
+            ":extensions:canvas3d:dsl",
+            ":extensions:media:dsl",
+            ":extensions:webview:dsl",
+            ":extensions:dsl",
+            ":tests",
+            ":tests:common",
+            ":tests:desktop:shared",
+            ":tests:desktop:windows",
+            ":tests:desktop:macos",
+            ":tests:desktop:gtk",
+            ":tests:desktop:qt",
+            ":tests:desktop:swing",
+            ":tests:mobile:shared",
+            ":tests:mobile:android",
+            ":tests:mobile:ios",
+            ":tests:web"
         )
     }
 }

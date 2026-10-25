@@ -94,6 +94,11 @@ class GenericUiBuildFileInspector(
         val groupMatch = Regex("""group\s*=\s*"([^"]+)"""").find(buildGradleKtsContent)
         val packageName = groupMatch?.groupValues?.get(1) ?: "com.example.app"
 
+        val appBlock = extractBlockContent(buildGradleKtsContent, "application")
+        val resolvedProjectName = appBlock?.let {
+            Regex("""baseName\s*=\s*"([^"]+)"""").find(it)?.groupValues?.get(1)
+        } ?: projectName
+
         val backends = parseSelectedBackends(buildGradleKtsContent)
         val extensions = parseSelectedExtensions(buildGradleKtsContent)
 
@@ -111,7 +116,7 @@ class GenericUiBuildFileInspector(
         } ?: true
 
         return GenericUiProjectConfig(
-            projectName = projectName,
+            projectName = resolvedProjectName,
             packageName = packageName,
             projectRootPath = projectRootPath,
             selectedBackends = backends,
@@ -123,20 +128,15 @@ class GenericUiBuildFileInspector(
     }
 
     /**
-     * Updates an existing `build.gradle.kts` content in-place by replacing both the `kotlin { ... }`
-     * target block and the `genericui { ... }` DSL block to match [updatedConfig].
+     * Updates an existing `build.gradle.kts` content in-place by replacing the `genericui { ... }`
+     * DSL block to match [updatedConfig].
      */
     fun updateBuildGradleKts(
         existingBuildGradleKts: String,
         updatedConfig: GenericUiProjectConfig
     ): String {
-        var result = existingBuildGradleKts
-        val newKotlinBlock = scriptGenerator.generateKotlinMultiplatformBlock(updatedConfig)
         val newGenericUiBlock = scriptGenerator.generateGenericUiDslBlock(updatedConfig)
-
-        result = replaceTopLevelBlock(result, "kotlin", newKotlinBlock)
-        result = replaceTopLevelBlock(result, "genericui", newGenericUiBlock)
-        return result
+        return replaceTopLevelBlock(existingBuildGradleKts, "genericui", newGenericUiBlock)
     }
 
     private fun extractBlockContent(source: String, blockName: String): String? {

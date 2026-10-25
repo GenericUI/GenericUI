@@ -7,6 +7,10 @@ import com.nexustools.genericui.ide.model.GenericUiTargetBackend
 /**
  * Generates `settings.gradle.kts`, `build.gradle.kts`, `gradle.properties`, and live
  * `genericui { ... }` DSL blocks based on the user's checkbox selections in IntelliJ IDEA.
+ *
+ * Projects applying `id("com.nexustools.genericui")` rely entirely on the `genericui { ... }`
+ * DSL block (`application`, `backends`, `graphics`, `extensions`, `styles`, `sourceSets`)
+ * without redundant `kotlin { ... }` target boilerplate.
  */
 class GenericUiGradleScriptGenerator {
 
@@ -44,6 +48,7 @@ class GenericUiGradleScriptGenerator {
         appendLine("org.gradle.jvmargs=-Xmx4g -Dfile.encoding=UTF-8")
         appendLine("kotlin.code.style=official")
         appendLine("kotlin.mpp.stability.nowarn=true")
+        appendLine("kotlin.native.ignoreDisabledTargets=true")
         if (GenericUiTargetBackend.ANDROID in config.selectedBackends) {
             appendLine("android.useAndroidX=true")
             appendLine("android.nonTransitiveRClass=true")
@@ -51,50 +56,23 @@ class GenericUiGradleScriptGenerator {
     }
 
     /**
-     * Generates the `kotlin { ... }` multiplatform targets block matching the selected
-     * [GenericUiTargetBackend] checkboxes.
-     */
-    fun generateKotlinMultiplatformBlock(config: GenericUiProjectConfig): String = buildString {
-        val backends = config.selectedBackends
-        appendLine("kotlin {")
-        if (GenericUiTargetBackend.WINDOWS in backends) {
-            appendLine("    mingwX64()")
-        }
-        if (GenericUiTargetBackend.MACOS in backends) {
-            appendLine("    macosX64()")
-            appendLine("    macosArm64()")
-        }
-        if (GenericUiTargetBackend.GTK in backends || GenericUiTargetBackend.QT in backends) {
-            appendLine("    linuxX64()")
-        }
-        if (GenericUiTargetBackend.SWING in backends) {
-            appendLine("    jvm(\"swing\")")
-        }
-        if (GenericUiTargetBackend.ANDROID in backends) {
-            appendLine("    // Android target configured when Android Gradle Plugin is applied")
-        }
-        if (GenericUiTargetBackend.IOS in backends) {
-            appendLine("    iosArm64()")
-            appendLine("    iosSimulatorArm64()")
-        }
-        if (GenericUiTargetBackend.WEB in backends) {
-            appendLine("    js(IR) {")
-            appendLine("        browser()")
-            appendLine("        binaries.executable()")
-            appendLine("    }")
-        }
-        append("}")
-    }
-
-    /**
-     * Generates the `genericui { ... }` Gradle DSL block matching the selected target backends,
-     * Swing LWJGL OpenGL ES / Vulkan flags, extension modules, and SASS stylesheet configuration.
+     * Generates the `genericui { ... }` Gradle DSL block configuring `application`,
+     * `backends`, `graphics`, `extensions`, and `styles`.
+     *
+     * `id("com.nexustools.genericui")` automatically configures the Kotlin Multiplatform
+     * targets, the GenericUI sourceSet hierarchy (`common`, `desktopCommon`, `nativeDesktopCommon`,
+     * `windowsMain`, `macMain`, `linuxCommon`, `gtkMain`, `qtMain`, `swingMain`, `mobileCommon`,
+     * `androidMain`, `iosMain`, `webMain`), and Development/Production build target tasks.
      */
     fun generateGenericUiDslBlock(config: GenericUiProjectConfig): String = buildString {
         val backends = config.selectedBackends
         val extensions = config.resolvedExtensions()
 
         appendLine("genericui {")
+        appendLine("    application {")
+        appendLine("        entryPoint = \"${config.packageName}.main\"")
+        appendLine("        baseName = \"${config.projectName}\"")
+        appendLine("    }")
         appendLine("    backends {")
         when {
             config.isAllExceptSwingSelected() -> {
@@ -149,7 +127,8 @@ class GenericUiGradleScriptGenerator {
     }
 
     /**
-     * Generates the complete `build.gradle.kts` file for a GenericUI project.
+     * Generates the complete `build.gradle.kts` file for a GenericUI project, relying entirely
+     * on `id("com.nexustools.genericui")` and `genericui { ... }` without redundant `kotlin { ... }` boilerplate.
      */
     fun generateBuildGradleKts(config: GenericUiProjectConfig): String = buildString {
         appendLine("plugins {")
@@ -159,8 +138,6 @@ class GenericUiGradleScriptGenerator {
         appendLine()
         appendLine("group = \"${config.packageName}\"")
         appendLine("version = \"0.1.0-SNAPSHOT\"")
-        appendLine()
-        appendLine(generateKotlinMultiplatformBlock(config))
         appendLine()
         appendLine(generateGenericUiDslBlock(config))
     }

@@ -96,7 +96,9 @@ abstract class ValidatedStepPageFragment(
     }
 
     override fun onMenuController(args: List<Any?>) {
-        stepStorage = args.getOrNull(currentStepOrdinal)
+        if (stepStorage == null) {
+            stepStorage = args.getOrNull(currentStepOrdinal) ?: args.firstOrNull()
+        }
         beginLoading()
         runPriorStepsValidation(args, 0)
     }
@@ -114,7 +116,7 @@ abstract class ValidatedStepPageFragment(
             return
         }
 
-        val priorData = args.getOrNull(index)
+        val priorData = args.getOrNull(index) ?: stepStorage ?: args.firstOrNull()
         priorPage.validateStep(priorData, args) { err ->
             if (err != null) {
                 endLoading()

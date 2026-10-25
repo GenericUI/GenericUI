@@ -15,6 +15,7 @@ open class TextField(
 ) : AbstractComponent() {
     var value: String = value
         set(newVal) {
+            if (field == newVal) return
             field = newVal
             typedNative<TextInputNativeImpl<*>>()?.setValue(newVal)
         }

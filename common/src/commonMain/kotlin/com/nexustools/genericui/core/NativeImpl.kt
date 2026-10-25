@@ -7,7 +7,9 @@ import com.nexustools.genericui.event.WheelEvent
 import com.nexustools.genericui.geometry.EdgeInsets
 import com.nexustools.genericui.geometry.Rect
 import com.nexustools.genericui.geometry.Size
+import com.nexustools.genericui.style.color.RgbaColor
 import com.nexustools.genericui.style.css.ComputedStyle
+import com.nexustools.genericui.style.gradient.Gradient
 import com.nexustools.genericui.style.transition.CssTransitionSpec
 
 /**
@@ -125,6 +127,21 @@ interface NativeImpl<out W> : Disposable {
     fun setMargin(margin: EdgeInsets)
 
     fun applyComputedStyle(style: ComputedStyle)
+
+    fun setTint(tint: RgbaColor?) {}
+    fun getTint(): RgbaColor? = null
+
+    fun setBackgroundGradient(gradient: Gradient?) {}
+    fun getBackgroundGradient(): Gradient? = null
+
+    fun setHoveredState(hovered: Boolean) {}
+    fun isHoveredState(): Boolean = false
+
+    fun setFocusedState(focused: Boolean) {}
+    fun isFocusedState(): Boolean = false
+
+    fun setActivePressedState(active: Boolean) {}
+    fun isActivePressedState(): Boolean = false
 
     // Native CSS Transition Processing (overridden by backends with native compositor animation)
     fun supportsNativeTransitions(): Boolean = false

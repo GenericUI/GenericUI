@@ -21,6 +21,7 @@ open class CheckBox(
 
     var isChecked: Boolean = checked
         set(value) {
+            if (field == value) return
             field = value
             typedNative<CheckboxNativeImpl<*>>()?.setChecked(value)
         }

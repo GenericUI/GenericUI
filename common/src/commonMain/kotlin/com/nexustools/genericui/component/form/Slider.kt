@@ -31,10 +31,21 @@ open class Slider(
             typedNative<RangeSliderNativeImpl<*>>()?.setRange(min, max, field)
         }
 
+    private var isDispatchingValueChange: Boolean = false
+
     var value: Double = value.coerceIn(min, max)
         set(newVal) {
-            field = newVal.coerceIn(min, max)
-            typedNative<RangeSliderNativeImpl<*>>()?.setValue(field)
+            val clamped = newVal.coerceIn(min, max)
+            if (kotlin.math.abs(field - clamped) <= 1e-4) return
+            field = clamped
+            if (!isDispatchingValueChange) {
+                isDispatchingValueChange = true
+                try {
+                    typedNative<RangeSliderNativeImpl<*>>()?.setValue(field)
+                } finally {
+                    isDispatchingValueChange = false
+                }
+            }
         }
 
     var onValueChanged: ((Double) -> Unit)? = null

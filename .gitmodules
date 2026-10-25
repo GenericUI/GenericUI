@@ -13,3 +13,6 @@
 [submodule "web"]
 	path = web
 	url = git@github.com:GenericUI/Web.git
+[submodule "tests"]
+	path = tests
+	url = git@github.com:GenericUI/Tests.git

@@ -124,6 +124,7 @@ open class DockWorkspaceFragment(
         }
         if (targetMode == windowMode) return
         windowMode = targetMode
+        dockWorkspace.windowMode = targetMode
 
         if (targetMode == StudioWindowMode.MULTI_WINDOW_MODE) {
             migrateToMultiWindowMode()
@@ -157,18 +158,17 @@ open class DockWorkspaceFragment(
             }
         }
 
-        if (windowMode == StudioWindowMode.SINGLE_WINDOW_MODE) {
-            documentTabContainer.addTab(
-                tab = CloseableTab(
-                    tabId = document.documentId,
-                    title = document.title,
-                    icon = document.icon,
-                    isCloseable = document.isClosable,
-                    isDirty = document.isDirty
-                ),
-                content = document.content
-            )
-        } else {
+        documentTabContainer.addTab(
+            tab = CloseableTab(
+                tabId = document.documentId,
+                title = document.title,
+                icon = document.icon,
+                isCloseable = document.isClosable,
+                isDirty = document.isDirty
+            ),
+            content = document.content
+        )
+        if (windowMode != StudioWindowMode.SINGLE_WINDOW_MODE && _documents.size > 1) {
             spawnDocumentWindow(document)
         }
 
@@ -284,15 +284,16 @@ open class DockWorkspaceFragment(
     }
 
     private fun migrateToMultiWindowMode() {
-        for (doc in _documents) {
-            documentTabContainer.removeTab(doc.documentId)
-            spawnDocumentWindow(doc)
+        dockWorkspace.windowMode = StudioWindowMode.MULTI_WINDOW_MODE
+        for ((idx, doc) in _documents.withIndex()) {
+            if (idx > 0 && doc.detachedDocumentWindow == null) {
+                spawnDocumentWindow(doc)
+            }
         }
-        detachDockArea(DockPosition.LEFT, Rect(20, 80, 110, 680))
-        detachDockArea(DockPosition.RIGHT, Rect(1120, 80, 380, 720))
     }
 
     private fun migrateToSingleWindowMode() {
+        dockWorkspace.windowMode = StudioWindowMode.SINGLE_WINDOW_MODE
         for (dockWin in _detachedDockWindows.toList()) {
             val firstArea = dockWin.children.filterIsInstance<DockArea>().firstOrNull()
             reattachDockWindow(dockWin, firstArea?.position ?: DockPosition.RIGHT)
@@ -301,16 +302,18 @@ open class DockWorkspaceFragment(
             doc.detachedDocumentWindow?.removeChild(doc.content)
             doc.detachedDocumentWindow?.close()
             doc.detachedDocumentWindow = null
-            documentTabContainer.addTab(
-                tab = CloseableTab(
-                    tabId = doc.documentId,
-                    title = doc.title,
-                    icon = doc.icon,
-                    isCloseable = doc.isClosable,
-                    isDirty = doc.isDirty
-                ),
-                content = doc.content
-            )
+            if (documentTabContainer.tabs.none { it.tabId == doc.documentId }) {
+                documentTabContainer.addTab(
+                    tab = CloseableTab(
+                        tabId = doc.documentId,
+                        title = doc.title,
+                        icon = doc.icon,
+                        isCloseable = doc.isClosable,
+                        isDirty = doc.isDirty
+                    ),
+                    content = doc.content
+                )
+            }
         }
         activeDocument?.let { documentTabContainer.setActiveTab(it.documentId) }
     }

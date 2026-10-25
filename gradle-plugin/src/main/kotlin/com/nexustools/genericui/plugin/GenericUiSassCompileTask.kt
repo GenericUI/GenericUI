@@ -39,6 +39,14 @@ abstract class GenericUiSassCompileTask : DefaultTask() {
 
     @get:Input
     @get:Optional
+    abstract val generateWebCss: Property<Boolean>
+
+    @get:Input
+    @get:Optional
+    abstract val webCssBundleFileName: Property<String>
+
+    @get:Input
+    @get:Optional
     abstract val precompileToKotlin: Property<Boolean>
 
     @get:Input
@@ -56,6 +64,10 @@ abstract class GenericUiSassCompileTask : DefaultTask() {
 
     @get:OutputDirectory
     @get:Optional
+    abstract val webCssOutputDirectory: DirectoryProperty
+
+    @get:OutputDirectory
+    @get:Optional
     abstract val kotlinOutputDirectory: DirectoryProperty
 
     @TaskAction
@@ -63,6 +75,12 @@ abstract class GenericUiSassCompileTask : DefaultTask() {
         val outDir = outputDirectory.get().asFile
         if (!outDir.exists()) {
             outDir.mkdirs()
+        }
+
+        val shouldEmitWebCss = generateWebCss.getOrElse(true)
+        val webCssOutDir = webCssOutputDirectory.orNull?.asFile ?: File(outDir.parentFile, "web-css")
+        if (shouldEmitWebCss && !webCssOutDir.exists()) {
+            webCssOutDir.mkdirs()
         }
 
         val ktOutDir = kotlinOutputDirectory.orNull?.asFile ?: File(outDir.parentFile, "kotlin")
@@ -78,6 +96,8 @@ abstract class GenericUiSassCompileTask : DefaultTask() {
         }
 
         val compiledFiles = mutableListOf<String>()
+        val webCssFiles = mutableListOf<String>()
+        val combinedWebCssChunks = mutableListOf<String>()
         val generatedKotlinFiles = mutableListOf<String>()
         val bootstrapHeader = if (includeBootstrapVariables.getOrElse(true)) {
             buildBootstrapVariablesBlock()
@@ -93,13 +113,37 @@ abstract class GenericUiSassCompileTask : DefaultTask() {
                 .forEach { file ->
                     val relativePath = file.relativeTo(srcDir).path
                     val targetRelativePath = relativePath.replace(Regex("\\.(scss|sass)$", RegexOption.IGNORE_CASE), ".css")
+                    val normalizedRelPath = targetRelativePath.replace('\\', '/')
                     val targetFile = File(outDir, targetRelativePath)
                     targetFile.parentFile?.mkdirs()
 
-                    val rawContent = file.readText()
+                    val rawContent = resolveSassImports(file, mutableSetOf(file.canonicalPath))
                     val processedCss = transformSassToCss(bootstrapHeader + "\n" + rawContent, minify.getOrElse(false))
                     targetFile.writeText(processedCss)
-                    compiledFiles.add(targetRelativePath.replace('\\', '/'))
+                    compiledFiles.add(normalizedRelPath)
+
+                    if (shouldEmitWebCss) {
+                        val webTargetFile = File(webCssOutDir, targetRelativePath)
+                        webTargetFile.parentFile?.mkdirs()
+                        webTargetFile.writeText(processedCss)
+                        if (normalizedRelPath !in webCssFiles) {
+                            webCssFiles.add(normalizedRelPath)
+                        }
+
+                        // Also emit at the root of webCssOutDir (e.g., "styles/app.scss" -> "app.css" as well as "styles/app.css")
+                        // so both `<link href="app.css">` and `<link href="styles/app.css">` work seamlessly on the Web target.
+                        val rootFileName = "${file.nameWithoutExtension}.css"
+                        if (normalizedRelPath != rootFileName) {
+                            val rootWebCssFile = File(webCssOutDir, rootFileName)
+                            if (!rootWebCssFile.exists()) {
+                                rootWebCssFile.writeText(processedCss)
+                                if (rootFileName !in webCssFiles) {
+                                    webCssFiles.add(rootFileName)
+                                }
+                            }
+                        }
+                        combinedWebCssChunks.add("/* Source: $normalizedRelPath */\n$processedCss")
+                    }
 
                     if (shouldEmitKt) {
                         val baseName = file.nameWithoutExtension
@@ -109,7 +153,8 @@ abstract class GenericUiSassCompileTask : DefaultTask() {
                             cssText = processedCss,
                             packageName = pkgName,
                             objectName = objectName,
-                            stylesheetName = baseName
+                            stylesheetName = baseName,
+                            cssResourcePath = normalizedRelPath
                         )
                         ktFile.writeText(ktSource)
                         generatedKotlinFiles.add(ktFile.relativeTo(ktOutDir).path.replace('\\', '/'))
@@ -123,6 +168,14 @@ abstract class GenericUiSassCompileTask : DefaultTask() {
             defaultThemeFile.writeText(css)
             compiledFiles.add("genericui-bootstrap-defaults.css")
 
+            if (shouldEmitWebCss) {
+                val webDefaultThemeFile = File(webCssOutDir, "genericui-bootstrap-defaults.css")
+                webDefaultThemeFile.parentFile?.mkdirs()
+                webDefaultThemeFile.writeText(css)
+                webCssFiles.add("genericui-bootstrap-defaults.css")
+                combinedWebCssChunks.add(css)
+            }
+
             if (shouldEmitKt) {
                 val objectName = "GenericUiBootstrapDefaultsPrecompiledStyleSheet"
                 val ktFile = File(pkgDir, "$objectName.kt")
@@ -130,28 +183,69 @@ abstract class GenericUiSassCompileTask : DefaultTask() {
                     cssText = css,
                     packageName = pkgName,
                     objectName = objectName,
-                    stylesheetName = "genericui-bootstrap-defaults"
+                    stylesheetName = "genericui-bootstrap-defaults",
+                    cssResourcePath = "genericui-bootstrap-defaults.css"
                 )
                 ktFile.writeText(ktSource)
                 generatedKotlinFiles.add(ktFile.relativeTo(ktOutDir).path.replace('\\', '/'))
             }
         }
 
+        val bundleFileName = webCssBundleFileName.getOrElse("").trim()
+        if (shouldEmitWebCss && bundleFileName.isNotEmpty() && combinedWebCssChunks.isNotEmpty()) {
+            val bundleFile = File(webCssOutDir, bundleFileName)
+            bundleFile.parentFile?.mkdirs()
+            bundleFile.writeText(combinedWebCssChunks.joinToString("\n"))
+            if (bundleFileName !in webCssFiles) {
+                webCssFiles.add(bundleFileName)
+            }
+        }
+
         val filesJson = compiledFiles.joinToString(", ") { "\"$it\"" }
+        val webFilesJson = webCssFiles.joinToString(", ") { "\"$it\"" }
         val ktFilesJson = generatedKotlinFiles.joinToString(", ") { "\"$it\"" }
         File(outDir, "styles-manifest.json").writeText(
             """
             |{
             |  "compileSass": ${compileSass.getOrElse(true)},
+            |  "generateWebCss": $shouldEmitWebCss,
             |  "precompileToKotlin": $shouldEmitKt,
             |  "kotlinPackageName": "$pkgName",
             |  "minified": ${minify.getOrElse(false)},
             |  "includeBootstrapVariables": ${includeBootstrapVariables.getOrElse(true)},
             |  "bundles": [$filesJson],
+            |  "webCssFiles": [$webFilesJson],
             |  "kotlinSources": [$ktFilesJson]
             |}
             """.trimMargin() + "\n"
         )
+    }
+
+    private fun resolveSassImports(file: File, visited: MutableSet<String>): String {
+        val raw = file.readText()
+        val importRegex = Regex("""@(?:import|use)\s+["']([^"']+)["'](?:\s+as\s+[^;]+)?\s*;""")
+        return importRegex.replace(raw) { match ->
+            val importTarget = match.groupValues[1].trim()
+            if (importTarget.startsWith("http://") || importTarget.startsWith("https://") || importTarget.endsWith(".css")) {
+                match.value
+            } else {
+                val parentDir = file.parentFile ?: return@replace ""
+                val candidates = listOf(
+                    File(parentDir, importTarget),
+                    File(parentDir, "$importTarget.scss"),
+                    File(parentDir, "$importTarget.sass"),
+                    File(parentDir, "_$importTarget.scss"),
+                    File(parentDir, "_$importTarget.sass"),
+                    File(parentDir, "_$importTarget")
+                )
+                val resolved = candidates.firstOrNull { it.exists() && it.isFile }
+                if (resolved != null && visited.add(resolved.canonicalPath)) {
+                    resolveSassImports(resolved, visited)
+                } else {
+                    ""
+                }
+            }
+        }
     }
 
     internal fun transformSassToCss(source: String, minifyOutput: Boolean): String {
@@ -302,7 +396,8 @@ abstract class GenericUiSassCompileTask : DefaultTask() {
         cssText: String,
         packageName: String,
         objectName: String,
-        stylesheetName: String
+        stylesheetName: String,
+        cssResourcePath: String = "$stylesheetName.css"
     ): String {
         val (rules, keyframes) = parseCssRulesAndKeyframes(cssText)
         val sortedRules = rules.sortedBy { it.specificity }
@@ -322,6 +417,8 @@ abstract class GenericUiSassCompileTask : DefaultTask() {
             appendLine(" */")
             appendLine("object $objectName : PrecompiledStyleSheet {")
             appendLine("    override val name: String = ${escapeKotlinString(stylesheetName)}")
+            appendLine()
+            appendLine("    override val cssResourcePath: String = ${escapeKotlinString(cssResourcePath)}")
             appendLine()
             appendLine("    override val rawCss: String = ${escapeKotlinString(cssText)}")
             appendLine()
