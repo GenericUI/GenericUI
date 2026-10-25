@@ -1,6 +1,9 @@
 package com.nexustools.genericui.component.dock
 
+import com.nexustools.genericui.component.fragment.Fragment
+import com.nexustools.genericui.component.fragment.FragmentContainer
 import com.nexustools.genericui.component.layout.Container
+import com.nexustools.genericui.component.shell.Window
 import com.nexustools.genericui.component.tabs.TabBarStyle
 import com.nexustools.genericui.component.tabs.TabContainer
 import com.nexustools.genericui.core.AbstractComponent
@@ -70,8 +73,9 @@ open class DockWorkspace(
     private val _panels = mutableMapOf<String, DockPanel>()
     val panels: Map<String, DockPanel> get() = _panels
 
-    private val _floatingWindows = mutableMapOf<String, DockWindow>()
-    val floatingWindows: Map<String, DockWindow> get() = _floatingWindows
+    private val _floatingWindows = mutableMapOf<String, PanelWindow>()
+    val floatingWindows: Map<String, PanelWindow> get() = _floatingWindows
+    val panelWindows: Map<String, PanelWindow> get() = _floatingWindows
 
     private val _documents = mutableListOf<StudioDocument>()
     val documents: List<StudioDocument> get() = _documents
@@ -83,6 +87,7 @@ open class DockWorkspace(
     var onActiveDocumentChanged: ((StudioDocument?) -> Unit)? = null
 
     init {
+        htmlTag = "genericui:dockworkspace"
         positionMode = PositionMode.RELATIVE
         addChild(backgroundContainer)
         addChild(topArea)
@@ -164,17 +169,53 @@ open class DockWorkspace(
         panel.preferredPosition = position
         _panels[panel.panelId] = panel
         panel.onDetachHandler = { detached ->
-            val dockWin = DockWindow(detached.title, detached)
-            _floatingWindows[detached.panelId] = dockWin
+            val ownerWin = findOwnerWindow()
+            val panelWin = PanelWindow(
+                title = detached.title,
+                panel = detached,
+                initialBounds = detached.floatingBounds,
+                ownerWindow = ownerWin
+            )
+            detached.getTitleBar()?.let { panelWin.setTitleBar(it) }
+            _floatingWindows[detached.panelId] = panelWin
+            ownerWin?.bringAttachedPanelWindowsToFront()
         }
         panel.onReattachHandler = { reattached, targetPos ->
+            reattached.panelWindow = null
             _floatingWindows.remove(reattached.panelId)?.close()
-            areaForPosition(targetPos).addPanel(reattached)
+            if (reattached.parent == null) {
+                areaForPosition(targetPos).addPanel(reattached)
+            }
         }
         areaForPosition(position).addPanel(panel)
         if (windowMode == StudioWindowMode.MULTI_WINDOW && position != DockPosition.CENTER) {
             panel.detachToFloatingWindow()
         }
+    }
+
+    fun findOwnerWindow(): Window? {
+        var curr: AbstractComponent? = this
+        while (curr != null) {
+            if (curr is Window && curr !is PanelWindow) {
+                return curr
+            }
+            if (curr is Fragment && curr.attachedWindow != null) {
+                return curr.attachedWindow
+            }
+            if (curr is FragmentContainer && curr.hostWindow != null) {
+                return curr.hostWindow
+            }
+            curr = curr.parent
+        }
+        return null
+    }
+
+    fun syncFloatingWindowsWithOwnerWindow(explicitOwner: Window? = null) {
+        val ownerWin = explicitOwner ?: findOwnerWindow() ?: return
+        for (panelWin in _floatingWindows.values) {
+            panelWin.attachToMainWindow(ownerWin)
+        }
+        ownerWin.bringAttachedPanelWindowsToFront()
     }
 
     fun addDocument(document: StudioDocument): DockWorkspace = apply {
@@ -242,6 +283,7 @@ open class DockWorkspace(
                         panel.detachToFloatingWindow(panel.floatingBounds)
                     }
                 }
+                syncFloatingWindowsWithOwnerWindow()
             }
         }
     }

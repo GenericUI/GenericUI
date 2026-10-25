@@ -5,9 +5,14 @@ package com.nexustools.genericui.component.typography
  */
 open class Text(
     text: String = "",
-    paragraph: Boolean = false
+    paragraph: Boolean = false,
+    classPrefix: String = ""
 ) : Label(
     text = text,
     tagName = if (paragraph) "p" else "span",
-    classPrefix = ""
-)
+    classPrefix = classPrefix
+) {
+    init {
+        htmlTag = if (paragraph) "p" else "span"
+    }
+}

@@ -10,6 +10,10 @@ import com.nexustools.genericui.nativeimpl.layout.ContainerNativeImpl
 class Accordion(
     var allowMultipleExpanded: Boolean = false
 ) : AbstractContainer() {
+    init {
+        htmlTag = "genericui:accordion"
+    }
+
     private val _items = mutableListOf<AccordionItem>()
     val items: List<AccordionItem> get() = _items
 
@@ -28,5 +32,5 @@ class Accordion(
     }
 
     override fun createNativeImpl(factory: NativeFactory): ContainerNativeImpl<*> =
-        factory.createContainer("accordion")
+        factory.createContainer("accordion", htmlTag)
 }

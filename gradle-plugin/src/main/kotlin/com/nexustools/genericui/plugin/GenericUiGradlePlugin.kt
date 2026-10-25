@@ -91,6 +91,12 @@ class GenericUiGradlePlugin : Plugin<Project> {
             })
             candidateSourceDirs.set(project.provider { extension.resources.sourceDirs.toList() })
             translateForAllBackends.set(project.provider { extension.resources.translateForAllBackends })
+            themeColor.set(project.provider { extension.application.desktop.themeColor })
+            appName.set(project.provider {
+                extension.application.desktop.appName.trim().ifEmpty {
+                    extension.application.baseName.trim().ifEmpty { project.name }
+                }
+            })
             kotlinOutputDirectory.set(project.layout.buildDirectory.dir("generated/genericui/resources/kotlin/commonMain"))
             backendOutputDirectory.set(project.layout.buildDirectory.dir("generated/genericui/resources/backends"))
         }
@@ -128,6 +134,7 @@ class GenericUiGradlePlugin : Plugin<Project> {
             license.set(project.provider { extension.application.desktop.license })
             homepageUrl.set(project.provider { extension.application.desktop.homepageUrl })
             issuesUrl.set(project.provider { extension.application.desktop.issuesUrl })
+            themeColor.set(project.provider { extension.application.desktop.themeColor })
             windowsIconPath.set(project.provider { extension.application.desktop.windowsIcon })
             macIconPath.set(project.provider { extension.application.desktop.macIcon })
             linuxIconPath.set(project.provider { extension.application.desktop.linuxIcon })
@@ -149,7 +156,7 @@ class GenericUiGradlePlugin : Plugin<Project> {
             GenericUiWebDistributionTask::class.java
         ) {
             group = TASK_GROUP
-            description = "Packages the unified GenericUI Web distribution with Wasm primary + JS IR fallback, splash screen icon, favicon, genericui-loader.js, and SHA-1 cache-busting hashes."
+            description = "Packages the unified GenericUI Web distribution with Wasm primary + JS IR fallback, splash screen icon, favicon, optional PWA manifest.webmanifest & installable WebApp tags, genericui-loader.js, and SHA-1 cache-busting hashes."
             projectRootPath.set(project.projectDir.absolutePath)
             projectBuildPath.set(project.layout.buildDirectory.asFile.map { it.absolutePath })
             baseName.set(project.provider {
@@ -160,12 +167,35 @@ class GenericUiGradlePlugin : Plugin<Project> {
                     extension.application.baseName.trim().ifEmpty { project.name }
                 }
             })
+            appDescription.set(project.provider { extension.application.desktop.description })
+            themeColor.set(project.provider { extension.application.desktop.themeColor })
             webIconPath.set(project.provider { extension.application.desktop.webIcon })
             fallbackIconPath.set(project.provider { extension.application.desktop.icon })
             linuxIconPath.set(project.provider { extension.application.desktop.linuxIcon })
             macIconPath.set(project.provider { extension.application.desktop.macIcon })
             windowsIconPath.set(project.provider { extension.application.desktop.windowsIcon })
             webCssBundleFileName.set(project.provider { extension.styles.webCssBundleFileName })
+            manifestEnabled.set(project.provider { extension.application.desktop.webManifest.enabled })
+            allowInstallAsWebApp.set(project.provider { extension.application.desktop.webManifest.allowInstallAsWebApp })
+            manifestFileName.set(project.provider { extension.application.desktop.webManifest.fileName })
+            manifestId.set(project.provider { extension.application.desktop.webManifest.id })
+            manifestName.set(project.provider { extension.application.desktop.webManifest.name })
+            manifestShortName.set(project.provider { extension.application.desktop.webManifest.shortName })
+            manifestDescription.set(project.provider { extension.application.desktop.webManifest.description })
+            manifestStartUrl.set(project.provider { extension.application.desktop.webManifest.startUrl })
+            manifestScope.set(project.provider { extension.application.desktop.webManifest.scope })
+            manifestDisplay.set(project.provider { extension.application.desktop.webManifest.display })
+            manifestDisplayOverride.set(project.provider { extension.application.desktop.webManifest.displayOverride.toList() })
+            manifestOrientation.set(project.provider { extension.application.desktop.webManifest.orientation })
+            manifestThemeColor.set(project.provider { extension.application.desktop.webManifest.themeColor })
+            manifestBackgroundColor.set(project.provider { extension.application.desktop.webManifest.backgroundColor })
+            manifestLang.set(project.provider { extension.application.desktop.webManifest.lang })
+            manifestDir.set(project.provider { extension.application.desktop.webManifest.dir })
+            manifestCategories.set(project.provider { extension.application.desktop.webManifest.categories.toList() })
+            manifestPreferRelatedApplications.set(project.provider { extension.application.desktop.webManifest.preferRelatedApplications })
+            manifestAppleStatusBarStyle.set(project.provider { extension.application.desktop.webManifest.appleStatusBarStyle })
+            manifestIcons.set(project.provider { extension.application.desktop.webManifest.icons.toList() })
+            manifestShortcuts.set(project.provider { extension.application.desktop.webManifest.shortcuts.toList() })
             outputDirectory.set(project.layout.buildDirectory.dir("dist/web"))
         }
 
@@ -329,6 +359,9 @@ class GenericUiGradlePlugin : Plugin<Project> {
                 resolveModuleDependency(project, "$extPath:common", version)?.let { dep ->
                     project.dependencies.add(commonConfigName, dep)
                     addDepToEnabledBackendConfigs(project, backends, dep, commonConfigName)
+                }
+                if (backends.requiresSharedSystemModule) {
+                    addBackendModuleDependency(project, ":system:shared", "$extPath:sharedSystem", version, commonConfigName)
                 }
                 if (backends.requiresSharedDesktopModule) {
                     addBackendModuleDependency(project, ":desktop:shared", "$extPath:desktop:shared", version, commonConfigName)
@@ -801,6 +834,33 @@ class GenericUiGradlePlugin : Plugin<Project> {
                     "linuxX64QtImplementation",
                     "linuxArm64QtImplementation"
                 )
+            ":system:shared" ->
+                allExisting(
+                    "systemCommonImplementation",
+                    "systemMainImplementation",
+                    "desktopCommonImplementation",
+                    "desktopMainImplementation",
+                    "desktopNativeCommonImplementation",
+                    "desktopNativeMainImplementation",
+                    "nativeDesktopCommonImplementation",
+                    "nativeDesktopMainImplementation",
+                    "mobileCommonImplementation",
+                    "mobileMainImplementation",
+                    "swingImplementation",
+                    "swingMainImplementation",
+                    "jvmMainImplementation",
+                    "androidImplementation",
+                    "androidMainImplementation",
+                    "mingwX64MainImplementation",
+                    "linuxX64MainImplementation",
+                    "linuxArm64MainImplementation",
+                    "macosX64MainImplementation",
+                    "macosArm64MainImplementation",
+                    "iosMainImplementation",
+                    "iosArm64MainImplementation",
+                    "iosSimulatorArm64MainImplementation",
+                    "iosX64MainImplementation"
+                )
             ":desktop:shared" ->
                 allExisting(
                     "desktopNativeCommonImplementation",
@@ -879,10 +939,12 @@ class GenericUiGradlePlugin : Plugin<Project> {
          */
         val PROJECT_OF_PROJECTS_EXTENSIONS: Set<String> = setOf(
             ":extensions:gpu",
+            ":extensions:imageprocessing",
             ":extensions:canvas2d",
             ":extensions:canvas3d",
             ":extensions:media",
             ":extensions:webview",
+            ":extensions:alien",
             ":tests"
         )
 
@@ -903,14 +965,20 @@ class GenericUiGradlePlugin : Plugin<Project> {
             ":web",
             ":extensions:gpu",
             ":extensions:gpu:common",
+            ":extensions:gpu:sharedSystem",
             ":extensions:gpu:desktop:shared",
             ":extensions:gpu:desktop:swing",
             ":extensions:gpu:mobile:shared",
             ":extensions:gpu:mobile:android",
             ":extensions:gpu:mobile:ios",
             ":extensions:gpu:web",
+            ":extensions:imageprocessing",
+            ":extensions:imageprocessing:common",
+            ":extensions:imageprocessing:sharedSystem",
+            ":extensions:imageprocessing:web",
             ":extensions:canvas2d",
             ":extensions:canvas2d:common",
+            ":extensions:canvas2d:sharedSystem",
             ":extensions:canvas2d:desktop:shared",
             ":extensions:canvas2d:desktop:windows",
             ":extensions:canvas2d:desktop:macos",
@@ -923,6 +991,7 @@ class GenericUiGradlePlugin : Plugin<Project> {
             ":extensions:canvas2d:web",
             ":extensions:canvas3d",
             ":extensions:canvas3d:common",
+            ":extensions:canvas3d:sharedSystem",
             ":extensions:canvas3d:desktop:shared",
             ":extensions:canvas3d:desktop:windows",
             ":extensions:canvas3d:desktop:macos",
@@ -935,6 +1004,7 @@ class GenericUiGradlePlugin : Plugin<Project> {
             ":extensions:canvas3d:web",
             ":extensions:media",
             ":extensions:media:common",
+            ":extensions:media:sharedSystem",
             ":extensions:media:desktop:shared",
             ":extensions:media:desktop:windows",
             ":extensions:media:desktop:macos",
@@ -947,6 +1017,7 @@ class GenericUiGradlePlugin : Plugin<Project> {
             ":extensions:media:web",
             ":extensions:webview",
             ":extensions:webview:common",
+            ":extensions:webview:sharedSystem",
             ":extensions:webview:desktop:shared",
             ":extensions:webview:desktop:windows",
             ":extensions:webview:desktop:macos",
@@ -957,7 +1028,11 @@ class GenericUiGradlePlugin : Plugin<Project> {
             ":extensions:webview:mobile:android",
             ":extensions:webview:mobile:ios",
             ":extensions:webview:web",
-            ":extensions:imageprocessing",
+            ":extensions:alien",
+            ":extensions:alien:common",
+            ":extensions:alien:sharedSystem",
+            ":extensions:alien:web",
+            ":extensions:alien:dsl",
             ":extensions:aichat",
             ":extensions:aichat:dsl",
             ":extensions:codeeditor",

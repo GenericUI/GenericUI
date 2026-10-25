@@ -12,13 +12,13 @@ data class CssRule(
     val mediaMaxWidthPx: Int? = null
 ) {
     val pseudoClass: String? = run {
-        val lastSegment = selector.trim().split(Regex("[\\s>+~]+")).lastOrNull()
-        val colonIdx = lastSegment?.indexOf(':') ?: -1
-        if (colonIdx < 0 || lastSegment == null) null else lastSegment.substring(colonIdx + 1).trim().lowercase()
+        val lastSegment = selector.trim().split(Regex("[\\s>+~]+")).lastOrNull() ?: return@run null
+        val match = PSEUDO_CLASS_REGEX.find(lastSegment)
+        match?.groupValues?.get(1)?.lowercase()
     }
 
     val baseSelectorWithoutPseudo: String =
-        selector.replace(Regex(":(hover|focus|active|visited|disabled)\\b", RegexOption.IGNORE_CASE), "").trim()
+        selector.replace(PSEUDO_CLASS_REGEX, "").trim()
 
     fun matchesMediaQuery(viewportWidthPx: Int): Boolean {
         if (mediaMinWidthPx != null && viewportWidthPx < mediaMinWidthPx) return false
@@ -27,12 +27,18 @@ data class CssRule(
     }
 
     companion object {
+        private val PSEUDO_CLASS_REGEX =
+            Regex("(?<!\\\\):(hover|focus-visible|focus|active|visited|disabled|checked|first-child|last-child|nth-child\\([^)]*\\))\\b", RegexOption.IGNORE_CASE)
+
         fun computeSpecificity(selector: String): Int {
             val cleaned = selector.trim()
             if (cleaned == "*") return 0
-            val ids = cleaned.count { it == '#' }
-            val classes = cleaned.count { it == '.' || it == '[' || it == ':' }
-            val elements = cleaned.split(Regex("[\\s>+~]+"))
+            val withoutNamespaceColon = cleaned
+                .replace("genericui\\:", "genericui_")
+                .replace("genericui:", "genericui_")
+            val ids = withoutNamespaceColon.count { it == '#' }
+            val classes = withoutNamespaceColon.count { it == '.' || it == '[' || it == ':' }
+            val elements = withoutNamespaceColon.split(Regex("[\\s>+~]+"))
                 .map { it.replace(Regex(":.*"), "") }
                 .count { token ->
                     token.isNotEmpty() &&

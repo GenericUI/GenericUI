@@ -13,8 +13,13 @@ class TitleBar(
     var showWindowIcon: Boolean = true,
     var heightPx: Int? = null,
     var controlsPlacement: TitleBarControlsPlacement = TitleBarControlsPlacement.PLATFORM_DEFAULT,
-    var customTitleBar: Boolean = true
+    var customTitleBar: Boolean = true,
+    var showMinimizeButton: Boolean = true,
+    var showMaximizeButton: Boolean = true,
+    var showCloseButton: Boolean = true
 ) {
+    var htmlTag: String = "genericui:titlebar"
+
     private val _leadingComponents = mutableListOf<AbstractComponent>()
     private val _centerComponents = mutableListOf<AbstractComponent>()
     private val _trailingComponents = mutableListOf<AbstractComponent>()

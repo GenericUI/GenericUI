@@ -6,23 +6,38 @@ import com.nexustools.genericui.style.RgbaColor
  * In-memory pixel buffer used throughout GenericUI (`ImageView`, [ImageLoader], and
  * `:extensions:imageprocessing` for offscreen GPU-accelerated image manipulation).
  */
-class ImageBuffer(
-    val width: Int,
-    val height: Int,
+open class ImageBuffer(
+    width: Int,
+    height: Int,
     val pixelFormat: PixelFormat = PixelFormat.RGBA_8888,
     val colorSpace: ImageColorSpace = ImageColorSpace.SRGB,
-    val bytes: ByteArray = ByteArray(width.coerceAtLeast(1) * height.coerceAtLeast(1) * pixelFormat.bytesPerPixel)
+    bytes: ByteArray = ByteArray(width.coerceAtLeast(1) * height.coerceAtLeast(1) * pixelFormat.bytesPerPixel)
 ) {
+    open var width: Int = width.coerceAtLeast(1)
+        protected set
+
+    open var height: Int = height.coerceAtLeast(1)
+        protected set
+
+    open var bytes: ByteArray = bytes
+        protected set
+
     val strideBytes: Int
         get() = width * pixelFormat.bytesPerPixel
 
     val pixelCount: Int
         get() = width * height
 
+    protected fun updateDimensionsAndBytes(newWidth: Int, newHeight: Int, newBytes: ByteArray) {
+        this.width = newWidth.coerceAtLeast(1)
+        this.height = newHeight.coerceAtLeast(1)
+        this.bytes = newBytes
+    }
+
     /**
      * Reads the color at `(x, y)` as an [RgbaColor].
      */
-    fun getPixel(x: Int, y: Int): RgbaColor {
+    open fun getPixel(x: Int, y: Int): RgbaColor {
         if (x !in 0 until width || y !in 0 until height) return RgbaColor.TRANSPARENT
         val idx = (y * width + x) * pixelFormat.bytesPerPixel
         return when (pixelFormat) {
@@ -65,7 +80,7 @@ class ImageBuffer(
     /**
      * Writes an [RgbaColor] at `(x, y)`.
      */
-    fun setPixel(x: Int, y: Int, color: RgbaColor) {
+    open fun setPixel(x: Int, y: Int, color: RgbaColor) {
         if (x !in 0 until width || y !in 0 until height) return
         val idx = (y * width + x) * pixelFormat.bytesPerPixel
         val alphaByte = color.a.coerceIn(0, 255).toByte()
@@ -108,12 +123,65 @@ class ImageBuffer(
     /**
      * Fills the entire buffer with [color].
      */
-    fun fill(color: RgbaColor): ImageBuffer = apply {
-        for (y in 0 until height) {
-            for (x in 0 until width) {
-                setPixel(x, y, color)
+    open fun fill(color: RgbaColor): ImageBuffer = apply {
+        val alphaByte = color.a.coerceIn(0, 255).toByte()
+        if (color.r == 0 && color.g == 0 && color.b == 0 && alphaByte == 0.toByte()) {
+            bytes.fill(0)
+            return@apply
+        }
+        when (pixelFormat) {
+            PixelFormat.RGBA_8888 -> {
+                val rB = color.r.toByte()
+                val gB = color.g.toByte()
+                val bB = color.b.toByte()
+                var i = 0
+                val limit = bytes.size - 3
+                while (i < limit) {
+                    bytes[i] = rB
+                    bytes[i + 1] = gB
+                    bytes[i + 2] = bB
+                    bytes[i + 3] = alphaByte
+                    i += 4
+                }
+            }
+            PixelFormat.BGRA_8888 -> {
+                val rB = color.r.toByte()
+                val gB = color.g.toByte()
+                val bB = color.b.toByte()
+                var i = 0
+                val limit = bytes.size - 3
+                while (i < limit) {
+                    bytes[i] = bB
+                    bytes[i + 1] = gB
+                    bytes[i + 2] = rB
+                    bytes[i + 3] = alphaByte
+                    i += 4
+                }
+            }
+            else -> {
+                for (y in 0 until height) {
+                    for (x in 0 until width) {
+                        setPixel(x, y, color)
+                    }
+                }
             }
         }
+    }
+
+    /**
+     * Returns `true` if every pixel in this buffer has zero alpha (`a == 0`).
+     */
+    fun isFullyTransparent(): Boolean {
+        if (pixelFormat != PixelFormat.RGBA_8888 && pixelFormat != PixelFormat.BGRA_8888) {
+            return false
+        }
+        var i = 3
+        val size = bytes.size
+        while (i < size) {
+            if (bytes[i] != 0.toByte()) return false
+            i += 4
+        }
+        return true
     }
 
     /**
@@ -140,6 +208,13 @@ class ImageBuffer(
         }
         return dst
     }
+
+    /**
+     * Returns `this` buffer directly without copying when already [PixelFormat.RGBA_8888],
+     * or converts to [PixelFormat.RGBA_8888] otherwise.
+     */
+    fun asRgba8888(): ImageBuffer =
+        if (pixelFormat == PixelFormat.RGBA_8888) this else toRgba8888()
 
     /**
      * Extracts a rectangular sub-region as a new [ImageBuffer].

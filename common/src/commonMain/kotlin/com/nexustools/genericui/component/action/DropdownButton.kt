@@ -24,6 +24,7 @@ open class DropdownButton(
     var onItemSelected: ((String) -> Unit)? = null
 
     init {
+        htmlTag = "genericui:dropdownbutton"
         this.type = type
     }
 

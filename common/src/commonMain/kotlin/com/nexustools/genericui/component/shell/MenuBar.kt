@@ -5,6 +5,10 @@ import com.nexustools.genericui.core.NativeFactory
 import com.nexustools.genericui.nativeimpl.shell.MenuBarNativeImpl
 
 class MenuBar : AbstractContainer("navbar-nav") {
+    init {
+        htmlTag = "genericui:menubar"
+    }
+
     override fun createNativeImpl(factory: NativeFactory): MenuBarNativeImpl<*> =
         factory.createMenuBar()
 

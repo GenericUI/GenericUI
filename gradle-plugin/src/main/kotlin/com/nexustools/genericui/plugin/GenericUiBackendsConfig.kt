@@ -12,7 +12,9 @@ import org.gradle.api.Action
  *   `:android` and `:ios`.
  * - Web backend: `:web` (HTML5 DOM / Canvas2D / WebGL2 / WebGPU).
  */
-open class GenericUiBackendsConfig {
+open class GenericUiBackendsConfig(
+    val webManifest: GenericUiWebManifestConfig = GenericUiWebManifestConfig()
+) {
     var desktopEnabled: Boolean = false
     var mobileEnabled: Boolean = false
     var windowsEnabled: Boolean = false
@@ -83,6 +85,16 @@ open class GenericUiBackendsConfig {
     /** Enables or disables the `:web` (HTML5 DOM / Canvas2D / WebGL2 / WebGPU) backend. */
     fun web(enabled: Boolean = true) {
         webEnabled = enabled
+    }
+
+    /**
+     * Enables the `:web` backend and configures its W3C Progressive Web App (PWA) `manifest.webmanifest`
+     * and standalone WebApp installation (`allowInstallAsWebApp`).
+     */
+    fun web(action: Action<in GenericUiWebManifestConfig>) {
+        webEnabled = true
+        webManifest.enabled = true
+        action.execute(webManifest)
     }
 
     /**
@@ -162,6 +174,10 @@ open class GenericUiBackendsConfig {
     /** True whenever `:mobile` or either mobile backend (`:android`, `:ios`) is enabled. */
     val requiresSharedMobileModule: Boolean
         get() = mobileEnabled || androidEnabled || iosEnabled
+
+    /** True whenever any non-web system backend (`:desktop`, `:swing`, or `:mobile`) is enabled. */
+    val requiresSharedSystemModule: Boolean
+        get() = requiresSharedDesktopModule || swingConfig.enabled || requiresSharedMobileModule
 
     /**
      * Returns the list of enabled GenericUI backend module paths, automatically including

@@ -19,11 +19,12 @@ class FormGroup(
     var helpLabel: Label? = helpText?.let { Label(it, tagName = "div", classPrefix = "form-text") }
 
     init {
+        htmlTag = "genericui:formgroup"
         if (labelText.isNotEmpty()) addChild(label)
         if (control != null) addChild(control)
         helpLabel?.let { addChild(it) }
     }
 
     override fun createNativeImpl(factory: NativeFactory): ContainerNativeImpl<*> =
-        factory.createContainer("form-group mb-3")
+        factory.createContainer("form-group mb-3", htmlTag)
 }

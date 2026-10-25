@@ -15,6 +15,10 @@ open class DialogWindow(
     modal: Boolean = true,
     presentationStyle: DialogPresentationStyle = DialogPresentationStyle.MODAL_CENTERED
 ) : AbstractContainer() {
+    init {
+        htmlTag = "genericui:dialogwindow"
+    }
+
     var title: String = title
         set(value) {
             field = value

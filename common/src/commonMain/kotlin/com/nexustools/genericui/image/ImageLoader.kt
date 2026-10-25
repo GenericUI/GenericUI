@@ -1,11 +1,13 @@
 package com.nexustools.genericui.image
 
 import com.nexustools.genericui.core.GenericUI
+import com.nexustools.genericui.image.cache.ImageCacheManager
 import com.nexustools.genericui.image.codec.LibJpegCodec
 import com.nexustools.genericui.image.codec.LibPngCodec
 import com.nexustools.genericui.image.codec.LibWebpCodec
 import com.nexustools.genericui.nativeimpl.image.ImageCodecNativeImpl
 import com.nexustools.genericui.style.RgbaColor
+import com.nexustools.genericui.util.CacheDirectory
 
 /**
  * Full cross-platform Image API in the base GenericUI project for probing metadata,
@@ -36,6 +38,40 @@ object ImageLoader {
     var platformEncoderHook: ((ImageBuffer, ImageEncodeOptions) -> ByteArray?)? = null
 
     /**
+     * The persistent OS [CacheDirectory] (`<userCacheDir>/<appName>/images`) used by [ImageLoader]
+     * and [ImageCacheManager] to store downloaded URL images and resolved assets.
+     */
+    val cacheDirectory: CacheDirectory
+        get() = ImageCacheManager.cacheDirectory
+
+    /**
+     * Resolved OS directory path for cached images.
+     */
+    val cacheDirectoryPath: String
+        get() = ImageCacheManager.cacheDirectoryPath
+
+    /**
+     * Total disk bytes currently used by cached images in [cacheDirectory].
+     */
+    val cachedDiskByteSize: Long
+        get() = ImageCacheManager.cachedDiskByteSize
+
+    /**
+     * Clears both the in-memory decoded image cache and all cached image files in the OS [cacheDirectory].
+     */
+    fun clearCache(): Int = ImageCacheManager.clearCache()
+
+    /**
+     * Evicts a single cached URL or path from both memory and the OS [cacheDirectory].
+     */
+    fun evictFromCache(url: String): Boolean = ImageCacheManager.evict(url)
+
+    /**
+     * Returns `true` if [url] is currently cached in memory or in the OS [cacheDirectory].
+     */
+    fun isCached(url: String): Boolean = ImageCacheManager.isCached(url)
+
+    /**
      * Probes the dimensions and [ImageMetadata] of an [ImageSource] without decoding the full pixel payload.
      */
     fun probeMetadata(source: ImageSource): ImageMetadata {
@@ -51,7 +87,9 @@ object ImageLoader {
 
         activeNativeCodec?.probeMetadata(source)?.let { return it }
 
-        val bytes = source.encodedBytes ?: ByteArray(0)
+        val bytes = source.encodedBytes
+            ?: source.uriOrPath?.let { ImageCacheManager.fetchAndCacheBytes(it) }
+            ?: ByteArray(0)
         val detectedFormat = if (bytes.isNotEmpty()) {
             ImageFormat.detectFromHeader(bytes)
         } else {
@@ -99,6 +137,7 @@ object ImageLoader {
         }
 
         val bytes = source.encodedBytes
+            ?: source.uriOrPath?.let { ImageCacheManager.fetchAndCacheBytes(it) }
         if (bytes != null && bytes.isNotEmpty()) {
             val fmt = ImageFormat.detectFromHeader(bytes)
             val decoded = when (fmt) {

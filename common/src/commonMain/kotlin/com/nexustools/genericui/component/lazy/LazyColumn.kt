@@ -13,4 +13,8 @@ class LazyColumn(
     orientation = Orientation.VERTICAL,
     estimatedItemExtentPx = estimatedItemHeightPx,
     overscanItems = overscanItems
-)
+) {
+    init {
+        htmlTag = "genericui:lazycolumn"
+    }
+}

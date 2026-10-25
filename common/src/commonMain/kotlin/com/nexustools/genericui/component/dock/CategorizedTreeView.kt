@@ -9,6 +9,10 @@ import com.nexustools.genericui.nativeimpl.layout.ContainerNativeImpl
  * layer hierarchies, and shared object libraries).
  */
 class CategorizedTreeView : AbstractContainer() {
+    init {
+        htmlTag = "genericui:categorizedtreeview"
+    }
+
     var searchQuery: String = ""
 
     private val _categories = linkedMapOf<String, MutableList<Pair<String, String>>>()
@@ -33,5 +37,5 @@ class CategorizedTreeView : AbstractContainer() {
     }
 
     override fun createNativeImpl(factory: NativeFactory): ContainerNativeImpl<*> =
-        factory.createContainer("categorized-tree-view")
+        factory.createContainer("categorized-tree-view", htmlTag)
 }

@@ -11,6 +11,10 @@ import com.nexustools.genericui.nativeimpl.dock.DockGroupNativeImpl
 class DockGroup(
     mode: DockGroupMode = DockGroupMode.TABS
 ) : AbstractContainer() {
+    init {
+        htmlTag = "genericui:dockgroup"
+    }
+
     var mode: DockGroupMode = mode
         set(value) {
             field = value

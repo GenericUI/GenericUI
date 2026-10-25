@@ -38,6 +38,10 @@ open class BadgeTab(
             ownerNotifyUpdated?.invoke(this)
         }
 
+    init {
+        htmlTag = "genericui:badgetab"
+    }
+
     override fun syncStateToNative() {
         super.syncStateToNative()
         typedNative<TabNativeImpl<*>>()?.setBadgeNative(badgeText, badgeVariant.name.lowercase())

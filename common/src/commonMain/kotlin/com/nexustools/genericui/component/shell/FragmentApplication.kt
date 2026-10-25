@@ -14,10 +14,12 @@ import com.nexustools.genericui.component.fragment.FragmentHost
  */
 open class FragmentApplication(
     initialFragment: Fragment,
-    title: String = "GenericUI Application"
+    title: String = "GenericUI Application",
+    initialThemeColor: String? = null
 ) : Application(
     initialContent = null,
-    title = title
+    title = title,
+    initialThemeColor = initialThemeColor
 ), FragmentHost {
 
     val rootFragmentContainer: FragmentContainer = FragmentContainer(initialFragment, hostWindow = mainWindow)

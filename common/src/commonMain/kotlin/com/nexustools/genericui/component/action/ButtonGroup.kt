@@ -11,6 +11,10 @@ import com.nexustools.genericui.nativeimpl.layout.ContainerNativeImpl
 class ButtonGroup(
     val orientation: Orientation = Orientation.HORIZONTAL
 ) : AbstractContainer() {
+    init {
+        htmlTag = "genericui:buttongroup"
+    }
+
     override fun createNativeImpl(factory: NativeFactory): ContainerNativeImpl<*> =
-        factory.createContainer(if (orientation == Orientation.VERTICAL) "btn-group-vertical" else "btn-group")
+        factory.createContainer(if (orientation == Orientation.VERTICAL) "btn-group-vertical" else "btn-group", htmlTag)
 }

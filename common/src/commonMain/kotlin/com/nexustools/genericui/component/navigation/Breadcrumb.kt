@@ -8,6 +8,10 @@ import com.nexustools.genericui.nativeimpl.layout.ContainerNativeImpl
  * Hierarchical path navigation trail (`<ol class="breadcrumb">`).
  */
 class Breadcrumb : AbstractContainer() {
+    init {
+        htmlTag = "genericui:breadcrumb"
+    }
+
     private val _items = mutableListOf<BreadcrumbItem>()
     val items: List<BreadcrumbItem> get() = _items
 
@@ -17,5 +21,5 @@ class Breadcrumb : AbstractContainer() {
     }
 
     override fun createNativeImpl(factory: NativeFactory): ContainerNativeImpl<*> =
-        factory.createContainer("breadcrumb")
+        factory.createContainer("breadcrumb", htmlTag)
 }

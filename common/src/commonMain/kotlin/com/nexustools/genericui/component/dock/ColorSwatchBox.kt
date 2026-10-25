@@ -13,6 +13,10 @@ class ColorSwatchBox(
     foreground: RgbaColor = RgbaColor.BLACK,
     background: RgbaColor = RgbaColor.WHITE
 ) : AbstractContainer() {
+    init {
+        htmlTag = "genericui:colorswatchbox"
+    }
+
     var foregroundColor: RgbaColor = foreground
         set(value) {
             field = value
@@ -54,5 +58,5 @@ class ColorSwatchBox(
     }
 
     override fun createNativeImpl(factory: NativeFactory): ContainerNativeImpl<*> =
-        factory.createContainer("color-swatch-box")
+        factory.createContainer("color-swatch-box", htmlTag)
 }

@@ -1,6 +1,6 @@
 # GenericUI IntelliJ IDEA Plugin Guide (`:idea-plugin`)
 
-The `:idea-plugin` module (`D:\IdeaProjects\GenericUI\idea-plugin`) provides an IntelliJ IDEA integration for scaffolding new `GenericUI` multiplatform projects and managing target backends, extensions, and [hierarchical source sets](sourcesets.md) in existing projects using interactive checkbox dialogs.
+The `:idea-plugin` module (`idea-plugin/`) provides an IntelliJ IDEA integration for scaffolding new `GenericUI` multiplatform projects and managing target backends, extensions, and [hierarchical source sets](sourcesets.md) in existing projects using interactive checkbox dialogs.
 
 ---
 

@@ -16,3 +16,6 @@
 [submodule "tests"]
 	path = tests
 	url = git@github.com:GenericUI/Tests.git
+[submodule "examples"]
+	path = examples
+	url = https://github.com/GenericUI/Examples.git

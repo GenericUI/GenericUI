@@ -1,5 +1,6 @@
 package com.nexustools.genericui.component.shell
 
+import com.nexustools.genericui.component.dock.PanelWindow
 import com.nexustools.genericui.component.layout.Container
 import com.nexustools.genericui.component.navigation.BottomNavigationBar
 import com.nexustools.genericui.component.navigation.Navbar
@@ -16,27 +17,27 @@ import com.nexustools.genericui.window.TitleBar
 import com.nexustools.genericui.window.WindowConfiguration
 
 /**
- * Top-level OS or browser window (`Window`).
+ * Top-level host window (`Window`).
  *
  * **Deferred Upward `NativeImpl` Resolution Root**:
  * - When [show] is called (or when the window is attached to a running [Application]), [isWindowShown] becomes `true`
  *   and [resolveActiveFactory] provides the active [NativeFactory] to all visible descendant components.
  * - While a [Window] is not yet shown, its children remain in lightweight Kotlin state (`nativeImpl == null`).
  *
- * **`TitleBar` Instruction Class & Platform-Aware `MenuBar` Handling**:
+ * **`TitleBar` Instruction Class & `MenuBar` Handling**:
  * - [setTitleBar] accepts a [TitleBar] instruction object (not a component).
- * - On platforms where `supportsCustomTitleBar == false` (`:web`, `:android`, `:ios`), [setTitleBar] is a 0-CPU no-op,
- *   and components inside [TitleBar] remain unattached (`nativeImpl == null`).
- * - When `titleBar.embedMenuBar == true`:
- *   - On `:windows`, `:gtk`, `:qt`, `:swing` (`supportsEmbeddedMenuBarInTitleBar == true`), the `MenuBar` is embedded
- *     into the custom window titlebar.
- *   - On **`:macos`** (`supportsEmbeddedMenuBarInTitleBar == false`), the `MenuBar` is **never** embedded into the
- *     window titlebar and is always installed in the macOS system menu bar (`NSApplication.mainMenu`).
+ * - When neither `supportsCustomTitleBar` nor `supportsNavbarMenuBar` is enabled on the active [WindowNativeImpl],
+ *   [setTitleBar] is a 0-CPU no-op and components inside [TitleBar] remain unattached (`nativeImpl == null`).
+ * - When `titleBar.embedMenuBar == true` and `supportsEmbeddedMenuBarInTitleBar == true`, the `MenuBar` is embedded
+ *   into the custom window titlebar; otherwise it is installed in the system/window menu bar slot.
  */
 open class Window(
     title: String = "GenericUI",
     initialSize: Size = Size(1280, 800)
 ) : AbstractContainer("window") {
+    init {
+        htmlTag = "genericui:window"
+    }
 
     internal var ExplicitFactory: NativeFactory? = null
     var isWindowShown: Boolean = false
@@ -58,8 +59,59 @@ open class Window(
     private var onFocusListener: ((Boolean) -> Unit)? = null
     private var onCloseRequestedListener: (() -> Boolean)? = null
 
+    private val _attachedPanelWindows = mutableListOf<PanelWindow>()
+    val attachedPanelWindows: List<PanelWindow>
+        get() = _attachedPanelWindows
+
+    var isWindowFocused: Boolean = false
+        private set
+
+    var frontOrderSequence: Long = 0L
+        internal set
+
     private val winImpl: WindowNativeImpl<*>?
         get() = typedNative()
+
+    internal fun registerAttachedPanelWindow(panelWindow: PanelWindow) {
+        if (panelWindow !== this && panelWindow !in _attachedPanelWindows) {
+            _attachedPanelWindows.add(panelWindow)
+        }
+    }
+
+    internal fun unregisterAttachedPanelWindow(panelWindow: PanelWindow) {
+        _attachedPanelWindows.remove(panelWindow)
+    }
+
+    open fun bringToFront() {
+        frontOrderSequence = nextFrontSequence()
+        winImpl?.bringToFront()
+        if (_attachedPanelWindows.isNotEmpty()) {
+            bringAttachedPanelWindowsToFront()
+        }
+    }
+
+    fun bringAttachedPanelWindowsToFront() {
+        for (panelWin in _attachedPanelWindows.toList()) {
+            if (panelWin.isVisible) {
+                panelWin.bringToFront()
+            }
+        }
+    }
+
+    open fun focus() {
+        dispatchWindowFocusChanged(true)
+    }
+
+    fun dispatchWindowFocusChanged(focused: Boolean) {
+        isFocused = focused
+        isWindowFocused = focused
+        if (focused) {
+            frontOrderSequence = nextFrontSequence()
+            winImpl?.bringToFront()
+            bringAttachedPanelWindowsToFront()
+        }
+        onFocusListener?.invoke(focused)
+    }
 
     override fun resolveActiveFactory(): NativeFactory? {
         if (!isWindowShown || !isVisible) return null
@@ -82,15 +134,22 @@ open class Window(
         syncNavBarToNative(wImpl)
         syncBottomNavToNative(wImpl)
         wImpl.setOnWindowResize(onResizeListener)
-        wImpl.setOnWindowFocusChanged(onFocusListener)
+        wImpl.setOnWindowFocusChanged { focused ->
+            dispatchWindowFocusChanged(focused)
+        }
         wImpl.setOnWindowCloseRequested(onCloseRequestedListener)
+        for (panelWin in _attachedPanelWindows.toList()) {
+            panelWin.syncToolModalAttachmentToNative()
+        }
     }
 
     private fun syncTitleBarAndMenuBarToNative(impl: WindowNativeImpl<*>) {
         val tb = titleBarInstructions
-        if (impl.supportsCustomTitleBar && tb != null) {
+        if ((impl.supportsCustomTitleBar || impl.supportsNavbarMenuBar || impl.supportsMobileNavbarMenuBar) && tb != null) {
             for (comp in tb.leadingComponents + tb.centerComponents + tb.trailingComponents) {
-                comp.parent = this
+                if (comp.parent == null) {
+                    comp.parent = this
+                }
                 if (comp.isVisible) comp.ensureNativeImpl()
             }
             impl.applyTitleBarInstructions(tb)
@@ -161,7 +220,7 @@ open class Window(
 
     fun isFullscreen(): Boolean = winImpl?.isFullscreen() ?: fullscreenState
 
-    fun setTitleBar(titleBar: TitleBar?) {
+    open fun setTitleBar(titleBar: TitleBar?) {
         titleBarInstructions?.onInstructionsChanged = null
         titleBarInstructions = titleBar
         titleBar?.onInstructionsChanged = {
@@ -195,6 +254,7 @@ open class Window(
 
     fun setContent(container: Container) {
         contentContainer?.let { removeChild(it) }
+        container.htmlTag = "genericui:root"
         contentContainer = container
         addChild(container)
     }
@@ -211,17 +271,28 @@ open class Window(
     fun isInPictureInPicture(): Boolean =
         winImpl?.isInPictureInPicture() ?: false
 
-    fun show(factory: NativeFactory? = null) {
+    open fun show(factory: NativeFactory? = null) {
         if (factory != null) {
             ExplicitFactory = factory
         }
         isWindowShown = true
         val impl = ensureNativeImpl() as? WindowNativeImpl<*>
         impl?.showWindow()
+        frontOrderSequence = nextFrontSequence()
+        for (panelWin in _attachedPanelWindows.toList()) {
+            panelWin.syncToolModalAttachmentToNative()
+            if (panelWin.isVisible) {
+                panelWin.bringToFront()
+            }
+        }
     }
 
-    fun close() {
+    open fun close() {
         isWindowShown = false
+        for (panelWin in _attachedPanelWindows.toList()) {
+            panelWin.close()
+        }
+        _attachedPanelWindows.clear()
         winImpl?.closeWindow()
         dispose()
     }
@@ -233,11 +304,19 @@ open class Window(
 
     fun setOnWindowFocusChanged(listener: ((Boolean) -> Unit)?) {
         onFocusListener = listener
-        winImpl?.setOnWindowFocusChanged(listener)
+        winImpl?.setOnWindowFocusChanged { focused ->
+            dispatchWindowFocusChanged(focused)
+        }
     }
 
     fun setOnWindowCloseRequested(listener: (() -> Boolean)?) {
         onCloseRequestedListener = listener
         winImpl?.setOnWindowCloseRequested(listener)
+    }
+
+    companion object {
+        private var nextFrontOrderSeq: Long = 0L
+
+        internal fun nextFrontSequence(): Long = ++nextFrontOrderSeq
     }
 }

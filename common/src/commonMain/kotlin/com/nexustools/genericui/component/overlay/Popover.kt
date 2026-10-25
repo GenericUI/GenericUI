@@ -13,6 +13,10 @@ open class Popover(
     title: String? = null,
     placement: Placement = Placement.BOTTOM
 ) : AbstractContainer() {
+    init {
+        htmlTag = "genericui:popover"
+    }
+
     var title: String? = title
         set(value) {
             field = value

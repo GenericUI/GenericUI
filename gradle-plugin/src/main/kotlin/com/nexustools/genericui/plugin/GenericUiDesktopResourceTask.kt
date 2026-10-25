@@ -60,6 +60,10 @@ abstract class GenericUiDesktopResourceTask : DefaultTask() {
 
     @get:Input
     @get:Optional
+    abstract val themeColor: Property<String>
+
+    @get:Input
+    @get:Optional
     abstract val windowsIconPath: Property<String>
 
     @get:Input
@@ -118,39 +122,47 @@ abstract class GenericUiDesktopResourceTask : DefaultTask() {
         val resolvedVendor = vendor.get().trim().ifEmpty { "NexusTools" }
         val resolvedDesc = appDescription.orNull?.trim().orEmpty().ifEmpty { resolvedAppName }
         val resolvedCopyright = copyright.orNull?.trim().orEmpty().ifEmpty { "Copyright (c) $resolvedVendor" }
+        val resolvedThemeColor = themeColor.orNull?.trim()?.takeIf { it.isNotEmpty() }
 
-        // 1. Resolve icon files on disk
+        // 1. Resolve icon files on disk (falling back to the default GenericUI icon when none are provided)
+        val defaultIconsDir = File(outDir, "default-icons").apply { mkdirs() }
+        val defaultSvgIcon = GenericUiDefaultIconProvider.ensureDefaultSvgIcon(rootDir, defaultIconsDir)
+        val defaultPngIcon = GenericUiDefaultIconProvider.ensureDefaultPngIcon(rootDir, defaultIconsDir)
+        val defaultIcoIcon = GenericUiDefaultIconProvider.ensureDefaultIcoIcon(rootDir, defaultIconsDir)
+
         val winIconFile = resolveIconFile(
             rootDir,
             windowsIconPath.orNull,
             fallbackIconPath.orNull,
             listOf("icon.ico", "src/windowsMain/resources/icon.ico", "src/commonMain/resources/icon.ico")
-        )
+        ) ?: defaultIcoIcon
         val macIconFile = resolveIconFile(
             rootDir,
             macIconPath.orNull,
             fallbackIconPath.orNull,
-            listOf("icon.icns", "icon.png", "src/macMain/resources/icon.icns", "src/commonMain/resources/icon.png")
-        )
+            listOf("icon.icns", "icon.png", "icon.svg", "src/macMain/resources/icon.icns", "src/commonMain/resources/icon.png", "src/commonMain/resources/icon.svg")
+        ) ?: defaultPngIcon
         val linuxIconFile = resolveIconFile(
             rootDir,
             linuxIconPath.orNull,
             fallbackIconPath.orNull,
-            listOf("icon.png", "icon.svg", "src/linuxCommon/resources/icon.png", "src/commonMain/resources/icon.png")
-        )
+            listOf("icon.svg", "icon.png", "src/linuxCommon/resources/icon.svg", "src/linuxCommon/resources/icon.png", "src/commonMain/resources/icon.svg", "src/commonMain/resources/icon.png")
+        ) ?: defaultSvgIcon
 
         // Stage runtime assets into outDir/runtime-assets so they can be copied next to executables
         val runtimeAssetsDir = File(outDir, "runtime-assets").apply { mkdirs() }
-        if (winIconFile != null && winIconFile.exists()) {
+        defaultSvgIcon.copyTo(File(runtimeAssetsDir, "icon.svg"), overwrite = true)
+        defaultPngIcon.copyTo(File(runtimeAssetsDir, "icon.png"), overwrite = true)
+        if (winIconFile.exists()) {
             winIconFile.copyTo(File(runtimeAssetsDir, "icon.ico"), overwrite = true)
             if (winIconFile.name != "icon.ico") {
                 winIconFile.copyTo(File(runtimeAssetsDir, winIconFile.name), overwrite = true)
             }
         }
-        if (macIconFile != null && macIconFile.exists()) {
+        if (macIconFile.exists()) {
             macIconFile.copyTo(File(runtimeAssetsDir, macIconFile.name), overwrite = true)
         }
-        if (linuxIconFile != null && linuxIconFile.exists()) {
+        if (linuxIconFile.exists()) {
             linuxIconFile.copyTo(File(runtimeAssetsDir, linuxIconFile.name), overwrite = true)
         }
         for (relPath in bundledResourcePaths.getOrElse(emptyList())) {
@@ -198,7 +210,11 @@ abstract class GenericUiDesktopResourceTask : DefaultTask() {
             appendLine("            VALUE \"OriginalFilename\", \"${escapeRcString(resolvedBase)}.exe\\0\"")
             appendLine("            VALUE \"ProductName\", \"${escapeRcString(resolvedAppName)}\\0\"")
             appendLine("            VALUE \"ProductVersion\", \"${escapeRcString(resolvedVersion)}\\0\"")
-            for ((k, v) in customResourceEntries.getOrElse(emptyMap())) {
+            val customEntries = customResourceEntries.getOrElse(emptyMap())
+            if (resolvedThemeColor != null && "ThemeColor" !in customEntries) {
+                appendLine("            VALUE \"ThemeColor\", \"${escapeRcString(resolvedThemeColor)}\\0\"")
+            }
+            for ((k, v) in customEntries) {
                 appendLine("            VALUE \"${escapeRcString(k)}\", \"${escapeRcString(v)}\\0\"")
             }
             appendLine("        END")
@@ -249,6 +265,12 @@ abstract class GenericUiDesktopResourceTask : DefaultTask() {
                 appendLine("    <${if (macHighResolutionCapable.getOrElse(true)) "true" else "false"}/>")
                 appendLine("    <key>NSHumanReadableCopyright</key>")
                 appendLine("    <string>${escapeXml(resolvedCopyright)}</string>")
+                if (resolvedThemeColor != null) {
+                    appendLine("    <key>NSAccentColorName</key>")
+                    appendLine("    <string>AccentColor</string>")
+                    appendLine("    <key>GenericUIThemeColor</key>")
+                    appendLine("    <string>${escapeXml(resolvedThemeColor)}</string>")
+                }
                 appendLine("</dict>")
                 appendLine("</plist>")
             },
@@ -271,6 +293,9 @@ abstract class GenericUiDesktopResourceTask : DefaultTask() {
                 appendLine("Terminal=${linuxTerminal.getOrElse(false)}")
                 appendLine("Categories=${linuxCategories.getOrElse("Utility;Application;")}")
                 appendLine("StartupWMClass=$wmClass")
+                if (resolvedThemeColor != null) {
+                    appendLine("X-GenericUI-ThemeColor=$resolvedThemeColor")
+                }
             },
             Charsets.UTF_8
         )

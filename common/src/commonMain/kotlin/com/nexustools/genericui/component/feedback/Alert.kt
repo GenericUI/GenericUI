@@ -17,10 +17,11 @@ class Alert(
     val messageText: Text = Text(message)
 
     init {
+        htmlTag = "genericui:alert"
         this.type = type
         addChild(messageText)
     }
 
     override fun createNativeImpl(factory: NativeFactory): ContainerNativeImpl<*> =
-        factory.createContainer(if (dismissible) "alert alert-dismissible" else "alert")
+        factory.createContainer(if (dismissible) "alert alert-dismissible" else "alert", htmlTag)
 }

@@ -4,11 +4,17 @@ package com.nexustools.genericui.component.typography
  * Monospace preformatted code display block (`<pre><code>`).
  * For full interactive IDE code editing, use `:extensions:codeeditor` (`IdeCodeEditor`).
  */
-class CodeBlock(
+open class CodeBlock(
     code: String = "",
-    var languageHint: String = "text"
+    var languageHint: String = "text",
+    tagName: String = "pre",
+    classPrefix: String = "code-block font-monospace"
 ) : Label(
     text = code,
-    tagName = "pre",
-    classPrefix = "code-block font-monospace"
-)
+    tagName = tagName,
+    classPrefix = classPrefix
+) {
+    init {
+        htmlTag = tagName
+    }
+}

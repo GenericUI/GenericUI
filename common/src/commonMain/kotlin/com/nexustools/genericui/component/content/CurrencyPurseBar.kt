@@ -47,6 +47,7 @@ open class CurrencyPurseBar(
         get() = decompose(remainingGold).third
 
     init {
+        htmlTag = "genericui:currencypursebar"
         addClass("currency-purse")
         addChild(goldLabel)
         addChild(goldBadge)

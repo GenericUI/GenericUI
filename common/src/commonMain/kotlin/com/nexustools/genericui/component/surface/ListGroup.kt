@@ -7,7 +7,17 @@ import com.nexustools.genericui.nativeimpl.layout.ContainerNativeImpl
 /**
  * Vertical list group container (`<ul class="list-group">`).
  */
-class ListGroup : AbstractContainer() {
+open class ListGroup(
+    tagName: String = "genericui:listgroup",
+    val classPrefix: String = "list-group"
+) : AbstractContainer(classPrefix) {
+    init {
+        htmlTag = tagName
+        if (classPrefix.isNotBlank()) {
+            setClass(classPrefix)
+        }
+    }
+
     override fun createNativeImpl(factory: NativeFactory): ContainerNativeImpl<*> =
-        factory.createContainer("list-group")
+        factory.createContainer(classPrefix, htmlTag)
 }

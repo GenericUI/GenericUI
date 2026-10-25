@@ -12,6 +12,10 @@ class Drawer(
     var placement: Placement = Placement.START,
     var isOpen: Boolean = false
 ) : AbstractContainer() {
+    init {
+        htmlTag = "genericui:drawer"
+    }
+
     fun open() {
         isOpen = true
         isVisible = true
@@ -23,5 +27,5 @@ class Drawer(
     }
 
     override fun createNativeImpl(factory: NativeFactory): ContainerNativeImpl<*> =
-        factory.createContainer("offcanvas")
+        factory.createContainer("offcanvas", htmlTag)
 }

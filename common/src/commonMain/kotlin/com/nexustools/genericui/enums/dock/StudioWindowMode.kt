@@ -11,8 +11,8 @@ enum class StudioWindowMode {
     SINGLE_WINDOW_MODE,
 
     /**
-     * Each StudioDocument is displayed in its own separate native OS Window, and the ToolPalette
-     * and DockAreas/DockGroups are displayed in standalone detached native utility DockWindows.
+     * Each StudioDocument is displayed in its own separate native OS Window, and each DockPanel
+     * is displayed in its own standalone detached native utility PanelWindow.
      */
     MULTI_WINDOW_MODE;
 

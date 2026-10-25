@@ -9,7 +9,7 @@ import com.nexustools.genericui.nativeimpl.typography.MarkdownViewNativeImpl
  */
 class MarkdownView(
     markdown: String = ""
-) : AbstractComponent() {
+) : AbstractComponent(htmlTag = "genericui:markdownview") {
     var markdown: String = markdown
         set(value) {
             field = value

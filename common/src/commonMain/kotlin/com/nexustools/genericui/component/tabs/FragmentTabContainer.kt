@@ -25,6 +25,9 @@ open class FragmentTabContainer(
     tabBarStyle: TabBarStyle = TabBarStyle.TABS,
     internal var hostWindow: Window? = null
 ) : AbstractContainer() {
+    init {
+        htmlTag = "genericui:fragmenttabcontainer"
+    }
 
     private val _entries = mutableListOf<FragmentTabEntry>()
     val entries: List<FragmentTabEntry> get() = _entries

@@ -12,6 +12,10 @@ import com.nexustools.genericui.style.RgbaColor
 class ToolPalette(
     columns: Int = 2
 ) : AbstractContainer() {
+    init {
+        htmlTag = "genericui:toolpalette"
+    }
+
     var columns: Int = columns
         set(value) {
             field = value.coerceAtLeast(1)

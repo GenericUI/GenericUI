@@ -79,6 +79,7 @@ open class Tab(
     internal var ownerRequestClose: ((Tab) -> Boolean)? = null
 
     init {
+        htmlTag = "genericui:tab"
         if (customComponent != null) {
             this.customComponent = customComponent
         }

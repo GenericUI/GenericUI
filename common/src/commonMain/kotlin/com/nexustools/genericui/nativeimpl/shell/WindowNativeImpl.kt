@@ -12,15 +12,20 @@ import com.nexustools.genericui.window.WindowConfiguration
 /**
  * Native implementation contract for a top-level [com.nexustools.genericui.component.shell.Window].
  *
- * Platform-specific [TitleBar] & `MenuBar` behavior:
- * - [supportsCustomTitleBar]: `true` on `:windows`, `:macos`, `:gtk`, `:qt`, `:swing`; `false` on `:web`, `:android`, `:ios`.
- * - [supportsEmbeddedMenuBarInTitleBar]: `true` on `:windows`, `:gtk`, `:qt`, `:swing`; **`false` on `:macos`**
- *   (because macOS always manages the menu bar via `NSApplication.mainMenu`) and `false` on `:web`, `:android`, `:ios`.
+ * Platform-specific [TitleBar] & `MenuBar` capability flags:
+ * - [supportsCustomTitleBar]: `true` when the host window renders custom [TitleBar] components directly.
+ * - [supportsEmbeddedMenuBarInTitleBar]: `true` when the `MenuBar` can be embedded directly into the window titlebar.
+ * - [supportsNavbarMenuBar]: `true` when the `MenuBar` is rendered as a top navigation bar that can also host
+ *   custom [TitleBar] components alongside the menu trigger.
  */
 interface WindowNativeImpl<out W> : AbstractContainerNativeImpl<W> {
     val supportsCustomTitleBar: Boolean
     val supportsEmbeddedMenuBarInTitleBar: Boolean
     val supportsMultiWindow: Boolean
+    val supportsNavbarMenuBar: Boolean
+        get() = false
+    val supportsMobileNavbarMenuBar: Boolean
+        get() = supportsNavbarMenuBar
 
     fun setTitle(title: String)
     fun getTitle(): String
@@ -49,4 +54,13 @@ interface WindowNativeImpl<out W> : AbstractContainerNativeImpl<W> {
     fun setOnWindowResize(listener: ((WindowConfiguration) -> Unit)?)
     fun setOnWindowFocusChanged(listener: ((Boolean) -> Unit)?)
     fun setOnWindowCloseRequested(listener: (() -> Boolean)?)
+
+    fun configureAsToolModalWindow(
+        ownerWindow: WindowNativeImpl<*>?,
+        showInTaskbar: Boolean = false,
+        minimizable: Boolean = false,
+        alwaysOnTopOfOwner: Boolean = true
+    ) {}
+
+    fun bringToFront() {}
 }

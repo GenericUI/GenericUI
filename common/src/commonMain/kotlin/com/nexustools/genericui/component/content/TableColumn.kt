@@ -8,4 +8,6 @@ data class TableColumn(
     val headerText: String,
     val sortable: Boolean = false,
     val widthPx: Int? = null
-)
+) {
+    val htmlTag: String = "th"
+}

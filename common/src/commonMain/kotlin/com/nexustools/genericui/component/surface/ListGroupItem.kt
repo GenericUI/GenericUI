@@ -7,10 +7,15 @@ import com.nexustools.genericui.nativeimpl.layout.ContainerNativeImpl
 /**
  * Item inside a [ListGroup] (`<li class="list-group-item">`).
  */
-class ListGroupItem(
+open class ListGroupItem(
     override var id: String? = null,
-    var isActive: Boolean = false
+    var isActive: Boolean = false,
+    tagName: String = "genericui:listgroupitem"
 ) : AbstractContainer() {
+    init {
+        htmlTag = tagName
+    }
+
     override fun createNativeImpl(factory: NativeFactory): ContainerNativeImpl<*> =
-        factory.createContainer(if (isActive) "list-group-item active" else "list-group-item")
+        factory.createContainer(if (isActive) "list-group-item active" else "list-group-item", htmlTag)
 }

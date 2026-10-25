@@ -86,12 +86,15 @@ object BootstrapClassMapper {
         val customClasses = linkedSetOf<String>()
 
         var sawComponentPrefixToken = false
+        var sawStandaloneBorderToken = false
         for (token in rawTokens) {
             if (token == componentPrefix) {
                 sawComponentPrefixToken = true
                 continue
             }
             if (token == "border") {
+                sawStandaloneBorderToken = true
+                customClasses.add(token)
                 continue
             }
             if (componentPrefix.isNotEmpty() && token.startsWith("$componentPrefix-outline-")) {
@@ -179,6 +182,10 @@ object BootstrapClassMapper {
                 }
             }
             customClasses.add(token)
+        }
+
+        if (sawStandaloneBorderToken && borderType != null) {
+            customClasses.remove("border")
         }
 
         if (sawComponentPrefixToken && type == null && size == null && componentPrefix.isNotEmpty()) {

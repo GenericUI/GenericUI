@@ -12,13 +12,16 @@ open class Container(
 ) : AbstractContainer(classPrefix) {
 
     init {
+        htmlTag = "genericui:container"
         if (classPrefix.isNotBlank()) {
             setClass(classPrefix)
         }
     }
 
-    constructor(tagName: String, classPrefix: String) : this(classPrefix)
+    constructor(tagName: String, classPrefix: String = "") : this(classPrefix) {
+        this.htmlTag = tagName
+    }
 
     override fun createNativeImpl(factory: NativeFactory): ContainerNativeImpl<*> =
-        factory.createContainer(componentClassPrefix)
+        factory.createContainer(componentClassPrefix, htmlTag)
 }

@@ -9,6 +9,10 @@ import com.nexustools.genericui.nativeimpl.layout.ContainerNativeImpl
  * addons, labels, or buttons to a [TextField] or [Select].
  */
 class InputGroup : AbstractContainer() {
+    init {
+        htmlTag = "genericui:inputgroup"
+    }
+
     override fun createNativeImpl(factory: NativeFactory): ContainerNativeImpl<*> =
-        factory.createContainer("input-group")
+        factory.createContainer("input-group", htmlTag)
 }

@@ -15,9 +15,10 @@ class Toast(
     var autoHideDurationMs: Long = 4000L
 ) : AbstractContainer() {
     init {
+        htmlTag = "genericui:toast"
         this.type = type
     }
 
     override fun createNativeImpl(factory: NativeFactory): ContainerNativeImpl<*> =
-        factory.createContainer("toast")
+        factory.createContainer("toast", htmlTag)
 }

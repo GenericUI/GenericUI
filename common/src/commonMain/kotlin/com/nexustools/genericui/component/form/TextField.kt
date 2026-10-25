@@ -12,7 +12,7 @@ open class TextField(
     placeholder: String = "",
     protected val multilineMode: Boolean = false,
     protected val passwordMode: Boolean = false
-) : AbstractComponent() {
+) : AbstractComponent(htmlTag = if (multilineMode) "textarea" else "input") {
     var value: String = value
         set(newVal) {
             if (field == newVal) return

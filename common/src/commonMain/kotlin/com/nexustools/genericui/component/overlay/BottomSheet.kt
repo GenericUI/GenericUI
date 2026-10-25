@@ -12,4 +12,8 @@ class BottomSheet(
     title = title,
     modal = true,
     presentationStyle = DialogPresentationStyle.BOTTOM_SHEET
-)
+) {
+    init {
+        htmlTag = "genericui:bottomsheet"
+    }
+}

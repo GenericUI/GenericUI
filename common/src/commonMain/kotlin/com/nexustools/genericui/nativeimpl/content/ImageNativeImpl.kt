@@ -9,4 +9,6 @@ interface ImageNativeImpl<out W> : NativeImpl<W> {
     fun setFallbackText(fallback: String?)
     fun setObjectFit(fit: ObjectFit)
     fun getObjectFit(): ObjectFit
+    fun setOnLoad(listener: (() -> Unit)?) {}
+    fun setOnError(listener: (() -> Unit)?) {}
 }

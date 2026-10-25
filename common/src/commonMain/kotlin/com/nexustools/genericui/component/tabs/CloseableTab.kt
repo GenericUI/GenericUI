@@ -46,6 +46,7 @@ open class CloseableTab(
         }
 
     init {
+        htmlTag = "genericui:closeabletab"
         this.isDirty = isDirty
     }
 

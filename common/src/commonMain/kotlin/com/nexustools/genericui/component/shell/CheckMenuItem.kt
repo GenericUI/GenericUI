@@ -12,6 +12,7 @@ class CheckMenuItem(
 ) : MenuItem(label = label, shortcut = shortcut) {
 
     init {
+        htmlTag = "genericui:checkmenuitem"
         checkedState = checked
         setOnClick {
             setChecked(!isChecked())

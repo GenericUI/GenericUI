@@ -21,12 +21,12 @@ import com.nexustools.genericui.window.TitleBar
  * - **`StudioWindowMode.SINGLE_WINDOW_MODE`**:
  *   All open [StudioDocument]s (`Main Canvas`, isolated `🧩 Shared Object` sub-canvases) are hosted as [CloseableTab]s
  *   inside the central [TabContainer] (`dockWorkspace.centralDocumentTabs`), surrounded by the docked
- *   [ToolPalette] and [DockPanel]s / [DockGroup]s inside a single window. Individual panels/groups can still be
- *   detached into floating utility [DockWindow]s and re-docked at any time.
+ *   [ToolPalette] and [DockPanel]s / [DockGroup]s inside a single window. Individual panels can still be
+ *   detached into floating utility [PanelWindow]s and re-docked at any time.
  * - **`StudioWindowMode.MULTI_WINDOW_MODE`**:
  *   Each open [StudioDocument] is hosted in its own separate native OS [Window] (`document.detachedDocumentWindow`),
- *   automatically updating [activeDocument] when any document window gains focus, while the [ToolPalette] and
- *   [DockArea]s / [DockGroup]s are detached into standalone native utility [DockWindow]s!
+ *   automatically updating [activeDocument] when any document window gains focus, while each [DockPanel] is
+ *   detached into its own standalone native utility [PanelWindow]!
  * - **Overlay Mode ([setBackgroundComponent] / [overlayPanelsOverBackground])**:
  *   Mounts a full-viewport [backgroundComponent] (such as a Three.js 3D `GLCanvas`/`VKCanvas` or 2D viewport)
  *   as the base layer and positions all [DockArea]s and [DockPanel]s on top of it (`z-index: 10`), passing
@@ -90,9 +90,11 @@ open class DockWorkspaceFragment(
     var activeDocument: StudioDocument? = null
         private set
 
-    private val _detachedDockWindows = mutableListOf<DockWindow>()
-    val detachedDockWindows: List<DockWindow>
-        get() = _detachedDockWindows
+    private val _detachedPanelWindows = mutableListOf<PanelWindow>()
+    val detachedPanelWindows: List<PanelWindow>
+        get() = _detachedPanelWindows
+    val detachedDockWindows: List<PanelWindow>
+        get() = _detachedPanelWindows
 
     private var documentMenuBarFactory: ((StudioDocument?) -> MenuBar)? = null
     private var documentTitleBarFactory: ((StudioDocument?) -> TitleBar)? = null
@@ -102,6 +104,7 @@ open class DockWorkspaceFragment(
     override fun onCreate(savedState: FragmentBundle?) {
         super.onCreate(savedState)
         addChild(dockWorkspace)
+        syncAttachedPanelWindowsToMainWindow()
         documentTabContainer.setOnTabSelected { tabId ->
             val matched = _documents.firstOrNull { it.documentId == tabId }
             if (matched != null && matched !== activeDocument) {
@@ -111,6 +114,20 @@ open class DockWorkspaceFragment(
         documentTabContainer.setOnTabCloseRequested { tabId ->
             closeDocument(tabId)
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        syncAttachedPanelWindowsToMainWindow()
+    }
+
+    fun syncAttachedPanelWindowsToMainWindow() {
+        val mainWin = attachedWindow ?: dockWorkspace.findOwnerWindow() ?: return
+        dockWorkspace.syncFloatingWindowsWithOwnerWindow(mainWin)
+        for (panelWin in _detachedPanelWindows) {
+            panelWin.attachToMainWindow(mainWin)
+        }
+        mainWin.bringAttachedPanelWindowsToFront()
     }
 
     val supportsMultiWindowMode: Boolean
@@ -233,48 +250,39 @@ open class DockWorkspaceFragment(
         dockWorkspace.addDockPanel(panel, position, groupId)
     }
 
-    fun detachDockPanel(panel: DockPanel, bounds: Rect = Rect(100, 100, 320, 480)): DockWindow {
+    fun detachDockPanel(panel: DockPanel, bounds: Rect = Rect(100, 100, 320, 480)): PanelWindow {
         (panel.parent as? com.nexustools.genericui.core.AbstractContainer)?.removeChild(panel)
         panel.setFloating(true)
-        val dockWin = DockWindow(title = panel.title, initialBounds = bounds)
-        dockWin.addChild(panel)
-        dockWin.setOnCloseRequested {
-            reattachDockWindow(dockWin, panel.preferredDockPosition)
+        val mainWin = attachedWindow ?: dockWorkspace.findOwnerWindow()
+        val panelWin = PanelWindow(
+            title = panel.title,
+            panel = panel,
+            initialBounds = bounds,
+            ownerWindow = mainWin
+        )
+        panel.getTitleBar()?.let { panelWin.setTitleBar(it) }
+        if (panel.parent != panelWin) {
+            panelWin.addChild(panel)
         }
-        _detachedDockWindows.add(dockWin)
-        resolveActiveFactory()?.let { dockWin.show(it) }
-        return dockWin
+        panelWin.setOnCloseRequested {
+            reattachPanelWindow(panelWin, panel.preferredDockPosition)
+        }
+        _detachedPanelWindows.add(panelWin)
+        resolveActiveFactory()?.let { panelWin.show(it) }
+        mainWin?.bringAttachedPanelWindowsToFront()
+        return panelWin
     }
 
-    fun detachDockArea(position: DockPosition, bounds: Rect = Rect(80, 80, 340, 640)): DockWindow {
-        val area = dockWorkspace.getDockArea(position)
-        dockWorkspace.removeChild(area)
-        val dockWin = DockWindow(title = "${position.name} Dock", initialBounds = bounds)
-        dockWin.addChild(area)
-        dockWin.setOnCloseRequested {
-            _detachedDockWindows.remove(dockWin)
-            dockWin.removeChild(area)
-            dockWin.hide()
-            dockWorkspace.attachDockArea(position, area)
-        }
-        _detachedDockWindows.add(dockWin)
-        resolveActiveFactory()?.let { dockWin.show(it) }
-        return dockWin
-    }
-
-    fun reattachDockWindow(dockWindow: DockWindow, position: DockPosition = DockPosition.RIGHT) {
-        _detachedDockWindows.remove(dockWindow)
-        val childrenCopy = dockWindow.children.toList()
-        dockWindow.clearChildren()
-        dockWindow.hide()
+    fun reattachPanelWindow(panelWindow: PanelWindow, position: DockPosition = DockPosition.RIGHT) {
+        _detachedPanelWindows.remove(panelWindow)
+        val childrenCopy = panelWindow.children.toList()
+        panelWindow.clearChildren()
+        panelWindow.hide()
         for (child in childrenCopy) {
             when (child) {
                 is DockPanel -> {
                     child.setFloating(false)
                     dockWorkspace.addDockPanel(child, position)
-                }
-                is DockArea -> {
-                    dockWorkspace.attachDockArea(position, child)
                 }
                 else -> {
                     dockWorkspace.getDockArea(position).addChild(child)
@@ -283,8 +291,12 @@ open class DockWorkspaceFragment(
         }
     }
 
+    fun reattachDockWindow(panelWindow: PanelWindow, position: DockPosition = DockPosition.RIGHT) =
+        reattachPanelWindow(panelWindow, position)
+
     private fun migrateToMultiWindowMode() {
         dockWorkspace.windowMode = StudioWindowMode.MULTI_WINDOW_MODE
+        syncAttachedPanelWindowsToMainWindow()
         for ((idx, doc) in _documents.withIndex()) {
             if (idx > 0 && doc.detachedDocumentWindow == null) {
                 spawnDocumentWindow(doc)
@@ -294,9 +306,9 @@ open class DockWorkspaceFragment(
 
     private fun migrateToSingleWindowMode() {
         dockWorkspace.windowMode = StudioWindowMode.SINGLE_WINDOW_MODE
-        for (dockWin in _detachedDockWindows.toList()) {
-            val firstArea = dockWin.children.filterIsInstance<DockArea>().firstOrNull()
-            reattachDockWindow(dockWin, firstArea?.position ?: DockPosition.RIGHT)
+        for (panelWin in _detachedPanelWindows.toList()) {
+            val firstPanel = panelWin.children.filterIsInstance<DockPanel>().firstOrNull() ?: panelWin.panel
+            reattachPanelWindow(panelWin, firstPanel?.preferredDockPosition ?: DockPosition.RIGHT)
         }
         for (doc in _documents) {
             doc.detachedDocumentWindow?.removeChild(doc.content)

@@ -8,6 +8,7 @@ class Icon(
     sizePx: Int = 20
 ) : ImageView(sourceUrl = iconNameOrSvg) {
     init {
+        htmlTag = "i"
         this.widthPx = sizePx
         this.heightPx = sizePx
     }

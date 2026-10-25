@@ -12,7 +12,7 @@ open class CheckBox(
     checked: Boolean = false,
     protected val switchStyle: Boolean = false,
     protected val radioStyle: Boolean = false
-) : AbstractComponent() {
+) : AbstractComponent(htmlTag = "input") {
     var label: String = label
         set(value) {
             field = value

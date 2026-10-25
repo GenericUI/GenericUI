@@ -8,6 +8,7 @@ import com.nexustools.genericui.nativeimpl.dialog.DialogWindowNativeImpl
 import com.nexustools.genericui.nativeimpl.dialog.FileBrowserDialogNativeImpl
 import com.nexustools.genericui.nativeimpl.dialog.StandardDialogsNativeImpl
 import com.nexustools.genericui.nativeimpl.dock.*
+import com.nexustools.genericui.nativeimpl.document.BookContainerNativeImpl
 import com.nexustools.genericui.nativeimpl.feedback.ProgressBarNativeImpl
 import com.nexustools.genericui.nativeimpl.feedback.SpinnerNativeImpl
 import com.nexustools.genericui.nativeimpl.form.CheckboxNativeImpl
@@ -58,8 +59,10 @@ interface NativeFactory {
     fun createDockWindow(): DockWindowNativeImpl<*>
     fun createToolPalette(): ToolPaletteNativeImpl<*>
 
-    // Layout
+    // Layout & Printable Book Documents
     fun createContainer(classPrefix: String = "container"): ContainerNativeImpl<*>
+    fun createContainer(classPrefix: String, tagName: String): ContainerNativeImpl<*> = createContainer(classPrefix)
+    fun createBookContainer(): BookContainerNativeImpl<*>
     fun createScrollView(): ScrollViewNativeImpl<*>
     fun createDivider(): DividerNativeImpl<*>
 
@@ -102,4 +105,14 @@ interface NativeFactory {
     fun createSystemTray(): SystemTrayNativeImpl
     fun createNotificationManager(): NotificationManagerNativeImpl
     fun createNetworkMonitor(): NetworkMonitorNativeImpl
+    fun createPreferenceStore(appName: String = GenericUI.applicationName): PreferenceStoreNativeImpl =
+        DefaultPreferenceStoreNativeImpl(appName)
+    fun createConfigDirectory(
+        appName: String = GenericUI.applicationName,
+        subdirectory: String = ""
+    ): UserDirectoryNativeImpl = DefaultUserDirectoryNativeImpl(appName, subdirectory, "config")
+    fun createCacheDirectory(
+        appName: String = GenericUI.applicationName,
+        subdirectory: String = ""
+    ): UserDirectoryNativeImpl = DefaultUserDirectoryNativeImpl(appName, subdirectory, "cache")
 }

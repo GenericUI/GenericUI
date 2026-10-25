@@ -8,6 +8,10 @@ import com.nexustools.genericui.nativeimpl.layout.ContainerNativeImpl
  * Inset surface container (`well`).
  */
 class Well : AbstractContainer() {
+    init {
+        htmlTag = "genericui:well"
+    }
+
     override fun createNativeImpl(factory: NativeFactory): ContainerNativeImpl<*> =
-        factory.createContainer("well p-3 border rounded")
+        factory.createContainer("well p-3 border rounded", htmlTag)
 }

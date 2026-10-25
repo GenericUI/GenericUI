@@ -51,6 +51,7 @@ open class HorizontalCarouselSelector : VStack() {
     var onItemConfirmed: ((index: Int, id: String) -> Unit)? = null
 
     init {
+        htmlTag = "genericui:horizontalcarouselselector"
         viewport.addChild(trackTable)
         controlsBar.addChild(prevButton)
         controlsBar.addChild(selectButton)

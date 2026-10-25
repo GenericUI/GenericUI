@@ -12,7 +12,7 @@ open class Slider(
     min: Double = 0.0,
     max: Double = 100.0,
     step: Double = 1.0
-) : AbstractComponent() {
+) : AbstractComponent(htmlTag = "input") {
     var min: Double = min
         set(newVal) {
             field = newVal

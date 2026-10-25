@@ -219,8 +219,10 @@ class GenericUiGradlePluginTest {
         java.io.File(stylesSubDir, "app.scss").writeText(
             """
             ${'$'}accent: #ff6600;
-            .card {
-                border-color: ${'$'}accent;
+            genericui:root {
+                .card {
+                    border-color: ${'$'}accent;
+                }
             }
             """.trimIndent()
         )
@@ -244,6 +246,7 @@ class GenericUiGradlePluginTest {
         assertTrue(styleCssContent.contains("#112233"), "Compiled web style.css should resolve imported SASS variables")
         assertTrue(styleCssContent.contains("body .hero"), "Compiled web style.css should flatten nested SASS selectors")
         assertTrue(rootAppCss.readText().contains("#ff6600"), "Compiled web app.css should resolve SASS variables")
+        assertTrue(rootAppCss.readText().contains("genericui\\:root .card"), "Compiled web app.css should escape genericui:<tag> selectors")
     }
 
     @Test
@@ -416,7 +419,7 @@ class GenericUiGradlePluginTest {
         }
 
         kotlin.test.assertEquals("web-icon.svg", ext.application.resolveEffectiveWebIconPath())
-        java.io.File(project.projectDir, "web-icon.svg").writeText("<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 256 256\"></svg>")
+        java.io.File(project.projectDir, "web-icon.svg").writeText("<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 64 64\"></svg>")
 
         val webDistTask = project.tasks.getByName("packageGenericUiWebDistribution") as GenericUiWebDistributionTask
         webDistTask.packageWebDistribution()
@@ -424,21 +427,193 @@ class GenericUiGradlePluginTest {
         val distDir = webDistTask.outputDirectory.get().asFile
         val indexHtmlFile = java.io.File(distDir, "index.html")
         val loaderJsFile = java.io.File(distDir, "genericui-loader.js")
+        val namespaceXmlFile = java.io.File(distDir, "genericui-namespace.xml")
+        val genericUiCssFile = java.io.File(distDir, "genericui.css")
         val stagedIconFile = java.io.File(distDir, "web-icon.svg")
 
         assertTrue(indexHtmlFile.exists(), "index.html should be generated in build/dist/web")
         assertTrue(loaderJsFile.exists(), "genericui-loader.js should be generated in build/dist/web")
+        assertTrue(namespaceXmlFile.exists(), "genericui-namespace.xml should be generated in build/dist/web")
+        assertTrue(genericUiCssFile.exists(), "genericui.css should be generated in build/dist/web")
         assertTrue(stagedIconFile.exists(), "web-icon.svg should be staged in build/dist/web")
 
+        val namespaceXml = namespaceXmlFile.readText()
+        assertTrue(namespaceXml.contains("<namespaceSpec xmlns=\"https://nexustools.com/ns/genericui/spec\" prefix=\"genericui\" uri=\"https://nexustools.com/ns/genericui\" version=\"1.0\">"))
+        assertTrue(namespaceXml.contains("tag=\"genericui:root\""))
+        assertTrue(namespaceXml.contains("tag=\"genericui:window\""))
+        assertTrue(namespaceXml.contains("tag=\"genericui:fragment\""))
+        assertTrue(namespaceXml.contains("tag=\"genericui:fragment-container\""))
+        assertTrue(namespaceXml.contains("tag=\"genericui:scrollfragment\""))
+        assertTrue(namespaceXml.contains("tag=\"genericui:menubar\""))
+        assertTrue(namespaceXml.contains("tag=\"genericui:dockworkspace\""))
+
+        val genericUiCss = genericUiCssFile.readText()
+        assertTrue(genericUiCss.contains("genericui\\:root"))
+        assertTrue(genericUiCss.contains("hr.dropdown-divider,\ngenericui\\:menuseparator"))
+        assertTrue(genericUiCss.contains("genericui\\:scrollfragment"))
+
         val html = indexHtmlFile.readText()
+        assertTrue(html.contains("xmlns:genericui=\"https://nexustools.com/ns/genericui\""))
+        assertTrue(html.contains("<link id=\"genericui-namespace-spec\" rel=\"namespace\" data-namespace-prefix=\"genericui\" data-namespace-uri=\"https://nexustools.com/ns/genericui\" type=\"application/xml\" href=\"genericui-namespace.xml?"))
+        assertTrue(html.contains("<link id=\"genericui-css\" rel=\"stylesheet\" href=\"genericui.css?"))
+        assertTrue(html.contains("<genericui:root></genericui:root>"))
+        assertTrue(!html.contains("<div id=\"genericui-app\""))
         assertTrue(html.contains("<link id=\"genericui-favicon\" rel=\"icon\" type=\"image/svg+xml\" href=\"web-icon.svg\">"))
         assertTrue(html.contains("<img id=\"genericui-splash-icon\" src=\"web-icon.svg\""))
-        assertTrue(html.contains("width=\"256\" height=\"256\""))
+        assertTrue(html.contains("width=\"64\" height=\"64\""))
         assertTrue(html.contains("id=\"genericui-splash-progress-bar\""))
         assertTrue(html.contains("id=\"genericui-splash-error-stack\""))
         assertTrue(html.contains("<script type=\"loader-wasm\" src=\"wasm/test-web-studio-wasm-js.js?"))
         assertTrue(html.contains("<script type=\"loader-js\" src=\"js/test-web-studio.js?"))
         assertTrue(html.contains("<script id=\"genericui-loader-script\" src=\"genericui-loader.js?"))
         assertTrue(html.contains("src=\"https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js\""))
+    }
+
+    @Test
+    fun testWebManifestInstallableWebAppAndThemeColorAcrossBackends() {
+        val project = ProjectBuilder.builder().build()
+        project.pluginManager.apply("com.nexustools.genericui")
+        val ext = project.extensions.getByType(GenericUiExtension::class.java)
+
+        ext.application {
+            appName = "Sample Web Studio"
+            baseName = "sample-web-studio"
+            description = "Cross-platform media & studio showcase"
+            themeColor = "#2A80FF"
+            webIcon("web-icon.svg")
+            webManifest {
+                allowInstallAsWebApp = true
+                shortName = "SampleWebStudio"
+                display = "standalone"
+                orientation = "any"
+                backgroundColor = "#0B0E14"
+                categories("entertainment", "multimedia")
+                shortcut(
+                    name = "Now Playing",
+                    shortName = "Playing",
+                    description = "Jump directly to the active player",
+                    url = "./?tab=player"
+                )
+            }
+        }
+        ext.backends {
+            allExceptSwing()
+        }
+
+        java.io.File(project.projectDir, "web-icon.svg").writeText("<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 64 64\"></svg>")
+
+        // 1. Verify Web Distribution (manifest.webmanifest + installable WebApp HTML tags + themeColor)
+        val webDistTask = project.tasks.getByName("packageGenericUiWebDistribution") as GenericUiWebDistributionTask
+        webDistTask.packageWebDistribution()
+
+        val distDir = webDistTask.outputDirectory.get().asFile
+        val manifestFile = java.io.File(distDir, "manifest.webmanifest")
+        val indexHtmlFile = java.io.File(distDir, "index.html")
+
+        assertTrue(manifestFile.exists(), "manifest.webmanifest should be generated when allowInstallAsWebApp or webManifest is enabled")
+        val manifestJson = manifestFile.readText()
+        assertTrue(manifestJson.contains("\"name\": \"Sample Web Studio\""))
+        assertTrue(manifestJson.contains("\"short_name\": \"SampleWebStudio\""))
+        assertTrue(manifestJson.contains("\"description\": \"Cross-platform media & studio showcase\""))
+        assertTrue(manifestJson.contains("\"display\": \"standalone\""))
+        assertTrue(manifestJson.contains("\"theme_color\": \"#2A80FF\""))
+        assertTrue(manifestJson.contains("\"background_color\": \"#0B0E14\""))
+        assertTrue(manifestJson.contains("\"categories\": [\"entertainment\", \"multimedia\"]"))
+        assertTrue(manifestJson.contains("\"sizes\": \"192x192 512x512\""))
+        assertTrue(manifestJson.contains("\"url\": \"./?tab=player\""))
+
+        val html = indexHtmlFile.readText()
+        assertTrue(html.contains("<link id=\"genericui-web-manifest\" rel=\"manifest\" href=\"manifest.webmanifest?"))
+        assertTrue(html.contains("<meta id=\"genericui-theme-color\" name=\"theme-color\" content=\"#2A80FF\">"))
+        assertTrue(html.contains("<meta id=\"genericui-mobile-web-app-capable\" name=\"mobile-web-app-capable\" content=\"yes\">"))
+        assertTrue(html.contains("<meta id=\"genericui-apple-mobile-web-app-capable\" name=\"apple-mobile-web-app-capable\" content=\"yes\">"))
+        assertTrue(html.contains("<meta id=\"genericui-application-name\" name=\"application-name\" content=\"SampleWebStudio\">"))
+        assertTrue(html.contains("<link id=\"genericui-apple-touch-icon\" rel=\"apple-touch-icon\" href=\"web-icon.svg\">"))
+
+        // 2. Verify Desktop Resources (Windows .rc, macOS Info.plist, Linux .desktop) receive themeColor
+        val desktopResTask = project.tasks.getByName("prepareGenericUiDesktopResources") as GenericUiDesktopResourceTask
+        desktopResTask.generateDesktopResources()
+        val desktopOutDir = desktopResTask.outputDirectory.get().asFile
+        val winRc = java.io.File(desktopOutDir, "windows/app_resources.rc").readText()
+        val macPlist = java.io.File(desktopOutDir, "macos/Info.plist").readText()
+        val linuxDesktop = java.io.File(desktopOutDir, "linux/sample-web-studio.desktop").readText()
+
+        assertTrue(winRc.contains("VALUE \"ThemeColor\", \"#2A80FF\\0\""))
+        assertTrue(macPlist.contains("<key>GenericUIThemeColor</key>"))
+        assertTrue(macPlist.contains("<string>#2A80FF</string>"))
+        assertTrue(linuxDesktop.contains("X-GenericUI-ThemeColor=#2A80FF"))
+
+        // 3. Verify Resource Compiler (R.kt / RC.kt, Android colors.xml, iOS/macOS AccentColor.colorset, Web CSS vars)
+        val resTask = project.tasks.getByName("compileGenericUiResources") as GenericUiResourceCompilerTask
+        resTask.compileResources()
+        val ktResOut = resTask.kotlinOutputDirectory.get().asFile
+        val backendResOut = resTask.backendOutputDirectory.get().asFile
+
+        val rKtFile = ktResOut.walkTopDown().first { it.name == "R.kt" }
+        val rKtText = rKtFile.readText()
+        assertTrue(rKtText.contains("val theme_color: ResourceId"))
+        assertTrue(rKtText.contains("val colorPrimary: ResourceId"))
+
+        val regKtFile = ktResOut.walkTopDown().first { it.name == "GeneratedResourceRegistry.kt" }
+        val regKtText = regKtFile.readText()
+        assertTrue(regKtText.contains("const val APP_NAME: String = \"Sample Web Studio\""))
+        assertTrue(regKtText.contains("GenericUI.applicationName = APP_NAME"))
+
+        val androidColorsXml = java.io.File(backendResOut, "android/res/values/colors.xml").readText()
+        assertTrue(androidColorsXml.contains("<color name=\"theme_color\">#2A80FF</color>"))
+        assertTrue(androidColorsXml.contains("<color name=\"colorPrimary\">#2A80FF</color>"))
+
+        val appleAccentColorJson = java.io.File(backendResOut, "apple/Assets.xcassets/AccentColor.colorset/Contents.json").readText()
+        assertTrue(appleAccentColorJson.contains("\"hex\": \"#2A80FF\""))
+
+        val webCssVars = java.io.File(backendResOut, "web/genericui-resource-vars.css").readText()
+        assertTrue(webCssVars.contains("--genericui-theme-color: #2A80FF;"))
+        assertTrue(webCssVars.contains("--rc-color-theme-color: #2A80FF;"))
+    }
+
+    @Test
+    fun `default genericui icon is used across web desktop and resources when no icons are provided by build kts`() {
+        val project = ProjectBuilder.builder().build()
+        project.pluginManager.apply("com.nexustools.genericui")
+        val ext = project.extensions.getByType(GenericUiExtension::class.java)
+
+        ext.application {
+            appName = "Iconless App"
+            baseName = "iconless-app"
+        }
+        ext.backends {
+            allExceptSwing()
+        }
+
+        // Verify resolveEffectiveWebIconPath defaults to "icon.svg" when no icon is configured
+        kotlin.test.assertEquals("icon.svg", ext.application.resolveEffectiveWebIconPath())
+
+        // 1. Web distribution should stage and reference the default icon.svg
+        val webDistTask = project.tasks.getByName("packageGenericUiWebDistribution") as GenericUiWebDistributionTask
+        webDistTask.packageWebDistribution()
+        val distDir = webDistTask.outputDirectory.get().asFile
+        val defaultWebSvg = java.io.File(distDir, "icon.svg")
+        assertTrue(defaultWebSvg.exists(), "Default GenericUI icon.svg should be staged in build/dist/web when no icon is configured")
+        val svgContent = defaultWebSvg.readText()
+        assertTrue(svgContent.contains("macTopClip") && svgContent.contains("gtkTopClip") && svgContent.contains("winTopClip"))
+        val indexHtml = java.io.File(distDir, "index.html").readText()
+        assertTrue(indexHtml.contains("<link id=\"genericui-favicon\" rel=\"icon\" type=\"image/svg+xml\" href=\"icon.svg\">"))
+        assertTrue(indexHtml.contains("<img id=\"genericui-splash-icon\" src=\"icon.svg\""))
+
+        // 2. Desktop resources should stage default icon.ico, icon.png, and icon.svg
+        val desktopResTask = project.tasks.getByName("prepareGenericUiDesktopResources") as GenericUiDesktopResourceTask
+        desktopResTask.generateDesktopResources()
+        val desktopOutDir = desktopResTask.outputDirectory.get().asFile
+        assertTrue(java.io.File(desktopOutDir, "runtime-assets/icon.ico").exists(), "Default icon.ico should be staged in runtime-assets")
+        assertTrue(java.io.File(desktopOutDir, "runtime-assets/icon.png").exists(), "Default icon.png should be staged in runtime-assets")
+        assertTrue(java.io.File(desktopOutDir, "runtime-assets/icon.svg").exists(), "Default icon.svg should be staged in runtime-assets")
+        val winRc = java.io.File(desktopOutDir, "windows/app_resources.rc").readText()
+        assertTrue(winRc.contains("IDI_APPICON ICON"), "Windows .rc should embed default icon.ico")
+
+        // 3. Resource compiler should register R.drawable.icon by default
+        val resTask = project.tasks.getByName("compileGenericUiResources") as GenericUiResourceCompilerTask
+        resTask.compileResources()
+        val rKtFile = resTask.kotlinOutputDirectory.get().asFile.walkTopDown().first { it.name == "R.kt" }
+        assertTrue(rKtFile.readText().contains("val icon: ResourceId"), "R.drawable.icon should be generated by default")
     }
 }

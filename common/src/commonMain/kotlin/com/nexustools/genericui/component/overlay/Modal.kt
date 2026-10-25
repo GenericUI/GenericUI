@@ -12,4 +12,8 @@ open class Modal(
     title = title,
     modal = true,
     presentationStyle = DialogPresentationStyle.MODAL_CENTERED
-)
+) {
+    init {
+        htmlTag = "genericui:modal"
+    }
+}

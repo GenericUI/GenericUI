@@ -12,7 +12,7 @@ class ProgressBar(
     progress: Float = 0f,
     indeterminate: Boolean = false,
     type: BootstrapType = BootstrapType.PRIMARY
-) : AbstractComponent() {
+) : AbstractComponent(htmlTag = "genericui:progressbar") {
     var progress: Float = progress.coerceIn(0f, 1f)
         set(value) {
             field = value.coerceIn(0f, 1f)

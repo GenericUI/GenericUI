@@ -36,14 +36,14 @@ All widgets inherit from `Widget` (or `Container` for layout parents) and resolv
 - **`TextInput` / `TextArea` / `PasswordInput`**: Single-line, multi-line, and masked text fields with change/submit callbacks.
 - **`NumberSpinner` / `Slider`**: Numeric steppers and continuous/stepped range sliders.
 - **`CheckBox` / `RadioButton` / `SwitchToggle`**: Boolean and mutually-exclusive selection controls.
-- **`SelectDropdown`**: Native combo-box / dropdown selector (powers `AICore`'s `ModelCatalog` provider/model pickers).
+- **`SelectDropdown`**: Native combo-box / dropdown selector.
 - **`ColorPicker` / `DatePicker` / `FilePickerButton`**: Native OS color, calendar, and file chooser triggers.
 
 ### Data Views (`widget.data`)
 - **`ListView`**: Virtualized 1D list for high-volume datasets.
-- **`TreeView` & `TreeItem`**: Hierarchical tree view (powers `HAEditor`'s layer/object hierarchy and `AICore`'s workspace explorer).
+- **`TreeView` & `TreeItem`**: Hierarchical tree view.
 - **`DataTable` & `DataColumn`**: Sortable multi-column table with row selection.
-- **`PropertyGrid` & `PaginationBar`**: Key-value inspector grid (powers `HAEditor`'s dynamic GIMP filter parameter inspector) and page navigation bar.
+- **`PropertyGrid` & `PaginationBar`**: Key-value inspector grid and page navigation bar.
 
 ---
 
@@ -83,13 +83,13 @@ Calling `setNavBar(TitleBar(...))` inside a `Fragment` automatically adapts to h
 
 ## 4. Helper Fragments (`com.nexustools.genericui.core.fragment`)
 
-### A. `AdaptiveSplitTabFragment` (Designed for **Episode Caster**)
+### A. `AdaptiveSplitTabFragment`
 `AdaptiveSplitTabFragment` eliminates boilerplate media-app layout code by automatically switching between three responsive modes (`AdaptiveLayoutMode`):
 1. **`MULTI_COLUMN_SPLIT`** (Desktop & Tablet $\ge 840\text{dp}$): Renders the primary media viewport alongside secondary slots (Shows, Episode Queue, Cast Devices) in a multi-column `SplitPane`.
 2. **`FULLSCREEN_PRIMARY`** (Phone Landscape when `isFullscreenPrimaryInLandscape = true`): Hides secondary chrome and expands the primary `VideoPlayer` fragment to 100% fullscreen.
 3. **`PORTRAIT_TABS`** (Phone Portrait): Places the compact media player at the top and organizes secondary slots into a switchable `TabPane`.
 
-### B. `DockWorkspaceFragment` (Designed for **HAEditor** & **AICore**)
+### B. `DockWorkspaceFragment`
 `DockWorkspaceFragment` provides a full IDE and creative-suite docking system inspired by **GIMP** and **JetBrains Fleet/IntelliJ**:
 - **GIMP Single-Window Mode (`WorkspaceWindowMode.SINGLE_WINDOW`)**: All toolboxes, layer trees, property grids, AI chat drawers, and timeline panels are docked into resizable `LEFT`, `RIGHT`, `TOP`, `BOTTOM`, and tabbed `CENTER` `DockArea`s inside a single OS `Window`.
 - **GIMP Multi-Window Mode (`WorkspaceWindowMode.MULTI_WINDOW`)**: Detached or utility dock panels (`FloatingDockWindow`) are promoted into independent native OS utility `Window`s that can be arranged across multiple monitors, while keeping the central document canvas window focused.
@@ -107,7 +107,7 @@ GenericUI provides standard modal dialogs (`Dialog`, `MessageDialog`, `ConfirmDi
   - `OPEN_SINGLE_FILE`: Select a single existing file.
   - `OPEN_MULTIPLE_FILES`: Select one or more existing files.
   - `SAVE_FILE`: Choose a destination file path and name for saving/exporting.
-  - `SELECT_FOLDER`: Select a directory/folder (e.g., opening a project workspace in **AICore**).
+  - `SELECT_FOLDER`: Select a directory/folder (e.g., opening a project workspace).
 - **`FileTypeFilter`**: Filters selectable files by `description`, `extensions` (e.g., `listOf("hacanvas", "png", "svg")`), and `mimeTypes` (e.g., `listOf("image/png", "image/svg+xml")`).
 - **`SelectedFile`**: Uniform descriptor representing a chosen file or folder (`name`, `pathOrUri`, `sizeBytes`, `mimeType`, `isDirectory`).
 - **`FileBrowserCallback`**: Callback interface with two methods:
@@ -129,7 +129,7 @@ import com.nexustools.genericui.dialog.FileBrowserMode
 import com.nexustools.genericui.dialog.FileTypeFilter
 import com.nexustools.genericui.dialog.SelectedFile
 
-// 1. Folder Selection Mode (e.g. AICore Project Chroot Selection)
+// 1. Folder Selection Mode
 val folderDialog = FileBrowserDialog(
     title = "Select Project Workspace Folder",
     mode = FileBrowserMode.SELECT_FOLDER
@@ -145,7 +145,7 @@ folderDialog.show(mainWindow, object : FileBrowserCallback {
     }
 })
 
-// 2. Multi-File Selection Mode with Extension & MIME Filters (e.g. HAEditor Import)
+// 2. Multi-File Selection Mode with Extension & MIME Filters
 val importDialog = FileBrowserDialog(
     title = "Import Layers or Canvases",
     mode = FileBrowserMode.OPEN_MULTIPLE_FILES,
@@ -195,5 +195,5 @@ To handle tens of thousands of rows, media tiles, or deep layer/file hierarchies
 ## 7. Extension-Based Specialized Views (`:extensions:webview` & `:extensions:codeeditor`)
 
 To keep `:common` lightweight, embedded web views and IDE code editors live in dedicated extension modules:
-- **`:extensions:webview` (`WebView`, `WebViewController`, `WebViewJsBridge`)**: Project-of-Projects extension (`:common`, `:desktop`, `:mobile`, `:swing`, `:web`). On Desktop (`:desktop` and `:swing`), uses the **Chromium** project (`ChromiumBlinkEngine`) for HTML/CSS layout & rendering coupled with **`NJS`** (`D:\IdeaProjects\NJS`, symlinked at `D:\IdeaProjects\GenericUI\lib\NJS`) with its **AsmJit / SLJIT Native JIT Engine** (`com.nexustools.njs.jit.*`). On Mobile (`:android` `android.webkit.WebView`, `:ios` `WKWebView`) and `:web` (`<iframe>`), uses the native platform implementation and **NEVER uses `NJS`**.
+- **`:extensions:webview` (`WebView`, `WebViewController`, `WebViewJsBridge`)**: Project-of-Projects extension (`:common`, `:desktop`, `:mobile`, `:swing`, `:web`). On Desktop (`:desktop` and `:swing`), uses the **Chromium** project (`ChromiumBlinkEngine`) for HTML/CSS layout & rendering coupled with **`NJS`** (`lib/NJS`) with its **AsmJit / SLJIT Native JIT Engine** (`com.nexustools.njs.jit.*`). On Mobile (`:android` `android.webkit.WebView`, `:ios` `WKWebView`) and `:web` (`<iframe>`), uses the native platform implementation and **NEVER uses `NJS`**.
 - **`:extensions:codeeditor` (`IdeCodeEditor`)**: Single KMP project extension built atop `:extensions:canvas2d`.

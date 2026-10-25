@@ -12,6 +12,10 @@ import com.nexustools.genericui.nativeimpl.navigation.NavbarNativeImpl
 class Navbar(
     brandTitle: String = ""
 ) : AbstractContainer() {
+    init {
+        htmlTag = "genericui:navbar"
+    }
+
     var brandTitle: String = brandTitle
         set(value) {
             field = value

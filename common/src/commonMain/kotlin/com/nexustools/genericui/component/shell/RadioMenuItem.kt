@@ -10,6 +10,7 @@ class RadioMenuItem(
 ) : MenuItem(label = label, onClick = onSelected) {
 
     init {
+        htmlTag = "genericui:radiomenuitem"
         checkedState = checked
     }
 

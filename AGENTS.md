@@ -136,4 +136,25 @@ Used when an extension is implemented in 100% shared KMP code atop `:common` and
 
 1. **`:common`-Only Scope**:
    - `:extensions:dsl` (`com.nexustools.genericui.ext.dsl`) depends strictly on `:common` and provides `MvcModel`, `MvcView`, `MvcController`, and `kotlinx.html`-style in-place component builders (`div`, `row`, `col`, `h1`..`h6`, `p`, `span`, `button`, `select { option(...) }`, `table { tr { th(...); td(...) } }`, etc.) for `:common` components only.
-   - **Never** add dependencies or builders for other extensions inside `:extensions:dsl`; other extensions can provide their own DSL extension modules.
+   - **Never** add dependencies or builders for other extensions inside `:extensions:dsl`; other extensions provide their own `:extensions:<name>:dsl` extension modules.
+
+---
+
+## 11. Strict Extension & Backend Isolation (NON-NEGOTIABLE)
+
+All agents, subagents, and engineers MUST strictly enforce **Extension Isolation** and **Backend Isolation** across the entire `GenericUI` repository:
+
+1. **Zero Extension Leakage into Core Modules (`:common`, `:desktop`, `:mobile`, `:web`, `:gradle-plugin`)**:
+   - `:common`, `:desktop` (`:desktop:shared`, `:desktop:windows`, `:desktop:macos`, `:desktop:gtk`, `:desktop:qt`, `:desktop:swing`), `:mobile` (`:mobile:shared`, `:mobile:android`, `:mobile:ios`), and `:web` **MUST NEVER** import, reference, hardcode, or include any classes, tag names, CSS selectors, or logic belonging to any extension (`:extensions:alien`, `:extensions:gpu`, `:extensions:imageprocessing`, `:extensions:canvas2d`, `:extensions:canvas3d`, `:extensions:media`, `:extensions:webview`, `:extensions:codeeditor`, `:extensions:aichat`, `:extensions:threejs`, `:extensions:box2d`, `:extensions:box3d`, `:extensions:dsl`).
+   - For example:
+     - **No Alien logic/tags in `:common`, `:desktop`, `:mobile`, or `:web`**: `AlienFragment`, `AlienContainer`, `UnalienContainer`, `AlienImpl`, `AlienBootstrapPainter`, `genericui:alien-fragment`, `genericui:alien-container`, and `genericui:unalien-container` belong strictly inside `:extensions:alien` (`:extensions:alien:common`, `:extensions:alien:desktop`, `:extensions:alien:mobile`, `:extensions:alien:swing`, `:extensions:alien:web`).
+     - **No VLC/Media logic in `:desktop` or `:common`**: All VLC/media decoding, shaders, and playback pipelines belong strictly inside `:extensions:media`.
+     - **No VBlank/GPU or 2D/3D Canvas rendering pipelines in `:common` or core backends**: `VBlankWatcher` lives in `:extensions:gpu`; `ImageBuffer2DContext` lives in `:extensions:imageprocessing`; `Canvas2D` and `Canvas3D` live in `:extensions:canvas2d` and `:extensions:canvas3d`.
+2. **Strict Backend Isolation**:
+   - `:common` MUST remain 100% platform- and backend-agnostic. Never place platform-specific code or backend-specific assumptions inside `:common`; communicate between `:common` and backends strictly via generic capability properties and methods on `*NativeImpl` and `NativeFactory` interfaces.
+   - Each backend module (`:desktop:windows`, `:desktop:macos`, `:desktop:gtk`, `:desktop:qt`, `:desktop:swing`, `:mobile:android`, `:mobile:ios`, `:web`) MUST remain strictly isolated within its own module and shared parent (`:desktop:shared` or `:mobile:shared`), never referencing or coupling to another sibling backend.
+3. **Strict Extension-to-Extension Isolation**:
+   - Each extension in `:extensions:<name>` MUST only depend on `:common` and its explicitly declared upstream extension dependencies (e.g., `:extensions:alien` $\rightarrow$ `:extensions:canvas2d` $\rightarrow$ `:extensions:imageprocessing` $\rightarrow$ `:extensions:gpu`).
+   - Within Project-of-Projects extensions (`:extensions:<name>:{common,desktop,mobile,swing,web}`), `:extensions:<name>:common` MUST remain 100% platform-agnostic, while platform-specific bridges stay strictly inside `:extensions:<name>:{desktop,mobile,swing,web}`.
+4. **Subagent Coordination Rule**:
+   - Whenever subagents are spawned to work on `GenericUI`, each subagent MUST be explicitly instructed on and bound by Extension & Backend Isolation, with non-overlapping module/directory scopes so extension logic and backend logic never cross-contaminate.

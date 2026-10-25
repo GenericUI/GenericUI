@@ -60,6 +60,7 @@ open class StepScrollView(
     var onScrollOffsetChanged: ((topOffsetPx: Int) -> Unit)? = null
 
     init {
+        htmlTag = "genericui:stepscrollview"
         addClass("scrollview selectitemlisting")
         viewport.addChild(contentTable)
         addChild(upButton)

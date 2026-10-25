@@ -13,4 +13,8 @@ class LazyRow(
     orientation = Orientation.HORIZONTAL,
     estimatedItemExtentPx = estimatedItemWidthPx,
     overscanItems = overscanItems
-)
+) {
+    init {
+        htmlTag = "genericui:lazyrow"
+    }
+}

@@ -11,6 +11,9 @@ class SplitPane(
     orientation: Orientation = Orientation.HORIZONTAL,
     dividerPosition: Float = 0.5f
 ) : AbstractContainer("split-pane") {
+    init {
+        htmlTag = "genericui:splitpane"
+    }
 
     private var orientationState: Orientation = orientation
     private var dividerRatioState: Float = dividerPosition.coerceIn(0.05f, 0.95f)

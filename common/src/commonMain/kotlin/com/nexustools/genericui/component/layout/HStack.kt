@@ -6,8 +6,9 @@ import com.nexustools.genericui.enums.bootstrap.SpacingScale
 
 open class HStack(
     var gap: SpacingScale? = null
-) : Container("hstack") {
+) : Container("genericui:hstack", "hstack") {
     init {
+        htmlTag = "genericui:hstack"
         setDisplay(DisplayMode.FLEX)
         setFlexDirection(FlexDirection.ROW)
         gap?.let { addClass("gap-${it.token}") }

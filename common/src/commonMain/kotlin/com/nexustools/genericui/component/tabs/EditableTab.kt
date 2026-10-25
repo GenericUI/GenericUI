@@ -34,6 +34,10 @@ open class EditableTab(
             ownerNotifyUpdated?.invoke(this)
         }
 
+    init {
+        htmlTag = "genericui:editabletab"
+    }
+
     fun commitEditedTitle(newTitle: String) {
         val trimmed = newTitle.trim()
         if (trimmed.isNotEmpty() && trimmed != title) {

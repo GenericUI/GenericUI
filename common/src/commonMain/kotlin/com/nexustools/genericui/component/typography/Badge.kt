@@ -15,6 +15,7 @@ class Badge(
     classPrefix = if (pill) "badge rounded-pill" else "badge"
 ) {
     init {
+        htmlTag = "span"
         this.type = type
     }
 }

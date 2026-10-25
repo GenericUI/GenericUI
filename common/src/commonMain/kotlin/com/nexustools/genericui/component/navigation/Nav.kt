@@ -10,6 +10,10 @@ import com.nexustools.genericui.nativeimpl.layout.ContainerNativeImpl
 class Nav(
     val pills: Boolean = false
 ) : AbstractContainer() {
+    init {
+        htmlTag = "genericui:nav"
+    }
+
     override fun createNativeImpl(factory: NativeFactory): ContainerNativeImpl<*> =
-        factory.createContainer(if (pills) "nav nav-pills" else "nav")
+        factory.createContainer(if (pills) "nav nav-pills" else "nav", htmlTag)
 }

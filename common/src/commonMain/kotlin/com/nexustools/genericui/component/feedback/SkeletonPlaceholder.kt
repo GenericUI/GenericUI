@@ -12,10 +12,11 @@ class SkeletonPlaceholder(
     heightPx: Int = 20
 ) : AbstractContainer() {
     init {
+        htmlTag = "genericui:skeletonplaceholder"
         this.widthPx = widthPx
         this.heightPx = heightPx
     }
 
     override fun createNativeImpl(factory: NativeFactory): ContainerNativeImpl<*> =
-        factory.createContainer("placeholder-glow")
+        factory.createContainer("placeholder-glow", htmlTag)
 }

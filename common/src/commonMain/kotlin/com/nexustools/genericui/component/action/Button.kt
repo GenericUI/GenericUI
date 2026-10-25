@@ -20,7 +20,7 @@ open class Button(
     size: BootstrapSize = BootstrapSize.MD,
     outline: Boolean = false,
     private val classPrefix: String = "btn"
-) : AbstractComponent(classPrefix) {
+) : AbstractComponent(classPrefix, htmlTag = "button") {
 
     constructor(
         text: String,

@@ -6,6 +6,10 @@ import com.nexustools.genericui.nativeimpl.layout.ScrollViewNativeImpl
 
 open class ScrollView : AbstractContainer("overflow-auto") {
 
+    init {
+        htmlTag = "genericui:scrollview"
+    }
+
     override fun createNativeImpl(factory: NativeFactory): ScrollViewNativeImpl<*> =
         factory.createScrollView()
 

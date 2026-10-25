@@ -12,4 +12,8 @@ class TextArea(
     placeholder = placeholder,
     multilineMode = true,
     passwordMode = false
-)
+) {
+    init {
+        htmlTag = "textarea"
+    }
+}

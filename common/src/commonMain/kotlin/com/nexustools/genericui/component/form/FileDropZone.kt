@@ -20,6 +20,7 @@ class FileDropZone(
     var onSelectionCancelled: (() -> Unit)? = null
 
     init {
+        htmlTag = "genericui:filedropzone"
         setOnClick {
             openNativeFileBrowser()
         }
@@ -37,5 +38,5 @@ class FileDropZone(
     }
 
     override fun createNativeImpl(factory: NativeFactory): ContainerNativeImpl<*> =
-        factory.createContainer("file-drop-zone")
+        factory.createContainer("file-drop-zone", htmlTag)
 }

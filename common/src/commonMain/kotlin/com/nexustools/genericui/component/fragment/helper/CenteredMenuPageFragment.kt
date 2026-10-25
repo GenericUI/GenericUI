@@ -59,17 +59,47 @@ abstract class CenteredMenuPageFragment(
 
     override fun onLoadingFinished() {
         menuContainer.removeClass("loading")
-        menuContainer.transform = "translate(-50%, -50%)"
+        if (hasClass("created") || hasClass("destroyed")) {
+            menuContainer.transform = "translate(-50%, -50%) scale(0, 0)"
+        } else {
+            menuContainer.transform = "translate(-50%, -50%)"
+        }
         super.onLoadingFinished()
+    }
+
+    override fun onBeginLoadTransition(durationMs: Int) {
+        super.onBeginLoadTransition(durationMs)
+        menuContainer.transition = "transform ${durationMs}ms ease"
+        menuContainer.transform = "translate(-50%, -50%) scale(0, 0)"
+    }
+
+    override fun onFinishLoadTransition(durationMs: Int) {
+        super.onFinishLoadTransition(durationMs)
+        menuContainer.transition = "transform ${durationMs}ms ease"
+        menuContainer.transform = if (currentScale > 1.0f) {
+            "translate(-50%, -50%) scale($currentScale, $currentScale)"
+        } else {
+            "translate(-50%, -50%)"
+        }
+    }
+
+    override fun onBeginUnloadTransition(durationMs: Int) {
+        super.onBeginUnloadTransition(durationMs)
+        menuContainer.transition = "transform ${durationMs}ms ease"
+        menuContainer.transform = "translate(-50%, -50%) scale(0, 0)"
     }
 
     override fun onResize(viewportWidth: Int, viewportHeight: Int) {
         super.onResize(viewportWidth, viewportHeight)
-        if (isLoading) return
+        if (isLoading || hasClass("destroyed") || hasClass("created")) return
 
         val bounds = menuContainer.getBounds()
-        val menuW = (menuContainer.widthPx ?: bounds.width.takeIf { it > 0 } ?: 640).coerceAtLeast(1)
-        val menuH = (menuContainer.heightPx ?: bounds.height.takeIf { it > 0 } ?: 360).coerceAtLeast(1)
+        val fallbackW = (menuContainer.minWidthPx ?: 640).coerceAtLeast(1)
+        val fallbackH = (menuContainer.minHeightPx ?: 360).coerceAtLeast(1)
+        val rawW = menuContainer.widthPx ?: bounds.width
+        val rawH = menuContainer.heightPx ?: bounds.height
+        val menuW = if (rawW > 0) rawW else fallbackW
+        val menuH = if (rawH > 0) rawH else fallbackH
 
         if (viewportWidth > menuW && viewportHeight > menuH) {
             val scaleW = viewportWidth.toFloat() / menuW.toFloat()

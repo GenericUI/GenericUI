@@ -7,7 +7,7 @@ import com.nexustools.genericui.nativeimpl.navigation.BottomNavigationBarNativeI
 /**
  * Mobile/adaptive bottom navigation bar (`BottomNavigationView` on Android, `UITabBar` on iOS).
  */
-class BottomNavigationBar : AbstractComponent() {
+class BottomNavigationBar : AbstractComponent(htmlTag = "genericui:bottomnavigationbar") {
     private val _items = mutableListOf<Triple<String, String, String?>>()
     val items: List<Triple<String, String, String?>> get() = _items
 

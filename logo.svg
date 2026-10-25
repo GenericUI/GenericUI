@@ -1,0 +1,241 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 320" width="1200" height="320" role="img" aria-label="GenericUI Banner — Native-First Multiplatform UI &amp; GPU Framework for Kotlin">
+  <defs>
+    <!-- Full-Bleed Solid Opaque Banner Background (No Transparency, No Rounded Outer Border) -->
+    <linearGradient id="bannerBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#070B14"/>
+      <stop offset="50%" stop-color="#0F172A"/>
+      <stop offset="100%" stop-color="#141129"/>
+    </linearGradient>
+
+    <!-- Brand Accent Gradient -->
+    <linearGradient id="brandAccent" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#00F0FF"/>
+      <stop offset="50%" stop-color="#38BDF8"/>
+      <stop offset="100%" stop-color="#A855F7"/>
+    </linearGradient>
+
+    <!-- Continuous Flowing Wordmark Gradient across G ... U I -->
+    <linearGradient id="guiWordmarkAccent" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="345" y2="0">
+      <stop offset="0%" stop-color="#00F0FF"/>
+      <stop offset="45%" stop-color="#38BDF8"/>
+      <stop offset="78%" stop-color="#818CF8"/>
+      <stop offset="100%" stop-color="#A855F7"/>
+    </linearGradient>
+
+    <!-- 6-Region Platform Split Clips inside Emblem (0..220 x 0..220) -->
+    <!-- Top Half (y = 0..110): macOS | GTK4 | Windows 11 -->
+    <clipPath id="logoMacTopClip">
+      <polygon points="0,0 98,0 74,110 0,110"/>
+    </clipPath>
+    <clipPath id="logoGtkTopClip">
+      <polygon points="98,0 158,0 134,110 74,110"/>
+    </clipPath>
+    <clipPath id="logoWinTopClip">
+      <polygon points="158,0 220,0 220,110 134,110"/>
+    </clipPath>
+    <!-- Bottom Half (y = 110..220): iOS | Web | Android -->
+    <clipPath id="logoIosBottomClip">
+      <polygon points="0,110 74,110 50,220 0,220"/>
+    </clipPath>
+    <clipPath id="logoWebBottomClip">
+      <polygon points="74,110 134,110 110,220 50,220"/>
+    </clipPath>
+    <clipPath id="logoAndroidBottomClip">
+      <polygon points="134,110 220,110 220,220 110,220"/>
+    </clipPath>
+
+    <pattern id="techGrid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1E293B" stroke-width="1" stroke-opacity="0.6"/>
+    </pattern>
+  </defs>
+
+  <!-- Full-Bleed Sharp Rectangular Background (1200x320, Zero Transparency, No Rounded Outer Border) -->
+  <rect x="0" y="0" width="1200" height="320" fill="url(#bannerBg)"/>
+  <rect x="0" y="0" width="1200" height="320" fill="url(#techGrid)"/>
+
+  <!-- ========================================================================= -->
+  <!-- LEFT EMBLEM (x=48, y=50, 220x220): 6-Platform Continuous Flowing Window   -->
+  <!-- Top: macOS (no MenuBar) | Linux GTK (+MenuBar) | Windows 11 (+MenuBar)    -->
+  <!-- Bottom: iOS | Web | Android (No outer blue border, no segment lines)      -->
+  <!-- ========================================================================= -->
+  <g transform="translate(48, 50)">
+    <rect x="0" y="0" width="220" height="220" fill="#181920"/>
+
+    <!-- 1. TOP-LEFT: macOS (Traffic Lights, NO In-Window MenuBar) -->
+    <g clip-path="url(#logoMacTopClip)">
+      <rect x="0" y="0" width="220" height="110" fill="#1C1D24"/>
+      <rect x="0" y="0" width="220" height="24" fill="#32333C"/>
+      <circle cx="15" cy="12" r="5" fill="#FF5F56"/>
+      <circle cx="30" cy="12" r="5" fill="#FFBD2E"/>
+      <circle cx="45" cy="12" r="5" fill="#27C93F"/>
+      <!-- Continuous Row 1 & Row 2 -->
+      <rect x="12" y="40" width="196" height="20" rx="7" fill="#262731" stroke="#3A3B47" stroke-width="1"/>
+      <rect x="18" y="44" width="118" height="12" rx="6" fill="#16171E"/>
+      <rect x="142" y="44" width="60" height="12" rx="6" fill="#0A84FF"/>
+      <rect x="12" y="66" width="196" height="38" rx="7" fill="#23242E" stroke="#3A3B47" stroke-width="1"/>
+      <rect x="16" y="70" width="188" height="14" rx="5" fill="#0A84FF"/>
+      <circle cx="30" cy="94" r="3" fill="#64D2FF"/>
+      <rect x="38" y="91" width="60" height="6" rx="3" fill="#AEAEB2"/>
+    </g>
+
+    <!-- 2. TOP-CENTER: Linux GTK4 (Plain Compositor TitleBar + In-Window GTK MenuBar y=24..36) -->
+    <g clip-path="url(#logoGtkTopClip)">
+      <rect x="0" y="0" width="220" height="110" fill="#242424"/>
+      <rect x="0" y="0" width="220" height="24" fill="#2C2C2C"/>
+      <!-- GTK In-Window MenuBar (y=24..36) -->
+      <rect x="0" y="24" width="220" height="12" fill="#2B2B2B"/>
+      <rect x="88" y="26" width="20" height="8" rx="2" fill="#3584E4" opacity="0.4"/>
+      <rect x="114" y="28" width="16" height="4" rx="2" fill="#DEDDDA"/>
+      <rect x="136" y="28" width="16" height="4" rx="2" fill="#DEDDDA"/>
+      <!-- Continuous Row 1 & Row 2 -->
+      <rect x="12" y="40" width="196" height="20" rx="5" fill="#303030" stroke="#424242" stroke-width="1"/>
+      <rect x="18" y="44" width="118" height="12" rx="4" fill="#1E1E1E"/>
+      <rect x="142" y="44" width="60" height="12" rx="4" fill="#3584E4"/>
+      <rect x="12" y="66" width="196" height="38" rx="6" fill="#303030" stroke="#454545" stroke-width="1"/>
+      <rect x="16" y="70" width="188" height="14" rx="4" fill="#3584E4" opacity="0.3"/>
+      <rect x="96" y="88" width="64" height="10" rx="3" fill="#1E1E1E" stroke="#5E5C64" stroke-width="1"/>
+    </g>
+
+    <!-- 3. TOP-RIGHT: Windows 11 (Caption Buttons + In-Window Win32 MenuBar y=24..36) -->
+    <g clip-path="url(#logoWinTopClip)">
+      <rect x="0" y="0" width="220" height="110" fill="#191B22"/>
+      <rect x="0" y="0" width="220" height="24" fill="#14161D"/>
+      <rect x="158" y="0" width="20" height="24" fill="#232630"/>
+      <line x1="164" y1="12" x2="172" y2="12" stroke="#E2E8F0" stroke-width="1.5"/>
+      <rect x="178" y="0" width="20" height="24" fill="#2A2E3B"/>
+      <rect x="184" y="8" width="7" height="7" fill="none" stroke="#E2E8F0" stroke-width="1.5"/>
+      <rect x="198" y="0" width="22" height="24" fill="#C42B1C"/>
+      <path d="M205 8 L213 16 M213 8 L205 16" stroke="#FFFFFF" stroke-width="1.8" stroke-linecap="round"/>
+      <!-- Windows In-Window MenuBar (y=24..36) -->
+      <rect x="0" y="24" width="220" height="12" fill="#1F232E"/>
+      <rect x="150" y="28" width="16" height="4" rx="1" fill="#E2E8F0"/>
+      <rect x="172" y="26" width="22" height="8" rx="1.5" fill="#2B3142" stroke="#60CDFF" stroke-width="0.8"/>
+      <rect x="198" y="28" width="14" height="4" rx="1" fill="#94A3B8"/>
+      <!-- Continuous Row 1 & Row 2 -->
+      <rect x="12" y="40" width="196" height="20" rx="2" fill="#232733" stroke="#38BDF8" stroke-opacity="0.45" stroke-width="1"/>
+      <rect x="142" y="44" width="60" height="12" rx="1.5" fill="#0078D4"/>
+      <rect x="12" y="66" width="196" height="38" rx="2" fill="#1F232E" stroke="#334155" stroke-width="1"/>
+      <rect x="16" y="70" width="188" height="14" rx="1.5" fill="#1E293B" stroke="#60CDFF" stroke-width="1"/>
+      <rect x="182" y="72" width="18" height="10" rx="1.5" fill="#C42B1C"/>
+      <rect x="182" y="88" width="18" height="10" rx="1.5" fill="#0078D4"/>
+    </g>
+
+    <!-- 4. BOTTOM-LEFT: iOS -->
+    <g clip-path="url(#logoIosBottomClip)">
+      <rect x="0" y="110" width="220" height="110" fill="#121216"/>
+      <rect x="12" y="116" width="196" height="44" rx="9" fill="#1C1C22" stroke="#2C2C36" stroke-width="1"/>
+      <rect x="20" y="122" width="24" height="14" rx="7" fill="#34C759"/>
+      <circle cx="37" cy="129" r="5.5" fill="#FFFFFF"/>
+      <rect x="20" y="146" width="180" height="4" rx="2" fill="#007AFF"/>
+      <circle cx="46" cy="148" r="6" fill="#FFFFFF" stroke="#007AFF" stroke-width="1.5"/>
+      <rect x="12" y="166" width="196" height="22" rx="8" fill="#1C1C22"/>
+      <rect x="18" y="170" width="80" height="14" rx="7" fill="#007AFF"/>
+      <rect x="12" y="194" width="196" height="20" rx="8" fill="#1C1C24"/>
+      <rect x="18" y="210" width="46" height="3" rx="1.5" fill="#FFFFFF"/>
+    </g>
+
+    <!-- 5. BOTTOM-CENTER: Web -->
+    <g clip-path="url(#logoWebBottomClip)">
+      <rect x="0" y="110" width="220" height="110" fill="#181C24"/>
+      <rect x="12" y="116" width="196" height="44" rx="5" fill="#212529" stroke="#343A40" stroke-width="1.2"/>
+      <rect x="86" y="122" width="38" height="12" rx="6" fill="#0D6EFD"/>
+      <rect x="20" y="146" width="180" height="4" rx="2" fill="#0D6EFD"/>
+      <circle cx="104" cy="148" r="5" fill="#0D6EFD" stroke="#FFFFFF" stroke-width="1.5"/>
+      <rect x="12" y="166" width="196" height="22" rx="5" fill="#212529" stroke="#343A40" stroke-width="1.2"/>
+      <rect x="18" y="170" width="80" height="14" rx="3" fill="#0D6EFD"/>
+      <rect x="102" y="170" width="48" height="14" rx="3" fill="#6F42C1"/>
+      <rect x="12" y="194" width="196" height="20" rx="5" fill="#212529" stroke="#343A40" stroke-width="1.2"/>
+      <rect x="66" y="198" width="22" height="12" rx="3" fill="#0D6EFD"/>
+      <rect x="92" y="198" width="22" height="12" rx="3" fill="#2B3035"/>
+    </g>
+
+    <!-- 6. BOTTOM-RIGHT: Android -->
+    <g clip-path="url(#logoAndroidBottomClip)">
+      <rect x="0" y="110" width="220" height="110" fill="#141218"/>
+      <rect x="12" y="116" width="196" height="44" rx="12" fill="#211F26" stroke="#49454F" stroke-width="1"/>
+      <rect x="168" y="121" width="28" height="14" rx="7" fill="#D0BCFF"/>
+      <circle cx="189" cy="128" r="5" fill="#381E72"/>
+      <rect x="20" y="145" width="150" height="6" rx="3" fill="#D0BCFF"/>
+      <rect x="160" y="141" width="5" height="14" rx="2.5" fill="#D0BCFF"/>
+      <rect x="12" y="166" width="196" height="22" rx="12" fill="#211F26" stroke="#49454F" stroke-width="1"/>
+      <rect x="104" y="170" width="74" height="14" rx="7" fill="#4F378B"/>
+      <rect x="184" y="168" width="18" height="18" rx="6" fill="#D0BCFF"/>
+      <rect x="12" y="194" width="196" height="20" rx="12" fill="#211F26" stroke="#49454F" stroke-width="1"/>
+      <rect x="140" y="198" width="28" height="10" rx="5" fill="#4F378B"/>
+    </g>
+  </g>
+
+  <!-- ========================================================================= -->
+  <!-- TYPOGRAPHY, SUBTITLE, & 8 PLATFORM / EXTENSION BADGES (Right Side)        -->
+  <!-- ========================================================================= -->
+  <g transform="translate(306, 0)">
+    <!-- Framework Wordmark: G, U, and I colored in a continuous flowing gradient -->
+    <text x="0" y="112" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="68" font-weight="800" fill="url(#guiWordmarkAccent)" letter-spacing="-1.5">
+      <tspan fill="url(#guiWordmarkAccent)">G</tspan><tspan fill="#F8FAFC">eneric</tspan><tspan fill="url(#guiWordmarkAccent)">UI</tspan>
+    </text>
+
+    <!-- Version / KMP Pill -->
+    <rect x="358" y="68" width="198" height="32" rx="16" fill="#0F172A" stroke="#00F0FF" stroke-opacity="0.6" stroke-width="1.5"/>
+    <text x="457" y="89" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="700" fill="#00F0FF">
+      KOTLIN MULTIPLATFORM
+    </text>
+
+    <!-- Subtitle -->
+    <text x="2" y="152" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="20" font-weight="500" fill="#94A3B8">
+      Native-First Multiplatform UI, Declarative DSL, SASS/CSS &amp; Vulkan/GLES GPU Framework
+    </text>
+
+    <!-- 8 Target Backend Badges Row -->
+    <g transform="translate(0, 178)" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="13" font-weight="700">
+      <rect x="0" y="0" width="96" height="34" rx="8" fill="#1E293B" stroke="#0A84FF" stroke-width="1.5"/>
+      <circle cx="16" cy="17" r="4.5" fill="#FF5F56"/>
+      <text x="55" y="22" text-anchor="middle" fill="#E2E8F0">macOS</text>
+
+      <rect x="106" y="0" width="106" height="34" rx="8" fill="#1E293B" stroke="#3584E4" stroke-width="1.5"/>
+      <circle cx="122" cy="17" r="4.5" fill="#3584E4"/>
+      <text x="166" y="22" text-anchor="middle" fill="#E2E8F0">Linux GTK</text>
+
+      <rect x="222" y="0" width="104" height="34" rx="8" fill="#1E293B" stroke="#0078D4" stroke-width="1.5"/>
+      <circle cx="238" cy="17" r="4.5" fill="#00F0FF"/>
+      <text x="281" y="22" text-anchor="middle" fill="#E2E8F0">Windows</text>
+
+      <rect x="336" y="0" width="98" height="34" rx="8" fill="#1E293B" stroke="#41CD52" stroke-width="1.5"/>
+      <circle cx="352" cy="17" r="4.5" fill="#41CD52"/>
+      <text x="392" y="22" text-anchor="middle" fill="#E2E8F0">Linux Qt</text>
+
+      <rect x="444" y="0" width="84" height="34" rx="8" fill="#1E293B" stroke="#F59E0B" stroke-width="1.5"/>
+      <circle cx="460" cy="17" r="4.5" fill="#F59E0B"/>
+      <text x="493" y="22" text-anchor="middle" fill="#E2E8F0">Swing</text>
+
+      <rect x="538" y="0" width="76" height="34" rx="8" fill="#1E293B" stroke="#007AFF" stroke-width="1.5"/>
+      <circle cx="554" cy="17" r="4.5" fill="#007AFF"/>
+      <text x="583" y="22" text-anchor="middle" fill="#E2E8F0">iOS</text>
+
+      <rect x="624" y="0" width="114" height="34" rx="8" fill="#1E293B" stroke="#6366F1" stroke-width="1.5"/>
+      <circle cx="640" cy="17" r="4.5" fill="#818CF8"/>
+      <text x="688" y="22" text-anchor="middle" fill="#E2E8F0">Web Wasm</text>
+
+      <rect x="748" y="0" width="98" height="34" rx="8" fill="#1E293B" stroke="#D0BCFF" stroke-width="1.5"/>
+      <circle cx="764" cy="17" r="4.5" fill="#D0BCFF"/>
+      <text x="804" y="22" text-anchor="middle" fill="#E2E8F0">Android</text>
+    </g>
+
+    <!-- Bottom Architecture Feature Pills -->
+    <g transform="translate(0, 232)" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="600">
+      <rect x="0" y="0" width="172" height="28" rx="6" fill="#090D16" stroke="#1E293B" stroke-width="1"/>
+      <text x="86" y="18" text-anchor="middle" fill="#38BDF8">LazyGridTree &amp; MDI</text>
+
+      <rect x="182" y="0" width="176" height="28" rx="6" fill="#090D16" stroke="#1E293B" stroke-width="1"/>
+      <text x="270" y="18" text-anchor="middle" fill="#A855F7">Live SCSS &amp; Bootstrap</text>
+
+      <rect x="368" y="0" width="168" height="28" rx="6" fill="#090D16" stroke="#1E293B" stroke-width="1"/>
+      <text x="452" y="18" text-anchor="middle" fill="#22C55E">Three.js &amp; Box2D/3D</text>
+
+      <rect x="546" y="0" width="144" height="28" rx="6" fill="#090D16" stroke="#1E293B" stroke-width="1"/>
+      <text x="618" y="18" text-anchor="middle" fill="#F43F5E">VLC HDR Media</text>
+
+      <rect x="700" y="0" width="146" height="28" rx="6" fill="#090D16" stroke="#1E293B" stroke-width="1"/>
+      <text x="773" y="18" text-anchor="middle" fill="#F59E0B">AI Chat &amp; R/RC</text>
+    </g>
+  </g>
+</svg>

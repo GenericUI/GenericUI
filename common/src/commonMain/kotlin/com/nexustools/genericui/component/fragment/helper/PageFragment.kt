@@ -33,6 +33,32 @@ abstract class PageFragment(
 
     open fun onResize(viewportWidth: Int, viewportHeight: Int) {}
 
+    open fun onBeginLoadTransition(durationMs: Int) {
+        removeClass("destroyed")
+        addClass("created")
+        pointerEventsEnabled = false
+        zIndex = 0
+        transition = "opacity ${durationMs}ms ease"
+        opacity = 0f
+    }
+
+    open fun onFinishLoadTransition(durationMs: Int) {
+        removeClass("created")
+        pointerEventsEnabled = true
+        zIndex = 5
+        transition = "opacity ${durationMs}ms ease"
+        opacity = 1f
+    }
+
+    open fun onBeginUnloadTransition(durationMs: Int) {
+        removeClass("created")
+        addClass("destroyed")
+        pointerEventsEnabled = false
+        zIndex = 0
+        transition = "opacity ${durationMs}ms ease"
+        opacity = 0f
+    }
+
     override fun onCreate(savedState: FragmentBundle?) {
         super.onCreate(savedState)
         clearChildren()

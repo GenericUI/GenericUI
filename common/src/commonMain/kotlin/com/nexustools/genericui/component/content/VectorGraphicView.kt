@@ -5,4 +5,8 @@ package com.nexustools.genericui.component.content
  */
 class VectorGraphicView(
     svgSourceOrPath: String? = null
-) : ImageView(sourceUrl = svgSourceOrPath)
+) : ImageView(sourceUrl = svgSourceOrPath) {
+    init {
+        htmlTag = "svg"
+    }
+}

@@ -280,7 +280,7 @@ abstract class GenericUiSassCompileTask : DefaultTask() {
             activeMediaQuery = null,
             output = outCss
         )
-        val flattened = outCss.toString().trim()
+        val flattened = compileRulesToCss(outCss.toString().trim())
 
         return if (minifyOutput) {
             flattened
@@ -291,6 +291,9 @@ abstract class GenericUiSassCompileTask : DefaultTask() {
             flattened + "\n"
         }
     }
+
+    internal fun compileRulesToCss(cssOrSelectors: String): String =
+        Regex("(?<!\\\\)genericui:([a-zA-Z0-9_-]+)").replace(cssOrSelectors, "genericui\\\\:$1")
 
     private fun flattenBlock(
         source: String,
@@ -339,7 +342,7 @@ abstract class GenericUiSassCompileTask : DefaultTask() {
         }
 
         if (declarations.isNotEmpty() && parentSelectors.isNotEmpty()) {
-            val selectorLine = parentSelectors.joinToString(", ")
+            val selectorLine = compileRulesToCss(parentSelectors.joinToString(", "))
             val declBody = declarations.joinToString("; ") { it.trim() } + ";"
             if (activeMediaQuery != null) {
                 output.append(activeMediaQuery).append(" {\n")

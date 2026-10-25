@@ -22,6 +22,9 @@ open class TabContainer(
     tabPosition: TabPosition = TabPosition.TOP,
     tabBarStyle: TabBarStyle = TabBarStyle.TABS
 ) : AbstractContainer() {
+    init {
+        htmlTag = "genericui:tabcontainer"
+    }
 
     private val _entries = mutableListOf<TabEntry>()
     val entries: List<TabEntry> get() = _entries

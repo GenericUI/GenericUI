@@ -182,8 +182,13 @@ abstract class AbstractContainer(
                     (cls == "button" && (prefix == "btn" || simpleClassName.contains("button")))
             }
             else -> {
-                val lower = sel.lowercase()
-                lower == simpleClassName ||
+                val lower = sel.lowercase().replace("\\:", ":")
+                val targetTag = target.htmlTag.lowercase().replace("\\:", ":")
+                val rootMatch = (lower == "root" || lower == "genericui:root") &&
+                    (targetTag == "root" || targetTag == "genericui:root")
+                rootMatch ||
+                    lower == targetTag ||
+                    lower == simpleClassName ||
                     lower == prefix ||
                     (lower == "button" && (prefix == "btn" || simpleClassName.contains("button")))
             }

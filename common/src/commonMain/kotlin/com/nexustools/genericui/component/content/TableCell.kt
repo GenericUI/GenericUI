@@ -5,4 +5,6 @@ package com.nexustools.genericui.component.content
  */
 data class TableCell(
     val text: String
-)
+) {
+    val htmlTag: String = "td"
+}

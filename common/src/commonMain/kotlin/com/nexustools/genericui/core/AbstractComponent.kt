@@ -1,5 +1,6 @@
 package com.nexustools.genericui.core
 
+import com.nexustools.genericui.component.shell.ContextMenu
 import com.nexustools.genericui.enums.bootstrap.*
 import com.nexustools.genericui.event.KeyEvent
 import com.nexustools.genericui.event.PointerEvent
@@ -27,9 +28,26 @@ import com.nexustools.genericui.style.transition.CssTransitionController
  *   is connected to a visible on-screen `Window` / `Application` AND [isVisible] is `true`.
  */
 abstract class AbstractComponent(
-    val componentClassPrefix: String = ""
+    val componentClassPrefix: String = "",
+    htmlTag: String = "genericui:component"
 ) : Disposable {
 
+    private val initialHtmlTag: String = htmlTag.trim().ifEmpty { "genericui:component" }
+    private var lastAppliedStyleSheet: CssStyleSheet? = null
+    private var lastStyleSheetViewportWidthPx: Int = 1280
+
+    protected open fun defaultHtmlTag(): String = initialHtmlTag
+
+    open var htmlTag: String = initialHtmlTag
+        set(value) {
+            val normalized = value.trim().ifEmpty { defaultHtmlTag() }
+            field = normalized
+            nativeImpl?.setAttribute("data-genericui-tag", normalized)
+            val sheet = lastAppliedStyleSheet
+            if (sheet != null) {
+                applyStyleSheet(sheet, lastStyleSheetViewportWidthPx)
+            }
+        }
     open var id: String? = null
     var parent: AbstractComponent? = null
         internal set
@@ -48,6 +66,7 @@ abstract class AbstractComponent(
     private var activePressedState: Boolean = false
     private var opacityState: Float = 1.0f
     private var tooltipTextState: String? = null
+    private val customAttributesState: MutableMap<String, String> = linkedMapOf()
     private var preferredSizeState: Size? = null
     var widthPx: Int? = null
         set(value) {
@@ -130,8 +149,53 @@ abstract class AbstractComponent(
     var onContextMenu: ((PointerEvent) -> Unit)? = null
         set(value) {
             field = value
-            nativeImpl?.setOnContextMenu(value)
+            syncContextMenuListener()
         }
+
+    /**
+     * Optional popup [ContextMenu] attached to this component.
+     * Automatically opens at the pointer coordinates when a context-menu gesture occurs.
+     */
+    var contextMenu: ContextMenu? = null
+        set(value) {
+            field = value
+            syncContextMenuListener()
+        }
+
+    @kotlin.jvm.JvmName("assignContextMenu")
+    fun setContextMenu(menu: ContextMenu?) {
+        contextMenu = menu
+    }
+
+    @kotlin.jvm.JvmName("obtainContextMenu")
+    fun getContextMenu(): ContextMenu? = contextMenu
+
+    fun onContextMenu(handler: (PointerEvent) -> Unit) {
+        onContextMenu = handler
+    }
+
+    fun dispatchContextMenu(event: PointerEvent = PointerEvent(0f, 0f)) {
+        contextMenu?.showAt(this, event.x.toInt(), event.y.toInt())
+        onContextMenu?.invoke(event)
+    }
+
+    fun dispatchContextMenu(x: Float, y: Float) {
+        dispatchContextMenu(PointerEvent(x = x, y = y))
+    }
+
+    private fun buildEffectiveContextMenuListener(): ((PointerEvent) -> Unit)? {
+        val menu = contextMenu
+        val userHandler = onContextMenu
+        if (menu == null && userHandler == null) return null
+        return { event ->
+            contextMenu?.showAt(this, event.x.toInt(), event.y.toInt())
+            onContextMenu?.invoke(event)
+        }
+    }
+
+    private fun syncContextMenuListener() {
+        nativeImpl?.setOnContextMenu(buildEffectiveContextMenuListener())
+    }
     var onPointerDown: ((PointerEvent) -> Unit)? = null
         set(value) {
             field = value
@@ -167,8 +231,15 @@ abstract class AbstractComponent(
 
     open fun resolveActiveFactory(): NativeFactory? {
         if (!visibleState) return null
-        return parent?.resolveActiveFactory()
+        return parent?.resolveChildFactory()
     }
+
+    /**
+     * Returns the [NativeFactory] to provide to direct and descendant children of this component.
+     * Defaults to [resolveActiveFactory], allowing specialized containers to override the factory
+     * provided to their children.
+     */
+    open fun resolveChildFactory(): NativeFactory? = resolveActiveFactory()
 
     protected abstract fun createNativeImpl(factory: NativeFactory): NativeImpl<*>
 
@@ -198,6 +269,9 @@ abstract class AbstractComponent(
         impl.setActivePressedState(activePressedState)
         impl.setOpacity(opacityState)
         impl.setTooltipText(tooltipTextState)
+        for ((attrKey, attrVal) in customAttributesState) {
+            impl.setAttribute(attrKey, attrVal)
+        }
         impl.setPreferredSize(preferredSizeState)
         impl.setPadding(padding)
         impl.setMargin(margin)
@@ -208,7 +282,7 @@ abstract class AbstractComponent(
         }
         impl.setOnClick(onClick)
         impl.setOnDoubleClick(onDoubleClick)
-        impl.setOnContextMenu(onContextMenu)
+        impl.setOnContextMenu(buildEffectiveContextMenuListener())
         impl.setOnPointerDown(onPointerDown)
         impl.setOnPointerMove(onPointerMove)
         impl.setOnPointerUp(onPointerUp)
@@ -633,10 +707,14 @@ abstract class AbstractComponent(
         get() = opacityState
         set(value) {
             val clamped = value.coerceIn(0f, 1f)
+            if (clamped >= 1.0f) inlineStyleMap.remove("opacity") else inlineStyleMap["opacity"] = clamped.toString()
             val prevStyle = computedStyleState ?: ComputedStyle(opacity = opacityState)
             opacityState = clamped
             nativeImpl?.setOpacity(opacityState)
-            val nextStyle = prevStyle.copy(opacity = clamped)
+            val nextStyle = prevStyle.copy(
+                opacity = clamped,
+                rawDeclarations = syncRawDeclarations(prevStyle, "opacity", if (clamped >= 1.0f) null else clamped.toString())
+            )
             computedStyleState = nextStyle
             transitionController.onStyleChanged(prevStyle, nextStyle)
         }
@@ -647,6 +725,18 @@ abstract class AbstractComponent(
             tooltipTextState = value
             nativeImpl?.setTooltipText(value)
         }
+
+    open fun setAttribute(name: String, value: String) {
+        customAttributesState[name] = value
+        nativeImpl?.setAttribute(name, value)
+    }
+
+    fun getAttribute(name: String): String? = customAttributesState[name]
+
+    fun removeAttribute(name: String) {
+        customAttributesState.remove(name)
+        nativeImpl?.setAttribute(name, null)
+    }
 
     fun setPreferredSize(size: Size?) {
         preferredSizeState = size
@@ -730,11 +820,19 @@ abstract class AbstractComponent(
         applyComputedStyle(merged)
     }
 
+    private fun syncRawDeclarations(base: ComputedStyle, cssKey: String, cssValue: String?): Map<String, String> =
+        if (cssValue.isNullOrBlank()) base.rawDeclarations - cssKey else base.rawDeclarations + (cssKey to cssValue)
+
     var customBackgroundColor: RgbaColor?
         get() = computedStyleState?.backgroundColor
         set(value) {
             val base = computedStyleState ?: ComputedStyle()
-            applyComputedStyle(base.copy(backgroundColor = value))
+            applyComputedStyle(
+                base.copy(
+                    backgroundColor = value,
+                    rawDeclarations = syncRawDeclarations(base, "background-color", value?.toCssRgba())
+                )
+            )
         }
 
     /**
@@ -745,7 +843,12 @@ abstract class AbstractComponent(
         get() = nativeImpl?.getBackgroundGradient() ?: computedStyleState?.backgroundGradient
         set(value) {
             val base = computedStyleState ?: ComputedStyle()
-            applyComputedStyle(base.copy(backgroundGradient = value))
+            applyComputedStyle(
+                base.copy(
+                    backgroundGradient = value,
+                    rawDeclarations = syncRawDeclarations(base, "background-image", value?.toCssString())
+                )
+            )
             nativeImpl?.setBackgroundGradient(value)
         }
 
@@ -765,7 +868,12 @@ abstract class AbstractComponent(
         get() = nativeImpl?.getTint() ?: computedStyleState?.tint
         set(value) {
             val base = computedStyleState ?: ComputedStyle()
-            applyComputedStyle(base.copy(tint = value))
+            applyComputedStyle(
+                base.copy(
+                    tint = value,
+                    rawDeclarations = syncRawDeclarations(base, "tint", value?.toCssRgba())
+                )
+            )
             nativeImpl?.setTint(value)
         }
 
@@ -808,42 +916,72 @@ abstract class AbstractComponent(
         get() = computedStyleState?.textColor
         set(value) {
             val base = computedStyleState ?: ComputedStyle()
-            applyComputedStyle(base.copy(textColor = value))
+            applyComputedStyle(
+                base.copy(
+                    textColor = value,
+                    rawDeclarations = syncRawDeclarations(base, "color", value?.toCssRgba())
+                )
+            )
         }
 
     var borderColor: RgbaColor?
         get() = computedStyleState?.borderColor
         set(value) {
             val base = computedStyleState ?: ComputedStyle()
-            applyComputedStyle(base.copy(borderColor = value))
+            applyComputedStyle(
+                base.copy(
+                    borderColor = value,
+                    rawDeclarations = syncRawDeclarations(base, "border-color", value?.toCssRgba())
+                )
+            )
         }
 
     var borderRadiusPx: Float?
         get() = computedStyleState?.borderRadiusPx
         set(value) {
             val base = computedStyleState ?: ComputedStyle()
-            applyComputedStyle(base.copy(borderRadiusPx = value))
+            applyComputedStyle(
+                base.copy(
+                    borderRadiusPx = value,
+                    rawDeclarations = syncRawDeclarations(base, "border-radius", value?.let { "${it}px" })
+                )
+            )
         }
 
-    var backgroundImageUrl: String?
+    open var backgroundImageUrl: String?
         get() = computedStyleState?.backgroundImageUrl
         set(value) {
             val base = computedStyleState ?: ComputedStyle()
-            applyComputedStyle(base.copy(backgroundImageUrl = value))
+            applyComputedStyle(
+                base.copy(
+                    backgroundImageUrl = value,
+                    rawDeclarations = syncRawDeclarations(base, "background-image", value?.let { "url('$it')" })
+                )
+            )
         }
 
     var textShadow: String?
         get() = computedStyleState?.textShadow
         set(value) {
             val base = computedStyleState ?: ComputedStyle()
-            applyComputedStyle(base.copy(textShadow = value))
+            applyComputedStyle(
+                base.copy(
+                    textShadow = value,
+                    rawDeclarations = syncRawDeclarations(base, "text-shadow", value)
+                )
+            )
         }
 
     var boxShadow: String?
         get() = computedStyleState?.boxShadow
         set(value) {
             val base = computedStyleState ?: ComputedStyle()
-            applyComputedStyle(base.copy(boxShadow = value))
+            applyComputedStyle(
+                base.copy(
+                    boxShadow = value,
+                    rawDeclarations = syncRawDeclarations(base, "box-shadow", value)
+                )
+            )
         }
 
     var transform: String?
@@ -851,7 +989,12 @@ abstract class AbstractComponent(
         set(value) {
             if (value == null) inlineStyleMap.remove("transform") else inlineStyleMap["transform"] = value
             val base = computedStyleState ?: ComputedStyle()
-            applyComputedStyle(base.copy(transform = value))
+            applyComputedStyle(
+                base.copy(
+                    transform = value,
+                    rawDeclarations = syncRawDeclarations(base, "transform", value)
+                )
+            )
         }
 
     var transition: String?
@@ -859,35 +1002,62 @@ abstract class AbstractComponent(
         set(value) {
             if (value == null) inlineStyleMap.remove("transition") else inlineStyleMap["transition"] = value
             val base = computedStyleState ?: ComputedStyle()
-            applyComputedStyle(base.copy(transition = value))
+            applyComputedStyle(
+                base.copy(
+                    transition = value,
+                    rawDeclarations = syncRawDeclarations(base, "transition", value)
+                )
+            )
         }
 
     var zIndex: Int?
         get() = computedStyleState?.zIndex
         set(value) {
+            if (value == null) inlineStyleMap.remove("z-index") else inlineStyleMap["z-index"] = value.toString()
             val base = computedStyleState ?: ComputedStyle()
-            applyComputedStyle(base.copy(zIndex = value))
+            applyComputedStyle(
+                base.copy(
+                    zIndex = value,
+                    rawDeclarations = syncRawDeclarations(base, "z-index", value?.toString())
+                )
+            )
         }
 
     var aspectRatio: Float?
         get() = computedStyleState?.aspectRatio
         set(value) {
             val base = computedStyleState ?: ComputedStyle()
-            applyComputedStyle(base.copy(aspectRatio = value))
+            applyComputedStyle(
+                base.copy(
+                    aspectRatio = value,
+                    rawDeclarations = syncRawDeclarations(base, "aspect-ratio", value?.toString())
+                )
+            )
         }
 
     var pointerEventsEnabled: Boolean
         get() = computedStyleState?.pointerEventsEnabled ?: true
         set(value) {
+            if (value) inlineStyleMap.remove("pointer-events") else inlineStyleMap["pointer-events"] = "none"
             val base = computedStyleState ?: ComputedStyle()
-            applyComputedStyle(base.copy(pointerEventsEnabled = value))
+            applyComputedStyle(
+                base.copy(
+                    pointerEventsEnabled = value,
+                    rawDeclarations = syncRawDeclarations(base, "pointer-events", if (value) null else "none")
+                )
+            )
         }
 
     var cursor: String?
         get() = computedStyleState?.cursor
         set(value) {
             val base = computedStyleState ?: ComputedStyle()
-            applyComputedStyle(base.copy(cursor = value))
+            applyComputedStyle(
+                base.copy(
+                    cursor = value,
+                    rawDeclarations = syncRawDeclarations(base, "cursor", value)
+                )
+            )
         }
 
     var leftOffset: String?
@@ -895,7 +1065,12 @@ abstract class AbstractComponent(
         set(value) {
             if (value == null) inlineStyleMap.remove("left") else inlineStyleMap["left"] = value
             val base = computedStyleState ?: ComputedStyle()
-            applyComputedStyle(base.copy(left = value))
+            applyComputedStyle(
+                base.copy(
+                    left = value,
+                    rawDeclarations = syncRawDeclarations(base, "left", value)
+                )
+            )
         }
 
     var topOffset: String?
@@ -903,14 +1078,21 @@ abstract class AbstractComponent(
         set(value) {
             if (value == null) inlineStyleMap.remove("top") else inlineStyleMap["top"] = value
             val base = computedStyleState ?: ComputedStyle()
-            applyComputedStyle(base.copy(top = value))
+            applyComputedStyle(
+                base.copy(
+                    top = value,
+                    rawDeclarations = syncRawDeclarations(base, "top", value)
+                )
+            )
         }
 
     /**
      * Resolves and applies [styleSheet] rules to this component and (if this is an [AbstractContainer])
      * recursively to all child components.
      */
-    fun applyStyleSheet(styleSheet: CssStyleSheet, viewportWidthPx: Int = 1280) {
+    open fun applyStyleSheet(styleSheet: CssStyleSheet, viewportWidthPx: Int = 1280) {
+        lastAppliedStyleSheet = styleSheet
+        lastStyleSheetViewportWidthPx = viewportWidthPx
         val resolved = styleSheet.resolveStyleForComponent(this, viewportWidthPx = viewportWidthPx)
         applyComputedStyle(resolved)
         if (this is AbstractContainer) {
@@ -924,7 +1106,7 @@ abstract class AbstractComponent(
      * Applies a build-time precompiled Kotlin stylesheet ([PrecompiledStyleSheet]) to this component
      * and all of its descendants with zero runtime SASS/CSS parsing overhead.
      */
-    fun applyPrecompiledStyleSheet(precompiled: PrecompiledStyleSheet, viewportWidthPx: Int = 1280) {
+    open fun applyPrecompiledStyleSheet(precompiled: PrecompiledStyleSheet, viewportWidthPx: Int = 1280) {
         applyStyleSheet(precompiled.styleSheet, viewportWidthPx)
     }
 

@@ -5,9 +5,13 @@ package com.nexustools.genericui.core
  */
 object GenericUI {
     var activeFactory: NativeFactory? = null
+    var applicationName: String = "GenericUI"
 
-    fun initialize(factory: NativeFactory) {
+    fun initialize(factory: NativeFactory, appName: String? = null) {
         activeFactory = factory
+        if (!appName.isNullOrBlank()) {
+            applicationName = appName.trim()
+        }
     }
 
     fun requireFactory(): NativeFactory =

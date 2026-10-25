@@ -8,6 +8,10 @@ import com.nexustools.genericui.nativeimpl.content.TableNativeImpl
  * Structured data table component (`<table class="table">`).
  */
 class Table : AbstractContainer() {
+    init {
+        htmlTag = "table"
+    }
+
     private val _columns = mutableListOf<TableColumn>()
     val columns: List<TableColumn> get() = _columns
 

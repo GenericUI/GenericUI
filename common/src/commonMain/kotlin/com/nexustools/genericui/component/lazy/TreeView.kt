@@ -11,7 +11,7 @@ import com.nexustools.genericui.nativeimpl.lazy.TreeViewNativeImpl
 class TreeView<T>(
     var estimatedRowHeightPx: Float = 32f,
     overscanRows: Int = 4
-) : AbstractComponent() {
+) : AbstractComponent(htmlTag = "genericui:treeview") {
     val viewportTracker: LazyViewportTracker = LazyViewportTracker(overscanRows)
 
     private val _rootNodes = mutableListOf<TreeNode<T>>()

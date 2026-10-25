@@ -20,6 +20,10 @@ open class LazyList(
     var estimatedItemExtentPx: Float = 56f,
     overscanItems: Int = 3
 ) : AbstractContainer() {
+    init {
+        htmlTag = "genericui:lazylist"
+    }
+
     var orientation: Orientation = orientation
         set(value) {
             field = value

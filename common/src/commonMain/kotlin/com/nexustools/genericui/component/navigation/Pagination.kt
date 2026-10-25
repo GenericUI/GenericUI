@@ -11,6 +11,10 @@ class Pagination(
     var currentPage: Int = 1,
     var totalPages: Int = 1
 ) : AbstractContainer() {
+    init {
+        htmlTag = "genericui:pagination"
+    }
+
     var onPageChanged: ((Int) -> Unit)? = null
 
     fun selectPage(page: Int) {
@@ -19,5 +23,5 @@ class Pagination(
     }
 
     override fun createNativeImpl(factory: NativeFactory): ContainerNativeImpl<*> =
-        factory.createContainer("pagination")
+        factory.createContainer("pagination", htmlTag)
 }

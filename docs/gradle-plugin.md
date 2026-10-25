@@ -46,19 +46,51 @@ genericui {
         web(true) // Compiles both Kotlin/Wasm (wasmJs, default) and Kotlin/JS IR (js, automatic fallback)
     }
 
-    // 2. Application Identity, Platform Icons, & Web Icon (.svg Preferred for Web)
+    // 2. Application Identity, Cross-Backend Theme Color, Platform Icons, & Web App Manifest (PWA)
     application {
         appName = "My GenericUI App"
-        // The Web splash screen (#genericui-splash) and index.html favicon use the project icons,
-        // with `webIcon` overriding the Web icon (.svg vector icons are preferred for the Web icon):
+        description = "High-performance cross-platform GenericUI application"
+
+        // Cross-backend themeColor propagated across ALL backends that support it:
+        // - Web: <meta id="genericui-theme-color" name="theme-color" content="#2A80FF">,
+        //        "theme_color" in manifest.webmanifest, and --genericui-theme-color CSS var
+        // - Android: <color name="theme_color"> & <color name="colorPrimary"> in res/values/colors.xml,
+        //            plus R.color.theme_color / RC.color.theme_color
+        // - iOS & macOS: Assets.xcassets/AccentColor.colorset and Info.plist GenericUIThemeColor
+        // - Windows & Linux: .rc VERSIONINFO ThemeColor and .desktop X-GenericUI-ThemeColor
+        themeColor = "#2A80FF"
+
+        // The Web splash screen (#genericui-splash, 64x64 icon), index.html favicon, and
+        // manifest.webmanifest use the project icons, with `webIcon` overriding the Web icon
+        // (.svg vector icons are preferred for the Web icon):
         webIcon("icon.svg")
         icons(
             windows = "icon.ico",
             mac = "icon.icns",
             linux = "icon.png",
-            web = "icon.svg", // Preferred: .svg (image/svg+xml) for crisp favicon & splash rendering
+            web = "icon.svg", // Preferred: .svg (image/svg+xml) for crisp favicon, 64x64 splash, & PWA manifest
             common = "icon.png"
         )
+
+        // Optional: Generate W3C / MDN manifest.webmanifest (https://developer.mozilla.org/en-US/docs/Web/Progressive_web_apps/Manifest)
+        // and inject HTML <head> tags allowing the app to be installed as a standalone WebApp on
+        // platforms like Android via Chrome ("Install app" / WebAPK), iOS Safari, and Desktop browsers:
+        webManifest {
+            allowInstallAsWebApp = true
+            shortName = "MyApp"
+            display = "standalone"          // "standalone", "fullscreen", "minimal-ui", or "browser"
+            orientation = "any"
+            backgroundColor = "#121519"
+            startUrl = "./"
+            scope = "./"
+            categories("productivity", "utilities")
+            shortcut(
+                name = "Dashboard",
+                shortName = "Home",
+                description = "Open main dashboard",
+                url = "./"
+            )
+        }
     }
 
     // 3. Native GPU Drivers, Translation Layers, Shader Compilers, & :extensions:media VLC HDR
@@ -178,7 +210,9 @@ By design, `:swing` has **zero mandatory native dependencies** when only 2D widg
 | `bundleGenericUiAngle` | `AngleNativeBundleTask` | `build/generated/genericui/angle` | Generates `angle-runtime-manifest.json` and per-architecture descriptors for `libEGL.dll`, `libGLESv2.dll`, and `d3dcompiler_47.dll` (`EGL_PLATFORM_ANGLE_TYPE_D3D11_ANGLE`). |
 | `bundleGenericUiVulkan` | `VulkanNativeBundleTask` | `build/generated/genericui/vulkan` | Generates `vulkan-runtime-manifest.json` and `MoltenVK_icd.json` for Vulkan 1.2+ swapchains, MoltenVK Metal translation, and `shaderc`. |
 | `compileGenericUiSass` | `GenericUiSassCompileTask` | `build/generated/genericui/styles` | Compiles `.scss` and `.sass` files into `.css` bundles, substitutes `$variables`, injects `:root` Bootstrap 5 CSS custom properties, optionally minifies CSS, and outputs `styles-manifest.json`. |
-| `packageGenericUiWebDistribution` | `GenericUiWebDistributionTask` | `build/dist/web` | Packages the Wasm-primary (`wasmJs`) and JS-IR-fallback (`js`) Web distribution alongside `genericui-loader.js`, the resolved Web icon (`.svg` preferred for favicon and splash icon), and `index.html` with SHA-1 hashes appended to `<script type="loader-wasm">`, `<script type="loader-js">`, and `#genericui-loader-script`. |
+| `compileGenericUiResources` | `GenericUiResourceCompilerTask` | `build/generated/genericui/resources` | Compiles `drawable/`, `values/`, `raw/`, and `font/` resources + `application.themeColor` into `R.kt`, `RC.kt`, `GeneratedResourceRegistry.kt`, Android `res/values/colors.xml` (`theme_color`, `colorPrimary`), iOS/macOS `Assets.xcassets/AccentColor.colorset`, Windows `.rc`, Linux `.gresource.xml`/`.qrc`, and `genericui-resource-vars.css` (`--genericui-theme-color`). |
+| `prepareGenericUiDesktopResources` | `GenericUiDesktopResourceTask` | `build/generated/genericui/desktop-resources` | Generates and compiles Windows `app_resources.rc`/`.res` (including `ThemeColor` in `VERSIONINFO`), macOS `Info.plist` (`GenericUIThemeColor`, `NSAccentColorName`), and Linux `.desktop` (`X-GenericUI-ThemeColor`). |
+| `packageGenericUiWebDistribution` | `GenericUiWebDistributionTask` | `build/dist/web` | Packages the Wasm-primary (`wasmJs`) and JS-IR-fallback (`js`) Web distribution alongside `genericui-loader.js`, the resolved Web icon (`.svg` preferred for favicon, `64x64` splash icon, and PWA manifest), optional W3C `manifest.webmanifest` & installable WebApp `<head>` tags (`allowInstallAsWebApp`), `<meta name="theme-color">`, and `index.html` with SHA-1 hashes appended to `<script type="loader-wasm">`, `<script type="loader-js">`, `#genericui-loader-script`, and `#genericui-web-manifest`. |
 
 ---
 

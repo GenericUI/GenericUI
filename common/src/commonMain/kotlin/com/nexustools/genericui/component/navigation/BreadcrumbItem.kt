@@ -7,4 +7,6 @@ data class BreadcrumbItem(
     val id: String,
     val label: String,
     val isActive: Boolean = false
-)
+) {
+    val htmlTag: String = "genericui:breadcrumbitem"
+}

@@ -8,6 +8,10 @@ import com.nexustools.genericui.nativeimpl.layout.ContainerNativeImpl
  * Hero callout container (`jumbotron` / `p-5 mb-4 bg-body-tertiary rounded-3`).
  */
 class Jumbotron : AbstractContainer() {
+    init {
+        htmlTag = "genericui:jumbotron"
+    }
+
     override fun createNativeImpl(factory: NativeFactory): ContainerNativeImpl<*> =
-        factory.createContainer("jumbotron p-5 mb-4 rounded-3")
+        factory.createContainer("jumbotron p-5 mb-4 rounded-3", htmlTag)
 }

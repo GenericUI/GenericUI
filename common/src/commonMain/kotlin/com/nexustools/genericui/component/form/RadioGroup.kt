@@ -8,6 +8,10 @@ import com.nexustools.genericui.nativeimpl.layout.ContainerNativeImpl
  * Mutually exclusive group of [RadioButton] controls.
  */
 class RadioGroup : AbstractContainer() {
+    init {
+        htmlTag = "genericui:radiogroup"
+    }
+
     private val _buttons = mutableListOf<RadioButton>()
     val buttons: List<RadioButton> get() = _buttons
 
@@ -36,5 +40,5 @@ class RadioGroup : AbstractContainer() {
     }
 
     override fun createNativeImpl(factory: NativeFactory): ContainerNativeImpl<*> =
-        factory.createContainer("form-radio-group")
+        factory.createContainer("form-radio-group", htmlTag)
 }

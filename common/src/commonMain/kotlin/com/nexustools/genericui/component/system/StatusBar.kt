@@ -9,6 +9,10 @@ import com.nexustools.genericui.nativeimpl.layout.ContainerNativeImpl
  * zoom percentage, or background task progress.
  */
 class StatusBar : AbstractContainer() {
+    init {
+        htmlTag = "genericui:statusbar"
+    }
+
     override fun createNativeImpl(factory: NativeFactory): ContainerNativeImpl<*> =
-        factory.createContainer("status-bar")
+        factory.createContainer("status-bar", htmlTag)
 }

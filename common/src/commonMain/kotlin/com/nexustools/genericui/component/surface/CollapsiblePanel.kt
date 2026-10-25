@@ -11,6 +11,10 @@ open class CollapsiblePanel(
     title: String = "",
     expanded: Boolean = true
 ) : AbstractContainer() {
+    init {
+        htmlTag = "genericui:collapsiblepanel"
+    }
+
     var title: String = title
         set(value) {
             field = value

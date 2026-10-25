@@ -13,9 +13,10 @@ class Banner(
     type: BootstrapType = BootstrapType.WARNING
 ) : AbstractContainer() {
     init {
+        htmlTag = "genericui:banner"
         this.type = type
     }
 
     override fun createNativeImpl(factory: NativeFactory): ContainerNativeImpl<*> =
-        factory.createContainer("banner")
+        factory.createContainer("banner", htmlTag)
 }

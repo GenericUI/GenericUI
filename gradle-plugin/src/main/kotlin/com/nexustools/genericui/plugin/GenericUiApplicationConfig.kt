@@ -130,6 +130,35 @@ open class GenericUiApplicationConfig(
             desktop.issuesUrl = value
         }
 
+    /**
+     * Application theme / accent color (e.g. `"#0d6efd"` or `"#2A80FF"`), propagated across all
+     * backends that support it (Web `<meta name="theme-color">` & `manifest.webmanifest`,
+     * Android `colors.xml` `theme_color` / `colorPrimary`, iOS/macOS `AccentColor.colorset`,
+     * Windows `VERSIONINFO`, macOS `Info.plist`, Linux `.desktop`, and `R.color.theme_color`).
+     */
+    var themeColor: String
+        get() = desktop.themeColor
+        set(value) {
+            desktop.themeColor = value
+        }
+
+    /**
+     * W3C / MDN Progressive Web App (PWA) Web App Manifest (`manifest.webmanifest`) configuration
+     * for the Web target.
+     */
+    val webManifest: GenericUiWebManifestConfig
+        get() = desktop.webManifest
+
+    /**
+     * Whether to enable HTML `<head>` tags and Web App Manifest settings allowing the Web target
+     * to be installed as a standalone WebApp on platforms like Android via Chrome.
+     */
+    var allowInstallAsWebApp: Boolean
+        get() = desktop.allowInstallAsWebApp
+        set(value) {
+            desktop.allowInstallAsWebApp = value
+        }
+
     /** General fallback icon path relative to project root (e.g. `"icon.png"` or `"icon.ico"`). */
     var icon: String
         get() = desktop.icon
@@ -246,6 +275,54 @@ open class GenericUiApplicationConfig(
         desktop.icons(windows = windows, mac = mac, linux = linux, web = web, common = common)
     }
 
+    /**
+     * Sets the application theme / accent color (e.g. `"#0d6efd"` or `"#2A80FF"`) across all
+     * backends that support it.
+     */
+    fun themeColor(color: String) {
+        desktop.themeColor(color)
+    }
+
+    /**
+     * Enables and configures the W3C / MDN Progressive Web App (PWA) `manifest.webmanifest`
+     * and standalone WebApp installation (`allowInstallAsWebApp`) for the Web target.
+     */
+    fun webManifest(action: Action<in GenericUiWebManifestConfig>) {
+        desktop.webManifest(action)
+    }
+
+    /**
+     * Configures Web-specific build settings, including the `.svg`-preferred Web icon,
+     * `manifest.webmanifest` generation, and standalone WebApp installation on Android via Chrome (`allowInstallAsWebApp`).
+     */
+    fun webBuild(
+        icon: String = desktop.webIcon,
+        generateManifest: Boolean = desktop.webManifest.enabled || desktop.webManifest.allowInstallAsWebApp,
+        allowInstallAsWebApp: Boolean = desktop.webManifest.allowInstallAsWebApp,
+        shortName: String = desktop.webManifest.shortName,
+        themeColor: String = desktop.themeColor,
+        backgroundColor: String = desktop.webManifest.backgroundColor,
+        display: String = desktop.webManifest.display,
+        orientation: String = desktop.webManifest.orientation,
+        startUrl: String = desktop.webManifest.startUrl,
+        scope: String = desktop.webManifest.scope,
+        categories: List<String> = desktop.webManifest.categories
+    ) {
+        desktop.webBuild(
+            icon = icon,
+            generateManifest = generateManifest,
+            allowInstallAsWebApp = allowInstallAsWebApp,
+            shortName = shortName,
+            themeColor = themeColor,
+            backgroundColor = backgroundColor,
+            display = display,
+            orientation = orientation,
+            startUrl = startUrl,
+            scope = scope,
+            categories = categories
+        )
+    }
+
     /** Configures desktop application identity and OS resource metadata. */
     fun metadata(
         appName: String = desktop.appName,
@@ -256,7 +333,8 @@ open class GenericUiApplicationConfig(
         copyright: String = desktop.copyright,
         license: String = desktop.license,
         homepageUrl: String = desktop.homepageUrl,
-        issuesUrl: String = desktop.issuesUrl
+        issuesUrl: String = desktop.issuesUrl,
+        themeColor: String = desktop.themeColor
     ) {
         desktop.metadata(
             appName = appName,
@@ -267,7 +345,8 @@ open class GenericUiApplicationConfig(
             copyright = copyright,
             license = license,
             homepageUrl = homepageUrl,
-            issuesUrl = issuesUrl
+            issuesUrl = issuesUrl,
+            themeColor = themeColor
         )
     }
 

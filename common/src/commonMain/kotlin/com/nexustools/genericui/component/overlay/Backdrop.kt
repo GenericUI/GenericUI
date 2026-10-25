@@ -12,11 +12,12 @@ class Backdrop(
     var onDismissed: (() -> Unit)? = null
 ) : AbstractContainer() {
     init {
+        htmlTag = "genericui:backdrop"
         setOnClick {
             if (dismissOnClick) onDismissed?.invoke()
         }
     }
 
     override fun createNativeImpl(factory: NativeFactory): ContainerNativeImpl<*> =
-        factory.createContainer("modal-backdrop fade show")
+        factory.createContainer("modal-backdrop fade show", htmlTag)
 }

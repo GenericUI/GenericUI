@@ -21,8 +21,8 @@
 | :--- | :--- | :--- | :--- | :--- |
 | **`:extensions:gpu`** | *(Core GPU API)* | Project-of-Projects (`:common`, `:desktop`, `:mobile`, `:swing`, `:web`) | `:common` | [GPU Extension Guide (`extensions/docs/gpu.md`)](../extensions/docs/gpu.md) |
 | **`:extensions:imageprocessing`** | *(Fluent Pipeline API)* | Single KMP Project | `:extensions:gpu` | [Image Processing Guide (`extensions/docs/imageprocessing.md`)](../extensions/docs/imageprocessing.md) |
-| **`:extensions:canvas2d`** | **`:extensions:canvas2d:dsl`** | Project-of-Projects | `:common` | [Canvas2D Extension Guide (`extensions/docs/canvas2d.md`)](../extensions/docs/canvas2d.md) |
-| **`:extensions:canvas3d`** | **`:extensions:canvas3d:dsl`** | Project-of-Projects | `:extensions:gpu` | [Canvas3D Extension Guide (`extensions/docs/canvas3d.md`)](../extensions/docs/canvas3d.md) |
+| **`:extensions:canvas2d`** | **`:extensions:canvas2d:dsl`** | Project-of-Projects (`Canvas2D`, `ScrollCanvas2D`, `CurveEditorExt`) | `:common` | [Canvas2D Extension Guide (`extensions/docs/canvas2d.md`)](../extensions/docs/canvas2d.md) |
+| **`:extensions:canvas3d`** | **`:extensions:canvas3d:dsl`** | Project-of-Projects (`GLCanvasExt`, `VKCanvasExt`, `ScrollCanvas3D`, `ScrollGLCanvas`, `ScrollVKCanvas`) | `:extensions:gpu` | [Canvas3D Extension Guide (`extensions/docs/canvas3d.md`)](../extensions/docs/canvas3d.md) |
 
 ---
 

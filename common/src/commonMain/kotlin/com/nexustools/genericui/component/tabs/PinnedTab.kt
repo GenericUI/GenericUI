@@ -33,6 +33,10 @@ open class PinnedTab(
             ownerNotifyUpdated?.invoke(this)
         }
 
+    init {
+        htmlTag = "genericui:pinnedtab"
+    }
+
     override fun requestClose(): Boolean {
         if (isPinned) return false
         return super.requestClose()

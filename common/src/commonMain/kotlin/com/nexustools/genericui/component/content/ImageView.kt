@@ -19,7 +19,7 @@ import com.nexustools.genericui.nativeimpl.content.ImageNativeImpl
 open class ImageView(
     sourceUrl: String? = null,
     objectFit: ObjectFit = ObjectFit.CONTAIN
-) : AbstractComponent() {
+) : AbstractComponent(htmlTag = "img") {
     var sourceUrl: String? = sourceUrl
         set(value) {
             field = value
@@ -36,6 +36,18 @@ open class ImageView(
         set(value) {
             field = value
             typedNative<ImageNativeImpl<*>>()?.setObjectFit(value)
+        }
+
+    var onLoad: (() -> Unit)? = null
+        set(value) {
+            field = value
+            typedNative<ImageNativeImpl<*>>()?.setOnLoad(value)
+        }
+
+    var onError: (() -> Unit)? = null
+        set(value) {
+            field = value
+            typedNative<ImageNativeImpl<*>>()?.setOnError(value)
         }
 
     var imageBuffer: ImageBuffer? = null
@@ -78,12 +90,21 @@ open class ImageView(
         animated.frames.firstOrNull()?.buffer?.let { setImageBuffer(it) }
     }
 
+    override fun setAttribute(name: String, value: String) {
+        super.setAttribute(name, value)
+        if (name == "src") {
+            sourceUrl = value
+        }
+    }
+
     override fun createNativeImpl(factory: NativeFactory): ImageNativeImpl<*> =
         factory.createImage()
 
     override fun syncStateToNative() {
         super.syncStateToNative()
         val impl = typedNative<ImageNativeImpl<*>>() ?: return
+        impl.setOnLoad(onLoad)
+        impl.setOnError(onError)
         impl.setSourceUrl(sourceUrl)
         impl.setFallbackText(fallbackText)
         impl.setObjectFit(objectFit)

@@ -10,7 +10,7 @@ import com.nexustools.genericui.nativeimpl.form.SelectNativeImpl
 open class Select(
     options: List<SelectOption> = emptyList(),
     selectedValue: String? = options.firstOrNull()?.value
-) : AbstractComponent() {
+) : AbstractComponent(htmlTag = "select") {
     private val _options = options.toMutableList()
     val options: List<SelectOption> get() = _options
 
@@ -35,7 +35,11 @@ open class Select(
 
     fun addOption(value: String, label: String = value): Select = apply {
         _options.add(SelectOption(value, label))
+        if (selectedValue == null) {
+            selectedValue = value
+        }
         typedNative<SelectNativeImpl<*>>()?.setOptions(_options.map { it.value to it.label })
+        typedNative<SelectNativeImpl<*>>()?.setSelectedValue(selectedValue)
     }
 
     override fun createNativeImpl(factory: NativeFactory): SelectNativeImpl<*> =

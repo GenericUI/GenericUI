@@ -17,6 +17,8 @@ data class ToolPaletteItem(
     val shortcut: KeyShortcut? = null,
     val category: String = "Default"
 ) {
+    val htmlTag: String = "genericui:toolpaletteitem"
+
     constructor(
         id: String,
         name: String,

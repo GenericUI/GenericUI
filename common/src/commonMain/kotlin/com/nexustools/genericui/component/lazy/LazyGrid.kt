@@ -17,6 +17,10 @@ open class LazyGrid(
     var estimatedRowHeightPx: Float = 180f,
     overscanRows: Int = 2
 ) : AbstractContainer() {
+    init {
+        htmlTag = "genericui:lazygrid"
+    }
+
     var columns: Int = columns.coerceAtLeast(1)
         set(value) {
             field = value.coerceAtLeast(1)

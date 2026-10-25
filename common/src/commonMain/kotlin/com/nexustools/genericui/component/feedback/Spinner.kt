@@ -12,7 +12,7 @@ class Spinner(
     var growStyle: Boolean = false,
     var label: String? = "Loading...",
     type: BootstrapType = BootstrapType.PRIMARY
-) : AbstractComponent() {
+) : AbstractComponent(htmlTag = "genericui:spinner") {
     init {
         this.type = type
     }

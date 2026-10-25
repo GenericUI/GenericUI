@@ -12,6 +12,10 @@ import com.nexustools.genericui.nativeimpl.dock.DockAreaNativeImpl
 class DockArea(
     val position: DockPosition
 ) : AbstractContainer() {
+    init {
+        htmlTag = "genericui:dockarea"
+    }
+
     var isCollapsed: Boolean = false
         set(value) {
             field = value

@@ -89,9 +89,17 @@ open class FragmentContainer(
         currentFragment = incoming
         incoming.fragmentHost = this
         incoming.attachedWindow = hostWindow
+        if (hostWindow != null) {
+            htmlTag = "genericui:root"
+            incoming.htmlTag = "genericui:root"
+        }
 
         if (incoming.state == FragmentState.INITIALIZED || incoming.state == FragmentState.DESTROYED) {
             incoming.performCreate(restoredState)
+        }
+        if (hostWindow != null) {
+            htmlTag = "genericui:root"
+            incoming.htmlTag = "genericui:root"
         }
         addChild(incoming)
         if (resolveActiveFactory() != null) {
@@ -100,7 +108,7 @@ open class FragmentContainer(
         }
     }
 
-    internal fun ensureActiveFragmentStartedAndResumed() {
+    fun ensureActiveFragmentStartedAndResumed() {
         val active = currentFragment ?: return
         active.attachedWindow = hostWindow
         if (active.state == FragmentState.INITIALIZED) {

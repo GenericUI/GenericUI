@@ -36,6 +36,7 @@ open class GenericUiExtensionsConfig {
     var threeJsEnabled: Boolean = false
     var box2dEnabled: Boolean = false
     var box3dEnabled: Boolean = false
+    var alienEnabled: Boolean = false
     var dslEnabled: Boolean = false
 
     /** Alias property for [codeEditorEnabled] (`:extensions:codeeditor`). */
@@ -65,13 +66,14 @@ open class GenericUiExtensionsConfig {
     }
 
     /**
-     * Includes `:extensions:canvas2d` (`Canvas2D`, `Canvas2DContext`, `CurveEditor` — GPU-accelerated
-     * via `:extensions:gpu` using Vulkan primary and OpenGL ES / ANGLE fallback). Automatically enables `gpu`.
+     * Includes `:extensions:canvas2d` (`Canvas2D`, `Canvas2DContext`, `CurveEditor` — accelerated
+     * via `:extensions:imageprocessing`'s `ImageBuffer` and 2D context backend).
+     * Automatically enables `imageProcessing`.
      */
     fun canvas2d(enabled: Boolean = true) {
         canvas2dEnabled = enabled
         if (enabled) {
-            gpu(true)
+            imageProcessing(true)
         }
     }
 
@@ -165,6 +167,19 @@ open class GenericUiExtensionsConfig {
     }
 
     /**
+     * Includes `:extensions:alien` (self-rendered Bootstrap 5.3 `Canvas2D` UI engine with
+     * `AlienFactory`, `AlienContainer`, `AlienFragment`, `UnalienContainer`, and `AlienRepaintManager`
+     * with dirty update regions on System targets, and zero-overhead native pass-through on Web).
+     * Automatically enables `canvas2d` (and transitively `imageProcessing` and `gpu`).
+     */
+    fun alien(enabled: Boolean = true) {
+        alienEnabled = enabled
+        if (enabled) {
+            canvas2d(true)
+        }
+    }
+
+    /**
      * Includes `:extensions:dsl` (`kotlinx.html`-style in-place component builders and
      * Model-View-Controller `MvcModel` / `MvcView` / `MvcController` classes).
      */
@@ -172,7 +187,7 @@ open class GenericUiExtensionsConfig {
         dslEnabled = enabled
     }
 
-    /** Enables all 12 first-party extension modules. */
+    /** Enables all first-party extension modules. */
     fun enableAll() {
         gpu(true)
         imageProcessing(true)
@@ -185,6 +200,7 @@ open class GenericUiExtensionsConfig {
         threeJs(true)
         box2d(true)
         box3d(true)
+        alien(true)
         dsl(true)
     }
 
@@ -198,12 +214,13 @@ open class GenericUiExtensionsConfig {
         val resolvedThreeJs = threeJsEnabled || resolvedBox3d
         val resolvedAiChat = aiChatEnabled
         val resolvedCodeEditor = codeEditorEnabled || resolvedAiChat
+        val resolvedAlien = alienEnabled
         val resolvedWebView = webViewEnabled
         val resolvedMedia = mediaEnabled
         val resolvedCanvas3d = canvas3dEnabled || resolvedThreeJs || resolvedBox2d || resolvedBox3d
-        val resolvedCanvas2d = canvas2dEnabled || resolvedCanvas3d || resolvedCodeEditor || resolvedBox2d
-        val resolvedImageProcessing = imageProcessingEnabled
-        val resolvedGpu = gpuEnabled || resolvedImageProcessing || resolvedCanvas2d || resolvedCanvas3d || resolvedMedia || resolvedThreeJs
+        val resolvedCanvas2d = canvas2dEnabled || resolvedCanvas3d || resolvedCodeEditor || resolvedBox2d || resolvedAlien
+        val resolvedImageProcessing = imageProcessingEnabled || resolvedCanvas2d
+        val resolvedGpu = gpuEnabled || resolvedImageProcessing || resolvedCanvas3d || resolvedMedia || resolvedThreeJs
         val resolvedDsl = dslEnabled
 
         return buildList {
@@ -218,6 +235,7 @@ open class GenericUiExtensionsConfig {
             if (resolvedThreeJs) add(":extensions:threejs")
             if (resolvedBox2d) add(":extensions:box2d")
             if (resolvedBox3d) add(":extensions:box3d")
+            if (resolvedAlien) add(":extensions:alien")
             if (resolvedDsl) {
                 add(":extensions:dsl")
                 if (resolvedCanvas2d) add(":extensions:canvas2d:dsl")
@@ -229,6 +247,7 @@ open class GenericUiExtensionsConfig {
                 if (resolvedThreeJs) add(":extensions:threejs:dsl")
                 if (resolvedBox2d) add(":extensions:box2d:dsl")
                 if (resolvedBox3d) add(":extensions:box3d:dsl")
+                if (resolvedAlien) add(":extensions:alien:dsl")
             }
         }
     }

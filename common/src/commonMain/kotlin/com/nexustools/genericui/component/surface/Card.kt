@@ -20,6 +20,7 @@ open class Card(
     private var headerHeading: Heading? = null
 
     init {
+        htmlTag = "genericui:card"
         if (title != null) {
             val h = Heading(title, level = 5)
             headerHeading = h
@@ -28,5 +29,5 @@ open class Card(
     }
 
     override fun createNativeImpl(factory: NativeFactory): ContainerNativeImpl<*> =
-        factory.createContainer("card")
+        factory.createContainer("card", htmlTag)
 }

@@ -12,6 +12,7 @@ class Avatar(
     sizePx: Int = 40
 ) : ImageView(sourceUrl = imageUrl, objectFit = ObjectFit.COVER) {
     init {
+        htmlTag = "genericui:avatar"
         this.fallbackText = initialsFallback
         this.widthPx = sizePx
         this.heightPx = sizePx

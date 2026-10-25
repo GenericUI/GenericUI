@@ -8,4 +8,8 @@ import com.nexustools.genericui.enums.ui.Placement
 class Tooltip(
     text: String,
     placement: Placement = Placement.TOP
-) : Popover(title = text, placement = placement)
+) : Popover(title = text, placement = placement) {
+    init {
+        htmlTag = "genericui:tooltip"
+    }
+}

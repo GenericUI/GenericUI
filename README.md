@@ -1,8 +1,12 @@
+<p align="center">
+  <img src="./logo.svg" alt="GenericUI Banner Logo" width="100%" />
+</p>
+
 # GenericUI
 
 **GenericUI** (`com.nexustools.genericui`) is a **Native-First, True Cross-Platform UI, Docking, Image, Media, & GPU Framework** built with **Kotlin Multiplatform (KMP)**.
 
-Designed to power professional desktop, mobile, and web applications—including **AICore**, **HAEditor**, and **Episode Caster**—GenericUI eliminates the multi-hundred-megabyte RAM and CPU overhead of Electron/NW.js on desktop while providing 100% shared application logic across **Windows (Win32)**, **macOS (AppKit)**, **Linux (GTK & Qt)**, **Java/JVM (Swing/AWT)**, **Android**, **iOS (UIKit)**, and **Web (HTML5 DOM / WebGL2 / WebGPU)**.
+Designed to power professional desktop, mobile, and web applications, GenericUI eliminates the multi-hundred-megabyte RAM and CPU overhead of Electron/NW.js on desktop while providing 100% shared application logic across **Windows (Win32)**, **macOS (AppKit)**, **Linux (GTK & Qt)**, **Java/JVM (Swing/AWT)**, **Android**, **iOS (UIKit)**, and **Web (HTML5 DOM / WebGL2 / WebGPU)**.
 
 ---
 
@@ -28,7 +32,7 @@ Designed to power professional desktop, mobile, and web applications—including
      - **`:extensions:canvas2d`**: Hardware-accelerated 2D vector/raster canvas (`Canvas2D`, `Canvas2DContext`, `CurveEditor`) extending `:common`'s `AbstractCanvas`.
      - **`:extensions:canvas3d`**: Hardware-accelerated 3D/shader canvases (`GLCanvas`, `VKCanvas`) built atop `:extensions:gpu` and `:common`'s `AbstractCanvas` (`registerVBlankRender { deltaMs -> ... }`).
      - **`:extensions:media`**: Hardware-accelerated `VideoPlayer` (with uniform codec capability reporting), `AudioPlayer`, `AudioAnalyzer`, `WebVttSrtParser`, `:extensions:media:desktop:shared`'s native **`libvlc` Bindings** (`LibVlcBindings`, `DesktopLibVlcVideoPlayerImpl`, `DesktopLibVlcAudioPlayerImpl`, `DesktopLibVlcAudioAnalyzerImpl`) shared by `:extensions:media:desktop:{qt,gtk,windows,macos}`, and `:extensions:media:desktop:swing`'s **`libvlcj`** integration (`uk.co.caprica:vlcj`).
-     - **`:extensions:webview`**: Dedicated Project-of-Projects `WebView` extension (`:common`, `:desktop`, `:mobile`, `:swing`, `:web`). On **Desktop builds** (`:desktop` / `:windows`, `:macos`, `:gtk`, `:qt`, and `:swing`), `:extensions:webview` uses the **Chromium** project (`ChromiumBlinkEngine`) for HTML/CSS layout & rendering coupled with **`NJS`** (`D:\IdeaProjects\NJS`, symlinked at `D:\IdeaProjects\GenericUI\lib\NJS` for live development and to become a git submodule later) with a high-performance **AsmJit / SLJIT Native JIT Engine** (`com.nexustools.njs.jit.*`). On **Mobile (`:android` `android.webkit.WebView`, `:ios` `WKWebView`) and `:web` (`<iframe>`)**, it uses the native platform implementation and **NEVER uses `NJS`**.
+     - **`:extensions:webview`**: Dedicated Project-of-Projects `WebView` extension (`:common`, `:desktop`, `:mobile`, `:swing`, `:web`). On **Desktop builds** (`:desktop` / `:windows`, `:macos`, `:gtk`, `:qt`, and `:swing`), `:extensions:webview` uses the **Chromium** project (`ChromiumBlinkEngine`) for HTML/CSS layout & rendering coupled with **`NJS`** (`lib/NJS`) with a high-performance **AsmJit / SLJIT Native JIT Engine** (`com.nexustools.njs.jit.*`). On **Mobile (`:android` `android.webkit.WebView`, `:ios` `WKWebView`) and `:web` (`<iframe>`)**, it uses the native platform implementation and **NEVER uses `NJS`**.
    - **Single Multiplatform Project Extensions** (`:extensions:<name>`) built purely on `:common` and other extensions:
      - **`:extensions:imageprocessing`**, **`:extensions:codeeditor`**, **`:extensions:aichat`**, **`:extensions:threejs`**, **`:extensions:box2d`**, and **`:extensions:box3d`**.
 7. **True Lazy Views Across All 8 Platforms & Native File/Folder Browser**
@@ -106,7 +110,13 @@ genericui {
 
     application {
         appName = "My GenericUI App"
-        // SVG icons (.svg) are preferred for the Web icon (used for both the splash screen and index.html favicon):
+        // Cross-backend theme color applied across Web (<meta name="theme-color">, manifest.webmanifest,
+        // --genericui-theme-color), Android (colors.xml theme_color / colorPrimary), iOS/macOS
+        // (AccentColor.colorset), Windows (.rc ThemeColor), and Linux (.desktop X-GenericUI-ThemeColor):
+        themeColor = "#2A80FF"
+
+        // SVG icons (.svg) are preferred for the Web icon (used for the 64x64 splash screen,
+        // index.html favicon, and manifest.webmanifest):
         webIcon("icon.svg")
         icons(
             windows = "icon.ico",
@@ -115,6 +125,17 @@ genericui {
             web = "icon.svg",
             common = "icon.png"
         )
+
+        // Optional: Generate W3C / MDN manifest.webmanifest and inject HTML <head> tags
+        // allowing the app to be installed as a standalone WebApp on Android via Chrome (WebAPK):
+        webManifest {
+            allowInstallAsWebApp = true
+            shortName = "MyApp"
+            display = "standalone"
+            orientation = "any"
+            backgroundColor = "#121519"
+            categories("productivity", "utilities")
+        }
     }
 
     graphics {
@@ -320,6 +341,7 @@ All documentation across `GenericUI` and its submodules is organized by category
           - `linuxCommon` (`linuxCommon` / `linuxMain` / `linuxTest`) $\to$ `gtk` (`gtk` / `gtkMain` / `gtkTest`) & `qt` (`qt` / `qtMain` / `qtTest`)
       - `mobileCommon` (`mobileCommon` / `mobileMain` / `mobileTest`) $\to$ `android` (`android` / `androidMain` / `androidTest`) & `ios` (`ios` / `iosMain` / `iosTest`)
 - [**Components, Fragments, Docking, & Styling (`docs/components-and-docking.md`)**](./docs/components-and-docking.md) — Widgets, `FragmentApplication`, 1:1 Android `Activity`-compatible `Fragment`s, `DockWorkspaceFragment`, `OverlayDockWorkspaceFragment`, `AdaptiveSplitTabFragment`, Dual-Mode Bootstrap Enums + SASS/CSS, and `LinearGradient` / `RadialGradient` background styling.
+- [**Utilities, Binary Codecs (`BinaryJson` `.bson` & `BinaryPlist` `.plist`), & `PreferenceStore` (`docs/utils.md`)**](./docs/utils.md) — Complete reference for `BinaryJson` (`.bson`), `BinaryPlist` (`bplist00` `.plist`), cross-platform `PreferenceStore` & `PreferenceObjectCodec`, geometry, color, SASS/CSS, lazy diffing, image, and platform-shared utilities.
 - [**Media & Hardware Canvases (`docs/media-and-canvases.md`)**](./docs/media-and-canvases.md) — Base `:common` Image API, `AbstractCanvas` (`registerVBlankRender` with `deltaMs`), Google ANGLE on Windows, MoltenVK on Apple, and `:extensions:media` VLC HDR playback.
 - [**Agent & Developer Guidelines (`AGENTS.md`)**](./AGENTS.md) — Authoritative engineering rules and invariants.
 

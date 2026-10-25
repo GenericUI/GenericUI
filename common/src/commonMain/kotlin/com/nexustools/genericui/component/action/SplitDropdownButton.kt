@@ -9,4 +9,8 @@ class SplitDropdownButton(
     label: String = "",
     type: BootstrapType = BootstrapType.PRIMARY,
     var onPrimaryAction: (() -> Unit)? = null
-) : DropdownButton(label = label, type = type)
+) : DropdownButton(label = label, type = type) {
+    init {
+        htmlTag = "button"
+    }
+}

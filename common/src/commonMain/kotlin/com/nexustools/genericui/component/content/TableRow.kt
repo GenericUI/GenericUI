@@ -6,4 +6,6 @@ package com.nexustools.genericui.component.content
 data class TableRow(
     val id: String,
     val cells: List<TableCell>
-)
+) {
+    val htmlTag: String = "tr"
+}

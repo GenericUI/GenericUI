@@ -12,7 +12,8 @@ import com.nexustools.genericui.style.gradient.Gradient
 class CssStyleSheet(
     val rules: List<CssRule> = emptyList(),
     val keyframes: Map<String, Map<String, Map<String, String>>> = emptyMap(),
-    val isPrecompiled: Boolean = false
+    val isPrecompiled: Boolean = false,
+    var sourceCssText: String = ""
 ) {
     private val sortedRules: List<CssRule> =
         if (isPrecompiled) rules else rules.sortedBy { it.specificity }
@@ -52,28 +53,29 @@ class CssStyleSheet(
         val checkedRules = matchingRules.filter { it.pseudoClass == "checked" }
 
         val baseDecls = mergeRuleDeclarations(baseRules)
+        val baseImportantProps = collectImportantProperties(baseRules)
         val hoverStyle = if (hoverRules.isNotEmpty()) {
-            buildComputedStyleFromDeclarations(mergeRuleDeclarations(baseRules + hoverRules))
+            buildComputedStyleFromDeclarations(mergeRuleDeclarations(baseRules + hoverRules), importantProperties = collectImportantProperties(baseRules + hoverRules))
         } else {
             null
         }
         val focusStyle = if (focusRules.isNotEmpty()) {
-            buildComputedStyleFromDeclarations(mergeRuleDeclarations(baseRules + focusRules))
+            buildComputedStyleFromDeclarations(mergeRuleDeclarations(baseRules + focusRules), importantProperties = collectImportantProperties(baseRules + focusRules))
         } else {
             null
         }
         val activeStyle = if (activeRules.isNotEmpty()) {
-            buildComputedStyleFromDeclarations(mergeRuleDeclarations(baseRules + activeRules))
+            buildComputedStyleFromDeclarations(mergeRuleDeclarations(baseRules + activeRules), importantProperties = collectImportantProperties(baseRules + activeRules))
         } else {
             null
         }
         val disabledStyle = if (disabledRules.isNotEmpty()) {
-            buildComputedStyleFromDeclarations(mergeRuleDeclarations(baseRules + disabledRules))
+            buildComputedStyleFromDeclarations(mergeRuleDeclarations(baseRules + disabledRules), importantProperties = collectImportantProperties(baseRules + disabledRules))
         } else {
             null
         }
         val checkedStyle = if (checkedRules.isNotEmpty()) {
-            buildComputedStyleFromDeclarations(mergeRuleDeclarations(baseRules + checkedRules))
+            buildComputedStyleFromDeclarations(mergeRuleDeclarations(baseRules + checkedRules), importantProperties = collectImportantProperties(baseRules + checkedRules))
         } else {
             null
         }
@@ -84,7 +86,8 @@ class CssStyleSheet(
             focusStyle = focusStyle,
             activeStyle = activeStyle,
             disabledStyle = disabledStyle,
-            checkedStyle = checkedStyle
+            checkedStyle = checkedStyle,
+            importantProperties = baseImportantProps
         )
         if (styleLookupCache.size < 2048) {
             styleLookupCache[cacheKey] = computed
@@ -93,30 +96,58 @@ class CssStyleSheet(
     }
 
     /**
-     * Resolves a [ComputedStyle] directly for a GenericUI [component] by walking its [AbstractComponent.parent]
-     * hierarchy to evaluate descendant (`.page .menu.chargen`) and child (`>`) combinators.
+     * Builds the ordered ancestor token chain (from outermost root to immediate parent) for [component],
+     * including each ancestor's CSS classes, `htmlTag`, and `#id`.
      */
-    fun resolveStyleForComponent(
-        component: AbstractComponent,
-        tagName: String = component.componentClassPrefix.ifEmpty { "div" },
-        viewportWidthPx: Int = 1280
-    ): ComputedStyle {
-        val classes = component.getClass()
-            .split(Regex("\\s+"))
-            .filter { it.isNotEmpty() }
-            .toSet()
+    fun buildAncestorChain(component: AbstractComponent): List<Set<String>> {
         val ancestors = mutableListOf<Set<String>>()
         var p = component.parent
         while (p != null) {
-            val pClasses = p.getClass()
-                .split(Regex("\\s+"))
-                .filter { it.isNotEmpty() }
-                .toSet()
-            ancestors.add(pClasses)
+            val pTokens = linkedSetOf<String>()
+            for (cls in p.getClass().split(Regex("\\s+"))) {
+                if (cls.isNotEmpty()) pTokens.add(cls)
+            }
+            if (p.componentClassPrefix.isNotBlank()) {
+                for (prefixCls in p.componentClassPrefix.split(Regex("\\s+"))) {
+                    if (prefixCls.isNotEmpty()) pTokens.add(prefixCls)
+                }
+            }
+            val pTag = normalizeTagName(p.htmlTag.ifEmpty { "genericui:component" })
+            pTokens.add(pTag)
+            pTokens.add("tag:$pTag")
+            if (pTag == "root" || pTag == "genericui:root") {
+                pTokens.add("root")
+                pTokens.add("genericui:root")
+                pTokens.add("tag:root")
+                pTokens.add("tag:genericui:root")
+            }
+            p.id?.takeIf { it.isNotEmpty() }?.let { pTokens.add("#$it") }
+            ancestors.add(pTokens)
             p = p.parent
         }
-        // Ancestors from outermost root to immediate parent
-        val orderedAncestors = ancestors.reversed()
+        return ancestors.reversed()
+    }
+
+    /**
+     * Resolves a [ComputedStyle] directly for a GenericUI [component] by walking its [AbstractComponent.parent]
+     * hierarchy to evaluate descendant (`.page .menu.chargen`, `header h1`, `genericui:menubar genericui:menuitem`)
+     * and child (`>`) combinators.
+     */
+    fun resolveStyleForComponent(
+        component: AbstractComponent,
+        tagName: String = component.htmlTag.ifEmpty { "genericui:component" },
+        viewportWidthPx: Int = 1280
+    ): ComputedStyle {
+        val classes = linkedSetOf<String>()
+        for (cls in component.getClass().split(Regex("\\s+"))) {
+            if (cls.isNotEmpty()) classes.add(cls)
+        }
+        if (component.componentClassPrefix.isNotBlank()) {
+            for (prefixCls in component.componentClassPrefix.split(Regex("\\s+"))) {
+                if (prefixCls.isNotEmpty()) classes.add(prefixCls)
+            }
+        }
+        val orderedAncestors = buildAncestorChain(component)
         val sheetStyle = resolveStyleForClasses(
             classes = classes,
             tagName = tagName,
@@ -126,10 +157,33 @@ class CssStyleSheet(
         )
         val inlineStyleStr = component.inlineStyle
         return if (inlineStyleStr.isNotBlank()) {
-            sheetStyle.mergeWith(parseInlineStyle(inlineStyleStr))
+            val inlineDecls = parseDeclarations(inlineStyleStr)
+            val filteredInline = inlineDecls.filter { (prop, rawVal) ->
+                val inlineIsImportant = rawVal.contains("!important", ignoreCase = true)
+                inlineIsImportant || prop !in sheetStyle.importantProperties
+            }.mapValues { (_, v) ->
+                v.replace(Regex("!\\s*important", RegexOption.IGNORE_CASE), "").trim()
+            }
+            if (filteredInline.isEmpty()) {
+                sheetStyle
+            } else {
+                sheetStyle.mergeWith(buildComputedStyleFromDeclarations(filteredInline))
+            }
         } else {
             sheetStyle
         }
+    }
+
+    private fun collectImportantProperties(sortedRules: List<CssRule>): Set<String> {
+        val important = linkedSetOf<String>()
+        for (rule in sortedRules) {
+            for ((prop, rawVal) in rule.declarations) {
+                if (rawVal.contains("!important", ignoreCase = true)) {
+                    important.add(prop)
+                }
+            }
+        }
+        return important
     }
 
     private fun mergeRuleDeclarations(sortedRules: List<CssRule>): Map<String, String> {
@@ -164,42 +218,63 @@ class CssStyleSheet(
         val parts = normalized.split(Regex("\\s+")).filter { it.isNotEmpty() }
         if (parts.isEmpty()) return false
 
+        val chainTokens = mutableListOf<String>()
+        val directParentFlags = mutableListOf<Boolean>()
+        var idx = 0
+        while (idx < parts.size) {
+            val part = parts[idx]
+            if (part == ">") {
+                idx++
+                continue
+            }
+            chainTokens.add(part)
+            if (idx + 1 < parts.size && parts[idx + 1] == ">") {
+                directParentFlags.add(true)
+                idx += 2
+            } else {
+                if (idx + 1 < parts.size) {
+                    directParentFlags.add(false)
+                }
+                idx++
+            }
+        }
+        if (chainTokens.isEmpty()) return false
+
         // Last token must match the target element itself
-        val targetToken = parts.last()
+        val targetToken = chainTokens.last()
         if (!matchesCompoundToken(targetToken, classes, tagName, id)) {
             return false
         }
-        if (parts.size == 1) return true
+        if (chainTokens.size == 1) return true
 
-        // Verify ancestor chain for multi-part selectors (e.g. ".page .menu.chargen .vhlisting" or ".menu > .d-flex")
-        val ancestorTokens = parts.dropLast(1).filter { it != ">" }
+        // Verify ancestor chain for multi-part selectors (e.g. ".page .menu.chargen", "header h1", "ul > li")
+        val ancestorTokens = chainTokens.dropLast(1)
         if (ancestorTokens.isEmpty()) return true
 
         if (ancestorChain.isEmpty()) {
             // When resolving standalone class sets without a live parent tree, allow match if all classes in selector are present
-            // or if the target compound token explicitly matched a unique class/id.
+            // or if the target compound token explicitly matched a unique class/id and ancestor tokens only constrain classes.
             val targetHasClassOrId = targetToken.contains(".") || targetToken.contains("#")
             return targetHasClassOrId && ancestorTokens.all { tok ->
+                val reqTag = extractTagFromToken(tok)
                 val reqClasses = extractClassesFromToken(tok)
-                reqClasses.all { it in classes } || reqClasses.isNotEmpty()
+                reqTag.isEmpty() && (reqClasses.all { it in classes } || reqClasses.isNotEmpty())
             }
         }
 
         var ancestorIdx = ancestorChain.lastIndex
-        val requireDirectParent = parts.size >= 2 && parts[parts.size - 2] == ">"
         for (i in ancestorTokens.indices.reversed()) {
             val tok = ancestorTokens[i]
-            val reqClasses = extractClassesFromToken(tok)
-            if (reqClasses.isEmpty()) continue
-            if (i == ancestorTokens.lastIndex && requireDirectParent) {
-                if (ancestorIdx < 0 || !ancestorChain[ancestorIdx].containsAll(reqClasses)) {
+            val requireDirect = directParentFlags.getOrElse(i) { false }
+            if (requireDirect) {
+                if (ancestorIdx < 0 || !matchesAncestorEntry(tok, ancestorChain[ancestorIdx])) {
                     return false
                 }
                 ancestorIdx--
             } else {
                 var found = false
                 while (ancestorIdx >= 0) {
-                    if (ancestorChain[ancestorIdx].containsAll(reqClasses)) {
+                    if (matchesAncestorEntry(tok, ancestorChain[ancestorIdx])) {
                         found = true
                         ancestorIdx--
                         break
@@ -212,8 +287,74 @@ class CssStyleSheet(
         return true
     }
 
+    private fun normalizeTagName(tag: String): String =
+        normalizeCustomGenericUiTagSelector(tag.trim().replace("\\:", ":").lowercase())
+
+    internal fun normalizeCustomGenericUiTagSelector(rawTag: String): String {
+        val cleaned = rawTag.trim().replace("\\:", ":").lowercase()
+        return when (cleaned) {
+            "root", "genericui:root" -> "genericui:root"
+            else -> cleaned
+        }
+    }
+
+    private fun extractTagFromToken(token: String): String {
+        val clean = token.trim().replace("\\:", ":")
+        if (clean.isEmpty() || clean.startsWith(".") || clean.startsWith("#") || clean.startsWith("[") || clean.startsWith("*")) {
+            return ""
+        }
+        val sb = StringBuilder()
+        var i = 0
+        while (i < clean.length) {
+            val ch = clean[i]
+            if (ch == '.' || ch == '#' || ch == '[') break
+            if (ch == ':') {
+                val rest = clean.substring(i + 1)
+                val nextSegment = rest.takeWhile { it != '.' && it != '#' && it != '[' && it != ':' }
+                if (sb.toString().equals("genericui", ignoreCase = true) && nextSegment.isNotEmpty()) {
+                    sb.append(':').append(nextSegment)
+                    i += 1 + nextSegment.length
+                    continue
+                }
+                break
+            }
+            sb.append(ch)
+            i++
+        }
+        return sb.toString().trim().lowercase()
+    }
+
     private fun extractClassesFromToken(token: String): Set<String> =
         Regex("\\.([a-zA-Z0-9_-]+)").findAll(token).map { it.groupValues[1] }.toSet()
+
+    private fun matchesAncestorEntry(token: String, ancestorEntry: Set<String>): Boolean {
+        val clean = token.trim()
+        if (clean == "*") return true
+
+        val idMatches = Regex("#([a-zA-Z0-9_-]+)").findAll(clean).map { it.groupValues[1] }.toList()
+        if (idMatches.isNotEmpty() && idMatches.any { "#$it" !in ancestorEntry && it !in ancestorEntry }) {
+            return false
+        }
+
+        val reqClasses = extractClassesFromToken(clean)
+        if (reqClasses.isNotEmpty() && !ancestorEntry.containsAll(reqClasses)) {
+            return false
+        }
+
+        val reqTag = extractTagFromToken(clean)
+        if (reqTag.isNotEmpty()) {
+            val normalizedReqTag = normalizeCustomGenericUiTagSelector(reqTag)
+            val matchedTag = "tag:$reqTag" in ancestorEntry ||
+                "tag:$normalizedReqTag" in ancestorEntry ||
+                ancestorEntry.any {
+                    it.equals(reqTag, ignoreCase = true) ||
+                        it.equals(normalizedReqTag, ignoreCase = true)
+                }
+            if (!matchedTag) return false
+        }
+
+        return idMatches.isNotEmpty() || reqClasses.isNotEmpty() || reqTag.isNotEmpty()
+    }
 
     private fun matchesCompoundToken(
         token: String,
@@ -234,9 +375,16 @@ class CssStyleSheet(
             return false
         }
 
-        val leadingTag = clean.takeWhile { it != '.' && it != '#' && it != '[' && it != ':' }.trim()
-        if (leadingTag.isNotEmpty() && !leadingTag.equals(tagName, ignoreCase = true)) {
-            return false
+        val leadingTag = extractTagFromToken(clean)
+        val normalizedTargetTag = normalizeTagName(tagName)
+        if (leadingTag.isNotEmpty()) {
+            val isRootSelector = leadingTag == "root" || leadingTag == "genericui:root"
+            val isRootTarget = normalizedTargetTag == "root" || normalizedTargetTag == "genericui:root"
+            if (isRootSelector) {
+                if (!isRootTarget) return false
+            } else if (leadingTag != normalizedTargetTag) {
+                return false
+            }
         }
 
         return idMatches.isNotEmpty() || classMatches.isNotEmpty() || leadingTag.isNotEmpty()
@@ -271,7 +419,8 @@ class CssStyleSheet(
             focusStyle: ComputedStyle? = null,
             activeStyle: ComputedStyle? = null,
             disabledStyle: ComputedStyle? = null,
-            checkedStyle: ComputedStyle? = null
+            checkedStyle: ComputedStyle? = null,
+            importantProperties: Set<String> = emptySet()
         ): ComputedStyle {
             val tintProp = merged["tint"] ?: merged["-genericui-tint"] ?: merged["accent-color"]
             val tintColor = tintProp?.let { RgbaColor.fromCss(it) }
@@ -387,7 +536,8 @@ class CssStyleSheet(
                 activeStyle = activeStyle,
                 disabledStyle = disabledStyle,
                 checkedStyle = checkedStyle,
-                rawDeclarations = merged
+                rawDeclarations = merged,
+                importantProperties = importantProperties
             )
         }
 
@@ -531,7 +681,13 @@ class CssStyleSheet(
                 }
             }
 
-            return CssStyleSheet(rules, keyframes)
+            return CssStyleSheet(rules, keyframes, sourceCssText = cssText)
         }
+
+        fun parseScss(scssSource: String): CssStyleSheet =
+            com.nexustools.genericui.style.sass.SassCompiler.compileToStyleSheet(scssSource)
+
+        fun fromScss(scssSource: String): CssStyleSheet =
+            com.nexustools.genericui.style.sass.SassCompiler.compileToStyleSheet(scssSource)
     }
 }

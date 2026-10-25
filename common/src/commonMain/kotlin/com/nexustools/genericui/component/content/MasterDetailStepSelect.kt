@@ -42,6 +42,7 @@ open class MasterDetailStepSelect : VStack() {
     var onSelectionCleared: (() -> Unit)? = null
 
     init {
+        htmlTag = "genericui:masterdetailstepselect"
         addClass("vhselect")
         mainSplitRow.addChild(scrollView)
         mainSplitRow.addChild(detailContainer)

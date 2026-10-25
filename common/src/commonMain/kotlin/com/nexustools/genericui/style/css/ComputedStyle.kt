@@ -58,7 +58,8 @@ data class ComputedStyle(
     val activeStyle: ComputedStyle? = null,
     val disabledStyle: ComputedStyle? = null,
     val checkedStyle: ComputedStyle? = null,
-    val rawDeclarations: Map<String, String> = emptyMap()
+    val rawDeclarations: Map<String, String> = emptyMap(),
+    val importantProperties: Set<String> = emptySet()
 ) {
     /**
      * Resolves the effective [ComputedStyle] for the given interactive pseudo-class state flags.
@@ -151,7 +152,8 @@ data class ComputedStyle(
             activeStyle = other.activeStyle ?: activeStyle,
             disabledStyle = other.disabledStyle ?: disabledStyle,
             checkedStyle = other.checkedStyle ?: checkedStyle,
-            rawDeclarations = combinedDecls
+            rawDeclarations = combinedDecls,
+            importantProperties = importantProperties + other.importantProperties
         )
     }
 }

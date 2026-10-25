@@ -4,6 +4,7 @@ import com.nexustools.genericui.core.AbstractComponent
 import com.nexustools.genericui.core.AbstractContainer
 import com.nexustools.genericui.core.NativeFactory
 import com.nexustools.genericui.core.NativeImpl
+import com.nexustools.genericui.event.KeyShortcut
 import com.nexustools.genericui.nativeimpl.shell.MenuNativeImpl
 import com.nexustools.genericui.res.ResourceId
 
@@ -12,6 +13,10 @@ class Menu(
     icon: String? = null,
     iconRes: ResourceId? = null
 ) : AbstractContainer("nav-item") {
+    init {
+        htmlTag = "genericui:menu"
+    }
+
     private var labelState: String = label
     private var iconState: String? = icon ?: iconRes?.toResourceUri()
 
@@ -43,9 +48,25 @@ class Menu(
 
     fun getIcon(): String? = typedNative<MenuNativeImpl<*>>()?.getIcon() ?: iconState
 
+    fun addItem(item: MenuItem): Menu {
+        addChild(item)
+        return this
+    }
+
     fun addItem(item: AbstractComponent): Menu {
         addChild(item)
         return this
+    }
+
+    fun addItem(
+        label: String,
+        icon: String? = null,
+        shortcut: KeyShortcut? = null,
+        onClick: (() -> Unit)? = null
+    ): MenuItem {
+        val item = MenuItem(label = label, icon = icon, shortcut = shortcut, onClick = onClick)
+        addChild(item)
+        return item
     }
 
     fun addSubmenu(submenu: Menu): Menu {

@@ -11,6 +11,10 @@ class Stepper(
     var steps: List<String> = emptyList(),
     var activeStepIndex: Int = 0
 ) : AbstractContainer() {
+    init {
+        htmlTag = "genericui:stepper"
+    }
+
     override fun createNativeImpl(factory: NativeFactory): ContainerNativeImpl<*> =
-        factory.createContainer("stepper")
+        factory.createContainer("stepper", htmlTag)
 }

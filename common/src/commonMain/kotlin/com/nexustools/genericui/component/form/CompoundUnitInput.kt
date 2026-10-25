@@ -52,6 +52,7 @@ open class CompoundUnitInput(
         }
 
     init {
+        htmlTag = "genericui:compoundunitinput"
         addClass("input-group")
         addChild(primaryField)
         addChild(primaryUnitLabel)

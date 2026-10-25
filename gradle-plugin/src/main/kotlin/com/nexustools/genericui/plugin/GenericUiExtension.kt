@@ -37,15 +37,19 @@ open class GenericUiExtension {
     /** Version string used when resolving GenericUI composite build or Maven coordinates. */
     var version: String = "0.1.0-SNAPSHOT"
 
-    /** Target platform backends configuration (`windows`, `macos`, `gtk`, `qt`, `swing`, `android`, `ios`, `web`). */
-    val backends: GenericUiBackendsConfig = GenericUiBackendsConfig()
-
     /** Application binary entry point, executable baseName, Windows GUI subsystem, and Android namespace config. */
     val application: GenericUiApplicationConfig = GenericUiApplicationConfig()
+
+    /** Target platform backends configuration (`windows`, `macos`, `gtk`, `qt`, `swing`, `android`, `ios`, `web`). */
+    val backends: GenericUiBackendsConfig = GenericUiBackendsConfig(webManifest = application.desktop.webManifest)
 
     /** Desktop client build configuration, Windows/macOS/Linux application icons, window settings, and app metadata. */
     val desktop: GenericUiDesktopConfig
         get() = application.desktop
+
+    /** W3C / MDN Progressive Web App (PWA) Web App Manifest (`manifest.webmanifest`) configuration for the Web target. */
+    val webManifest: GenericUiWebManifestConfig
+        get() = application.desktop.webManifest
 
     /** GenericUI multiplatform sourceSets (`common`, `desktopCommon`, `nativeDesktopCommon`, `windowsMain`, `macMain`, `gtkMain`, `qtMain`, `swingMain`, `mobileCommon`, `androidMain`, `iosMain`, `webMain`). */
     val sourceSets: GenericUiSourceSetsConfig = GenericUiSourceSetsConfig()
@@ -168,6 +172,22 @@ open class GenericUiExtension {
             onConfiguredCallback?.invoke()
         }
 
+    /** Shorthand for [GenericUiApplicationConfig.themeColor]. */
+    var themeColor: String
+        get() = application.themeColor
+        set(value) {
+            application.themeColor = value
+            onConfiguredCallback?.invoke()
+        }
+
+    /** Shorthand for [GenericUiApplicationConfig.allowInstallAsWebApp]. */
+    var allowInstallAsWebApp: Boolean
+        get() = application.allowInstallAsWebApp
+        set(value) {
+            application.allowInstallAsWebApp = value
+            onConfiguredCallback?.invoke()
+        }
+
     /** Configures target platform backends and immediately registers matching KMP targets & GenericUI sourceSets. */
     fun backends(action: Action<in GenericUiBackendsConfig>) {
         action.execute(backends)
@@ -216,14 +236,63 @@ open class GenericUiExtension {
         onConfiguredCallback?.invoke()
     }
 
-    /** Configures platform-specific desktop icons in a single call. */
+    /** Sets the Web icon path overriding the default project icon for the Web splash screen and `index.html` favicon. */
+    fun webIcon(path: String) {
+        application.webIcon(path)
+        onConfiguredCallback?.invoke()
+    }
+
+    /** Sets the application theme / accent color (e.g. `"#0d6efd"`) across all backends that support it. */
+    fun themeColor(color: String) {
+        application.themeColor(color)
+        onConfiguredCallback?.invoke()
+    }
+
+    /** Configures the W3C / MDN Progressive Web App (PWA) `manifest.webmanifest` and standalone WebApp installation (`allowInstallAsWebApp`). */
+    fun webManifest(action: Action<in GenericUiWebManifestConfig>) {
+        application.webManifest(action)
+        onConfiguredCallback?.invoke()
+    }
+
+    /** Configures Web-specific build settings, including Web icon, `manifest.webmanifest`, and `allowInstallAsWebApp`. */
+    fun webBuild(
+        icon: String = application.desktop.webIcon,
+        generateManifest: Boolean = application.desktop.webManifest.enabled || application.desktop.webManifest.allowInstallAsWebApp,
+        allowInstallAsWebApp: Boolean = application.desktop.webManifest.allowInstallAsWebApp,
+        shortName: String = application.desktop.webManifest.shortName,
+        themeColor: String = application.desktop.themeColor,
+        backgroundColor: String = application.desktop.webManifest.backgroundColor,
+        display: String = application.desktop.webManifest.display,
+        orientation: String = application.desktop.webManifest.orientation,
+        startUrl: String = application.desktop.webManifest.startUrl,
+        scope: String = application.desktop.webManifest.scope,
+        categories: List<String> = application.desktop.webManifest.categories
+    ) {
+        application.webBuild(
+            icon = icon,
+            generateManifest = generateManifest,
+            allowInstallAsWebApp = allowInstallAsWebApp,
+            shortName = shortName,
+            themeColor = themeColor,
+            backgroundColor = backgroundColor,
+            display = display,
+            orientation = orientation,
+            startUrl = startUrl,
+            scope = scope,
+            categories = categories
+        )
+        onConfiguredCallback?.invoke()
+    }
+
+    /** Configures platform-specific desktop and web icons in a single call. */
     fun icons(
         windows: String = application.desktop.windowsIcon,
         mac: String = application.desktop.macIcon,
         linux: String = application.desktop.linuxIcon,
+        web: String = application.desktop.webIcon,
         common: String = application.desktop.icon
     ) {
-        application.icons(windows = windows, mac = mac, linux = linux, common = common)
+        application.icons(windows = windows, mac = mac, linux = linux, web = web, common = common)
         onConfiguredCallback?.invoke()
     }
 
@@ -237,7 +306,8 @@ open class GenericUiExtension {
         copyright: String = application.desktop.copyright,
         license: String = application.desktop.license,
         homepageUrl: String = application.desktop.homepageUrl,
-        issuesUrl: String = application.desktop.issuesUrl
+        issuesUrl: String = application.desktop.issuesUrl,
+        themeColor: String = application.desktop.themeColor
     ) {
         application.metadata(
             appName = appName,
@@ -248,7 +318,8 @@ open class GenericUiExtension {
             copyright = copyright,
             license = license,
             homepageUrl = homepageUrl,
-            issuesUrl = issuesUrl
+            issuesUrl = issuesUrl,
+            themeColor = themeColor
         )
         onConfiguredCallback?.invoke()
     }

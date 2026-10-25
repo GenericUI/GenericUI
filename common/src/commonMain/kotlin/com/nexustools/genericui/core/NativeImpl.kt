@@ -120,6 +120,8 @@ interface NativeImpl<out W> : Disposable {
     fun setTooltipText(tooltip: String?)
     fun getTooltipText(): String?
 
+    fun setAttribute(name: String, value: String?) {}
+
     fun setPreferredSize(size: Size?)
     fun getBounds(): Rect
 
@@ -153,6 +155,8 @@ interface NativeImpl<out W> : Disposable {
         spec: CssTransitionSpec,
         onComplete: () -> Unit
     ): Boolean = false
+
+    fun scheduleDelayed(delayMs: Int, action: () -> Unit): Boolean = false
 
     // Event Listeners
     fun setOnClick(listener: (() -> Unit)?)

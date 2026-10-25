@@ -12,7 +12,7 @@ open class MenuItem(
     icon: String? = null,
     shortcut: KeyShortcut? = null,
     onClick: (() -> Unit)? = null
-) : AbstractComponent("dropdown-item") {
+) : AbstractComponent("dropdown-item", htmlTag = "genericui:menuitem") {
 
     private var labelState: String = label
     private var iconState: String? = icon

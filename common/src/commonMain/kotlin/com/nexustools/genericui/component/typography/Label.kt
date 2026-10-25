@@ -11,7 +11,11 @@ open class Label(
     text: String = "",
     private val tagName: String = "label",
     private val classPrefix: String = "form-label"
-) : AbstractComponent() {
+) : AbstractComponent(htmlTag = tagName) {
+    init {
+        htmlTag = tagName
+    }
+
     var text: String = text
         set(value) {
             if (field != value) {
@@ -35,7 +39,7 @@ open class Label(
     }
 
     override fun createNativeImpl(factory: NativeFactory): TextNativeImpl<*> =
-        factory.createText(tagName, classPrefix)
+        factory.createText(htmlTag, classPrefix)
 
     override fun syncStateToNative() {
         super.syncStateToNative()

@@ -11,10 +11,14 @@ import com.nexustools.genericui.nativeimpl.layout.ContainerNativeImpl
 class ToastContainer(
     var placement: Placement = Placement.BOTTOM_END
 ) : AbstractContainer() {
+    init {
+        htmlTag = "genericui:toastcontainer"
+    }
+
     fun showToast(toast: Toast) {
         addChild(toast)
     }
 
     override fun createNativeImpl(factory: NativeFactory): ContainerNativeImpl<*> =
-        factory.createContainer("toast-container")
+        factory.createContainer("toast-container", htmlTag)
 }
