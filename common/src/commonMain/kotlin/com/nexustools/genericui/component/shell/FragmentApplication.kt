@@ -9,8 +9,8 @@ import com.nexustools.genericui.component.fragment.FragmentHost
  *
  * Requires an initial [Fragment] upon construction and implements [FragmentHost] (`setFragment`,
  * `pushFragment`, `popFragment`, `replaceFragment`) so applications can navigate between fragments
- * or host specialized Helper Fragments such as `AdaptiveSplitTabFragment` (Episode Caster)
- * or `DockWorkspaceFragment` (HAEditor).
+ * or host specialized Helper Fragments such as `AdaptiveSplitTabFragment`
+ * or `DockWorkspaceFragment`.
  */
 open class FragmentApplication(
     initialFragment: Fragment,
@@ -34,6 +34,15 @@ open class FragmentApplication(
     override val backStackDepth: Int
         get() = rootFragmentContainer.backStackDepth
 
+    override val forwardStackDepth: Int
+        get() = rootFragmentContainer.forwardStackDepth
+
+    override val canGoBack: Boolean
+        get() = rootFragmentContainer.canGoBack
+
+    override val canGoForward: Boolean
+        get() = rootFragmentContainer.canGoForward
+
     override fun setFragment(fragment: Fragment) {
         rootFragmentContainer.setFragment(fragment)
     }
@@ -44,6 +53,9 @@ open class FragmentApplication(
 
     override fun popFragment(): Boolean =
         rootFragmentContainer.popFragment()
+
+    override fun goForward(): Boolean =
+        rootFragmentContainer.goForward()
 
     override fun replaceFragment(fragment: Fragment) {
         rootFragmentContainer.replaceFragment(fragment)

@@ -205,8 +205,10 @@ open class MdiContainer(
     fun removeWindow(window: MdiWindow): Boolean {
         val removed = _windows.remove(window)
         if (!removed) return false
+        window.getTitleBar()?.setHostEmbedsComponents(false)
         window.hostedFragment?.performDestroy()
         window.parentMdiContainer = null
+        window.isActiveWindow = false
         desktopSurface.removeChild(window)
         taskbarButtons.remove(window.windowId)?.let { taskbarStrip.removeChild(it) }
         window.onClosed?.invoke(window)

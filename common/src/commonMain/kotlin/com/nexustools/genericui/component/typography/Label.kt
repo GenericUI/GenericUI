@@ -3,6 +3,8 @@ package com.nexustools.genericui.component.typography
 import com.nexustools.genericui.core.AbstractComponent
 import com.nexustools.genericui.core.NativeFactory
 import com.nexustools.genericui.nativeimpl.typography.TextNativeImpl
+import com.nexustools.genericui.resources.ResourceID
+import com.nexustools.genericui.resources.ResourceResolver
 
 /**
  * Single-line or multi-line text label component (`<label>` / `<span>`).
@@ -14,6 +16,20 @@ open class Label(
 ) : AbstractComponent(htmlTag = tagName) {
     init {
         htmlTag = tagName
+    }
+
+    var textRes: ResourceID? = null
+        private set
+
+    constructor(resId: ResourceID) : this(
+        text = ResourceResolver.getString(resId)
+    ) {
+        this.textRes = resId
+    }
+
+    fun setText(resId: ResourceID, vararg formatArgs: Any) {
+        this.textRes = resId
+        this.text = ResourceResolver.getString(resId, *formatArgs)
     }
 
     var text: String = text

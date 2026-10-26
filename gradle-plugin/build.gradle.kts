@@ -34,5 +34,11 @@ gradlePlugin {
             displayName = "GenericUI Multiplatform Configuration & Packaging Plugin"
             description = "Configures GenericUI multiplatform targets, optional LWJGL GL & Vulkan libraries, Google ANGLE & MoltenVK native binaries, SASS compilation, and extensions (:extensions:aichat, :extensions:threejs, :extensions:box2d, :extensions:box3d)."
         }
+        create("genericUiSettingsPlugin") {
+            id = "com.nexustools.genericui.settings"
+            implementationClass = "com.nexustools.genericui.plugin.GenericUiSettingsPlugin"
+            displayName = "GenericUI Settings & Android App Wrapper Plugin"
+            description = "Synthesizes and includes a companion Android application wrapper module (build/genericui/android-app) for multiplatform GenericUI projects."
+        }
     }
 }

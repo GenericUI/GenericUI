@@ -52,6 +52,14 @@ abstract class AbstractComponent(
     var parent: AbstractComponent? = null
         internal set
 
+    /**
+     * `true` when this component is currently mounted inside a [com.nexustools.genericui.window.TitleBar]'s
+     * leading, center, or trailing slots on a host that supports custom titlebar components
+     * (`TitleCapabilities.canEmbedComponentsInTitleBar`), ensuring it is rendered only once and skipped
+     * by standard body/container layout walkers.
+     */
+    var mountedInTitleBar: Boolean = false
+
     var nativeImpl: NativeImpl<*>? = null
         internal set
 
@@ -211,6 +219,16 @@ abstract class AbstractComponent(
             field = value
             nativeImpl?.setOnPointerUp(value)
         }
+    var onPointerEnter: ((PointerEvent) -> Unit)? = null
+        set(value) {
+            field = value
+            nativeImpl?.setOnPointerEnter(value)
+        }
+    var onPointerLeave: ((PointerEvent) -> Unit)? = null
+        set(value) {
+            field = value
+            nativeImpl?.setOnPointerLeave(value)
+        }
     var onWheel: ((WheelEvent) -> Unit)? = null
         set(value) {
             field = value
@@ -226,6 +244,94 @@ abstract class AbstractComponent(
             field = value
             nativeImpl?.setOnKeyUp(value)
         }
+
+    private val activeComponentTimerIds = linkedSetOf<Int>()
+
+    /**
+     * Dispatches a pointer-enter event on this component, updating [isHovered] to `true`
+     * and invoking [onPointerEnter].
+     */
+    fun dispatchPointerEnter(event: PointerEvent = PointerEvent()) {
+        isHovered = true
+        onPointerEnter?.invoke(event)
+    }
+
+    /**
+     * Dispatches a pointer-leave event on this component, updating [isHovered] to `false`
+     * and invoking [onPointerLeave].
+     */
+    fun dispatchPointerLeave(event: PointerEvent = PointerEvent()) {
+        isHovered = false
+        onPointerLeave?.invoke(event)
+    }
+
+    /**
+     * Schedules a lifecycle-scoped one-shot UI timer that executes [callback] after [delayMs] milliseconds.
+     * Automatically cancelled if this component is disposed before the timer fires.
+     */
+    open fun setTimeout(delayMs: Int, callback: () -> Unit): Int {
+        var assignedId = -1
+        val id = UiTimerScheduler.setTimeout(delayMs) {
+            if (assignedId != -1) {
+                activeComponentTimerIds.remove(assignedId)
+            }
+            if (!isDisposed) {
+                callback()
+            }
+        }
+        assignedId = id
+        if (id > 0) {
+            activeComponentTimerIds.add(id)
+        }
+        return id
+    }
+
+    /**
+     * Schedules a lifecycle-scoped repeating UI timer that executes [callback] every [intervalMs] milliseconds.
+     * Automatically cancelled when this component is disposed.
+     */
+    open fun setInterval(intervalMs: Int, callback: () -> Unit): Int {
+        var assignedId = -1
+        val id = UiTimerScheduler.setInterval(intervalMs) {
+            if (!isDisposed) {
+                callback()
+            } else if (assignedId != -1) {
+                clearInterval(assignedId)
+            }
+        }
+        assignedId = id
+        if (id > 0) {
+            activeComponentTimerIds.add(id)
+        }
+        return id
+    }
+
+    /**
+     * Cancels a lifecycle-scoped one-shot timer created via [setTimeout].
+     */
+    open fun clearTimeout(timerId: Int) {
+        activeComponentTimerIds.remove(timerId)
+        UiTimerScheduler.clearTimer(timerId)
+    }
+
+    /**
+     * Cancels a lifecycle-scoped repeating timer created via [setInterval].
+     */
+    open fun clearInterval(timerId: Int) {
+        activeComponentTimerIds.remove(timerId)
+        UiTimerScheduler.clearTimer(timerId)
+    }
+
+    /**
+     * Cancels all active lifecycle-scoped timers created on this component via [setTimeout] or [setInterval].
+     */
+    open fun clearAllTimers() {
+        val snapshot = activeComponentTimerIds.toList()
+        activeComponentTimerIds.clear()
+        for (timerId in snapshot) {
+            UiTimerScheduler.clearTimer(timerId)
+        }
+    }
 
     protected inline fun <reified T : NativeImpl<*>> typedNative(): T? = nativeImpl as? T
 
@@ -286,6 +392,8 @@ abstract class AbstractComponent(
         impl.setOnPointerDown(onPointerDown)
         impl.setOnPointerMove(onPointerMove)
         impl.setOnPointerUp(onPointerUp)
+        impl.setOnPointerEnter(onPointerEnter)
+        impl.setOnPointerLeave(onPointerLeave)
         impl.setOnWheel(onWheel)
         impl.setOnKeyDown(onKeyDown)
         impl.setOnKeyUp(onKeyUp)
@@ -1123,6 +1231,10 @@ abstract class AbstractComponent(
     fun setOnPointerMove(listener: ((PointerEvent) -> Unit)?) { onPointerMove = listener }
     @kotlin.jvm.JvmName("assignOnPointerUp")
     fun setOnPointerUp(listener: ((PointerEvent) -> Unit)?) { onPointerUp = listener }
+    @kotlin.jvm.JvmName("assignOnPointerEnter")
+    fun setOnPointerEnter(listener: ((PointerEvent) -> Unit)?) { onPointerEnter = listener }
+    @kotlin.jvm.JvmName("assignOnPointerLeave")
+    fun setOnPointerLeave(listener: ((PointerEvent) -> Unit)?) { onPointerLeave = listener }
     @kotlin.jvm.JvmName("assignOnWheel")
     fun setOnWheel(listener: ((WheelEvent) -> Unit)?) { onWheel = listener }
     @kotlin.jvm.JvmName("assignOnKeyDown")
@@ -1131,6 +1243,7 @@ abstract class AbstractComponent(
     fun setOnKeyUp(listener: ((KeyEvent) -> Unit)?) { onKeyUp = listener }
 
     override fun dispose() {
+        clearAllTimers()
         nativeImpl?.dispose()
         nativeImpl = null
     }

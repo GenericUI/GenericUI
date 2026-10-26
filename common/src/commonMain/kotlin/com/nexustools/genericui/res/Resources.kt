@@ -1,5 +1,7 @@
 package com.nexustools.genericui.res
 
+import com.nexustools.genericui.image.ImageBuffer
+import com.nexustools.genericui.resources.ResourceResolver
 import com.nexustools.genericui.style.RgbaColor
 
 /**
@@ -10,23 +12,16 @@ import com.nexustools.genericui.style.RgbaColor
 object Resources {
     val activeTable: ResourceTable = ResourceTable()
 
-    fun getString(resId: ResourceId): String = activeTable.getString(resId)
+    fun getString(resId: ResourceId): String = ResourceResolver.getString(resId)
 
-    fun getString(resId: ResourceId, vararg formatArgs: Any): String {
-        var result = activeTable.getString(resId)
-        formatArgs.forEachIndexed { index, arg ->
-            result = result
-                .replace("%${index + 1}\$s", arg.toString())
-                .replace("%${index + 1}\$d", arg.toString())
-                .replaceFirst("%s", arg.toString())
-                .replaceFirst("%d", arg.toString())
-        }
-        return result
-    }
+    fun getString(resId: ResourceId, vararg formatArgs: Any): String =
+        ResourceResolver.getString(resId, *formatArgs)
 
-    fun getColor(resId: ResourceId): RgbaColor = activeTable.getColor(resId)
+    fun getColor(resId: ResourceId): RgbaColor = ResourceResolver.getColor(resId)
 
-    fun getDimen(resId: ResourceId): Float = activeTable.getDimen(resId)
+    fun getDimen(resId: ResourceId): Float = ResourceResolver.getDimenPx(resId)
+
+    fun getDimenPx(resId: ResourceId): Float = ResourceResolver.getDimenPx(resId)
 
     fun getInteger(resId: ResourceId): Int = activeTable.getInteger(resId)
 
@@ -38,6 +33,14 @@ object Resources {
         activeTable.getDrawableByName(iconOrUri)
 
     fun getRawText(resId: ResourceId): String = activeTable.getRawText(resId) ?: ""
+
+    fun getRawBytes(resId: ResourceId): ByteArray? = activeTable.getRawBytes(resId)
+
+    fun getBytes(resId: ResourceId): ByteArray? = ResourceResolver.getBytes(resId)
+
+    fun getUrl(resId: ResourceId): String = ResourceResolver.getUrl(resId)
+
+    fun getImageBuffer(resId: ResourceId): ImageBuffer? = ResourceResolver.getImageBuffer(resId)
 
     fun getFontPath(resId: ResourceId): String = activeTable.getFontPath(resId) ?: resId.relativePath
 

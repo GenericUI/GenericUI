@@ -13,7 +13,7 @@ open class GenericUiDesktopConfig(
     val webManifest: GenericUiWebManifestConfig = GenericUiWebManifestConfig()
 ) {
 
-    /** Human-readable application display name (e.g. `"NXTConverter"`). */
+    /** Human-readable application display name (e.g. `"My Application"`). */
     var appName: String = ""
 
     /** Reverse-DNS application / bundle identifier (e.g. `"com.nexustools.convert"`). */
@@ -119,7 +119,7 @@ open class GenericUiDesktopConfig(
     /** Whether the Windows executable manifest requests administrator elevation (`requireAdministrator`). */
     var requireAdminOnWindows: Boolean = false
 
-    /** Windows installer subdirectory (e.g. `"NexusTools\\NXTConvert"`). */
+    /** Windows installer subdirectory (e.g. `"NexusTools\\MyApp"`). */
     var windowsInstallSubdir: String = ""
 
     /** Windows MSI upgrade UUID string. */
@@ -201,6 +201,44 @@ open class GenericUiDesktopConfig(
     fun webIcon(path: String) {
         this.webIcon = path
     }
+
+    /**
+     * Resolves the effective Windows `.ico` icon path, preferring [windowsIcon] first,
+     * falling back to [icon] when it is an `.ico` file, and defaulting to GenericUI's
+     * built-in `icon.ico` for the built Windows `.exe`.
+     */
+    fun resolveEffectiveWindowsIconPath(): String =
+        windowsIcon.takeIf { it.isNotBlank() }?.trim()
+            ?: icon.takeIf { it.isNotBlank() && it.trim().endsWith(".ico", ignoreCase = true) }?.trim()
+            ?: GenericUiDefaultIconProvider.DEFAULT_ICON_ICO_FILE_NAME
+
+    /**
+     * Resolves the effective macOS icon path, preferring [macIcon] first, falling back to [icon],
+     * and defaulting to GenericUI's built-in `icon.png`.
+     */
+    fun resolveEffectiveMacIconPath(): String =
+        listOf(macIcon, icon)
+            .firstOrNull { it.isNotBlank() }
+            ?.trim()
+            ?: GenericUiDefaultIconProvider.DEFAULT_ICON_PNG_FILE_NAME
+
+    /**
+     * Resolves the effective Linux icon path, preferring [linuxIcon] first, falling back to [icon],
+     * and defaulting to GenericUI's built-in `icon.png`.
+     */
+    fun resolveEffectiveLinuxIconPath(): String =
+        listOf(linuxIcon, icon)
+            .firstOrNull { it.isNotBlank() }
+            ?.trim()
+            ?: GenericUiDefaultIconProvider.DEFAULT_ICON_PNG_FILE_NAME
+
+    /**
+     * Resolves the effective common fallback icon path, preferring [icon] first and defaulting to
+     * GenericUI's built-in `icon.png`.
+     */
+    fun resolveEffectiveCommonIconPath(): String =
+        icon.takeIf { it.isNotBlank() }?.trim()
+            ?: GenericUiDefaultIconProvider.DEFAULT_ICON_PNG_FILE_NAME
 
     /**
      * Resolves the effective icon path for the Web splash screen and `index.html` favicon,

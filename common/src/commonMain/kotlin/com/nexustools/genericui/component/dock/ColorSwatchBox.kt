@@ -7,7 +7,7 @@ import com.nexustools.genericui.style.RgbaColor
 
 /**
  * Dual foreground/background color swatch widget with swap (`X`) and reset (`D`) controls
- * and palette history swatches, modeled after GIMP/Photoshop/HAEditor's tool dock swatch box.
+ * and palette history swatches for studio tool docks.
  */
 class ColorSwatchBox(
     foreground: RgbaColor = RgbaColor.BLACK,

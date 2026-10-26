@@ -11,9 +11,8 @@ import com.nexustools.genericui.enums.bootstrap.PositionMode
 
 /**
  * Horizontal centered carousel selector (`entries`) with `«` / `»` wrap-around navigation,
- * unselected entry opacity dimming (`0.35f`), proportional height/scale silhouette comparison
- * ([setItemScaleRatio]), and active selection callback (designed for `DCGame`'s `CharGenStep2`
- * Bloodline selector).
+ * unselected entry opacity dimming (`0.35f`), proportional height/scale comparison
+ * ([setItemScaleRatio]), and active selection callback.
  */
 open class HorizontalCarouselSelector : VStack() {
 

@@ -1,11 +1,11 @@
 package com.nexustools.genericui.component.shell
 
 import com.nexustools.genericui.component.layout.Container
-import com.nexustools.genericui.core.Disposable
 import com.nexustools.genericui.core.GenericUI
 import com.nexustools.genericui.core.NativeFactory
 import com.nexustools.genericui.enums.ui.ThemeMode
 import com.nexustools.genericui.nativeimpl.shell.ApplicationNativeImpl
+import com.nexustools.genericui.window.TitleBar
 
 /**
  * Standard Container-driven application (`Application`).
@@ -18,9 +18,9 @@ open class Application(
     initialContent: Container? = null,
     title: String = "GenericUI Application",
     initialThemeColor: String? = null
-) : Disposable {
+) : IApplication {
 
-    val mainWindow: Window = Window(title = title)
+    override val mainWindow: Window = Window(title = title)
     var appNativeImpl: ApplicationNativeImpl<*>? = null
         private set
 
@@ -33,30 +33,30 @@ open class Application(
         }
     }
 
-    open fun setContent(container: Container) {
+    open override fun setContent(container: Container) {
         mainWindow.setContent(container)
     }
 
-    open fun getContent(): Container? = mainWindow.getContent()
+    open override fun getContent(): Container? = mainWindow.getContent()
 
-    fun setMenuBar(menuBar: MenuBar?) {
+    override fun setMenuBar(menuBar: MenuBar?) {
         mainWindow.setMenuBar(menuBar)
     }
 
-    fun getMenuBar(): MenuBar? = mainWindow.getMenuBar()
+    override fun getMenuBar(): MenuBar? = mainWindow.getMenuBar()
 
-    fun setTitleBar(titleBar: com.nexustools.genericui.window.TitleBar?) {
+    override fun setTitleBar(titleBar: TitleBar?) {
         mainWindow.setTitleBar(titleBar)
     }
 
-    fun getTitleBar(): com.nexustools.genericui.window.TitleBar? = mainWindow.getTitleBar()
+    override fun getTitleBar(): TitleBar? = mainWindow.getTitleBar()
 
-    fun setThemeMode(mode: ThemeMode) {
+    override fun setThemeMode(mode: ThemeMode) {
         themeModeState = mode
         appNativeImpl?.setThemeMode(mode)
     }
 
-    fun getThemeMode(): ThemeMode = appNativeImpl?.getThemeMode() ?: themeModeState
+    override fun getThemeMode(): ThemeMode = appNativeImpl?.getThemeMode() ?: themeModeState
 
     /**
      * Sets the application's primary accent / chrome theme color (e.g., `"#0d6efd"` or `"#2A80FF"`),
@@ -64,14 +64,14 @@ open class Application(
      * `--genericui-theme-color`, Android `statusBarColor` / `TaskDescription` / Material primary,
      * iOS `UIView.tintColor`, and Desktop window accent / CSS variables).
      */
-    fun setThemeColor(colorHex: String?) {
+    override fun setThemeColor(colorHex: String?) {
         themeColorState = colorHex
         appNativeImpl?.setThemeColor(colorHex)
     }
 
-    fun getThemeColor(): String? = appNativeImpl?.getThemeColor() ?: themeColorState
+    override fun getThemeColor(): String? = appNativeImpl?.getThemeColor() ?: themeColorState
 
-    open fun run(factory: NativeFactory = GenericUI.requireFactory()) {
+    open override fun run(factory: NativeFactory) {
         GenericUI.initialize(factory)
         val impl = factory.createApplication()
         appNativeImpl = impl
@@ -87,7 +87,7 @@ open class Application(
 
     protected open fun onApplicationStarted() {}
 
-    fun exit(exitCode: Int = 0) {
+    override fun exit(exitCode: Int) {
         mainWindow.close()
         appNativeImpl?.exitApplication(exitCode)
     }

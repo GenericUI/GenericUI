@@ -10,7 +10,7 @@ import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
 
 /**
- * Multi-step wizard page fragment (`DCGame`'s `CharGenBase` & `CharGenPage`) with:
+ * Multi-step wizard page fragment with:
  * - A top horizontal step navigation bar ([stepBar]) where completed steps are clickable,
  *   the current step is highlighted (`.btn-active`), and future steps are disabled.
  * - Step state array propagation (`args[currentStepOrdinal] = stepData`) via [stepNavigate].
@@ -21,7 +21,7 @@ import kotlin.io.encoding.ExperimentalEncodingApi
 abstract class ValidatedStepPageFragment(
     val stepNames: List<String>,
     val currentStepOrdinal: Int,
-    titlePrefix: String = "Character Generator"
+    titlePrefix: String = "Step Wizard"
 ) : CenteredMenuPageFragment(
     title = if (currentStepOrdinal in stepNames.indices) {
         "$titlePrefix - ${stepNames[currentStepOrdinal]}"
@@ -30,11 +30,11 @@ abstract class ValidatedStepPageFragment(
     }
 ) {
 
-    val headerTitle: Heading = Heading("Character Creator", level = 2)
+    val headerTitle: Heading = Heading(titlePrefix, level = 2)
     val stepBar: HStack = HStack().apply {
-        addClass("mb-2 chargennav nowrap justify-content-center")
+        addClass("mb-2 step-nav nowrap justify-content-center")
     }
-    val contentContainer: Container = Container("div", "step-content cgcontent")
+    val contentContainer: Container = Container("div", "step-content")
 
     var stepStorage: Any? = null
         protected set
@@ -43,7 +43,7 @@ abstract class ValidatedStepPageFragment(
 
     private val stepButtons = mutableListOf<Button>()
 
-    override fun menuClass(): String = "chargen"
+    override fun menuClass(): String = "step-wizard"
 
     open fun buildStepView(content: Container, args: List<Any?>) {}
 

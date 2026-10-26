@@ -1,73 +1,55 @@
-# GenericUI Hierarchical SourceSet Setup & Shared Code Guide
+# GenericUI Hierarchical SourceSet Setup & Variant Scopes Guide
 
-`GenericUI`'s Gradle Plugin (`id("com.nexustools.genericui")` via [`GenericUiMultiplatformConfigurator`](../gradle-plugin/src/main/kotlin/com/nexustools/genericui/plugin/GenericUiMultiplatformConfigurator.kt) and [`GenericUiSourceSetsConfig`](../gradle-plugin/src/main/kotlin/com/nexustools/genericui/plugin/GenericUiSourceSetsConfig.kt)) automatically constructs a multi-tier **Kotlin Multiplatform SourceSet Hierarchy** so applications can share code at the exact level of granularity required without duplicating platform logic.
+> **Root Repository**: [**GenericUI (`../README.md`)**](../README.md) | **Master Docs Index**: [**`docs/README.md`**](./README.md)  
+> **Related Guides**: [Gradle Plugin (`gradle-plugin.md`)](./gradle-plugin.md) · [Fragments & Windows (`fragments-and-windows.md`)](./fragments-and-windows.md) · [Application (`application.md`)](./application.md) · [Resources (`resources.md`)](./resources.md) · [Platform Backends (`backends.md`)](./backends.md)
 
----
+GenericUI is designed around a **Single-`commonMain` First** workflow: a standard application contains only `src/commonMain` (and `src/commonTest`), while the GenericUI Gradle plugin generates all backend launchers, Android `AppCompatActivity` classes, manifests, and resource bindings automatically.
 
-## Navigation & Related Documentation
-
-- **Root Repository**: [GenericUI README](../README.md) | [Master Documentation Index](README.md)
-- **Build & IDE Tooling**: [Gradle Plugin Guide](gradle-plugin.md) | [IntelliJ IDEA Plugin Guide](idea-plugin.md)
-- **Platform Backends**: [Backends Overview](backends.md) | [Desktop Submodule](../desktop/README.md) | [Mobile Submodule](../mobile/README.md) | [Web Submodule](../web/README.md)
-- **Extensions & Testing**: [Extensions Overview](extensions.md) | [Extensions Submodule](../extensions/README.md) | [Testing Guide (`JestElectricRunner`)](testing.md)
+When an application or library needs target-specific dependencies or platform-specific code (such as an Android background `Service` in `src/androidMain`), [`GenericUiMultiplatformConfigurator`](../gradle-plugin/src/main/kotlin/com/nexustools/genericui/plugin/GenericUiMultiplatformConfigurator.kt) and [`GenericUiSourceSetsConfig`](../gradle-plugin/src/main/kotlin/com/nexustools/genericui/plugin/GenericUiSourceSetsConfig.kt) provide a multi-tier **Kotlin Multiplatform SourceSet & Variant Scope Hierarchy**. Intermediate source sets are created **only when configured or when their source directory exists on disk**, keeping single-`commonMain` projects completely clean.
 
 ---
 
-## 1. Visual SourceSet Hierarchy
-
-When `genericui { ... }` is configured, the Gradle plugin wires the following `dependsOn` hierarchy for both production (`Main`) and verification (`Test`) compilations:
+## 1. Visual SourceSet & Variant Scope Hierarchy
 
 ```text
-common (common / commonMain / commonTest)
-├── web (web / webMain / webTest)
+common (commonMain / commonTest)
+├── web (webMain / webTest)
 │   ├── wasmJsMain / wasmJsTest  [Primary WebAssembly target]
 │   └── jsMain / jsTest          [Automatic JS IR fallback target]
-└── systemCommon (systemCommon / systemMain / systemTest)
-    ├── desktopCommon (desktopCommon / desktopMain / desktopTest)
-    │   ├── swing (swing / swingMain / swingTest)
-    │   │   └── jvmMain / jvmTest
-    │   └── desktopNativeCommon (desktopNativeCommon / desktopNativeMain / desktopNativeTest)
-    │       │  (alias: nativeDesktopCommon / nativeDesktopMain / nativeDesktopTest)
-    │       ├── windows (windows / windowsMain / windowsTest)
-    │       │   └── mingwX64Main / mingwX64Test
-    │       ├── mac (mac / macMain / macosMain / macTest / macosTest)
-    │       │   ├── macosArm64Main / macosArm64Test
-    │       │   └── macosX64Main / macosX64Test
-    │       └── linuxCommon (linuxCommon / linuxMain / linuxTest)
-    │           ├── gtk (gtk / gtkMain / gtkTest)
-    │           │   ├── linuxX64Gtk / linuxX64Main / linuxX64Test
-    │           │   └── linuxArm64Gtk / linuxArm64Main / linuxArm64Test
-    │           └── qt (qt / qtMain / qtTest)
-    │               ├── linuxX64Qt / linuxX64Main / linuxX64Test
-    │               └── linuxArm64Qt / linuxArm64Main / linuxArm64Test
-    └── mobileCommon (mobileCommon / mobileMain / mobileTest)
-        ├── android (android / androidMain / androidTest)
-        │   └── androidUnitTest / androidInstrumentedTest
-        └── ios (ios / iosMain / iosTest)
-            ├── iosArm64Main / iosArm64Test
-            └── iosSimulatorArm64Main / iosSimulatorArm64Test
+└── systemCommon (systemMain / systemTest)
+    ├── desktopCommon (desktopMain / desktopTest)
+    │   ├── swing (swingMain / swingTest -> jvmMain / jvmTest)
+    │   └── nativeDesktopCommon (nativeDesktopMain / nativeDesktopTest)
+    │       ├── windows (windowsMain / windowsTest -> mingwX64Main / mingwX64Test)
+    │       ├── macos / mac (macosMain / macMain / macosTest -> macosArm64Main, macosX64Main)
+    │       └── linuxCommon (linuxMain / linuxTest -> linuxX64Main, linuxArm64Main)
+    │           ├── gtk (gtkMain / gtkTest)
+    │           └── qt (qtMain / qtTest)
+    └── mobileCommon (mobileMain / mobileTest)
+        ├── android (androidMain / androidTest)
+        └── ios (iosMain / iosTest -> iosArm64Main, iosSimulatorArm64Main)
 ```
 
-### Mermaid `dependsOn` Graph
+### Mermaid `dependsOn` & Specificity Graph
 
 ```mermaid
 flowchart TD
-    common["common (commonMain / commonTest)"]
-    web["web (webMain / webTest)"]
+    common["common (rank 0)<br/>commonMain / commonTest"]
+    web["web (rank 5)<br/>webMain / webTest"]
     wasmJs["wasmJsMain / wasmJsTest (Default)"]
     js["jsMain / jsTest (Fallback)"]
-    systemCommon["systemCommon (systemMain / systemTest)"]
-    desktopCommon["desktopCommon (desktopMain / desktopTest)"]
-    mobileCommon["mobileCommon (mobileMain / mobileTest)"]
-    swing["swing (swingMain / swingTest -> jvmMain)"]
-    desktopNativeCommon["desktopNativeCommon (nativeDesktopCommon)"]
-    windows["windows (windowsMain / windowsTest)"]
-    mac["mac (macMain / macosMain / macTest)"]
-    linuxCommon["linuxCommon (linuxMain / linuxTest)"]
-    gtk["gtk (gtkMain / gtkTest)"]
-    qt["qt (qtMain / qtTest)"]
-    android["android (androidMain / androidTest)"]
-    ios["ios (iosMain / iosTest)"]
+    systemCommon["systemCommon (rank 1)<br/>systemMain / systemTest"]
+    desktopCommon["desktopCommon (rank 2)<br/>desktopMain / desktopTest"]
+    mobileCommon["mobileCommon (rank 2)<br/>mobileMain / mobileTest"]
+    swing["swing (rank 5)<br/>swingMain / swingTest"]
+    nativeDesktopCommon["nativeDesktopCommon (rank 3)<br/>nativeDesktopMain / nativeDesktopTest"]
+    windows["windows (rank 5)<br/>windowsMain / windowsTest"]
+    macos["macos (rank 5)<br/>macosMain / macMain"]
+    linuxCommon["linuxCommon (rank 4)<br/>linuxMain / linuxTest"]
+    gtk["gtk (rank 5)<br/>gtkMain / gtkTest"]
+    qt["qt (rank 5)<br/>qtMain / qtTest"]
+    android["android (rank 5)<br/>androidMain / androidTest"]
+    ios["ios (rank 5)<br/>iosMain / iosTest"]
 
     common --> web
     web --> wasmJs
@@ -76,10 +58,10 @@ flowchart TD
     systemCommon --> desktopCommon
     systemCommon --> mobileCommon
     desktopCommon --> swing
-    desktopCommon --> desktopNativeCommon
-    desktopNativeCommon --> windows
-    desktopNativeCommon --> mac
-    desktopNativeCommon --> linuxCommon
+    desktopCommon --> nativeDesktopCommon
+    nativeDesktopCommon --> windows
+    nativeDesktopCommon --> macos
+    nativeDesktopCommon --> linuxCommon
     linuxCommon --> gtk
     linuxCommon --> qt
     mobileCommon --> android
@@ -88,32 +70,41 @@ flowchart TD
 
 ---
 
-## 2. SourceSet Tier Reference & Directory Conventions
+## 2. SourceSet Tier, `AppTarget`, & GenericUI Module Mapping
 
-Every tier in the hierarchy automatically registers both its short directory name (e.g., `src/windows/kotlin`) and its `*Main` / `*Test` directory name (e.g., `src/windowsMain/kotlin`, `src/windowsTest/kotlin`):
+> [!NOTE]
+> **Framework Modules vs. Consumer SourceSets**: Inside the GenericUI repository, backends and extensions are organized as **separate Gradle modules** (`:common`, `:systemCommon`, `:desktop:common`, `:desktop:nativeCommon`, `:desktop:linuxCommon`, `:desktop:{windows,macos,gtk,qt,swing}`, `:mobile:common`, `:mobile:{android,ios}`, `:web`). Consumer applications use **nested source sets in a single Gradle project** (`src/commonMain`, and optionally `src/androidMain`, `src/nativeDesktopCommon`, etc.).
 
-| Tier / SourceSet | Parent SourceSet | Kotlin Source Directories | Resource Directories | Target Scope & When to Use |
+| Variant Scope | `AppTarget` Enum (`specificityRank`) | Corresponding GenericUI Core Module | Consumer Source Directories (Optional except `commonMain`) | Target Scope & Purpose |
 | :--- | :--- | :--- | :--- | :--- |
-| **`common`**<br/>(`commonMain`, `commonTest`) | *(Root)* | `src/common/kotlin`<br/>`src/commonMain/kotlin`<br/>`src/commonTest/kotlin` | `src/common/resources`<br/>`src/commonMain/resources` | **100% Cross-Platform Shared Code**: `Application`, `FragmentApplication`, `Fragment`s, UI components, view models, styles, and business logic shared across Web, Desktop, and Mobile. |
-| **`web`**<br/>(`webMain`, `webTest`) | `common` | `src/web/kotlin`<br/>`src/webMain/kotlin`<br/>`src/webTest/kotlin` | `src/web/resources`<br/>`src/webMain/resources` | **Browser Shared Code (`wasmJs` + `js`)**: Code shared between the primary Kotlin/Wasm bundle and the fallback Kotlin/JS IR bundle (`WebApplicationImpl`, browser URL routing, `localStorage` persistence). See [Web Submodule Docs](../web/README.md). |
-| **`systemCommon`**<br/>(`systemMain`, `systemTest`)<br/>*(alias: `appCommon`)* | `common` | `src/systemCommon/kotlin`<br/>`src/systemMain/kotlin`<br/>`src/systemTest/kotlin` | `src/systemCommon/resources`<br/>`src/systemMain/resources` | **All Non-Web Targets (Desktop + Mobile)**: Direct OS filesystem access, raw TCP/UDP sockets, local process/daemon management, LAN discovery (mDNS/SSDP/Cast), and background worker threads not available in browser sandboxes. |
-| **`desktopCommon`**<br/>(`desktopMain`, `desktopTest`) | `systemCommon` | `src/desktopCommon/kotlin`<br/>`src/desktopMain/kotlin`<br/>`src/desktopTest/kotlin` | `src/desktopCommon/resources`<br/>`src/desktopMain/resources` | **All Desktop Targets (`Swing` + Native Desktop)**: Multi-window management, desktop keyboard shortcuts, menu bars, status bars, and desktop-specific UI workflows shared across JVM Swing and native C/C++ desktop backends. See [Desktop Submodule Docs](../desktop/README.md). |
-| **`swing`**<br/>(`swingMain`, `swingTest`) | `desktopCommon` | `src/swing/kotlin`<br/>`src/swingMain/kotlin`<br/>`src/swingTest/kotlin` | `src/swing/resources`<br/>`src/swingMain/resources` | **JVM Swing Target**: Java/JVM interop, AWT/Swing custom integrations, and optional LWJGL 3 OpenGL ES / Vulkan hooks. See [Swing Backend Guide](../desktop/docs/swing.md). |
-| **`desktopNativeCommon`**<br/>(`desktopNativeMain`, `desktopNativeTest`)<br/>*(alias: `nativeDesktopCommon`)* | `desktopCommon` | `src/desktopNativeCommon/kotlin`<br/>`src/desktopNativeMain/kotlin`<br/>`src/nativeDesktopCommon/kotlin`<br/>`src/desktopNativeTest/kotlin` | `src/desktopNativeCommon/resources`<br/>`src/nativeDesktopCommon/resources` | **All Native Desktop Targets (`windows`, `mac`, `gtk`, `qt`)**: Kotlin/Native `kotlinx.cinterop` pointers (`CPointer`, `memScoped`), POSIX/Win32 shared native memory buffers, and `:desktop:shared` native helpers. See [Desktop Shared Guide](../desktop/docs/shared.md). |
-| **`windows`**<br/>(`windowsMain`, `windowsTest`) | `desktopNativeCommon` | `src/windows/kotlin`<br/>`src/windowsMain/kotlin`<br/>`src/windowsTest/kotlin` | `src/windows/resources`<br/>`src/windowsMain/resources` | **Windows Native Target (`mingwX64`)**: Win32 API calls, registry helpers, Direct2D/ANGLE/Vulkan surface hooks. See [Windows Backend Guide](../desktop/docs/windows.md). |
-| **`mac`**<br/>(`macMain`, `macosMain`, `macTest`, `macosTest`) | `desktopNativeCommon` | `src/mac/kotlin`<br/>`src/macMain/kotlin`<br/>`src/macosMain/kotlin`<br/>`src/macTest/kotlin` | `src/mac/resources`<br/>`src/macMain/resources`<br/>`src/macosMain/resources` | **macOS Native Targets (`macosArm64`, `macosX64`)**: AppKit/Cocoa Objective-C interop, macOS system menu bar actions, MoltenVK hooks. See [macOS Backend Guide](../desktop/docs/macos.md). |
-| **`linuxCommon`**<br/>(`linuxMain`, `linuxTest`) | `desktopNativeCommon` | `src/linuxCommon/kotlin`<br/>`src/linuxMain/kotlin`<br/>`src/linuxTest/kotlin` | `src/linuxCommon/resources`<br/>`src/linuxMain/resources` | **Linux Native Shared Code (`gtk` + `qt`)**: Shared POSIX/Linux APIs, XDG directories, D-Bus notifications, Wayland/X11 environment helpers shared by both GTK4 and Qt6 builds. |
-| **`gtk`**<br/>(`gtkMain`, `gtkTest`) | `linuxCommon` | `src/gtk/kotlin`<br/>`src/gtkMain/kotlin`<br/>`src/gtkTest/kotlin` | `src/gtk/resources`<br/>`src/gtkMain/resources` | **Linux GTK4 Target**: GTK4 / Cairo / GObject specific integrations. See [GTK Backend Guide](../desktop/docs/gtk.md). |
-| **`qt`**<br/>(`qtMain`, `qtTest`) | `linuxCommon` | `src/qt/kotlin`<br/>`src/qtMain/kotlin`<br/>`src/qtTest/kotlin` | `src/qt/resources`<br/>`src/qtMain/resources` | **Linux Qt6 Target**: Qt6 Widgets / QPainter / QVulkanWindow specific integrations. See [Qt Backend Guide](../desktop/docs/qt.md). |
-| **`mobileCommon`**<br/>(`mobileMain`, `mobileTest`) | `systemCommon` | `src/mobileCommon/kotlin`<br/>`src/mobileMain/kotlin`<br/>`src/mobileTest/kotlin` | `src/mobileCommon/resources`<br/>`src/mobileMain/resources` | **All Mobile Targets (`android` + `ios`)**: Touch gestures, safe-area/cutout insets, Picture-in-Picture (`MobilePipController`), foldable posture adaptation (`MobileDeviceFormFactor`), and mobile overlay persistence. See [Mobile Submodule Docs](../mobile/README.md). |
-| **`android`**<br/>(`androidMain`, `androidTest`) | `mobileCommon` | `src/android/kotlin`<br/>`src/androidMain/kotlin`<br/>`src/androidTest/kotlin` | `src/android/resources`<br/>`src/androidMain/resources` | **Android Target**: Android `Context`, `Intent`s, `GenericUiFragmentActivity`, MediaSession/Cast SDKs. See [Android Backend Guide](../mobile/docs/android.md). |
-| **`ios`**<br/>(`iosMain`, `iosTest`) | `mobileCommon` | `src/ios/kotlin`<br/>`src/iosMain/kotlin`<br/>`src/iosTest/kotlin` | `src/ios/resources`<br/>`src/iosMain/resources` | **iOS Targets (`iosArm64`, `iosSimulatorArm64`)**: UIKit, `UIDocumentPickerViewController`, AirPlay, CoreGraphics/Metal. See [iOS Backend Guide](../mobile/docs/ios.md). |
+| **`common`** | `AppTarget.COMMON` (`0`) | **`:common`** | `src/commonMain/kotlin`<br/>`src/commonTest/kotlin`<br/>`src/commonMain/resources` | **100% Cross-Platform Code**: `@MainAppFragment`, `@AppFragment`, UI components, layouts, `PreferenceStore`, `Resource` access, and tests shared across all 8 backends. |
+| **`systemCommon`** | `AppTarget.SYSTEM_COMMON` (`1`) | **`:systemCommon`** | `src/systemCommon/kotlin`<br/>`src/systemMain/kotlin` | **All 7 Non-Web OS Targets (`Windows`, `MacOS`, `Gtk`, `Qt`, `Swing`, `Android`, `IOS`)**: Pure-Kotlin system logic (includes JVM/Swing), direct filesystem access, sockets, and CLI argument handling. |
+| **`desktopCommon`** | `AppTarget.DESKTOP_COMMON` (`2`) | **`:desktop:common`** | `src/desktopCommon/kotlin`<br/>`src/desktopMain/kotlin` | **All 5 Desktop Targets (`Swing` + Native Desktop)**: Multi-window workflows, desktop file browser helpers, lazy viewport engines, and system tray logic. |
+| **`nativeDesktopCommon`** | `AppTarget.NATIVE_DESKTOP_COMMON` (`3`) | **`:desktop:nativeCommon`** | `src/nativeDesktopCommon/kotlin`<br/>`src/nativeDesktopMain/kotlin` | **All 4 Native Desktop Targets (`Windows`, `MacOS`, `Gtk`, `Qt`)**: Kotlin/Native `kotlinx.cinterop` (`CPointer`, `memScoped`), POSIX/Win32 native helpers, and multi-window dock coordination. |
+| **`linuxCommon`** | `AppTarget.LINUX_COMMON` (`4`) | **`:desktop:linuxCommon`** | `src/linuxCommon/kotlin`<br/>`src/linuxMain/kotlin` | **Linux Desktop Targets (`Gtk` + `Qt`)**: Shared Linux XDG config/cache directories (`LinuxXdgConfigDirectoryImpl`, `LinuxXdgCacheDirectoryImpl`, `LinuxXdgPreferenceStoreImpl`), D-Bus, and Wayland/X11 helpers. |
+| **`windows`** | `AppTarget.WINDOWS` (`5`) | **`:desktop:windows`** | `src/windowsMain/kotlin` | **Windows (`mingwX64`)**: Win32 APIs, Direct2D, Google ANGLE, Vulkan. |
+| **`macos`** (`mac`) | `AppTarget.MACOS` (`5`) | **`:desktop:macos`** | `src/macosMain/kotlin`<br/>`src/macMain/kotlin` | **macOS (`macosArm64`, `macosX64`)**: AppKit/Cocoa, system menu bar, MoltenVK. |
+| **`gtk`** | `AppTarget.GTK` (`5`) | **`:desktop:gtk`** | `src/gtkMain/kotlin` | **Linux GTK4 (`linuxX64`, `linuxArm64`)**: GTK4 / Libadwaita / Cairo. |
+| **`qt`** | `AppTarget.QT` (`5`) | **`:desktop:qt`** | `src/qtMain/kotlin` | **Linux Qt6 (`linuxX64`, `linuxArm64`)**: Qt6 `QWidget` / `QPainter` / `QVulkanWindow`. |
+| **`swing`** | `AppTarget.SWING` (`5`) | **`:desktop:swing`** | `src/swingMain/kotlin`<br/>`src/jvmMain/kotlin` | **JVM Swing (`jvm`)**: AWT/Swing, Java2D, optional LWJGL 3 OpenGL ES & Vulkan. |
+| **`mobileCommon`** | `AppTarget.MOBILE_COMMON` (`2`) | **`:mobile:common`** | `src/mobileCommon/kotlin`<br/>`src/mobileMain/kotlin` | **Mobile Targets (`Android` + `IOS`)**: Form-factor posture detection, multi-touch gestures, fling physics, PiP controllers, and mobile lazy viewport pools. |
+| **`android`** | `AppTarget.ANDROID` (`5`) | **`:mobile:android`** | `src/androidMain/kotlin` | **Android**: Optional Android-only code such as background `Service` subclasses (`android { services { ... } }`), MediaSession, or Cast SDK integration. |
+| **`ios`** | `AppTarget.IOS` (`5`) | **`:mobile:ios`** | `src/iosMain/kotlin` | **iOS (`iosArm64`, `iosSimulatorArm64`)**: UIKit, `CADisplayLink`, `UIDocumentPickerViewController`, MoltenVK. |
+| **`web`** | `AppTarget.WEB` (`5`) | **`:web`** | `src/webMain/kotlin` | **Web (`wasmJs` + `js`)**: Browser DOM, WebGL2 / WebGPU, `#hash` + `window.history.state` bridge, and PWA manifest integration. |
 
 ---
 
-## 3. Configuring Dependencies & Custom Directories in `genericui { sourceSets { ... } }`
+## 3. Configuring Optional SourceSet Dependencies (`genericui { sourceSets { ... } }`)
 
-You can add library dependencies (`implementation`, `api`, `compileOnly`, `runtimeOnly`) and extra source/resource directories to any tier in the hierarchy directly inside `genericui { sourceSets { ... } }`:
+Each scope in `genericui { sourceSets { ... } }` configures a [`GenericUiSourceSetSpec`](../gradle-plugin/src/main/kotlin/com/nexustools/genericui/plugin/GenericUiSourceSetSpec.kt) supporting:
+- `implementation(dependencyNotation)`
+- `api(dependencyNotation)`
+- `compileOnly(dependencyNotation)`
+- `runtimeOnly(dependencyNotation)`
+- `project(":module-name")`
+- `kotlinSrcDir(path)` and `resourcesSrcDir(path)`
+
+Dependencies declared on an intermediate scope (such as `systemCommon` or `nativeDesktopCommon`) propagate **only** to the targets beneath that scope:
 
 ```kotlin
 plugins {
@@ -121,132 +112,91 @@ plugins {
 }
 
 genericui {
-    application {
-        appName = "My Multiplatform Studio"
-        baseName = "multiplatform-studio"
-        entryPoint = "com.example.studio.main"
-        webIcon("assets/logo.svg") // .svg preferred for Web favicon & splash screen
+    app {
+        id = "com.example.studio"
+        name = "Studio"
+        version = "1.0.0"
     }
 
     backends {
-        all() // Enables windows, macos, gtk, qt, swing, android, ios, and web (wasmJs + js)
+        all()
     }
 
     sourceSets {
-        // 1. Root shared code (Web + System)
         common {
+            api(project(":studio-domain-model"))
             implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.0")
-            implementation("org.jetbrains.kotlinx:kotlinx-datetime:0.6.1")
         }
 
-        // 2. Browser-only shared code (compiled into both wasmJs and js fallback)
-        web {
-            kotlinSrcDir("src/web/kotlin")
-            resourcesSrcDir("src/web/resources")
-        }
-
-        // 3. All Non-Web OS targets (Desktop + Mobile)
+        // Shared across Windows, macOS, GTK, Qt, Swing, Android, and iOS (excludes Web)
         systemCommon {
-            kotlinSrcDir("src/systemCommon/kotlin")
+            implementation("com.squareup.okio:okio:3.9.1")
         }
 
-        // 4. All Desktop targets (Swing + Native Desktop)
-        desktopCommon {
-            kotlinSrcDir("src/desktopCommon/kotlin")
+        // Shared across Windows, macOS, GTK, and Qt (excludes JVM Swing, Mobile, and Web)
+        nativeDesktopCommon {
+            implementation(project(":native-dsp-bridge"))
         }
 
-        // 5. JVM Swing only
+        // JVM Swing only
         swing {
             implementation("com.formdev:flatlaf:3.5.4")
         }
 
-        // 6. All Native Desktop targets (Windows, macOS, Linux GTK & Qt)
-        desktopNativeCommon {
-            kotlinSrcDir("src/desktopNativeCommon/kotlin")
+        // Android only (e.g. for background Service classes in src/androidMain/kotlin)
+        android {
+            implementation("androidx.media:media:1.7.0")
         }
-
-        // 7. Shared Linux code across both GTK4 and Qt6
-        linuxCommon {
-            kotlinSrcDir("src/linuxCommon/kotlin")
-        }
-
-        // 8. Individual Native Desktop targets
-        windows { kotlinSrcDir("src/windows/kotlin") }
-        mac     { kotlinSrcDir("src/mac/kotlin") }
-        gtk     { kotlinSrcDir("src/gtk/kotlin") }
-        qt      { kotlinSrcDir("src/qt/kotlin") }
-
-        // 9. Mobile shared & platform targets
-        mobileCommon { kotlinSrcDir("src/mobileCommon/kotlin") }
-        android      { kotlinSrcDir("src/android/kotlin") }
-        ios          { kotlinSrcDir("src/ios/kotlin") }
     }
 }
 ```
 
 ---
 
-## 4. `expect` / `actual` Sharing Patterns Across Tiers
+## 4. Using Variant Scopes with `@MainAppFragment` and `expect` / `actual`
 
-Because `web` and `systemCommon` branch cleanly under `common`, you can resolve `expect` declarations from `common` at `web` and `systemCommon` without repeating implementations across Desktop and Mobile!
+### 4.1 Variant-Scoped `@MainAppFragment` Overrides
 
-### Example 1: Resolving at `web` vs `systemCommon`
+You do not need separate source sets to use different root fragments per target family. Annotate multiple fragments in `src/commonMain/kotlin` with different [`AppTarget`](../common/src/commonMain/kotlin/com/nexustools/genericui/enums/system/AppTarget.kt) scopes:
 
 ```kotlin
-// src/common/kotlin/com/example/app/PlatformStorage.kt
-package com.example.app
+import com.nexustools.genericui.component.fragment.Fragment
+import com.nexustools.genericui.component.fragment.MainAppFragment
+import com.nexustools.genericui.enums.system.AppTarget
 
-expect object PlatformStorage {
-    val supportsDirectFilesystem: Boolean
-    fun defaultWorkspaceDescription(): String
-}
+// Used on Desktop (Windows, macOS, GTK, Qt, Swing) and Web (specificity rank 0)
+@MainAppFragment(targets = [AppTarget.COMMON], label = "Studio Workspace")
+class DesktopAndWebWorkspaceFragment : Fragment()
+
+// Overrides COMMON on Android and iOS because MOBILE_COMMON (rank 2) > COMMON (rank 0)
+@MainAppFragment(targets = [AppTarget.MOBILE_COMMON], label = "Studio Mobile")
+class MobileWorkspaceFragment : Fragment()
 ```
 
-```kotlin
-// src/web/kotlin/com/example/app/PlatformStorage.web.kt
-package com.example.app
+### 4.2 Resolving `expect` / `actual` at `web` vs. `systemCommon`
 
-actual object PlatformStorage {
-    actual val supportsDirectFilesystem: Boolean = false
-    actual fun defaultWorkspaceDescription(): String = "Browser IndexedDB & Virtual File Input"
-}
-```
+When platform-specific APIs are needed, `expect` declarations in `commonMain` can be satisfied by just two `actual` implementations—one in `webMain` and one in `systemCommon` (shared by all 7 desktop and mobile targets):
 
 ```kotlin
-// src/systemCommon/kotlin/com/example/app/PlatformStorage.system.kt
+// src/commonMain/kotlin/com/example/app/PlatformCapabilities.kt
 package com.example.app
 
-actual object PlatformStorage {
-    // Automatically shared by Windows, macOS, GTK, Qt, Swing, Android, and iOS!
-    actual val supportsDirectFilesystem: Boolean = true
-    actual fun defaultWorkspaceDescription(): String = "Native OS Filesystem"
-}
-```
-
-### Example 2: Resolving at `desktopCommon` (`swing` vs `desktopNativeCommon`)
-
-Similarly, an `expect` declared in `desktopCommon` only needs two `actual` implementations—one in `swing` (JVM) and one in `desktopNativeCommon` (shared by `windows`, `mac`, `gtk`, and `qt`):
-
-```kotlin
-// src/desktopCommon/kotlin/com/example/app/DesktopRuntimeInfo.kt
-package com.example.app
-
-expect object DesktopRuntimeInfo {
-    val isNativeBinary: Boolean
+expect object PlatformCapabilities {
+    val hasRawSockets: Boolean
 }
 
-// src/swing/kotlin/com/example/app/DesktopRuntimeInfo.swing.kt
+// src/webMain/kotlin/com/example/app/PlatformCapabilities.web.kt
 package com.example.app
 
-actual object DesktopRuntimeInfo {
-    actual val isNativeBinary: Boolean = false
+actual object PlatformCapabilities {
+    actual val hasRawSockets: Boolean = false
 }
 
-// src/desktopNativeCommon/kotlin/com/example/app/DesktopRuntimeInfo.native.kt
+// src/systemCommon/kotlin/com/example/app/PlatformCapabilities.system.kt
 package com.example.app
 
-actual object DesktopRuntimeInfo {
-    // Shared across Windows, macOS, Linux GTK, and Linux Qt!
-    actual val isNativeBinary: Boolean = true
+actual object PlatformCapabilities {
+    // Shared across Windows, macOS, GTK, Qt, Swing, Android, and iOS
+    actual val hasRawSockets: Boolean = true
 }
 ```

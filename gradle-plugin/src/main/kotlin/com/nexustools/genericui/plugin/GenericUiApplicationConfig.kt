@@ -12,19 +12,22 @@ open class GenericUiApplicationConfig(
     val desktop: GenericUiDesktopConfig = GenericUiDesktopConfig()
 ) {
     /**
-     * Entry point function for native desktop executables (`mingwX64`, `linuxX64`, `linuxArm64`,
-     * `macosArm64`, `macosX64`), e.g. `"com.nexustools.convert.main"`.
+     * Deprecated legacy property retained only so unmigrated build scripts compile during multi-project evaluation.
+     * Ignored by `@MainAppFragment` launcher generation.
      */
+    @Deprecated(
+        message = "Manual entryPoint is replaced by @MainAppFragment discovery and generated entrypoints."
+    )
     var entryPoint: String = ""
 
     /**
-     * Binary base name for compiled executables, e.g. `"NXTConverter"` or `"haeditor"`.
-     * Defaults to `project.name` when [entryPoint] is specified and [baseName] is left blank.
+     * Binary base name for compiled executables, e.g. `"MyApp"`.
+     * Defaults to `project.name` when [baseName] is left blank.
      */
     var baseName: String = ""
 
     /**
-     * Optional JVM / Swing main class name (e.g. `"com.nexustools.convert.MainKt"`).
+     * Optional JVM / Swing main class name (defaults to the generated `@MainAppFragment` launcher).
      */
     var mainClass: String = ""
 
@@ -36,8 +39,8 @@ open class GenericUiApplicationConfig(
     var consoleApplication: Boolean = false
 
     /**
-     * Whether to configure `binaries.executable { ... }` on enabled native targets when [entryPoint]
-     * is non-empty, and `binaries.executable()` on the `js(IR)` Web target when `web()` is enabled.
+     * Whether to configure `binaries.executable { ... }` on enabled native targets when a
+     * `@MainAppFragment` is discovered, and `binaries.executable()` on Web targets when `web()` is enabled.
      */
     var createExecutableBinaries: Boolean = true
 
@@ -54,7 +57,7 @@ open class GenericUiApplicationConfig(
     val extraPosixLinkerOpts: MutableList<String> = mutableListOf()
 
     /**
-     * Android target namespace (e.g. `"com.giftedvision.dungeoncrawler"`).
+     * Android target namespace (e.g. `"com.example.app"`).
      * Defaults to `project.group.toString()` if left blank when the Android plugin is applied.
      */
     var androidNamespace: String = ""
@@ -67,7 +70,7 @@ open class GenericUiApplicationConfig(
 
     // --- Desktop Metadata & Icon Properties (delegated to [desktop]) ---
 
-    /** Human-readable application display name (e.g. `"NXTConverter"`). */
+    /** Human-readable application display name (e.g. `"My Application"`). */
     var appName: String
         get() = desktop.appName
         set(value) {

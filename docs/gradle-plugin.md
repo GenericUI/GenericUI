@@ -1,19 +1,23 @@
 # GenericUI Gradle Plugin Guide (`:gradle-plugin`)
 
-The `:gradle-plugin` module provides the official Gradle plugin (`id("com.nexustools.genericui")`) for configuring GenericUI multiplatform projects, native GPU acceleration libraries, first-party extensions, and build-time SASS/CSS stylesheet compilation.
+> **Root Repository**: [**GenericUI (`../README.md`)**](../README.md) | **Master Docs Index**: [**`docs/README.md`**](./README.md)  
+> **Related Guides**: [Fragments & Windows (`fragments-and-windows.md`)](./fragments-and-windows.md) · [Resources (`resources.md`)](./resources.md) · [Application (`application.md`)](./application.md) · [SourceSets (`sourcesets.md`)](./sourcesets.md) · [Platform Backends (`backends.md`)](./backends.md) · [Extensions (`extensions.md`)](./extensions.md)
+
+The `:gradle-plugin` module provides `id("com.nexustools.genericui")` (and the companion settings plugin `id("com.nexustools.genericui.settings")`) to build complete multiplatform applications from a **single `src/commonMain` source set** with zero per-backend boilerplate.
 
 ---
 
-## 1. Applying the Plugin
+## 1. What the Plugin Automates
 
-In your application module's `build.gradle.kts`:
-
-```kotlin
-plugins {
-    kotlin("multiplatform") // or kotlin("jvm")
-    id("com.nexustools.genericui")
-}
-```
+When `id("com.nexustools.genericui")` is applied to a project:
+1. **Annotation-Driven Fragment & Application Discovery**: Scans Kotlin sources (`GenericUiFragmentScanner`) for [`@MainAppFragment`](../common/src/commonMain/kotlin/com/nexustools/genericui/component/fragment/MainAppFragment.kt), [`@AppFragment`](../common/src/commonMain/kotlin/com/nexustools/genericui/component/fragment/AppFragment.kt), and optional [`@AppApplication`](../common/src/commonMain/kotlin/com/nexustools/genericui/component/fragment/AppApplication.kt) classes.
+2. **Intelligent `@MainAppFragment` Target Specificity Resolution (`genericuiValidateApp`)**: Resolves the most specific `@MainAppFragment` for each enabled backend target along its [`AppTarget`](../common/src/commonMain/kotlin/com/nexustools/genericui/enums/system/AppTarget.kt) specificity chain (`5 → 4 → 3 → 2 → 1 → 0`), failing the build with a descriptive diagnostic if two `@MainAppFragment` classes tie at the highest specificity rank or if an enabled target has no matching `@MainAppFragment`.
+3. **Generated Per-Backend Launchers & `FragmentBundle` CLI Arguments (`generateGenericUiLaunchers`)**: Generates the `GenericUiAppDescriptor` and launcher bootstrap for every enabled target (`WindowsLauncher`, `MacosLauncher`, `GtkLauncher`, `QtLauncher`, `SwingLauncher`, `AndroidLauncher`, `IosLauncher`, `WebLauncher`), automatically registering all enabled extension providers and injecting process command-line arguments into the initial `FragmentBundle` on system targets (`savedState?.hasCommandLineArgs()`, `savedState?.getCommandLineArgs()`).
+4. **1:1 Generated Android `AppCompatActivity` Classes, `AndroidManifest.xml`, & Services**:
+   - Synthesizes an Android application wrapper project via `GenericUiSettingsPlugin` when building Android APKs.
+   - Generates a concrete 1:1 **`AppCompatActivity` subclass** (`class <FragmentName>Activity : GenericUiFragmentActivity()`) for every `@MainAppFragment` and `@AppFragment` applicable to Android (`generateGenericUiAndroidActivities`), registering each mapping in `AndroidActivityRegistry`.
+   - Generates `AndroidManifest.xml` (`generateGenericUiAndroidManifest`) with `<application>`, `<activity>` entries (with `MAIN`/`LAUNCHER` on the resolved Android `@MainAppFragment`), permissions, orientation, Picture-in-Picture flags, and `<service>` declarations from `android { services { ... } }`.
+5. **Android-Style `Resource` / `Resource.ResourceID` Generation & Multi-Backend Translation**: Generates `<package>.Resource` (and `R` / `RC`) with [`ResourceID`](../common/src/commonMain/kotlin/com/nexustools/genericui/resources/ResourceID.kt) constants and translates resources into Web asset URLs, embedded Win32 `.rc`/`.res` `.exe` resources, Android `res/` XMLs & `R.*` IDs, Apple `NSBundle` assets, Linux `GResource`/`QResource` bundles, and JVM JAR resources. See the [**Resources Guide (`resources.md`)**](./resources.md).
 
 ---
 
@@ -22,138 +26,164 @@ plugins {
 ```kotlin
 import com.nexustools.genericui.plugin.OsArchClassifier
 
+plugins {
+    id("com.nexustools.genericui")
+}
+
 genericui {
-    // 1. Target Platform Backends
+    // 1. Core Application Identity & Metadata
+    app {
+        id = "com.example.studio"
+        name = "GenericUI Studio"
+        version = "1.0.0"
+        vendor = "NexusTools"
+        description = "Cross-platform creative studio built on a single commonMain"
+        packageName = "com.example.studio"
+    }
+
+    // 2. Top-Level Window & Theme Defaults (inherited by all variant scopes unless overridden)
+    window {
+        title = "GenericUI Studio"
+        width = 1440
+        height = 900
+        minWidth = 960
+        minHeight = 600
+        resizable = true
+        icon = "src/commonMain/resources/drawable/icon_app.svg"
+    }
+
+    theme {
+        mode = "DARK"       // "LIGHT", "DARK", or "SYSTEM"
+        color = "#2563EB"   // Propagated to Web meta/PWA, Android colors.xml, Apple AccentColor, Win32 .rc, Linux .desktop
+    }
+
+    // 3. Target Platform Backends
     backends {
-        windows(true)
-        macos(true)
-        gtk(true)
-        qt(true)
+        all() // Enables windows, macos, gtk, qt, swing, android, ios, and web (wasmJs + js fallback)
+        // Or presets: allExceptSwing(), allDesktop(), allDesktopExceptSwing(), allMobile()
         swing {
             enabled = true
-            // Automatically injects LWJGL 3 OpenGL ES + EGL + JAWT + native classifiers
             useLwjglGL = true
-            // Automatically injects LWJGL 3 Vulkan + Shaderc + VMA + MoltenVK + native classifiers
             useVulkan = true
             lwjglVersion = "3.3.6"
-            // Defaults to OsArchClassifier.detectHost(); call targetAllDesktopClassifiers() for cross-OS builds
             targetClassifiers.add(OsArchClassifier.WINDOWS_X64)
             targetClassifiers.add(OsArchClassifier.LINUX_X64)
             targetClassifiers.add(OsArchClassifier.MACOS_ARM64)
         }
-        android(true)
-        ios(true)
-        web(true) // Compiles both Kotlin/Wasm (wasmJs, default) and Kotlin/JS IR (js, automatic fallback)
     }
 
-    // 2. Application Identity, Cross-Backend Theme Color, Platform Icons, & Web App Manifest (PWA)
-    application {
-        appName = "My GenericUI App"
-        description = "High-performance cross-platform GenericUI application"
+    // 4. First-Party Extension Modules (Transitive Dependencies & Backend Providers Wired Automatically)
+    extensions {
+        gpu()              // :extensions:gpu
+        imageProcessing()  // :extensions:imageprocessing (transitively enables gpu)
+        overlay()          // :extensions:overlay (also enabled automatically by media, canvas2d, and canvas3d)
+        canvas2d()         // :extensions:canvas2d (transitively enables imageProcessing + overlay)
+        canvas3d()         // :extensions:canvas3d (transitively enables gpu + canvas2d + overlay)
+        media()            // :extensions:media (transitively enables overlay)
+        mediaControls()    // :extensions:mediacontrols (standalone OS media session & hardware media key hooks)
+        webView()          // :extensions:webview (Chromium + NJS Native JIT on Desktop; native on Mobile/Web)
+        codeEditor()       // :extensions:codeeditor (transitively enables canvas2d)
+        aiChat()           // :extensions:aichat (transitively enables codeEditor -> canvas2d)
+        threeJs()          // :extensions:threejs (transitively enables gpu + canvas3d)
+        box2d()            // :extensions:box2d (transitively enables canvas2d + canvas3d -> gpu)
+        box3d()            // :extensions:box3d (transitively enables canvas3d + threeJs -> gpu)
+        alien()            // :extensions:alien (transitively enables canvas2d)
+        dsl()              // :extensions:dsl + companion :extensions:<ext>:dsl modules
+    }
 
-        // Cross-backend themeColor propagated across ALL backends that support it:
-        // - Web: <meta id="genericui-theme-color" name="theme-color" content="#2A80FF">,
-        //        "theme_color" in manifest.webmanifest, and --genericui-theme-color CSS var
-        // - Android: <color name="theme_color"> & <color name="colorPrimary"> in res/values/colors.xml,
-        //            plus R.color.theme_color / RC.color.theme_color
-        // - iOS & macOS: Assets.xcassets/AccentColor.colorset and Info.plist GenericUIThemeColor
-        // - Windows & Linux: .rc VERSIONINFO ThemeColor and .desktop X-GenericUI-ThemeColor
-        themeColor = "#2A80FF"
-
-        // The Web splash screen (#genericui-splash, 64x64 icon), index.html favicon, and
-        // manifest.webmanifest use the project icons, with `webIcon` overriding the Web icon
-        // (.svg vector icons are preferred for the Web icon):
-        webIcon("icon.svg")
-        icons(
-            windows = "icon.ico",
-            mac = "icon.icns",
-            linux = "icon.png",
-            web = "icon.svg", // Preferred: .svg (image/svg+xml) for crisp favicon, 64x64 splash, & PWA manifest
-            common = "icon.png"
-        )
-
-        // Optional: Generate W3C / MDN manifest.webmanifest (https://developer.mozilla.org/en-US/docs/Web/Progressive_web_apps/Manifest)
-        // and inject HTML <head> tags allowing the app to be installed as a standalone WebApp on
-        // platforms like Android via Chrome ("Install app" / WebAPK), iOS Safari, and Desktop browsers:
-        webManifest {
-            allowInstallAsWebApp = true
-            shortName = "MyApp"
-            display = "standalone"          // "standalone", "fullscreen", "minimal-ui", or "browser"
-            orientation = "any"
-            backgroundColor = "#121519"
-            startUrl = "./"
-            scope = "./"
-            categories("productivity", "utilities")
-            shortcut(
-                name = "Dashboard",
-                shortName = "Home",
-                description = "Open main dashboard",
-                url = "./"
-            )
+    // 5. Variant Scope Overrides (common, systemCommon, desktopCommon, nativeDesktopCommon,
+    //    linuxCommon, mobileCommon, windows, macos, gtk, qt, swing, android, ios, web)
+    desktopCommon {
+        window {
+            width = 1600
+            height = 960
         }
     }
 
-    // 3. Native GPU Drivers, Translation Layers, Shader Compilers, & :extensions:media VLC HDR
+    web {
+        window {
+            title = "GenericUI Studio (Web)"
+        }
+    }
+
+    // 6. Android-Specific Manifest & Service Configuration (valid ONLY inside android { ... })
+    android {
+        manifest {
+            minSdk = 24
+            compileSdk = 35
+            targetSdk = 35
+            screenOrientation = "unspecified"
+            supportsPictureInPicture = true
+            permissions(
+                "android.permission.INTERNET",
+                "android.permission.FOREGROUND_SERVICE"
+            )
+        }
+        services {
+            service("com.example.studio.playback.MediaPlaybackService") {
+                exported = false
+                foregroundServiceType = "mediaPlayback"
+            }
+        }
+    }
+
+    // 7. Progressive Web App (PWA) Manifest & Desktop Packaging Metadata
+    application {
+        webIcon("src/commonMain/resources/drawable/icon_app.svg")
+        webManifest {
+            allowInstallAsWebApp = true
+            shortName = "Studio"
+            display = "standalone"
+            backgroundColor = "#0F172A"
+            categories("productivity", "graphics")
+        }
+    }
+
+    // 8. Native GPU Drivers, Translation Layers, Shader Compilers, & Desktop VLC
     graphics {
-        bundleAngleOnWindows = true               // Stage Google ANGLE (libEGL.dll, libGLESv2.dll, d3dcompiler_47.dll)
-        angleBackendRenderer = "d3d11"            // "d3d11", "d3d12", or "vulkan"
-        bundleMoltenVkOnApple = true              // Stage MoltenVK (libMoltenVK.dylib / MoltenVK_icd.json)
-        bundleShaderc = true                      // Include Shaderc for runtime GLSL -> SPIR-V compilation
-        enableVulkanValidationLayersInDebug = true
+        bundleAngleOnWindows = true               // Google ANGLE (libEGL.dll, libGLESv2.dll -> D3D11)
+        angleBackendRenderer = "d3d11"
+        bundleMoltenVkOnApple = true              // MoltenVK (Vulkan 1.2 -> Metal on macOS & iOS)
+        bundleShaderc = true
         preferOpenGLES31 = true
-        bundleVlcOnDesktop = true                 // Enable :extensions:media:desktop VLC engine on :windows, :macos, :gtk, :qt
-        vlcPrimaryShaderBackend = "vulkan"        // Primary VLC YUV & HDR tone-mapping pipeline (#version 450 SPIR-V)
-        vlcFallbackShaderBackend = "opengles"     // Automatic fallback pipeline (#version 300 es, via ANGLE on Windows)
-        enableVlcHdrToneMapping = true            // Enable ST 2084 PQ / HLG / Dolby Vision tone-mapping
-        enableVlcHardwareDecode = true            // Probe D3D11VA, DXVA2, NVDEC, VAAPI, VDPAU, VideoToolbox + SW fallback
+        bundleVlcOnDesktop = true                 // :extensions:media desktop libvlc engine
+        vlcPrimaryShaderBackend = "vulkan"
+        vlcFallbackShaderBackend = "opengles"
+        enableVlcHdrToneMapping = true
+        enableVlcHardwareDecode = true
     }
 
-    // 3. First-Party Extension Modules (Transitive Dependencies & Submodules Resolved Automatically)
-    extensions {
-        gpu()              // Project-of-Projects: :extensions:gpu (:common, :desktop, :mobile, :swing, :web)
-        imageProcessing()  // Single KMP Project:  :extensions:imageprocessing (transitively enables gpu)
-        canvas2d()         // Project-of-Projects: :extensions:canvas2d (:common, :desktop, :mobile, :swing, :web)
-        canvas3d()         // Project-of-Projects: :extensions:canvas3d (transitively enables gpu)
-        media()            // Project-of-Projects: :extensions:media (transitively enables gpu)
-        webView()          // Project-of-Projects: :extensions:webview (:common, :desktop, :mobile, :swing, :web; Chromium + NJS JIT on Desktop)
-        codeEditor()       // Single KMP Project:  :extensions:codeeditor (transitively enables canvas2d)
-        aiChat()           // Single KMP Project:  :extensions:aichat (transitively enables codeEditor -> canvas2d)
-        threeJs()          // Single KMP Project:  :extensions:threejs (transitively enables gpu + canvas3d)
-        box2d()            // Single KMP Project:  :extensions:box2d (transitively enables canvas2d + canvas3d -> gpu)
-        box3d()            // Single KMP Project:  :extensions:box3d (transitively enables canvas3d + threeJs -> gpu)
-    }
-
-    // 5. SASS / CSS Compilation Pipeline
+    // 9. SASS / CSS Compilation Pipeline
     styles {
         compileSass = true
         sourceDir = "src/commonMain/resources/styles"
-        outputDir = "generated/genericui/styles"
         minify = false
         includeBootstrapVariables = true
     }
 
-    // 6. Hierarchical Multiplatform SourceSet Configuration
+    // 10. Android-Style Resource & Resource.ResourceID Compiler
+    resources {
+        enabled = true
+        packageName = "com.example.studio.res"
+        translateForAllBackends = true
+    }
+
+    // 11. JestElectricRunner Automated UI Testing & Generated Visual Test Runners
+    testing {
+        enabled = true
+        visualOnWindows = true
+    }
+
+    // 12. Optional Variant SourceSet Dependencies (created only when configured or directory exists)
     sourceSets {
         common {
             implementation("org.jetbrains.kotlinx:kotlinx-datetime:0.6.1")
         }
-        systemCommon {
-            // Shared across all OS/system targets (Desktop + Mobile, excluding Web)
+        nativeDesktopCommon {
+            // Optional libraries shared across Windows, macOS, GTK, and Qt
         }
-        desktopCommon {
-            // Shared across all Desktop targets (Swing + Native Desktop)
-        }
-        desktopNativeCommon {
-            // Shared across all Native Desktop targets (Windows, macOS, Linux/GTK/Qt)
-        }
-        linuxCommon {
-            // Shared across Linux GTK and Qt targets (linuxCommon / linuxMain / linuxTest)
-        }
-        mobileCommon {
-            // Shared across Mobile targets (Android, iOS)
-        }
-        web {
-            // Shared across Web targets (Kotlin/Wasm + Kotlin/JS IR)
+        android {
+            // Optional Android-only dependencies (e.g., for Android Service implementations in src/androidMain)
         }
     }
 }
@@ -161,72 +191,40 @@ genericui {
 
 ---
 
-## 3. Hierarchical SourceSet Tree
+## 3. Variant Scope Resolution Chain (`GenericUiVariantScope`)
 
-`GenericUiMultiplatformConfigurator` automatically constructs and wires the following sourceSet hierarchy so shared code can be placed at the exact level of granularity needed:
+Every variant block (`common`, `systemCommon`, `desktopCommon`, `nativeDesktopCommon`, `linuxCommon`, `mobileCommon`, `windows`, `macos`, `gtk`, `qt`, `swing`, `android`, `ios`, `web`) configures a [`GenericUiVariantConfig`](../gradle-plugin/src/main/kotlin/com/nexustools/genericui/plugin/GenericUiVariantConfig.kt) (`window { ... }`, `theme { ... }`, `icon`, `title`, `themeColor`, `extensionOverrides`).
 
-```text
-- common (common / commonMain / commonTest)
-  - web (web / webMain / webTest -> wasmJsMain, jsMain / wasmJsTest, jsTest)
-  - systemCommon (systemCommon / systemMain / systemTest)
-    - desktopCommon (desktopCommon / desktopMain / desktopTest)
-      - swing (swing / swingMain / swingTest -> jvmMain / jvmTest)
-      - desktopNativeCommon (desktopNativeCommon / desktopNativeMain / desktopNativeTest, alias: nativeDesktopCommon)
-        - windows (windows / windowsMain / windowsTest -> mingwX64Main / mingwX64Test)
-        - mac (mac / macMain / macosMain / macTest / macosTest -> macosArm64Main, macosX64Main)
-        - linuxCommon (linuxCommon / linuxMain / linuxTest -> linuxX64Main, linuxArm64Main)
-          - gtk (gtk / gtkMain / gtkTest)
-          - qt (qt / qtMain / qtTest)
-    - mobileCommon (mobileCommon / mobileMain / mobileTest)
-      - android (android / androidMain / androidTest)
-      - ios (ios / iosMain / iosTest -> iosArm64Main, iosSimulatorArm64Main)
-```
+For each enabled backend, [`GenericUiVariantResolver`](../gradle-plugin/src/main/kotlin/com/nexustools/genericui/plugin/GenericUiVariantResolver.kt) merges settings from least specific (`top-level` $\rightarrow$ `common`) to most specific (the concrete backend block):
+
+| Target Backend | Variant Config Resolution Order (Rightmost Wins) |
+| :--- | :--- |
+| **`windows`** | `top-level` $\rightarrow$ `common` $\rightarrow$ `systemCommon` $\rightarrow$ `desktopCommon` $\rightarrow$ `nativeDesktopCommon` $\rightarrow$ `windows` |
+| **`macos`** | `top-level` $\rightarrow$ `common` $\rightarrow$ `systemCommon` $\rightarrow$ `desktopCommon` $\rightarrow$ `nativeDesktopCommon` $\rightarrow$ `macos` |
+| **`gtk`** | `top-level` $\rightarrow$ `common` $\rightarrow$ `systemCommon` $\rightarrow$ `desktopCommon` $\rightarrow$ `nativeDesktopCommon` $\rightarrow$ `linuxCommon` $\rightarrow$ `gtk` |
+| **`qt`** | `top-level` $\rightarrow$ `common` $\rightarrow$ `systemCommon` $\rightarrow$ `desktopCommon` $\rightarrow$ `nativeDesktopCommon` $\rightarrow$ `linuxCommon` $\rightarrow$ `qt` |
+| **`swing`** | `top-level` $\rightarrow$ `common` $\rightarrow$ `systemCommon` $\rightarrow$ `desktopCommon` $\rightarrow$ `swing` |
+| **`android`** | `top-level` $\rightarrow$ `common` $\rightarrow$ `systemCommon` $\rightarrow$ `mobileCommon` $\rightarrow$ `android` |
+| **`ios`** | `top-level` $\rightarrow$ `common` $\rightarrow$ `systemCommon` $\rightarrow$ `mobileCommon` $\rightarrow$ `ios` |
+| **`web`** | `top-level` $\rightarrow$ `common` $\rightarrow$ `web` |
+
+> [!IMPORTANT]
+> **Android-Only `manifest { ... }` and `services { ... }` Enforcement**: Calling `manifest { ... }` or `services { ... }` inside any variant scope other than `android { ... }` throws a `GradleException` at configuration time.
 
 ---
 
-## 4. Optional LWJGL OpenGL ES & Vulkan Wiring on `:swing`
+## 4. Registered Gradle Tasks
 
-By design, `:swing` has **zero mandatory native dependencies** when only 2D widgets and `Canvas2D` (`Java2D` / `Graphics2D`) are used. When hardware-accelerated `GLCanvas` or `VKCanvas` is desired on Java/Swing, enabling `useLwjglGL` or `useVulkan` inside `backends { swing { ... } }` instructs `GenericUiGradlePlugin` to wire the exact LWJGL 3 artifacts and native classifiers:
-
-| Flag | Injected JVM Implementation Artifacts | Injected Runtime Native Classifiers (`targetClassifiers`) |
+| Task Name | Implementation Class | Description |
 | :--- | :--- | :--- |
-| **`useLwjglGL = true`** | `org.lwjgl:lwjgl`<br/>`org.lwjgl:lwjgl-jawt`<br/>`org.lwjgl:lwjgl-egl`<br/>`org.lwjgl:lwjgl-opengles`<br/>`org.lwjgl:lwjgl-opengl` | `lwjgl:<ver>:<classifier>`<br/>`lwjgl-egl:<ver>:<classifier>`<br/>`lwjgl-opengles:<ver>:<classifier>`<br/>`lwjgl-opengl:<ver>:<classifier>` |
-| **`useVulkan = true`** | `org.lwjgl:lwjgl`<br/>`org.lwjgl:lwjgl-jawt`<br/>`org.lwjgl:lwjgl-vulkan`<br/>`org.lwjgl:lwjgl-shaderc`<br/>`org.lwjgl:lwjgl-vma` | `lwjgl:<ver>:<classifier>`<br/>`lwjgl-shaderc:<ver>:<classifier>`<br/>`lwjgl-vma:<ver>:<classifier>`<br/>`lwjgl-vulkan:<ver>:natives-macos*` (MoltenVK on macOS) |
-
-### Supported `OsArchClassifier` Entries
-- `OsArchClassifier.WINDOWS_X64` (`"natives-windows"`)
-- `OsArchClassifier.WINDOWS_ARM64` (`"natives-windows-arm64"`)
-- `OsArchClassifier.LINUX_X64` (`"natives-linux"`)
-- `OsArchClassifier.LINUX_ARM64` (`"natives-linux-arm64"`)
-- `OsArchClassifier.MACOS_X64` (`"natives-macos"`)
-- `OsArchClassifier.MACOS_ARM64` (`"natives-macos-arm64"`)
-
----
-
-## 4. Registered Cacheable Gradle Tasks
-
-| Task Name | Implementation Class | Output Directory | Description |
-| :--- | :--- | :--- | :--- |
-| `bundleGenericUiAngle` | `AngleNativeBundleTask` | `build/generated/genericui/angle` | Generates `angle-runtime-manifest.json` and per-architecture descriptors for `libEGL.dll`, `libGLESv2.dll`, and `d3dcompiler_47.dll` (`EGL_PLATFORM_ANGLE_TYPE_D3D11_ANGLE`). |
-| `bundleGenericUiVulkan` | `VulkanNativeBundleTask` | `build/generated/genericui/vulkan` | Generates `vulkan-runtime-manifest.json` and `MoltenVK_icd.json` for Vulkan 1.2+ swapchains, MoltenVK Metal translation, and `shaderc`. |
-| `compileGenericUiSass` | `GenericUiSassCompileTask` | `build/generated/genericui/styles` | Compiles `.scss` and `.sass` files into `.css` bundles, substitutes `$variables`, injects `:root` Bootstrap 5 CSS custom properties, optionally minifies CSS, and outputs `styles-manifest.json`. |
-| `compileGenericUiResources` | `GenericUiResourceCompilerTask` | `build/generated/genericui/resources` | Compiles `drawable/`, `values/`, `raw/`, and `font/` resources + `application.themeColor` into `R.kt`, `RC.kt`, `GeneratedResourceRegistry.kt`, Android `res/values/colors.xml` (`theme_color`, `colorPrimary`), iOS/macOS `Assets.xcassets/AccentColor.colorset`, Windows `.rc`, Linux `.gresource.xml`/`.qrc`, and `genericui-resource-vars.css` (`--genericui-theme-color`). |
-| `prepareGenericUiDesktopResources` | `GenericUiDesktopResourceTask` | `build/generated/genericui/desktop-resources` | Generates and compiles Windows `app_resources.rc`/`.res` (including `ThemeColor` in `VERSIONINFO`), macOS `Info.plist` (`GenericUIThemeColor`, `NSAccentColorName`), and Linux `.desktop` (`X-GenericUI-ThemeColor`). |
-| `packageGenericUiWebDistribution` | `GenericUiWebDistributionTask` | `build/dist/web` | Packages the Wasm-primary (`wasmJs`) and JS-IR-fallback (`js`) Web distribution alongside `genericui-loader.js`, the resolved Web icon (`.svg` preferred for favicon, `64x64` splash icon, and PWA manifest), optional W3C `manifest.webmanifest` & installable WebApp `<head>` tags (`allowInstallAsWebApp`), `<meta name="theme-color">`, and `index.html` with SHA-1 hashes appended to `<script type="loader-wasm">`, `<script type="loader-js">`, `#genericui-loader-script`, and `#genericui-web-manifest`. |
-
----
-
-## 5. Module Class Structure (`com.nexustools.genericui.plugin`)
-
-In strict compliance with GenericUI's **1-Class-Per-File** standard, `:gradle-plugin` is organized into 11 focused classes:
-1. `OsArchClassifier.kt` — Host OS/CPU detector and LWJGL native classifier enum.
-2. `SwingBackendConfig.kt` — Configuration model for `:swing` (`enabled`, `useLwjglGL`, `useVulkan`, `lwjglVersion`, `targetClassifiers`).
-3. `GenericUiBackendsConfig.kt` — DSL block for enabling `:windows`, `:macos`, `:gtk`, `:qt`, `:swing`, `:android`, `:ios`, and `:web`.
-4. `GenericUiGraphicsConfig.kt` — DSL block for Google ANGLE, MoltenVK, and Shaderc bundling.
-5. `GenericUiExtensionsConfig.kt` — DSL block for all 11 first-party extensions (`gpu`, `imageProcessing`, `canvas2d`, `canvas3d`, `media`, `webView`, `codeEditor`, `aiChat`, `threeJs`, `box2d`, `box3d`) with transitive dependency resolution.
-6. `GenericUiStylesConfig.kt` — DSL block for SASS/CSS stylesheet compilation.
-7. `GenericUiExtension.kt` — Top-level `genericui` extension aggregating `backends`, `graphics`, `extensions`, and `styles`.
-8. `AngleNativeBundleTask.kt` — `@CacheableTask` for Google ANGLE staging on Windows.
-9. `VulkanNativeBundleTask.kt` — `@CacheableTask` for Vulkan, MoltenVK, and Shaderc staging.
-10. `GenericUiSassCompileTask.kt` — `@CacheableTask` for `.scss`/`.sass` to `.css` compilation.
-11. `GenericUiGradlePlugin.kt` — Entry-point `Plugin<Project>` implementation that automatically resolves Project-of-Projects extension submodules (`:common`, `:desktop`, `:mobile`, `:swing`, `:web`) or Single-Project extensions (`:extensions:<name>`) based on the enabled backends.
+| `genericuiValidateApp` | `GenericUiValidateAppTask` | Validates `@MainAppFragment` and `@AppFragment` classes across all enabled targets, verifying specificity resolution and checking for conflicting `@MainAppFragment` declarations. |
+| `generateGenericUiLaunchers` | `GenericUiGenerateLaunchersTask` | Generates per-target launcher entry points, `GenericUiAppDescriptor` objects, `FragmentRegistry` registrations, provider registrations, and visual test runners under `build/generated/genericui/<target>/kotlin`. |
+| `generateGenericUiResources`<br/>`compileGenericUiResources` | `GenericUiGenerateResourcesTask`<br/>`GenericUiResourceCompilerTask` | Generates `<package>.Resource` (`Resource.ResourceID`), `R`, and `RC`, and translates `drawable/`, `values/`, `raw/`, `font/`, and `xml/` resources across all enabled backends. |
+| `compileGenericUiWindowsResources` | `GenericUiCompileWindowsResourcesTask` | Generates Win32 `.rc` and header files (`GenericUiWin32RcGenerator`), compiles them via `windres` into COFF `.res`, and links them into the Windows `.exe`. |
+| `generateGenericUiAndroidResources` | `GenericUiGenerateAndroidResourcesTask` | Translates and generates Android `res/` directories (`drawable/`, `mipmap-*/`, `values/*.xml`, `raw/`, `font/`, `xml/`). |
+| `generateGenericUiAndroidActivities` | `GenericUiGenerateAndroidActivitiesTask` | Generates 1:1 `AppCompatActivity` subclasses (`<FragmentName>Activity : GenericUiFragmentActivity()`) for every `@MainAppFragment` and `@AppFragment` applicable to Android. |
+| `generateGenericUiAndroidManifest` | `GenericUiGenerateAndroidManifestTask` | Generates `AndroidManifest.xml` with `<application>`, 1:1 `<activity>` entries, `<service>` entries, permissions, orientation, and PiP attributes. |
+| `compileGenericUiSass` | `GenericUiSassCompileTask` | Compiles `.scss` / `.sass` stylesheets into `.css` bundles and zero-parse Kotlin `PrecompiledStyleSheet` objects. |
+| `bundleGenericUiAngle` | `AngleNativeBundleTask` | Stages Google ANGLE (`libEGL.dll`, `libGLESv2.dll`, `d3dcompiler_47.dll`) for Windows D3D11 OpenGL ES translation. |
+| `bundleGenericUiVulkan` | `VulkanNativeBundleTask` | Stages Vulkan runtime manifests, `MoltenVK_icd.json` on Apple targets, and `shaderc`. |
+| `packageGenericUiWebDistribution` | `GenericUiWebDistributionTask` | Packages the Kotlin/Wasm (`wasmJs`) primary bundle, Kotlin/JS IR (`js`) fallback bundle, `genericui-loader.js`, splash screen, `.svg` web icon, `manifest.webmanifest`, and SHA-1 cache-busted `index.html` into `build/dist/web`. |

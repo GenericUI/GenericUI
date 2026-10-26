@@ -4,14 +4,14 @@ import com.nexustools.genericui.component.layout.Container
 import com.nexustools.genericui.component.navigation.StepScrollView
 
 /**
- * Single-row-height snapping vertical wheel selector page (`DCGame`'s `CharGenVSelectPage`),
- * used for `CharGenStep1` (Level 1-20 selector) and `CharGenStep4` (Point-Buy 19-row selector).
+ * Single-row-height snapping vertical wheel selector page combining
+ * [ValidatedStepPageFragment] with a single-row [StepScrollView].
  */
 abstract class VSelectPageFragment<T>(
     stepNames: List<String>,
     currentStepOrdinal: Int,
     var rowHeightPx: Int = 40,
-    titlePrefix: String = "Character Generator"
+    titlePrefix: String = "Step Wizard"
 ) : ValidatedStepPageFragment(stepNames, currentStepOrdinal, titlePrefix) {
 
     val preSelectContainer: Container = Container("div", "vselect-pre")

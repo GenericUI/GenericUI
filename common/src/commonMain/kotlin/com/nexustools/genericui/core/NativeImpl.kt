@@ -165,6 +165,8 @@ interface NativeImpl<out W> : Disposable {
     fun setOnPointerDown(listener: ((PointerEvent) -> Unit)?)
     fun setOnPointerMove(listener: ((PointerEvent) -> Unit)?)
     fun setOnPointerUp(listener: ((PointerEvent) -> Unit)?)
+    fun setOnPointerEnter(listener: ((PointerEvent) -> Unit)?) {}
+    fun setOnPointerLeave(listener: ((PointerEvent) -> Unit)?) {}
     fun setOnWheel(listener: ((WheelEvent) -> Unit)?)
     fun setOnKeyDown(listener: ((KeyEvent) -> Unit)?)
     fun setOnKeyUp(listener: ((KeyEvent) -> Unit)?)

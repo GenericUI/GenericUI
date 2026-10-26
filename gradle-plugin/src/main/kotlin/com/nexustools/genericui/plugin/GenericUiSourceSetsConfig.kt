@@ -29,9 +29,6 @@ open class GenericUiSourceSetsConfig {
     val systemCommon: GenericUiSourceSetSpec = GenericUiSourceSetSpec("systemCommon")
     val systemMain: GenericUiSourceSetSpec get() = systemCommon
     val systemTest: GenericUiSourceSetSpec = GenericUiSourceSetSpec("systemTest")
-    val appCommon: GenericUiSourceSetSpec get() = systemCommon
-    val appMain: GenericUiSourceSetSpec get() = systemCommon
-    val appTest: GenericUiSourceSetSpec get() = systemTest
 
     val desktopCommon: GenericUiSourceSetSpec = GenericUiSourceSetSpec("desktopCommon")
     val desktopMain: GenericUiSourceSetSpec get() = desktopCommon
@@ -41,12 +38,18 @@ open class GenericUiSourceSetsConfig {
     val swingMain: GenericUiSourceSetSpec get() = swing
     val swingTest: GenericUiSourceSetSpec = GenericUiSourceSetSpec("swingTest")
 
-    val desktopNativeCommon: GenericUiSourceSetSpec = GenericUiSourceSetSpec("desktopNativeCommon")
-    val desktopNativeMain: GenericUiSourceSetSpec get() = desktopNativeCommon
-    val desktopNativeTest: GenericUiSourceSetSpec = GenericUiSourceSetSpec("desktopNativeTest")
-    val nativeDesktopCommon: GenericUiSourceSetSpec get() = desktopNativeCommon
-    val nativeDesktopMain: GenericUiSourceSetSpec get() = desktopNativeCommon
-    val nativeDesktopTest: GenericUiSourceSetSpec get() = desktopNativeTest
+    val nativeDesktopCommon: GenericUiSourceSetSpec = GenericUiSourceSetSpec("nativeDesktopCommon")
+    val nativeDesktopMain: GenericUiSourceSetSpec get() = nativeDesktopCommon
+    val nativeDesktopTest: GenericUiSourceSetSpec = GenericUiSourceSetSpec("nativeDesktopTest")
+
+    @Deprecated("Use nativeDesktopCommon", ReplaceWith("nativeDesktopCommon"))
+    val desktopNativeCommon: GenericUiSourceSetSpec get() = nativeDesktopCommon
+
+    @Deprecated("Use nativeDesktopMain", ReplaceWith("nativeDesktopMain"))
+    val desktopNativeMain: GenericUiSourceSetSpec get() = nativeDesktopCommon
+
+    @Deprecated("Use nativeDesktopTest", ReplaceWith("nativeDesktopTest"))
+    val desktopNativeTest: GenericUiSourceSetSpec get() = nativeDesktopTest
 
     val windows: GenericUiSourceSetSpec = GenericUiSourceSetSpec("windowsMain")
     val windowsMain: GenericUiSourceSetSpec get() = windows
@@ -93,9 +96,6 @@ open class GenericUiSourceSetsConfig {
     fun systemCommon(action: Action<in GenericUiSourceSetSpec>) = action.execute(systemCommon)
     fun systemMain(action: Action<in GenericUiSourceSetSpec>) = action.execute(systemCommon)
     fun systemTest(action: Action<in GenericUiSourceSetSpec>) = action.execute(systemTest)
-    fun appCommon(action: Action<in GenericUiSourceSetSpec>) = action.execute(systemCommon)
-    fun appMain(action: Action<in GenericUiSourceSetSpec>) = action.execute(systemCommon)
-    fun appTest(action: Action<in GenericUiSourceSetSpec>) = action.execute(systemTest)
 
     fun desktopCommon(action: Action<in GenericUiSourceSetSpec>) = action.execute(desktopCommon)
     fun desktopMain(action: Action<in GenericUiSourceSetSpec>) = action.execute(desktopCommon)
@@ -105,12 +105,18 @@ open class GenericUiSourceSetsConfig {
     fun swingMain(action: Action<in GenericUiSourceSetSpec>) = action.execute(swing)
     fun swingTest(action: Action<in GenericUiSourceSetSpec>) = action.execute(swingTest)
 
-    fun desktopNativeCommon(action: Action<in GenericUiSourceSetSpec>) = action.execute(desktopNativeCommon)
-    fun desktopNativeMain(action: Action<in GenericUiSourceSetSpec>) = action.execute(desktopNativeCommon)
-    fun desktopNativeTest(action: Action<in GenericUiSourceSetSpec>) = action.execute(desktopNativeTest)
-    fun nativeDesktopCommon(action: Action<in GenericUiSourceSetSpec>) = action.execute(desktopNativeCommon)
-    fun nativeDesktopMain(action: Action<in GenericUiSourceSetSpec>) = action.execute(desktopNativeCommon)
-    fun nativeDesktopTest(action: Action<in GenericUiSourceSetSpec>) = action.execute(desktopNativeTest)
+    fun nativeDesktopCommon(action: Action<in GenericUiSourceSetSpec>) = action.execute(nativeDesktopCommon)
+    fun nativeDesktopMain(action: Action<in GenericUiSourceSetSpec>) = action.execute(nativeDesktopCommon)
+    fun nativeDesktopTest(action: Action<in GenericUiSourceSetSpec>) = action.execute(nativeDesktopTest)
+
+    @Deprecated("Use nativeDesktopCommon", ReplaceWith("nativeDesktopCommon(action)"))
+    fun desktopNativeCommon(action: Action<in GenericUiSourceSetSpec>) = action.execute(nativeDesktopCommon)
+
+    @Deprecated("Use nativeDesktopMain", ReplaceWith("nativeDesktopMain(action)"))
+    fun desktopNativeMain(action: Action<in GenericUiSourceSetSpec>) = action.execute(nativeDesktopCommon)
+
+    @Deprecated("Use nativeDesktopTest", ReplaceWith("nativeDesktopTest(action)"))
+    fun desktopNativeTest(action: Action<in GenericUiSourceSetSpec>) = action.execute(nativeDesktopTest)
 
     fun windows(action: Action<in GenericUiSourceSetSpec>) = action.execute(windows)
     fun windowsMain(action: Action<in GenericUiSourceSetSpec>) = action.execute(windows)
@@ -155,15 +161,15 @@ open class GenericUiSourceSetsConfig {
             "commontest" -> commonTest
             "web", "webmain", "jsmain", "wasmjsmain" -> web
             "webtest", "jstest", "wasmjstest" -> webTest
-            "system", "systemcommon", "systemmain", "app", "appcommon", "appmain" -> systemCommon
-            "systemtest", "apptest" -> systemTest
+            "system", "systemcommon", "systemmain" -> systemCommon
+            "systemtest" -> systemTest
             "desktop", "desktopmain", "desktopcommon" -> desktopCommon
             "desktoptest" -> desktopTest
             "swing", "swingmain", "jvmmain" -> swing
             "swingtest", "jvmtest" -> swingTest
-            "desktopnative", "desktopnativemain", "desktopnativecommon",
-            "nativedesktop", "nativedesktopmain", "nativedesktopcommon" -> desktopNativeCommon
-            "desktopnativetest", "nativedesktoptest" -> desktopNativeTest
+            "nativedesktop", "nativedesktopmain", "nativedesktopcommon",
+            "desktopnative", "desktopnativemain", "desktopnativecommon" -> nativeDesktopCommon
+            "nativedesktoptest", "desktopnativetest" -> nativeDesktopTest
             "windows", "windowsmain", "mingwx64main" -> windows
             "windowstest", "mingwx64test" -> windowsTest
             "mac", "macos", "macmain", "macosmain" -> mac
@@ -196,8 +202,8 @@ open class GenericUiSourceSetsConfig {
         desktopTest,
         swing,
         swingTest,
-        desktopNativeCommon,
-        desktopNativeTest,
+        nativeDesktopCommon,
+        nativeDesktopTest,
         windows,
         windowsTest,
         mac,

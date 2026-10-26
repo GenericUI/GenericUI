@@ -11,8 +11,8 @@ import com.nexustools.genericui.enums.window.DisplayCutoutMode
 import com.nexustools.genericui.window.WindowConfiguration
 
 /**
- * Helper [Fragment] that implements the exact 3-mode responsive layout system used by the
- * **Episode Caster** Android, Desktop, and Web clients (`EpisodeScreen.kt` / `MusicScreen.kt`):
+ * Helper [Fragment] that implements a 3-mode responsive layout system across
+ * Android, iOS, Desktop, and Web clients:
  *
  * 1. **Tablet / Desktop Landscape (`isTabletOrDesktop && isLandscape`)**:
  *    Renders a **multi-column layout** ([Row] with configurable [primaryColumnWeight], default `1.8f`,
@@ -20,7 +20,7 @@ import com.nexustools.genericui.window.WindowConfiguration
  * 2. **Phone Landscape (`!isTabletOrDesktop && isLandscape`)**:
  *    When [phoneLandscapeFullscreen] is `true` (default `true`), automatically enters **immersive fullscreen**
  *    (`setFullscreen(true, DisplayCutoutMode.SHORT_EDGES)`), hides any optional `NavBar` and secondary tab columns,
- *    and expands [primaryContent] (e.g., `VideoPlayer` or `GLCanvas`/`VKCanvas` MilkDrop visualizer) to **100% fullscreen**.
+ *    and expands [primaryContent] (e.g., `VideoPlayer` or `GLCanvas`/`VKCanvas` visualizer) to **100% fullscreen**.
  *    When [phoneLandscapeFullscreen] is `false`, renders a compact 2-column landscape layout.
  * 3. **Phone & Tablet Portrait (`!isLandscape`)**:
  *    Renders a **single vertical flow with tabs** ([VStack] containing [primaryContent] at the top
@@ -58,10 +58,11 @@ open class AdaptiveSplitTabFragment(
 
     override fun onCreate(savedState: FragmentBundle?) {
         super.onCreate(savedState)
+        val winSize = hostingWindow?.getWindowSize() ?: attachedWindow?.getWindowSize()
         applyAdaptiveLayout(
             WindowConfiguration(
-                widthPx = attachedWindow?.getWindowSize()?.width ?: 1280,
-                heightPx = attachedWindow?.getWindowSize()?.height ?: 800
+                widthPx = winSize?.width ?: 1280,
+                heightPx = winSize?.height ?: 800
             )
         )
     }
@@ -78,10 +79,11 @@ open class AdaptiveSplitTabFragment(
     fun setThirdColumn(column: Container?) {
         optionalThirdColumn = column
         currentLayoutMode = null
+        val winSize = hostingWindow?.getWindowSize() ?: attachedWindow?.getWindowSize()
         onConfigurationChanged(
             WindowConfiguration(
-                widthPx = attachedWindow?.getWindowSize()?.width ?: 1280,
-                heightPx = attachedWindow?.getWindowSize()?.height ?: 800
+                widthPx = winSize?.width ?: 1280,
+                heightPx = winSize?.height ?: 800
             )
         )
     }

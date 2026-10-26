@@ -6,39 +6,39 @@
 
 **GenericUI** (`com.nexustools.genericui`) is a **Native-First, True Cross-Platform UI, Docking, Image, Media, & GPU Framework** built with **Kotlin Multiplatform (KMP)**.
 
-Designed to power professional desktop, mobile, and web applications, GenericUI eliminates the multi-hundred-megabyte RAM and CPU overhead of Electron/NW.js on desktop while providing 100% shared application logic across **Windows (Win32)**, **macOS (AppKit)**, **Linux (GTK & Qt)**, **Java/JVM (Swing/AWT)**, **Android**, **iOS (UIKit)**, and **Web (HTML5 DOM / WebGL2 / WebGPU)**.
+Designed to power professional desktop, mobile, and web applications from a **single `commonMain` source set**, GenericUI eliminates the multi-hundred-megabyte RAM and CPU overhead of Electron/NW.js on desktop while providing 100% shared application logic across **Windows (Win32)**, **macOS (AppKit)**, **Linux (GTK4 & Qt6)**, **Java/JVM (Swing/AWT)**, **Android**, **iOS (UIKit)**, and **Web (HTML5 DOM / WebGL2 / WebGPU)**.
 
 ---
 
 ## Core Architectural Pillars
 
-1. **Native-First OS Widgets (Zero Emulated Bloat)**
-   Every UI component (`Button`, `TextInput`, `SelectDropdown`, `LazyList`, `LazyGrid`, `TreeView`, `DataTable`, `SplitPane`, `Dialog`, `FileBrowserDialog`) delegates to a true native OS widget via a strict `NativeImpl` peer contract—Win32 `HWND` controls on `:windows`, AppKit `NSView`/`NSControl` on `:macos`, `GtkWidget` on `:gtk`, `QWidget` on `:qt`, `JComponent` on `:swing`, `android.view.View` on `:android`, `UIView` on `:ios`, and semantic HTML5 DOM elements on `:web`.
-2. **Deferred Upward `NativeImpl` Resolution**
-   Widgets can be constructed freely in pure common Kotlin **before** any `Window` or `Application` exists (`val btn = Button("Render")`). When a child is attached to a parent container (`parent.addChild(btn)`), GenericUI traverses **upward** (`parent -> ... -> RootContainer -> Window -> Application`) to resolve the active backend's `NativeBackendFactory`. If the tree is not yet attached to a realized root, native peer creation is deferred and automatically cascades **downward** the instant the root branch attaches to a live `Window` or `Fragment`.
-3. **`TitleBar` Instruction Class (Not a Widget)**
-   `TitleBar` is a declarative **instruction descriptor** passed via `window.setTitleBar(titleBar)` or `fragment.setNavBar(titleBar)`. It is **never** added as a child widget. Each backend translates `TitleBar` into authentic platform chrome:
-   - **`:macos`**: Populates the **global macOS system menu bar** (`NSApplication.sharedApplication.mainMenu`) and native `NSToolbar` action items.
-   - **`:windows` / `:gtk` / `:qt` / `:swing`**: Configures the native window title bar, `HMENU` / `GtkHeaderBar` / `QMenuBar` / `JMenuBar`, and action toolbar buttons.
-   - **`:android` / `:ios` / `:web`**: Configures the native `Toolbar`/`ActionBar`, `UINavigationBar`, or responsive application header bar.
-4. **1:1 Android `Activity`-Compatible `Fragment` System & Helper Fragments**
-   `FragmentApplication` and `Fragment` provide an Android `Activity`-inspired lifecycle (`onCreate`, `onCreateView`, `onStart`, `onResume`, `onPause`, `onStop`, `onDestroy`), back-stack navigation (`startFragment`, `finish`), and **per-fragment `setNavBar(TitleBar)`**—allowing nested child fragments and docked panels to render their own local contextual header bars and menus. Built-in helper fragments (`AdaptiveSplitTabFragment` and `DockWorkspaceFragment`) standardize complex responsive and dockable layouts out of the box.
-5. **Base Full Image API (`com.nexustools.genericui.image.*`) + Native Loaders & `libjpeg`/`libpng`/`libwebp` Codecs + Offscreen GPU `:extensions:imageprocessing`**
-   Base `:common` ships with a complete multi-format Image API (`ImageLoader`, `ImageCodecNativeImpl`, `ImageBuffer`, `ImageFrame`, `AnimatedImage`, `ImageMetadata`, `ImageSource`, `PixelFormat`, `ImageFormat`, `ImageColorSpace`, `ImageDecodeOptions`, `ImageEncodeOptions`). `ImageLoader` delegates to the **native platform image loader where possible** (`javax.imageio.ImageIO` & `BufferedImage` on Java/`:swing`, `BitmapFactory` & `ImageDecoder` on `:android`, `createImageBitmap` & offscreen `<canvas>` on `:web`, `CGImageSource` on `:macos`/`:ios`, and `WIC` / `GdkPixbuf` / `QImage` on native desktop) and **implements its own native/multiplatform codecs (`LibJpegCodec` via `libjpeg`/`libjpeg-turbo`, `LibPngCodec` via `libpng`, `LibWebpCodec` via `libwebp`, and BMP/PPM) where needed**. For heavy offscreen pixel manipulation, `:extensions:imageprocessing` (`GpuImageProcessor`, `GpuImageFilterChain`, `GpuImageKernel`) processes `ImageBuffer`s in memory using hardware GPU compute/fragment pipelines provided by `:extensions:gpu`.
-6. **Modular Two-Tier Extension Architecture (Project-of-Projects vs. Single Multiplatform Project)**
-   To keep base `:common` lean, GPU contexts, 2D/3D canvases, media players, image processing, code editors, AI chat, and physics engines are modularized into dedicated extensions:
-   - **Project-of-Projects Extensions** (`:extensions:<name>:common`, `:desktop`, `:mobile`, `:swing`, `:web` + umbrella `:extensions:<name>`) for extensions requiring native C/C++/ObjC, Java/LWJGL, and Web platform-specific implementations:
-     - **`:extensions:gpu`**: Unified Vulkan (`#version 450` SPIR-V primary, MoltenVK on Apple) and OpenGL ES 3.0+ (`#version 300 es` fallback, Google ANGLE on Windows) device, shader, and offscreen context management (`GpuDevice`, `GpuOffscreenContext`, `VKContext`, `GLContext`).
-     - **`:extensions:canvas2d`**: Hardware-accelerated 2D vector/raster canvas (`Canvas2D`, `Canvas2DContext`, `CurveEditor`) extending `:common`'s `AbstractCanvas`.
-     - **`:extensions:canvas3d`**: Hardware-accelerated 3D/shader canvases (`GLCanvas`, `VKCanvas`) built atop `:extensions:gpu` and `:common`'s `AbstractCanvas` (`registerVBlankRender { deltaMs -> ... }`).
-     - **`:extensions:media`**: Hardware-accelerated `VideoPlayer` (with uniform codec capability reporting), `AudioPlayer`, `AudioAnalyzer`, `WebVttSrtParser`, `:extensions:media:desktop:shared`'s native **`libvlc` Bindings** (`LibVlcBindings`, `DesktopLibVlcVideoPlayerImpl`, `DesktopLibVlcAudioPlayerImpl`, `DesktopLibVlcAudioAnalyzerImpl`) shared by `:extensions:media:desktop:{qt,gtk,windows,macos}`, and `:extensions:media:desktop:swing`'s **`libvlcj`** integration (`uk.co.caprica:vlcj`).
-     - **`:extensions:webview`**: Dedicated Project-of-Projects `WebView` extension (`:common`, `:desktop`, `:mobile`, `:swing`, `:web`). On **Desktop builds** (`:desktop` / `:windows`, `:macos`, `:gtk`, `:qt`, and `:swing`), `:extensions:webview` uses the **Chromium** project (`ChromiumBlinkEngine`) for HTML/CSS layout & rendering coupled with **`NJS`** (`lib/NJS`) with a high-performance **AsmJit / SLJIT Native JIT Engine** (`com.nexustools.njs.jit.*`). On **Mobile (`:android` `android.webkit.WebView`, `:ios` `WKWebView`) and `:web` (`<iframe>`)**, it uses the native platform implementation and **NEVER uses `NJS`**.
-   - **Single Multiplatform Project Extensions** (`:extensions:<name>`) built purely on `:common` and other extensions:
-     - **`:extensions:imageprocessing`**, **`:extensions:codeeditor`**, **`:extensions:aichat`**, **`:extensions:threejs`**, **`:extensions:box2d`**, and **`:extensions:box3d`**.
-7. **True Lazy Views Across All 8 Platforms & Native File/Folder Browser**
-   `LazyList` (`LazyColumn`, `LazyRow`), `LazyGrid`, and `TreeView` dynamically load and bind (`onBind`) only the items inside the visible viewport window (`[firstActiveIndex .. lastActiveIndex]`) and unload/recycle (`onUnbind` $\rightarrow$ `ViewHolderPool`) items as they scroll out of view. `FileBrowserDialog` supports both file and folder selection (`OPEN_SINGLE_FILE`, `OPEN_MULTIPLE_FILES`, `SAVE_FILE`, `SELECT_FOLDER`) across all platforms—including an invisible `<input type="file">` (`webkitdirectory`, `accept`) on `:web` and native Android Storage Access Framework (`ACTION_OPEN_DOCUMENT`, `ACTION_CREATE_DOCUMENT`, `ACTION_OPEN_DOCUMENT_TREE`) via `GenericUiFragmentActivity` `ActivityResultLauncher` on `:android`.
-8. **Dual-Mode Styling: Type-Safe Bootstrap Enums + SASS/CSS Cascade**
-   Apply styles rapidly in Kotlin using type-safe Bootstrap enums (`BootstrapType.PRIMARY`, `BootstrapSize.LG`, `SpacingScale.P_3`, `BorderRadiusStyle.ROUNDED_LG`, `ShadowElevation.MD`) or load compiled `.scss`/`.css` stylesheets with deterministic specificity (`Bootstrap Enum Defaults` $\rightarrow$ `CSS Tag/Class/ID Selectors` $\rightarrow$ `Inline StyleProperty Overrides`).
+1. **Zero-Boilerplate Single-`commonMain` Architecture (`@MainAppFragment` & `@AppFragment`)**
+   Consumer applications write all UI, state, and business logic in `src/commonMain/kotlin` by annotating their root fragment with [`@MainAppFragment`](./common/src/commonMain/kotlin/com/nexustools/genericui/component/fragment/MainAppFragment.kt) and secondary screens with [`@AppFragment`](./common/src/commonMain/kotlin/com/nexustools/genericui/component/fragment/AppFragment.kt). At build time, the `:gradle-plugin` automatically generates all 8 platform launchers (`WindowsLauncher`, `MacosLauncher`, `GtkLauncher`, `QtLauncher`, `SwingLauncher`, `IosLauncher`, `WebLauncher`, and 1:1 Android `AppCompatActivity` classes), wires extension factories automatically, and resolves target-specific overrides using deterministic [`AppTarget`](./common/src/commonMain/kotlin/com/nexustools/genericui/enums/system/AppTarget.kt) specificity (`5` Single Backend $\rightarrow$ `4` `Linux` $\rightarrow$ `3` `NativeDesktop` / `Mobile` $\rightarrow$ `2` `Desktop` $\rightarrow$ `1` `System` $\rightarrow$ `0` `Common`).
+2. **Command-Line Arguments on System Targets (`FragmentBundle`)**
+   On all system targets (`Windows`, `MacOS`, `Gtk`, `Qt`, `Swing`, `Android`, `IOS`), the generated launcher captures process command-line arguments (`Array<String>`) and injects them into the startup [`FragmentBundle`](./common/src/commonMain/kotlin/com/nexustools/genericui/component/fragment/FragmentBundle.kt) passed to `@MainAppFragment.onCreate(savedInstanceState: FragmentBundle?)`—accessible via `hasCommandLineArgs()`, `getCommandLineArgs()`, `getCommandLineArgsArray()`, and `putCommandLineArgs(...)`.
+3. **1:1 Android `AppCompatActivity` Generation, `FragmentHostFragment`, & `FragmentHostSystem`**
+   - **Android 1:1 Activities**: On `:mobile:android`, every `@MainAppFragment` and `@AppFragment` generates a dedicated `AppCompatActivity` subclass (`<FragmentName>Activity : GenericUiFragmentActivity()`) registered in the generated `AndroidManifest.xml`, mapping `launchFragment(FragmentClass, LaunchArgs)` and [`FragmentLaunchMode`](./common/src/commonMain/kotlin/com/nexustools/genericui/enums/fragment/FragmentLaunchMode.kt) (`STANDARD`, `SINGLE_TOP`, `CLEAR_TOP`, `NEW_WINDOW`) to native Android `Intent`s.
+   - **In-Window Navigation (`FragmentHostFragment` & `FragmentHostSystem`)**: [`FragmentHostFragment`](./common/src/commonMain/kotlin/com/nexustools/genericui/component/fragment/helper/FragmentHostFragment.kt) and [`FragmentHostSystem`](./common/src/commonMain/kotlin/com/nexustools/genericui/component/fragment/helper/FragmentHostSystem.kt) provide animated in-window fragment stacks with [`FragmentTransitionSpec.FadeExpandShrink`](./common/src/commonMain/kotlin/com/nexustools/genericui/component/fragment/helper/FragmentTransitionSpec.kt) (and `SlideHorizontal`, `SlideVertical`, `CrossFade`), optional Back/Forward/custom navigation buttons in the `TitleBar` or `Navbar` via [`FragmentNavigationChromeConfig`](./common/src/commonMain/kotlin/com/nexustools/genericui/component/fragment/helper/FragmentNavigationChromeConfig.kt), and automatic Web URL `#hash` + `window.history.state` synchronization.
+4. **`IWindow` & `TitleCapabilities` Single-Placement Chrome Rules**
+   [`TitleBar`](./common/src/commonMain/kotlin/com/nexustools/genericui/window/TitleBar.kt) and [`MenuBar`](./common/src/commonMain/kotlin/com/nexustools/genericui/component/shell/MenuBar.kt) are declarative instruction descriptors inspected via [`TitleCapabilities`](./common/src/commonMain/kotlin/com/nexustools/genericui/window/TitleCapabilities.kt) (`window.titleCapabilities`) and **never** rendered in two places simultaneously:
+   - **`:desktop:windows` / `:desktop:gtk` / `:desktop:qt` / `:desktop:swing`**: Rendered once in the native window frame/chrome (replacing standard Win32 caption chrome when custom controls are present).
+   - **`:desktop:macos`**: `MenuBar` attaches to the global top-of-screen macOS system menu bar (`NSApplication.sharedApplication.mainMenu`) while `TitleBar` configures `NSWindow` / `NSToolbar`.
+   - **`:mobile:android` / `:mobile:ios`**: Rendered as a native top `Navbar` (`MaterialToolbar` / `UINavigationBar`) **only** when a `TitleBar` or `MenuBar` is set; omitted for full-bleed content otherwise.
+   - **`:web`**: Title text updates `document.title` (browser tab title) with `supportsCustomTitleBar = false`, while in-viewport `Navbar` rendering is opt-in (`useWebViewportNavBar = true`).
+5. **Android-Style `Resource` (`Resource.ResourceID`) System Across All 8 Backends & Shared Libraries**
+   Place assets in `src/commonMain/resources/` (`drawable/`, `values/strings.xml`, `values/colors.xml`, `raw/`, `font/`, `layout/`) across application and shared library modules. The Gradle plugin generates a type-safe `Resource` class (`Resource.drawable.ic_logo`, `Resource.string.app_title`, `Resource.raw.default_config`) where every entry is a [`Resource.ResourceID`](./common/src/commonMain/kotlin/com/nexustools/genericui/resources/ResourceID.kt) translated natively by each backend:
+   - **`:web`** (`WebResourceResolverImpl`): Translates `ResourceID` into URL strings (`./assets/drawable/...`).
+   - **`:desktop:windows`** (`WindowsResourceResolverImpl`): Compiles resources into a Win32 `.rc`/`.res` object linked directly into the `.exe` binary (`FindResourceW` / `LoadResource` / `LockResource`).
+   - **`:mobile:android`** (`AndroidResourceResolverImpl`): Maps `ResourceID` directly to Android `R.drawable.*`, `R.string.*`, and `R.raw.*`.
+   - **`:desktop:macos` & `:mobile:ios`**: Resolves via `NSBundle.mainBundle`.
+   - **`:desktop:gtk` & `:desktop:qt`**: Compiles and resolves via `GResource` (`g_resources_lookup_data`) and `QResource` (`:/genericui/...`).
+   - **`:desktop:swing`**: Resolves from the JVM JAR classpath (`ClassLoader.getResourceAsStream`).
+6. **`IApplication` & `BackendTarget` Multi-Target Group Checks**
+   [`IApplication`](./common/src/commonMain/kotlin/com/nexustools/genericui/component/shell/IApplication.kt) (`app.backendTarget`) exposes [`BackendTarget`](./common/src/commonMain/kotlin/com/nexustools/genericui/enums/system/BackendTarget.kt) (`Windows`, `MacOS`, `Gtk`, `Qt`, `Swing`, `Android`, `IOS`, `Web`) with rich multi-target group properties (`isSystem`, `isDesktop`, `isNativeDesktop`, `isLinux`, `isMobile`, `isApple`, `isUnix`, `isPosix`, `isNative`, `isJvm`, `isTouchPrimary`, `isBrowser`) and an optional [`@AppApplication`](./common/src/commonMain/kotlin/com/nexustools/genericui/component/fragment/AppApplication.kt) lifecycle hook.
+7. **Native-First OS Widgets & Deferred Upward `NativeImpl` Resolution**
+   Every UI component (`Button`, `TextInput`, `SelectDropdown`, `LazyList`, `LazyGrid`, `TreeView`, `DataTable`, `SplitPane`, `Dialog`, `FileBrowserDialog`) delegates to a true native OS widget (`HWND`, `NSView`, `GtkWidget`, `QWidget`, `JComponent`, `android.view.View`, `UIView`, or HTML5 DOM). Widgets can be instantiated freely in pure common Kotlin before any window exists; attaching a widget traverses upward (`parent -> ... -> RootContainer -> Window -> Application`) to resolve `NativeFactory` and cascades peer creation downward automatically.
+8. **Modular 15-Extension Ecosystem & Strict Core Isolation**
+   Core modules (`:common`, `:systemCommon`, `:desktop:*`, `:mobile:*`, `:web`) are 100% isolated from extension internals. GPU compute (`:extensions:gpu`), offscreen image processing (`:extensions:imageprocessing`), translucent GPU/native compositing overlays (`:extensions:overlay`), 2D/3D canvases (`:extensions:canvas2d`, `:extensions:canvas3d`), VLC HDR video/audio (`:extensions:media`), reusable transport controls (`:extensions:mediacontrols`), embedded WebViews (`:extensions:webview`), escape-hatch raw platform views (`:extensions:alien`), code editors (`:extensions:codeeditor`), AI chat (`:extensions:aichat`), 3D scene graphs (`:extensions:threejs`), 2D/3D physics (`:extensions:box2d`, `:extensions:box3d`), and declarative DSLs (`:extensions:dsl`) are opt-in via `extensions { ... }`.
 
 ---
 
@@ -48,42 +48,49 @@ Every `.kt` file across all modules strictly adheres to the **1 Public Class / I
 
 ### A. Core & Platform Backend Modules
 
-| Module | Target / Type | Responsibility & Native Backing |
+| Module | Variant Scope | Responsibility & Native Backing |
 | :--- | :--- | :--- |
-| **`:common`** | KMP (`commonMain`, `jvmMain`, `androidMain`, `jsMain`) | Platform-agnostic UI widgets, `NativeImpl` contracts, `Application` / `FragmentApplication`, `Fragment` & helper fragments, docking (`DockWorkspace`, `DockArea`, `DockNode`), true lazy views (`LazyList`, `LazyGrid`, `TreeView`, `ViewHolderPool`), `FileBrowserDialog`, **Full Image API (`com.nexustools.genericui.image.*`)**, `AbstractCanvas` (`registerVBlankRender` + `VBlankTimer`), Bootstrap enums, and SASS/CSS `ThemeEngine`. |
-| **`:desktop:shared`** | Shared Native Desktop KMP (`desktop/shared`) | Automatically included by `:desktop:windows`, `:desktop:macos`, `:desktop:gtk`, and `:desktop:qt`. Shared native desktop windowing, high-precision VBlank timers, file dialogs, and native desktop utilities. |
-| **`:desktop:windows`** | Native Win32 / C-Interop + `:desktop:shared` (`desktop/windows`) | Native Win32 (`HWND` / Common Controls / DWM / `IFileOpenDialog` / `IFileSaveDialog`). |
-| **`:desktop:macos`** | Native AppKit / Objective-C + `:desktop:shared` (`desktop/macos`) | Native macOS AppKit (`NSWindow`, `NSView`, global system `NSMenu`, `NSOpenPanel`/`NSSavePanel`). |
-| **`:desktop:gtk`** | Native Linux/Cross-Desktop GTK3/4 + `:desktop:shared` (`desktop/gtk`) | Native GTK (`GtkWindow`, `GtkHeaderBar`, `GtkWidget`, `GtkFileChooserNative`). |
-| **`:desktop:qt`** | Native C++ Linux/Cross-Desktop Qt5/6 + `:desktop:shared` (`desktop/qt`) | Native Qt (`QMainWindow`, `QMenuBar`, `QDockWidget`, `QWidget`, `QFileDialog`). |
-| **`:desktop:swing`** | JVM AWT / Swing (`desktop/swing`) | Pure JVM `JFrame`/`JComponent` + `JFileChooser`, with optional LWJGL 3 `JAWT` native surface integration when `:extensions:gpu` / `:extensions:canvas3d` are enabled (`useLwjglGL = true`, `useVulkan = true`). |
-| **`:mobile:shared`** | Shared Mobile KMP (`mobile/shared`) | Automatically included by `:mobile:android` and `:mobile:ios`. Houses shared mobile posture/safe-area coordination (`MobileAdaptiveFragmentCoordinator`), multi-touch gesture & fling physics (`MobileGestureRecognizer`, `MobileFlingPhysics`), PiP (`MobilePipController`), media sessions (`MobileMediaSessionBridge`), and `MobileLazyViewportPool`. |
-| **`:mobile:android`** | Android SDK (API 24+) + `:mobile:shared` (`mobile/android`) | Android Views, Material `Toolbar`, `RecyclerView`-backed lazy views, and `GenericUiFragmentActivity` SAF file/folder picker (`ACTION_OPEN_DOCUMENT`, `ACTION_CREATE_DOCUMENT`, `ACTION_OPEN_DOCUMENT_TREE`). |
-| **`:mobile:ios`** | Apple iOS UIKit + `:mobile:shared` (`mobile/ios`) | Native UIKit (`UIWindow`, `UINavigationBar`, `UIView`, `UICollectionView`/`UITableView` cell reuse, `UIDocumentPickerViewController`). |
-| **`:web`** | Kotlin/Wasm (`wasmJs`, default) & Kotlin/JS IR (`js`, automatic fallback) (`web`) | Compiles both Wasm and JS IR with `genericui-loader.js` (attempting Wasm first and falling back to JS IR if unsupported), Bootstrap splash screen (`#genericui-splash`) with project/web icon (`.svg` preferred), download progress bar, fade-out, error stacktrace display, SHA-1 cache-busting hashes, semantic HTML5 DOM widgets, virtualized DOM lazy views, and invisible `<input type="file">` (`webkitdirectory`, `accept`) file/folder dialog. |
-| **`:gradle-plugin`** | Gradle Kotlin DSL Plugin (`gradle-plugin`) | Plugin `id("com.nexustools.genericui")` providing the `genericui { ... }` DSL for backend selection, Project-of-Projects vs. Single-Project extension wiring, optional LWJGL OpenGL ES / Vulkan injection, Google ANGLE & MoltenVK staging, and SASS compilation. |
+| **`:common`** | `common` | Platform-agnostic UI widgets, `NativeImpl` contracts, `IWindow`, `TitleCapabilities`, `IApplication`, `BackendTarget`, `AppTarget`, `IFragment`, `@MainAppFragment`, `@AppFragment`, `FragmentBundle`, `FragmentHostFragment`, `FragmentHostSystem`, `DockWorkspace`, true lazy views (`LazyList`, `LazyGrid`, `TreeView`), `FileBrowserDialog`, `PreferenceStore`, `Resource`/`ResourceID`/`ResourceResolver`, **Full Image API (`com.nexustools.genericui.image.*`)**, `AbstractCanvas`, Bootstrap enums, and SASS/CSS `ThemeEngine`. |
+| **`:systemCommon`** | `systemCommon` | Pure-Kotlin system-target helpers (`SystemStorageKeyHelper`) shared across all 7 non-browser OS targets (`Windows`, `MacOS`, `Gtk`, `Qt`, `Swing`, `Android`, `IOS`). |
+| **`:desktop:common`** | `desktopCommon` | Pure-Kotlin desktop foundation shared by all 5 desktop backends (`Windows`, `MacOS`, `Gtk`, `Qt`, `Swing`): `DesktopFileBrowserHelper`, `DesktopLazyViewportEngine`, `DesktopUiTimerNativeImpl`, and desktop dialog/tray/notification helpers. |
+| **`:desktop:nativeCommon`** | `nativeDesktopCommon` | Native C/C++/ObjC desktop foundation shared by `Windows`, `MacOS`, `Gtk`, and `Qt`: `DesktopBaseNativeImpl`, `DesktopConfigDirectoryHelper`, `DesktopMultiWindowDockCoordinator`, and POSIX/native widget peers. |
+| **`:desktop:linuxCommon`** | `linuxCommon` | Linux XDG desktop foundation shared by `Gtk` and `Qt`: `LinuxXdgConfigDirectoryImpl`, `LinuxXdgCacheDirectoryImpl`, and `LinuxXdgPreferenceStoreImpl`. |
+| **`:desktop:windows`** | `windows` | `WindowsLauncher`, Win32 (`HWND` / Common Controls / DWM / `IFileOpenDialog` / `IFileSaveDialog`), embedded `.exe` Win32 `.rc`/`.res` `WindowsResourceResolverImpl`, Google ANGLE, and Vulkan. |
+| **`:desktop:macos`** | `macos` | `MacosLauncher`, macOS AppKit (`NSWindow`, `NSView`, global system `NSMenu`, `NSOpenPanel`/`NSSavePanel`), `NSBundle` `MacosResourceResolverImpl`, CoreGraphics, and MoltenVK. |
+| **`:desktop:gtk`** | `gtk` | `GtkLauncher`, Linux GTK4 (`GtkWindow`, `GtkHeaderBar`, `GtkWidget`, `GtkFileDialog`), `GResource` `GtkResourceResolverImpl`, Cairo, EGL, and Vulkan. |
+| **`:desktop:qt`** | `qt` | `QtLauncher`, Linux Qt6 (`QMainWindow`, `QMenuBar`, `QDockWidget`, `QWidget`, `QFileDialog`), `QResource` `QtResourceResolverImpl`, `QPainter`, and `QVulkanWindow`. |
+| **`:desktop:swing`** | `swing` | `SwingLauncher`, JVM `JFrame`/`JComponent` + `JFileChooser`, JAR classpath `SwingResourceResolverImpl`, and optional LWJGL 3 `JAWT` OpenGL ES & Vulkan (`useLwjglGL`, `useVulkan`). |
+| **`:mobile:common`** | `mobileCommon` | Mobile foundation shared by `Android` and `IOS`: `MobileDeviceFormFactor`, `MobileAdaptiveFragmentCoordinator`, `MobileGestureRecognizer`, `MobileFlingPhysics`, `MobilePipController`, and `MobileLazyViewportPool`. |
+| **`:mobile:android`** | `android` | 1:1 generated `AppCompatActivity` classes (`<FragmentName>Activity : GenericUiFragmentActivity()`), conditional `MaterialToolbar` navbar, Android `R.*` `AndroidResourceResolverImpl`, `RecyclerView` lazy views, and SAF file/folder picker. |
+| **`:mobile:ios`** | `ios` | `IosLauncher`, UIKit (`UIWindow`, conditional `UINavigationBar`, `UIView`, `UICollectionView`/`UITableView`, `UIDocumentPickerViewController`), `NSBundle` `IosResourceResolverImpl`, and MoltenVK. |
+| **`:web`** | `web` | `WebLauncher`, Kotlin/Wasm (`wasmJs`, default) + Kotlin/JS IR (`js`, automatic fallback) via `genericui-loader.js`, URL-based `WebResourceResolverImpl`, `#hash` + `window.history.state` fragment routing, Bootstrap splash screen (`#genericui-splash`), semantic HTML5 DOM widgets, and `<input type="file">` dialog. |
+| **`:gradle-plugin`** | Gradle Plugin | Plugin `id("com.nexustools.genericui")` providing the `genericui { ... }` DSL, automatic launcher & Android `AppCompatActivity` codegen, `Resource` & Win32 `.rc`/`.res` compilation, and extension wiring. |
 
 ### B. First-Party Extension Modules (`:extensions:*`)
 
 | Extension | Structure Type | Transitive Dependencies | Responsibility & Key Classes |
 | :--- | :--- | :--- | :--- |
-| **`:extensions:gpu`** | **Project-of-Projects** (`:common`, `:desktop`, `:mobile`, `:swing`, `:web`) | `:common` | Unified GPU device, shader, and offscreen context foundation (`GpuDevice`, `GpuOffscreenContext`, `VKContext` primary with SPIR-V & MoltenVK, `GLContext` fallback with Google ANGLE on Windows). |
+| **`:extensions:gpu`** | **Project-of-Projects** (`:common`, `:systemCommon`, `:desktop:*`, `:mobile:*`, `:web`) | `:common` | Unified GPU device, shader, and offscreen context foundation (`GpuDevice`, `GpuOffscreenContext`, `VKContext` primary with SPIR-V & MoltenVK, `GLContext` fallback with Google ANGLE on Windows). |
 | **`:extensions:imageprocessing`** | **Single KMP Project** | `:extensions:gpu` | Offscreen in-memory GPU-accelerated image manipulation & filter pipelines (`GpuImageProcessor`, `GpuImageFilterChain`, `GpuImageKernel`, `GpuHistogramAnalyzer`) operating on `:common`'s `ImageBuffer`. |
-| **`:extensions:canvas2d`** | **Project-of-Projects** (`:common`, `:desktop`, `:mobile`, `:swing`, `:web`) | `:common` | Dedicated 2D vector/raster canvas (`Canvas2D`, `Canvas2DContext`, `CurveEditor`) backed by Direct2D, CoreGraphics, Cairo, QPainter, Java2D, Android Canvas, and HTML5 2D Context. |
-| **`:extensions:canvas3d`** | **Project-of-Projects** (`:common`, `:desktop`, `:mobile`, `:swing`, `:web`) | `:extensions:gpu` | Dedicated OpenGL ES 3.0+ (`GLCanvas` with ANGLE on Windows) and Vulkan 1.2+ (`VKCanvas` with MoltenVK on Apple) interactive GPU surfaces. |
-| **`:extensions:media`** | **Project-of-Projects** (`:common`, `:desktop`, `:mobile`, `:swing`, `:web`) | `:extensions:gpu` | `VideoPlayer` (with uniform codec reporting), `AudioPlayer`, `AudioAnalyzer`, `WebVttSrtParser`, and **`:extensions:media:desktop`'s VLC Video Playback, Clock Sync, Vulkan (`#version 450`) Primary + OpenGL ES (`#version 300 es`) Fallback HDR Tone-Mapping, & HW/SW Decode Engine**. |
-| **`:extensions:webview`** | **Project-of-Projects** (`:common`, `:desktop`, `:mobile`, `:swing`, `:web`) | `:common` (plus `lib/NJS` on Desktop/Swing only) | Dedicated `WebView` extension (`WebView`, `WebViewController`, `WebViewJsBridge`). Uses **Chromium (`ChromiumBlinkEngine`) + `NJS` (`lib/NJS` AsmJit/SLJIT Native JIT Engine)** on Desktop (`:desktop` & `:swing`), and native `android.webkit.WebView` (`:android`), `WKWebView` (`:ios`), and `<iframe>` (`:web`) — **strictly NEVER using `NJS` on iOS, Android, or Web**. |
+| **`:extensions:overlay`** | **Project-of-Projects** (`:common`, `:systemCommon`, `:desktop:*`, `:mobile:*`, `:web`) | `:extensions:gpu` | Cross-platform translucent GPU/native compositing surface (`OverlayView`, `OverlaySurface`, `OverlayController`) for rendering alpha-blended UI layers over hardware video, 2D/3D canvases, and native surfaces. |
+| **`:extensions:canvas2d`** | **Project-of-Projects** (`:common`, `:systemCommon`, `:desktop:*`, `:mobile:*`, `:web`) | `:common` | Dedicated 2D vector/raster canvas (`Canvas2D`, `Canvas2DContext`, `CurveEditor`) backed by Direct2D, CoreGraphics, Cairo, QPainter, Java2D, Android Canvas, and HTML5 2D Context. |
+| **`:extensions:canvas3d`** | **Project-of-Projects** (`:common`, `:systemCommon`, `:desktop:*`, `:mobile:*`, `:web`) | `:extensions:gpu` | Dedicated OpenGL ES 3.0+ (`GLCanvas` with ANGLE on Windows) and Vulkan 1.2+ (`VKCanvas` with MoltenVK on Apple) interactive GPU surfaces. |
+| **`:extensions:media`** | **Project-of-Projects** (`:common`, `:systemCommon`, `:desktop:*`, `:mobile:*`, `:web`) | `:extensions:gpu` | `VideoPlayer` (with uniform codec reporting), `AudioPlayer`, `AudioAnalyzer`, `WebVttSrtParser`, native **`libvlc` bindings** in `:extensions:media:desktop:nativeCommon`, and **`libvlcj`** in `:extensions:media:desktop:swing`. |
+| **`:extensions:mediacontrols`** | **Single KMP Project** | `:extensions:media`, `:extensions:overlay` ($\rightarrow$ `gpu`) | Reusable media transport bar (`MediaControlBar`, `VideoSeekBar`, `VolumePopupButton`, `QualitySelectorMenu`, `PlaybackSpeedMenu`, `SubtitleTrackMenu`) composited over `VideoPlayer` via `:extensions:overlay`. |
+| **`:extensions:webview`** | **Project-of-Projects** (`:common`, `:systemCommon`, `:desktop:*`, `:mobile:*`, `:web`) | `:common` (plus `lib/NJS` on Desktop/Swing only) | Dedicated `WebView` extension (`WebView`, `WebViewController`, `WebViewJsBridge`). Uses **Chromium (`ChromiumBlinkEngine`) + `NJS` (`lib/NJS` AsmJit/SLJIT Native JIT Engine)** on Desktop, and native `android.webkit.WebView` (`:android`), `WKWebView` (`:ios`), and `<iframe>` (`:web`) — **never using `NJS` on Mobile or Web**. |
+| **`:extensions:alien`** | **Project-of-Projects** (`:common`, `:systemCommon`, `:desktop:*`, `:mobile:*`, `:web`) | `:common` | Escape-hatch `AlienView` (`AlienViewHost`, `AlienHandle`) for embedding raw platform-native widgets (`HWND`, `NSView`, `GtkWidget`, `QWidget`, `JComponent`, `android.view.View`, `UIView`, `HTMLElement`) inside a GenericUI layout tree. |
 | **`:extensions:codeeditor`** | **Single KMP Project** | `:extensions:canvas2d` | Extension-only IDE-style code editor (`IdeCodeEditor`) with syntax highlighting, line numbers, code folding, minimap, autocomplete, diagnostics, and `Ctrl+Click` Go-To-Definition. |
 | **`:extensions:aichat`** | **Single KMP Project** | `:extensions:codeeditor` ($\rightarrow$ `canvas2d`) | Reusable AI Assistant UI & orchestration suite (`AiChatContainer`, `AIChatDrawer`, `AIChatConversationList`, `AIChatMessageView`, `AIChatPromptComposer`, `AIChatAgentOrchestrator`). |
 | **`:extensions:threejs`** | **Single KMP Project** | `:extensions:gpu`, `:extensions:canvas3d` | Three.js-inspired 3D scene graph (`ThreeSceneCanvas`, `ThreeGLCanvas`, `ThreeVKCanvas`, `ThreeCamera`, `ThreeMesh`, `ThreeGeometry`, `ThreeMaterial`, `ThreeLight`, `ThreeOrbitControls`). |
 | **`:extensions:box2d`** | **Single KMP Project** | `:extensions:canvas2d`, `:extensions:canvas3d` ($\rightarrow$ `gpu`) | Pure KMP 2D rigid-body & particle physics engine (`Box2DWorld`, `Box2DBody`, `Box2DCollider`, `Box2DJoint`, `Box2DCanvas`). |
 | **`:extensions:box3d`** | **Single KMP Project** | `:extensions:canvas3d`, `:extensions:threejs` ($\rightarrow$ `gpu`) | Pure KMP 3D rigid-body physics engine (`Box3DWorld`, `Box3DBody`, `Box3DCollider`, `Box3DConstraint`, `Box3DThreeJsBridge`). |
+| **`:extensions:dsl`** | **Single KMP Project** (+ 9 `:extensions:<name>:dsl` submodules) | `:common` | Declarative Kotlin UI & styling DSL (`ui { ... }`, `style { ... }`, `titleBar { ... }`) plus extension DSLs (`canvas2d`, `canvas3d`, `media`, `webview`, `codeeditor`, `aichat`, `threejs`, `box2d`, `box3d`). |
 
 ---
 
-## Quick Start: Custom Gradle Plugin (`com.nexustools.genericui`)
+## Quick Start: Single-`commonMain` Project (`com.nexustools.genericui`)
 
-Apply `id("com.nexustools.genericui")` in `build.gradle.kts`. When you enable an extension in `extensions { ... }`, the plugin automatically resolves its transitive extension dependencies and wires either its **Project-of-Projects** platform submodules (`:common`, `:desktop`, `:mobile`, `:swing`, `:web`) or its **Single Multiplatform Project**:
+Apply `id("com.nexustools.genericui")` in `build.gradle.kts`. No manual entry-point configuration or platform launcher files are needed—the plugin discovers `@MainAppFragment` and `@AppFragment` classes automatically and generates all platform launchers and `Resource` tables:
 
 ```kotlin
 plugins {
@@ -92,6 +99,28 @@ plugins {
 }
 
 genericui {
+    app {
+        id = "com.example.studio"
+        name = "GenericUI Studio"
+        version = "1.0.0"
+        icon = "drawable/ic_studio_logo.svg"
+    }
+
+    window {
+        title = "GenericUI Studio"
+        width = 1440
+        height = 900
+        minWidth = 960
+        minHeight = 600
+        resizable = true
+    }
+
+    theme {
+        primaryColor = "#2A80FF"
+        backgroundColor = "#121519"
+        darkMode = true
+    }
+
     backends {
         windows()
         macos()
@@ -100,85 +129,131 @@ genericui {
         swing {
             useLwjglGL = true
             useVulkan = true
-            lwjglVersion = "3.3.6"
-            targetAllDesktopClassifiers()
         }
-        android()
+        android {
+            minSdk = 26
+            targetSdk = 35
+        }
         ios()
         web() // Compiles both wasmJs (default) and js(IR) (fallback) with genericui-loader.js
     }
 
-    application {
-        appName = "My GenericUI App"
-        // Cross-backend theme color applied across Web (<meta name="theme-color">, manifest.webmanifest,
-        // --genericui-theme-color), Android (colors.xml theme_color / colorPrimary), iOS/macOS
-        // (AccentColor.colorset), Windows (.rc ThemeColor), and Linux (.desktop X-GenericUI-ThemeColor):
-        themeColor = "#2A80FF"
-
-        // SVG icons (.svg) are preferred for the Web icon (used for the 64x64 splash screen,
-        // index.html favicon, and manifest.webmanifest):
-        webIcon("icon.svg")
-        icons(
-            windows = "icon.ico",
-            mac = "icon.icns",
-            linux = "icon.png",
-            web = "icon.svg",
-            common = "icon.png"
-        )
-
-        // Optional: Generate W3C / MDN manifest.webmanifest and inject HTML <head> tags
-        // allowing the app to be installed as a standalone WebApp on Android via Chrome (WebAPK):
-        webManifest {
-            allowInstallAsWebApp = true
-            shortName = "MyApp"
-            display = "standalone"
-            orientation = "any"
-            backgroundColor = "#121519"
-            categories("productivity", "utilities")
+    // Optional hierarchical variant overrides (common -> systemCommon -> desktopCommon -> nativeDesktopCommon -> linuxCommon, mobileCommon, or per-backend):
+    desktopCommon {
+        window {
+            width = 1600
+            height = 960
         }
     }
 
-    graphics {
-        bundleAngleOnWindows = true          // Google ANGLE (libEGL.dll, libGLESv2.dll, d3dcompiler_47.dll) -> D3D11
-        angleBackendRenderer = "d3d11"
-        bundleMoltenVkOnApple = true         // Khronos MoltenVK (Vulkan 1.2 -> Apple Metal)
-        bundleShaderc = true                 // Runtime GLSL -> SPIR-V shader compiler
-        preferOpenGLES31 = true
-        bundleVlcOnDesktop = true            // :extensions:media:desktop VLC engine on :windows, :macos, :gtk, :qt
-        vlcPrimaryShaderBackend = "vulkan"   // Primary VLC HDR & YUV shader pipeline (#version 450 SPIR-V)
-        vlcFallbackShaderBackend = "opengles" // Automatic fallback (#version 300 es, via ANGLE on Windows)
-        enableVlcHdrToneMapping = true       // HDR10 PQ / HLG / Dolby Vision tone-mapping
-        enableVlcHardwareDecode = true       // D3D11VA, DXVA2, NVDEC, VAAPI, VDPAU, VideoToolbox + SW fallback
-    }
-
     extensions {
-        gpu()              // :extensions:gpu (:common, :desktop, :mobile, :swing, :web)
+        gpu()              // :extensions:gpu
         imageProcessing()  // :extensions:imageprocessing (transitively enables gpu)
-        canvas2d()         // :extensions:canvas2d (:common, :desktop, :mobile, :swing, :web)
+        overlay()          // :extensions:overlay (transitively enables gpu)
+        canvas2d()         // :extensions:canvas2d
         canvas3d()         // :extensions:canvas3d (transitively enables gpu)
         media()            // :extensions:media (transitively enables gpu)
-        webView()          // :extensions:webview (:common, :desktop, :mobile, :swing, :web; Chromium + NJS JIT on Desktop)
+        mediaControls()    // :extensions:mediacontrols (transitively enables media + overlay -> gpu)
+        webView()          // :extensions:webview (Chromium + NJS JIT on Desktop; native on Mobile/Web)
+        alien()            // :extensions:alien
         codeEditor()       // :extensions:codeeditor (transitively enables canvas2d)
         aiChat()           // :extensions:aichat (transitively enables codeEditor -> canvas2d)
         threeJs()          // :extensions:threejs (transitively enables gpu + canvas3d)
         box2d()            // :extensions:box2d (transitively enables canvas2d + canvas3d -> gpu)
         box3d()            // :extensions:box3d (transitively enables canvas3d + threeJs -> gpu)
+        dsl()              // :extensions:dsl + enabled extension :dsl submodules
     }
 
-    styles {
-        compileSass = true
-        sourceDir = "src/commonMain/resources/styles"
-        minify = false
-        includeBootstrapVariables = true
+    resources {
+        generateResourceClass = true
+        embedInWindowsExe = true // Compiles Resource.ResourceID entries into a Win32 .rc/.res linked into the .exe
     }
 }
 ```
 
 ---
 
-## Code Examples
+## Code Examples (`src/commonMain/kotlin`)
 
-### 1. Base `:common` Image API (`ImageLoader`, `ImageBuffer`) & Offscreen GPU `:extensions:imageprocessing`
+### 1. `@MainAppFragment`, `@AppFragment`, `FragmentBundle` CLI Args, `FragmentHostFragment`, & `Resource.ResourceID`
+
+```kotlin
+package com.example.studio
+
+import com.nexustools.genericui.core.Component
+import com.nexustools.genericui.core.fragment.AppFragment
+import com.nexustools.genericui.core.fragment.Fragment
+import com.nexustools.genericui.core.fragment.FragmentBundle
+import com.nexustools.genericui.core.fragment.FragmentHostFragment
+import com.nexustools.genericui.core.fragment.FragmentNavigationChromeConfig
+import com.nexustools.genericui.core.fragment.FragmentTransitionSpec
+import com.nexustools.genericui.core.fragment.MainAppFragment
+import com.nexustools.genericui.widget.action.ActionItem
+import com.nexustools.genericui.widget.action.TitleBar
+import com.nexustools.genericui.widget.basic.Button
+import com.nexustools.genericui.widget.basic.Image
+import com.nexustools.genericui.widget.basic.Label
+import com.nexustools.genericui.widget.layout.VBox
+
+@MainAppFragment
+class StudioRootFragment : FragmentHostFragment(
+    initialFragmentFactory = { ProjectDashboardFragment() },
+    defaultTransition = FragmentTransitionSpec.FadeExpandShrink(durationMs = 240),
+    navigationChromeConfig = FragmentNavigationChromeConfig(
+        showBackButton = true,
+        showForwardButton = true,
+        syncWithWebHistory = true // Syncs URL #hash and window.history.state on :web
+    )
+) {
+    override fun onCreate(savedInstanceState: FragmentBundle?) {
+        super.onCreate(savedInstanceState)
+
+        // Read command-line arguments on system targets (Windows, MacOS, Gtk, Qt, Swing, Android, IOS):
+        if (savedInstanceState?.hasCommandLineArgs() == true) {
+            val cliArgs = savedInstanceState.getCommandLineArgs()
+            println("Launched on ${app?.backendTarget} with CLI args: $cliArgs")
+        }
+
+        window?.titleBar = TitleBar(
+            title = resources.getString(Resource.string.app_title),
+            actions = listOf(
+                ActionItem(id = "nav.settings", label = "Settings") {
+                    fragmentHost.push(SettingsFragment(), route = "settings")
+                }
+            )
+        )
+    }
+}
+
+@AppFragment(route = "dashboard")
+class ProjectDashboardFragment : Fragment() {
+    override fun onCreateView(): Component = VBox(spacing = 12).apply {
+        addChild(Image(Resource.drawable.ic_studio_logo))
+        addChild(Label(resources.getString(Resource.string.welcome_heading)))
+        addChild(
+            Button("Open Settings").apply {
+                setOnClickListener {
+                    launchFragment(SettingsFragment::class, FragmentBundle().apply {
+                        putString("section", "appearance")
+                    })
+                }
+            }
+        )
+    }
+}
+
+@AppFragment(route = "settings")
+class SettingsFragment : Fragment() {
+    override fun onCreateView(): Component = VBox(spacing = 8).apply {
+        val section = arguments.getString("section", "general")
+        addChild(Label("Settings — Section: $section"))
+    }
+}
+```
+
+---
+
+### 2. Base `:common` Image API (`ImageLoader`, `ImageBuffer`) & Offscreen GPU `:extensions:imageprocessing`
 
 Base `:common` provides a full Image API (`com.nexustools.genericui.image.*`) for loading, decoding, inspecting, and encoding still and animated images (`PNG`, `JPEG`, `WEBP`, `GIF`, `APNG`, `BMP`, `ICO`, `TIFF`, `SVG`). Pair it with `:extensions:imageprocessing` (`com.nexustools.genericui.ext.imageprocessing.*`, powered by `:extensions:gpu`) to run offscreen GPU compute/fragment filter chains in memory:
 
@@ -194,7 +269,7 @@ import com.nexustools.genericui.ext.imageprocessing.GpuImageProcessor
 
 // 1. Decode an image into an in-memory ImageBuffer using the base :common Image API
 val sourceBuffer = ImageLoader.decode(
-    source = ImageSource.fromFile("/path/to/photo.webp"),
+    source = ImageSource.fromBytes(resources.readBytes(Resource.raw.sample_photo)),
     options = ImageDecodeOptions(targetPixelFormat = PixelFormat.RGBA_8888, premultiplyAlpha = true)
 )
 
@@ -211,20 +286,22 @@ val encodedPngBytes = ImageLoader.encode(outputBuffer, ImageFormat.PNG)
 
 ---
 
-### 2. Helper Fragments for **Episode Caster** (`AdaptiveSplitTabFragment`) & **HAEditor** (`DockWorkspaceFragment`)
+### 3. Helper Fragments (`AdaptiveSplitTabFragment` & `DockWorkspaceFragment`)
 
 ```kotlin
 import com.nexustools.genericui.core.fragment.AdaptiveSplitTabFragment
 import com.nexustools.genericui.core.fragment.DockWorkspaceFragment
+import com.nexustools.genericui.core.fragment.MainAppFragment
 import com.nexustools.genericui.docking.DockPosition
 import com.nexustools.genericui.docking.WorkspaceWindowMode
 import com.nexustools.genericui.widget.action.ActionItem
 import com.nexustools.genericui.widget.action.TitleBar
 
-// Episode Caster: Multi-column split on tablet/desktop, fullscreen player in phone landscape, tabs in portrait
-class EpisodeCasterMainFragment : AdaptiveSplitTabFragment() {
+// Multi-column split on tablet/desktop, fullscreen player in phone landscape, tabs in portrait
+@MainAppFragment
+class MediaSuiteMainFragment : AdaptiveSplitTabFragment() {
     override fun onConfigureAdaptiveLayout() {
-        setNavBar(TitleBar(title = "Episode Caster", subtitle = "Streaming & Local Media"))
+        setNavBar(TitleBar(title = "Media Suite", subtitle = "Streaming & Local Media"))
         setPrimaryMediaFragment(PlayerViewportFragment())
         addSecondarySlot(id = "shows", title = "Shows & Podcasts", fragment = ShowBrowserFragment())
         addSecondarySlot(id = "queue", title = "Up Next Queue", fragment = PlaybackQueueFragment())
@@ -232,12 +309,13 @@ class EpisodeCasterMainFragment : AdaptiveSplitTabFragment() {
     }
 }
 
-// HAEditor: Live runtime switching between GIMP Single-Window Mode and GIMP Multi-Window Mode
-class HaEditorWorkspaceFragment : DockWorkspaceFragment() {
+// Live runtime switching between GIMP Single-Window Mode and GIMP Multi-Window Mode
+@MainAppFragment
+class StudioDockWorkspaceFragment : DockWorkspaceFragment() {
     override fun onConfigureWorkspace() {
         setNavBar(
             TitleBar(
-                title = "HAEditor — Hybrid Vector & Raster Studio",
+                title = "Hybrid Vector & Raster Studio",
                 actions = listOf(
                     ActionItem(id = "workspace.toggleMode", label = "Toggle Single/Multi Window") {
                         setWorkspaceWindowMode(
@@ -258,9 +336,7 @@ class HaEditorWorkspaceFragment : DockWorkspaceFragment() {
 
 ---
 
-### 3. `:extensions:canvas2d` (`Canvas2D`) & `:extensions:canvas3d` (`GLCanvas`, `VKCanvas`) with `registerVBlankRender(deltaMs)`
-
-`AbstractCanvas` in `:common` provides display-synchronized VBlank scheduling (`registerVBlankRender { deltaMs -> ... }`), while `:extensions:canvas2d` and `:extensions:canvas3d` (backed by `:extensions:gpu`) provide the dedicated 2D and 3D rendering surfaces:
+### 4. `:extensions:canvas2d` (`Canvas2D`) & `:extensions:canvas3d` (`GLCanvas`, `VKCanvas`) with `registerVBlankRender(deltaMs)`
 
 ```kotlin
 import com.nexustools.genericui.ext.canvas2d.Canvas2D
@@ -293,14 +369,14 @@ val vkCanvas = VKCanvas(width = 1280, height = 720, enableValidation = true).app
 
 ---
 
-### 4. `:extensions:media` — `VideoPlayer`, Uniform Codec Reporting, Native `libvlc` (`:desktop:shared`), & `libvlcj` (`:desktop:swing`)
-
-`:extensions:media` provides `VideoPlayer`, `AudioPlayer`, `AudioAnalyzer`, and `WebVttSrtParser`. On native desktop (`:windows`, `:macos`, `:gtk`, `:qt`), `:extensions:media:desktop:{windows,macos,gtk,qt}` call into `:extensions:media:desktop:shared`'s native **`libvlc` bindings (`LibVlcBindings`, `DesktopLibVlcVideoPlayerImpl`)**, while on Java/Swing `:extensions:media:desktop:swing` uses **`libvlcj` (`uk.co.caprica:vlcj`)**:
+### 5. `:extensions:media` & `:extensions:mediacontrols` — `VideoPlayer`, `MediaControlBar`, & Translucent `:extensions:overlay`
 
 ```kotlin
 import com.nexustools.genericui.ext.media.VideoCodec
 import com.nexustools.genericui.ext.media.VideoContainerFormat
 import com.nexustools.genericui.ext.media.VideoPlayer
+import com.nexustools.genericui.ext.mediacontrols.MediaControlBar
+import com.nexustools.genericui.ext.overlay.OverlayView
 
 val player = VideoPlayer().apply {
     val capabilities = getSupportedCodecs()
@@ -311,14 +387,13 @@ val player = VideoPlayer().apply {
     setSubtitleTrackUrl("https://cdn.example.com/episodes/ep01.en.vtt")
     play()
 }
+
+// Translucent auto-hiding transport controls composited over the hardware video surface via :extensions:overlay
+val playerWithOverlayControls = OverlayView(
+    baseContent = player,
+    overlayContent = MediaControlBar(player = player, autoHideDelayMs = 3000L)
+)
 ```
-
----
-
-### 5. True Lazy Views (`LazyList`, `LazyColumn`, `LazyRow`, `LazyGrid`, `TreeView`) & Native `FileBrowserDialog`
-
-- **True Lazy Views**: Dynamically load/bind items (`onBind`) only within `[firstActiveIndex .. lastActiveIndex]` and unload/recycle (`onUnbind` $\rightarrow$ `ViewHolderPool`) items as they scroll out of view on all 8 platforms.
-- **`FileBrowserDialog`**: Supports `OPEN_SINGLE_FILE`, `OPEN_MULTIPLE_FILES`, `SAVE_FILE`, and `SELECT_FOLDER` with `FileTypeFilter` and `FileBrowserCallback` (`onFilesSelected` / `onCancelled`)—using native OS pickers on desktop/iOS, an invisible un-interactable `<input type="file">` (`webkitdirectory`, `accept`) on `:web`, and Android Storage Access Framework (`ACTION_OPEN_DOCUMENT`, `ACTION_CREATE_DOCUMENT`, `ACTION_OPEN_DOCUMENT_TREE`) on `:android`.
 
 ---
 
@@ -326,56 +401,54 @@ val player = VideoPlayer().apply {
 
 All documentation across `GenericUI` and its submodules is organized by category and cross-referenced. Start with the [**Master Documentation Index (`docs/README.md`)**](./docs/README.md) or browse by category below:
 
-### Category 1 — Core Architecture, Hierarchical SourceSets, & UI Components
+### Category 1 — Core Architecture, Fragments, Application, Resources, SourceSets, & UI Components
 - [**Master Documentation Index (`docs/README.md`)**](./docs/README.md) — Central navigation hub for all guides across the framework and its submodules.
-- [**Core Architecture (`docs/architecture.md`)**](./docs/architecture.md) — Deferred Upward `NativeImpl` Resolution, Native-First widgets, `TitleBar` instruction descriptors, 1-Class-Per-File standard, and symmetrical 17-subpackage structure.
-- [**Hierarchical SourceSet Setup (`docs/sourcesets.md`)**](./docs/sourcesets.md) — Full guide to the multi-tier KMP sourceSet tree:
-  - `common` (`common` / `commonMain` / `commonTest`)
-    - `web` (`web` / `webMain` / `webTest` $\to$ `wasmJsMain`, `jsMain`)
-    - `systemCommon` (`systemCommon` / `systemMain` / `systemTest`)
-      - `desktopCommon` (`desktopCommon` / `desktopMain` / `desktopTest`)
-        - `swing` (`swing` / `swingMain` / `swingTest` $\to$ `jvmMain`)
-        - `desktopNativeCommon` (`desktopNativeCommon` / `desktopNativeMain` / `desktopNativeTest`, alias `nativeDesktopCommon`)
-          - `windows` (`windows` / `windowsMain` / `windowsTest`)
-          - `mac` (`mac` / `macMain` / `macosMain` / `macTest` / `macosTest`)
-          - `linuxCommon` (`linuxCommon` / `linuxMain` / `linuxTest`) $\to$ `gtk` (`gtk` / `gtkMain` / `gtkTest`) & `qt` (`qt` / `qtMain` / `qtTest`)
-      - `mobileCommon` (`mobileCommon` / `mobileMain` / `mobileTest`) $\to$ `android` (`android` / `androidMain` / `androidTest`) & `ios` (`ios` / `iosMain` / `iosTest`)
-- [**Components, Fragments, Docking, & Styling (`docs/components-and-docking.md`)**](./docs/components-and-docking.md) — Widgets, `FragmentApplication`, 1:1 Android `Activity`-compatible `Fragment`s, `DockWorkspaceFragment`, `OverlayDockWorkspaceFragment`, `AdaptiveSplitTabFragment`, Dual-Mode Bootstrap Enums + SASS/CSS, and `LinearGradient` / `RadialGradient` background styling.
-- [**Utilities, Binary Codecs (`BinaryJson` `.bson` & `BinaryPlist` `.plist`), & `PreferenceStore` (`docs/utils.md`)**](./docs/utils.md) — Complete reference for `BinaryJson` (`.bson`), `BinaryPlist` (`bplist00` `.plist`), cross-platform `PreferenceStore` & `PreferenceObjectCodec`, geometry, color, SASS/CSS, lazy diffing, image, and platform-shared utilities.
-- [**Media & Hardware Canvases (`docs/media-and-canvases.md`)**](./docs/media-and-canvases.md) — Base `:common` Image API, `AbstractCanvas` (`registerVBlankRender` with `deltaMs`), Google ANGLE on Windows, MoltenVK on Apple, and `:extensions:media` VLC HDR playback.
+- [**Core Architecture (`docs/architecture.md`)**](./docs/architecture.md) — Multi-tier module hierarchy (`:common`, `:systemCommon`, `:desktop:common`, `:desktop:nativeCommon`, `:desktop:linuxCommon`, `:mobile:common`, `:web`), Deferred Upward `NativeImpl` Resolution, `TitleCapabilities` single-placement rules, and 1-Class-Per-File standard.
+- [**Fragments & Windows (`docs/fragments-and-windows.md`)**](./docs/fragments-and-windows.md) — `@MainAppFragment`, `@AppFragment`, `AppTarget` specificity resolution (`5 -> 0`), `FragmentBundle` CLI args on system targets, `IFragment`, `launchFragment(FragmentClass, LaunchArgs)` & `FragmentLaunchMode`, 1:1 Android `AppCompatActivity` generation, `IWindow` & `TitleCapabilities`, `FragmentHostFragment`, `FragmentHostSystem`, `FadeExpandShrink`, and Web `#hash` + `window.history.state`.
+- [**Application & `BackendTarget` (`docs/application.md`)**](./docs/application.md) — Zero-boilerplate `@MainAppFragment` bootstrapping, optional `@AppApplication`, `BackendTarget` enum & multi-target group checks (`isSystem`, `isDesktop`, `isNativeDesktop`, `isLinux`, `isMobile`, `isApple`, `isUnix`, `isPosix`, `isNative`, `isJvm`, `isTouchPrimary`, `isBrowser`), and `IApplication` capabilities.
+- [**Resource System (`docs/resources.md`)**](./docs/resources.md) — Android-style `Resource` (`Resource.drawable.*`, `Resource.string.*`, `Resource.raw.*`) & `Resource.ResourceID` generation across shared/library modules and translation across all 8 backends (`WebResourceResolverImpl` URLs, `WindowsResourceResolverImpl` embedded `.exe` Win32 `.rc`/`.res`, Android `R.*`, Apple `NSBundle`, GTK `GResource`, Qt `QResource`, Swing JAR classpath).
+- [**Hierarchical SourceSet Setup (`docs/sourcesets.md`)**](./docs/sourcesets.md) — Single-`commonMain` default + optional multi-tier KMP sourceSet tree (`commonMain` $\to$ `webMain` & `systemMain` $\to$ `desktopMain` (`swingMain`, `nativeDesktopMain` $\to$ `windowsMain`, `macosMain`, `linuxMain` $\to$ `gtkMain`, `qtMain`) & `mobileMain` (`androidMain`, `iosMain`)).
+- [**Components, Helper Fragments, Docking, & Styling (`docs/components-and-docking.md`)**](./docs/components-and-docking.md) — 75+ widgets, `FragmentHostFragment`, `DockWorkspaceFragment`, `AdaptiveSplitTabFragment`, `FileBrowserDialog`, true lazy views, Dual-Mode Bootstrap Enums + SASS/CSS, and `LinearGradient` / `RadialGradient` background styling.
+- [**Utilities, Binary Codecs (`BinaryJson` `.bson` & `BinaryPlist` `.plist`), & `PreferenceStore` (`docs/utils.md`)**](./docs/utils.md) — Complete reference for `BinaryJson` (`.bson`), `BinaryPlist` (`bplist00` `.plist`), cross-platform `PreferenceStore` & `PreferenceObjectCodec`, `UserDirectory` / `ConfigDirectory` / `CacheDirectory`, `UiTimer`, `ResourceID` / `ResourceResolver`, geometry, color, SASS/CSS, and lazy diffing.
+- [**Media & Hardware Canvases (`docs/media-and-canvases.md`)**](./docs/media-and-canvases.md) — Base `:common` Image API, `AbstractCanvas` (`registerVBlankRender` with `deltaMs`), `:extensions:gpu` (Google ANGLE on Windows, MoltenVK on Apple), `:extensions:imageprocessing`, `:extensions:overlay`, `:extensions:canvas2d`, `:extensions:canvas3d`, `:extensions:media`, and `:extensions:mediacontrols`.
 - [**Agent & Developer Guidelines (`AGENTS.md`)**](./AGENTS.md) — Authoritative engineering rules and invariants.
 
 ### Category 2 — Build System, Gradle Plugin, & IDE Tooling
-- [**Gradle Plugin Guide (`docs/gradle-plugin.md`)**](./docs/gradle-plugin.md) — Full `genericui { ... }` DSL reference (`backends`, `application` & `.svg` `webIcon`, `graphics`, `extensions`, `styles`, `resources`, `sourceSets`, `packageGenericUiWebDistribution`, and lifecycle `*Development` / `*Production` tasks).
-- [**IntelliJ IDEA Plugin Guide (`docs/idea-plugin.md`)**](./docs/idea-plugin.md) — New Project Wizard and live `Manage GenericUI Targets & Extensions` checkbox dialog (`:idea-plugin`).
+- [**Gradle Plugin Guide (`docs/gradle-plugin.md`)**](./docs/gradle-plugin.md) — Full `genericui { ... }` DSL reference (`app`, `window`, `theme`, `backends`, `extensions`, hierarchical variant scopes, `android { manifest { ... }; services { ... } }`, `resources`, `sourceSets`, and registered tasks).
+- [**IntelliJ IDEA Plugin Guide (`docs/idea-plugin.md`)**](./docs/idea-plugin.md) — New Project Wizard for single-`commonMain` `@MainAppFragment` projects and live `Manage GenericUI Targets & Extensions` checkbox dialog (`:idea-plugin`).
 
-### Category 3 — Platform Backends (8 Backends Across 3 Submodules)
-- [**Platform Backends Overview (`docs/backends.md`)**](./docs/backends.md) — Feature comparison and build task reference across all 8 backends.
+### Category 3 — Platform Backends (8 Backends Across Common Foundation & 3 Submodules)
+- [**Platform Backends Overview (`docs/backends.md`)**](./docs/backends.md) — Feature comparison, module hierarchy, and build task reference across all 8 backends.
 - [**Desktop Submodule (`desktop/README.md`)**](./desktop/README.md) *(Contains zero VLC/media code; all VLC/media code is strictly in `:extensions:media`)*:
-  - [`:desktop:shared` — Shared Native Desktop Core (`desktop/docs/shared.md`)](./desktop/docs/shared.md)
+  - [`:desktop:common` — Pure-Kotlin Desktop Foundation (`desktop/docs/common.md`)](./desktop/docs/common.md)
+  - [`:desktop:nativeCommon` — Native C/C++/ObjC Desktop Foundation (`desktop/docs/nativeCommon.md`)](./desktop/docs/nativeCommon.md)
+  - [`:desktop:linuxCommon` — Linux XDG Desktop Foundation (`desktop/docs/linuxCommon.md`)](./desktop/docs/linuxCommon.md)
   - [`:desktop:windows` — Windows Win32 / Direct2D / Google ANGLE / Vulkan (`desktop/docs/windows.md`)](./desktop/docs/windows.md)
   - [`:desktop:macos` — macOS AppKit / CoreGraphics / MoltenVK (`desktop/docs/macos.md`)](./desktop/docs/macos.md)
   - [`:desktop:gtk` — Linux GTK4 / Cairo / EGL / Vulkan (`desktop/docs/gtk.md`)](./desktop/docs/gtk.md)
   - [`:desktop:qt` — Linux Qt6 / QPainter / QVulkanWindow (`desktop/docs/qt.md`)](./desktop/docs/qt.md)
   - [`:desktop:swing` — JVM Swing / Java2D / Optional LWJGL OpenGL ES & Vulkan (`desktop/docs/swing.md`)](./desktop/docs/swing.md)
 - [**Mobile Submodule (`mobile/README.md`)**](./mobile/README.md):
-  - [`:mobile:shared` — Shared Mobile Layout, Gestures, PiP, & Lazy Pool (`mobile/docs/shared.md`)](./mobile/docs/shared.md)
-  - [`:mobile:android` — Android Material 3 / RecyclerView / SAF / Vulkan (`mobile/docs/android.md`)](./mobile/docs/android.md)
+  - [`:mobile:common` — Mobile Layout, Gestures, PiP, & Lazy Pool (`mobile/docs/common.md`)](./mobile/docs/common.md)
+  - [`:mobile:android` — Android 1:1 `AppCompatActivity` Generation / Material 3 / RecyclerView / SAF / Vulkan (`mobile/docs/android.md`)](./mobile/docs/android.md)
   - [`:mobile:ios` — iOS UIKit / CADisplayLink / UIDocumentPicker / MoltenVK (`mobile/docs/ios.md`)](./mobile/docs/ios.md)
 - [**Web Submodule (`web/README.md`)**](./web/README.md):
   - [`:web` — HTML5 DOM / Canvas2D / WebGL2 / WebGPU Backend (`web/docs/web-backend.md`)](./web/docs/web-backend.md)
   - [`:web` — Wasm-Default + JS IR Fallback Loader, Bootstrap Splash Screen, SHA-1 Hashing, & `.svg` Web Icon (`web/docs/wasm-js-loader-and-splash.md`)](./web/docs/wasm-js-loader-and-splash.md)
 
-### Category 4 — First-Party Extensions (12 Extensions + 9 `:dsl` Submodules)
+### Category 4 — First-Party Extensions (15 Extensions + 9 `:dsl` Submodules)
 - [**Extensions Overview (`docs/extensions.md`)**](./docs/extensions.md) | [**Extensions Submodule Index (`extensions/README.md`)**](./extensions/README.md)
-- **GPU Compute, Image Processing, & Canvases**:
+- **GPU Compute, Image Processing, Compositing Overlay, & Canvases**:
   - [`:extensions:gpu` — Cross-Platform Vulkan & OpenGL ES GPU Compute (`extensions/docs/gpu.md`)](./extensions/docs/gpu.md)
   - [`:extensions:imageprocessing` — Offscreen GPU Filters & Layer Compositor (`extensions/docs/imageprocessing.md`)](./extensions/docs/imageprocessing.md)
+  - [`:extensions:overlay` — Cross-Platform Translucent GPU/Native Compositing Overlay (`extensions/docs/overlay.md`)](./extensions/docs/overlay.md)
   - [`:extensions:canvas2d` & `:extensions:canvas2d:dsl` — Extended 2D Canvas & Curve Editor (`extensions/docs/canvas2d.md`)](./extensions/docs/canvas2d.md)
   - [`:extensions:canvas3d` & `:extensions:canvas3d:dsl` — Extended OpenGL ES & Vulkan Canvases (`extensions/docs/canvas3d.md`)](./extensions/docs/canvas3d.md)
-- **Multimedia & Embedded Web Engines**:
+- **Multimedia, Media Controls, Embedded Web Engines, & Alien Views**:
   - [`:extensions:media` & `:extensions:media:dsl` — VideoPlayer, AudioPlayer, AudioAnalyzer, & Desktop VLC HDR Engine (`extensions/docs/media.md`)](./extensions/docs/media.md)
+  - [`:extensions:mediacontrols` — Reusable Transport Bar, Seek Scrubber, & Auto-Hiding OSD (`extensions/docs/mediacontrols.md`)](./extensions/docs/mediacontrols.md)
   - [`:extensions:webview` & `:extensions:webview:dsl` — Embedded WebView & `:NJS` Bridge (`extensions/docs/webview.md`)](./extensions/docs/webview.md)
+  - [`:extensions:alien` — Escape-Hatch Raw Platform Widget Wrapper (`extensions/docs/alien.md`)](./extensions/docs/alien.md)
   - [**`:NJS` — Nexus JavaScript & TypeScript Engine (`lib/NJS/README.md`)**](./lib/NJS/README.md) | [**NJS Master Docs Index (`lib/NJS/docs/README.md`)**](./lib/NJS/docs/README.md):
     - [NJS Core Architecture (`lib/NJS/docs/architecture.md`)](./lib/NJS/docs/architecture.md)
     - [`:NJS:common` — Lexer, Parser, ES2024+/TS AST, & Bytecode IR (`lib/NJS/docs/common.md`)](./lib/NJS/docs/common.md)

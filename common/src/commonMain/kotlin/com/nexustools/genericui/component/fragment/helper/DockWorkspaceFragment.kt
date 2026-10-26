@@ -12,6 +12,7 @@ import com.nexustools.genericui.enums.dock.DockPosition
 import com.nexustools.genericui.enums.dock.StudioWindowMode
 import com.nexustools.genericui.geometry.Rect
 import com.nexustools.genericui.window.TitleBar
+import com.nexustools.genericui.window.WindowConfiguration
 
 /**
  * Helper [Fragment] that implements GIMP / Photoshop's **Single-Window Mode**, **Multi-Window Mode**,
@@ -53,6 +54,36 @@ open class DockWorkspaceFragment(
         set(value) {
             dockWorkspace.overlayMode = value
         }
+
+    var mobileDrawerPolicy: DockMobileDrawerPolicy
+        get() = dockWorkspace.mobileDrawerPolicy
+        set(value) {
+            dockWorkspace.mobileDrawerPolicy = value
+        }
+
+    var compactDrawerBreakpointDp: Int
+        get() = dockWorkspace.compactDrawerBreakpointDp
+        set(value) {
+            dockWorkspace.compactDrawerBreakpointDp = value
+        }
+
+    val isCompactDrawerMode: Boolean
+        get() = dockWorkspace.isCompactDrawerMode
+
+    val activeMobileDrawerPosition: DockPosition?
+        get() = dockWorkspace.activeMobileDrawerPosition
+
+    val activeMobileDrawerOpenFraction: Float
+        get() = dockWorkspace.activeMobileDrawerOpenFraction
+
+    fun openMobileDockDrawer(position: DockPosition): Boolean =
+        dockWorkspace.openMobileDockDrawer(position)
+
+    fun closeMobileDockDrawer(): Boolean =
+        dockWorkspace.closeMobileDockDrawer()
+
+    fun toggleMobileDockDrawer(position: DockPosition): Boolean =
+        dockWorkspace.toggleMobileDockDrawer(position)
 
     init {
         if (initialBackgroundComponent != null) {
@@ -119,6 +150,24 @@ open class DockWorkspaceFragment(
     override fun onResume() {
         super.onResume()
         syncAttachedPanelWindowsToMainWindow()
+    }
+
+    override fun onResize(viewportWidth: Int, viewportHeight: Int) {
+        super.onResize(viewportWidth, viewportHeight)
+        dockWorkspace.updateViewportMetrics(viewportWidth, viewportHeight)
+    }
+
+    override fun onConfigurationChanged(newConfig: WindowConfiguration) {
+        super.onConfigurationChanged(newConfig)
+        dockWorkspace.applyWindowConfiguration(newConfig)
+    }
+
+    override fun onBackPressed(): Boolean {
+        if (dockWorkspace.isCompactDrawerMode && dockWorkspace.activeMobileDrawerPosition != null) {
+            dockWorkspace.closeMobileDockDrawer()
+            return true
+        }
+        return super.onBackPressed()
     }
 
     fun syncAttachedPanelWindowsToMainWindow() {
@@ -270,6 +319,7 @@ open class DockWorkspaceFragment(
         _detachedPanelWindows.add(panelWin)
         resolveActiveFactory()?.let { panelWin.show(it) }
         mainWin?.bringAttachedPanelWindowsToFront()
+        dockWorkspace.syncCompactDrawerLayout()
         return panelWin
     }
 
@@ -289,6 +339,7 @@ open class DockWorkspaceFragment(
                 }
             }
         }
+        dockWorkspace.syncCompactDrawerLayout()
     }
 
     fun reattachDockWindow(panelWindow: PanelWindow, position: DockPosition = DockPosition.RIGHT) =

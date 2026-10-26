@@ -91,11 +91,19 @@ class GenericUiBuildFileInspector(
         projectName: String = "GenericUiApp",
         projectRootPath: String = "."
     ): GenericUiProjectConfig {
+        val appMetadataBlock = extractBlockContent(buildGradleKtsContent, "app")
+        val appId = appMetadataBlock?.let {
+            Regex("""\bid\s*=\s*"([^"]+)"""").find(it)?.groupValues?.get(1)
+        }
+        val appName = appMetadataBlock?.let {
+            Regex("""\bname\s*=\s*"([^"]+)"""").find(it)?.groupValues?.get(1)
+        }
+
         val groupMatch = Regex("""group\s*=\s*"([^"]+)"""").find(buildGradleKtsContent)
-        val packageName = groupMatch?.groupValues?.get(1) ?: "com.example.app"
+        val packageName = appId ?: groupMatch?.groupValues?.get(1) ?: "com.example.app"
 
         val appBlock = extractBlockContent(buildGradleKtsContent, "application")
-        val resolvedProjectName = appBlock?.let {
+        val resolvedProjectName = appName ?: appBlock?.let {
             Regex("""baseName\s*=\s*"([^"]+)"""").find(it)?.groupValues?.get(1)
         } ?: projectName
 

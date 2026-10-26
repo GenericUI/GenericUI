@@ -130,7 +130,7 @@ class CssStyleSheet(
 
     /**
      * Resolves a [ComputedStyle] directly for a GenericUI [component] by walking its [AbstractComponent.parent]
-     * hierarchy to evaluate descendant (`.page .menu.chargen`, `header h1`, `genericui:menubar genericui:menuitem`)
+     * hierarchy to evaluate descendant (`.page .menu.step-wizard`, `header h1`, `genericui:menubar genericui:menuitem`)
      * and child (`>`) combinators.
      */
     fun resolveStyleForComponent(
@@ -247,7 +247,7 @@ class CssStyleSheet(
         }
         if (chainTokens.size == 1) return true
 
-        // Verify ancestor chain for multi-part selectors (e.g. ".page .menu.chargen", "header h1", "ul > li")
+        // Verify ancestor chain for multi-part selectors (e.g. ".page .menu.step-wizard", "header h1", "ul > li")
         val ancestorTokens = chainTokens.dropLast(1)
         if (ancestorTokens.isEmpty()) return true
 

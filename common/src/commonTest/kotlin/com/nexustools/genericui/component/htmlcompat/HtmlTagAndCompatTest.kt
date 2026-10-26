@@ -9,7 +9,6 @@ import com.nexustools.genericui.component.action.SplitDropdownButton
 import com.nexustools.genericui.component.action.ToggleButton
 import com.nexustools.genericui.component.action.Toolbar
 import com.nexustools.genericui.component.content.Avatar
-import com.nexustools.genericui.component.content.CurrencyPurseBar
 import com.nexustools.genericui.component.content.HorizontalCarouselSelector
 import com.nexustools.genericui.component.content.Icon
 import com.nexustools.genericui.component.content.ImageView
@@ -310,7 +309,6 @@ class HtmlTagAndCompatTest {
         assertEquals("genericui:avatar", Avatar().htmlTag)
         assertEquals("genericui:masterdetailstepselect", MasterDetailStepSelect().htmlTag)
         assertEquals("genericui:horizontalcarouselselector", HorizontalCarouselSelector().htmlTag)
-        assertEquals("genericui:currencypursebar", CurrencyPurseBar().htmlTag)
         assertEquals("genericui:alert", Alert().htmlTag)
         assertEquals("genericui:banner", Banner().htmlTag)
         assertEquals("genericui:toast", Toast().htmlTag)

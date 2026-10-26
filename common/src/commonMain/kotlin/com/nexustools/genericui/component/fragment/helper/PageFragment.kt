@@ -5,7 +5,7 @@ import com.nexustools.genericui.component.fragment.FragmentBundle
 import com.nexustools.genericui.window.WindowConfiguration
 
 /**
- * Base page [Fragment] matching `DCGame`'s `PageController` architecture.
+ * Base page [Fragment] for multi-page navigation inside a [PageHostContainer] or [FragmentHostFragment].
  *
  * Provides:
  * - [title] for automatic window title updates (`"$appTitle - $title"`).
@@ -23,6 +23,12 @@ abstract class PageFragment(
 
     var pageArgs: List<Any?> = emptyList()
 
+    override var pageTitle: String
+        get() = super.pageTitle.ifBlank { title }
+        set(value) {
+            super.pageTitle = value
+        }
+
     init {
         addClass("page")
     }
@@ -31,7 +37,7 @@ abstract class PageFragment(
 
     open fun onPageController(args: List<Any?>) {}
 
-    open fun onResize(viewportWidth: Int, viewportHeight: Int) {}
+    override fun onResize(viewportWidth: Int, viewportHeight: Int) {}
 
     open fun onBeginLoadTransition(durationMs: Int) {
         removeClass("destroyed")
@@ -59,8 +65,26 @@ abstract class PageFragment(
         opacity = 0f
     }
 
+    override fun onBeginEnterTransition(durationMs: Int) {
+        onBeginLoadTransition(durationMs)
+    }
+
+    override fun onActivateEnterTransition(durationMs: Int) {
+        onFinishLoadTransition(durationMs)
+    }
+
+    override fun onBeginExitTransition(durationMs: Int) {
+        onBeginUnloadTransition(durationMs)
+    }
+
     override fun onCreate(savedState: FragmentBundle?) {
         super.onCreate(savedState)
+        if (pageArgs.isEmpty() && savedState != null) {
+            val bundleArgs = savedState["pageArgs"] as? List<*>
+            if (bundleArgs != null) {
+                pageArgs = bundleArgs
+            }
+        }
         clearChildren()
         buildPageView(pageArgs)
         onPageController(pageArgs)
@@ -71,6 +95,15 @@ abstract class PageFragment(
         val host = pageHost
         if (host != null) {
             onResize(host.viewportWidthPx, host.viewportHeightPx)
+            return
+        }
+        val sysHost = when (val fh = fragmentHost) {
+            is FragmentHostSystem -> fh
+            is FragmentHostFragment -> fh.hostSystem
+            else -> null
+        }
+        if (sysHost != null) {
+            onResize(sysHost.viewportWidthPx, sysHost.viewportHeightPx)
         }
     }
 
@@ -79,11 +112,28 @@ abstract class PageFragment(
         onResize(newConfig.widthPx, newConfig.heightPx)
     }
 
-    fun navigate(nextPage: PageFragment, vararg args: Any?) {
-        pageHost?.navigateToPage(nextPage, *args)
+    fun setPageArguments(vararg args: Any?) {
+        pageArgs = args.toList()
     }
 
-    fun navigateWithArgsList(nextPage: PageFragment, args: List<Any?>) {
-        pageHost?.navigateToPageWithList(nextPage, args)
+    fun setPageArgumentsWithList(args: List<Any?>) {
+        pageArgs = args
+    }
+
+    open fun navigate(nextPage: PageFragment, vararg args: Any?) {
+        navigateWithArgsList(nextPage, args.toList())
+    }
+
+    open fun navigateWithArgsList(nextPage: PageFragment, args: List<Any?>) {
+        nextPage.pageArgs = args
+        val ph = pageHost
+        if (ph != null) {
+            ph.navigateToPageWithList(nextPage, args)
+            return
+        }
+        val fh = fragmentHost
+        if (fh != null) {
+            fh.pushFragment(nextPage)
+        }
     }
 }

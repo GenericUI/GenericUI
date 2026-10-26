@@ -95,6 +95,28 @@ object ImageCacheManager {
     fun getCacheEntry(url: String): ImageCacheEntry? = cacheEntries[url.trim()]
 
     /**
+     * Stores [decodedBuffer] directly in the in-memory cache under [url].
+     */
+    fun putInCache(
+        url: String,
+        decodedBuffer: ImageBuffer
+    ): ImageCacheEntry {
+        val cleanUrl = url.trim()
+        putMemoryBuffer(cleanUrl, decodedBuffer)
+        val entry = ImageCacheEntry(
+            url = cleanUrl,
+            cacheFileName = cleanUrl,
+            cachedFilePath = cleanUrl,
+            byteSize = decodedBuffer.bytes.size,
+            width = decodedBuffer.width,
+            height = decodedBuffer.height,
+            format = ImageFormat.UNKNOWN
+        )
+        cacheEntries[cleanUrl] = entry
+        return entry
+    }
+
+    /**
      * Stores [encodedBytes] (and optional [decodedBuffer]) in the OS [CacheDirectory] and memory cache under [url].
      */
     fun putInCache(
@@ -192,14 +214,25 @@ object ImageCacheManager {
      */
     fun loadCachedOrFetch(
         url: String,
-        options: ImageDecodeOptions = ImageDecodeOptions()
+        options: ImageDecodeOptions = ImageDecodeOptions(),
+        copyResult: Boolean = false
     ): ImageBuffer? {
         val cleanUrl = url.trim()
         if (cleanUrl.isEmpty()) return null
 
         val hasCustomSize = options.targetWidth != null && options.targetHeight != null
         if (!hasCustomSize) {
-            memoryBufferCache[cleanUrl]?.let { return it.copy() }
+            memoryBufferCache[cleanUrl]?.let { cached ->
+                return if (copyResult) cached.copy() else cached
+            }
+            if (!cleanUrl.startsWith("data:", ignoreCase = true)) {
+                val strippedKey = cleanUrl.substringBefore('?').substringBefore('#').trim()
+                if (strippedKey.isNotEmpty() && strippedKey != cleanUrl) {
+                    memoryBufferCache[strippedKey]?.let { cached ->
+                        return if (copyResult) cached.copy() else cached
+                    }
+                }
+            }
         }
 
         val bytes = fetchAndCacheBytes(cleanUrl) ?: return null
@@ -221,7 +254,7 @@ object ImageCacheManager {
                 format = fmt
             )
         }
-        return decoded
+        return if (copyResult) decoded.copy() else decoded
     }
 
     /**
@@ -267,7 +300,7 @@ object ImageCacheManager {
                 memoryBufferCache.remove(oldestKey)
             }
         }
-        memoryBufferCache[url] = buffer.copy()
+        memoryBufferCache[url] = buffer
     }
 
     private fun resolveDrawableResourceBytes(urlOrName: String): ByteArray? {

@@ -1,7 +1,7 @@
 package com.nexustools.genericui.style.font
 
 /**
- * Runtime embedded font registry used by applications like HAEditor (`FontsDockPanel`)
+ * Runtime embedded font registry used by applications
  * to register embedded `.ttf`, `.otf`, `.woff`, and `.woff2` fonts across all 8 backends.
  */
 object FontRegistry {

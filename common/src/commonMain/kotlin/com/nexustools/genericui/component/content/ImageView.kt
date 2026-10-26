@@ -9,6 +9,8 @@ import com.nexustools.genericui.image.ImageDecodeOptions
 import com.nexustools.genericui.image.ImageLoader
 import com.nexustools.genericui.image.ImageSource
 import com.nexustools.genericui.nativeimpl.content.ImageNativeImpl
+import com.nexustools.genericui.resources.ResourceID
+import com.nexustools.genericui.resources.ResourceResolver
 
 /**
  * Cross-platform image display component integrated with the base GenericUI [ImageLoader] API.
@@ -20,6 +22,25 @@ open class ImageView(
     sourceUrl: String? = null,
     objectFit: ObjectFit = ObjectFit.CONTAIN
 ) : AbstractComponent(htmlTag = "img") {
+
+    var resourceId: ResourceID? = null
+        protected set
+
+    constructor(
+        resId: ResourceID,
+        alt: String = resId.name
+    ) : this(
+        sourceUrl = ResourceResolver.getUrl(resId),
+        objectFit = ObjectFit.CONTAIN
+    ) {
+        this.resourceId = resId
+        this.fallbackText = alt
+    }
+
+    open fun setSource(resId: ResourceID) {
+        this.resourceId = resId
+        this.sourceUrl = ResourceResolver.getUrl(resId)
+    }
     var sourceUrl: String? = sourceUrl
         set(value) {
             field = value

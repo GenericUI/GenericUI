@@ -30,6 +30,14 @@ enum class GenericUiExtensionModule(
         gradleModulePath = ":extensions:imageprocessing",
         isProjectOfProjects = false
     ),
+    OVERLAY(
+        id = "overlay",
+        dslMethodName = "overlay",
+        displayName = "Overlay System (:extensions:overlay)",
+        description = "Hardware-accelerated floating overlay layer, HUDs, tooltips, and modal compositing",
+        gradleModulePath = ":extensions:overlay",
+        isProjectOfProjects = false
+    ),
     CANVAS_2D(
         id = "canvas2d",
         dslMethodName = "canvas2d",
@@ -52,6 +60,14 @@ enum class GenericUiExtensionModule(
         displayName = "Media Player & Audio Analyzer (:extensions:media)",
         description = "VideoPlayer, AudioPlayer, FFT AudioAnalyzer, WebVTT/SRT subtitles, and Desktop VLC HDR engine",
         gradleModulePath = ":extensions:media",
+        isProjectOfProjects = true
+    ),
+    MEDIA_CONTROLS(
+        id = "mediacontrols",
+        dslMethodName = "mediaControls",
+        displayName = "System Media Controls (:extensions:mediacontrols)",
+        description = "OS-level media transport controls, Now Playing metadata, and hardware media key integration",
+        gradleModulePath = ":extensions:mediacontrols",
         isProjectOfProjects = true
     ),
     WEB_VIEW(
@@ -118,15 +134,17 @@ enum class GenericUiExtensionModule(
     fun requiredExtensions(): Set<GenericUiExtensionModule> = when (this) {
         GPU -> emptySet()
         IMAGE_PROCESSING -> linkedSetOf(GPU)
-        CANVAS_2D -> emptySet()
-        CANVAS_3D -> linkedSetOf(GPU, CANVAS_2D)
-        MEDIA -> linkedSetOf(GPU)
+        OVERLAY -> emptySet()
+        CANVAS_2D -> linkedSetOf(OVERLAY)
+        CANVAS_3D -> linkedSetOf(GPU, OVERLAY, CANVAS_2D)
+        MEDIA -> linkedSetOf(GPU, OVERLAY)
+        MEDIA_CONTROLS -> emptySet()
         WEB_VIEW -> emptySet()
-        CODE_EDITOR -> linkedSetOf(CANVAS_2D)
-        AI_CHAT -> linkedSetOf(CODE_EDITOR, CANVAS_2D)
-        THREE_JS -> linkedSetOf(CANVAS_3D, CANVAS_2D, GPU)
-        BOX_2D -> linkedSetOf(CANVAS_2D, CANVAS_3D, GPU)
-        BOX_3D -> linkedSetOf(THREE_JS, CANVAS_3D, CANVAS_2D, GPU)
+        CODE_EDITOR -> linkedSetOf(OVERLAY, CANVAS_2D)
+        AI_CHAT -> linkedSetOf(CODE_EDITOR, OVERLAY, CANVAS_2D)
+        THREE_JS -> linkedSetOf(CANVAS_3D, OVERLAY, CANVAS_2D, GPU)
+        BOX_2D -> linkedSetOf(OVERLAY, CANVAS_2D, CANVAS_3D, GPU)
+        BOX_3D -> linkedSetOf(THREE_JS, CANVAS_3D, OVERLAY, CANVAS_2D, GPU)
         DSL -> emptySet()
     }
 

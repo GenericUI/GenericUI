@@ -6,8 +6,8 @@ import com.nexustools.genericui.nativeimpl.dock.ToolPaletteNativeImpl
 import com.nexustools.genericui.style.RgbaColor
 
 /**
- * Multi-column studio tool icon grid (used in HAEditor for selecting viewport tools
- * such as Move, Brush, Bezier Pen, Shape, Bucket Fill, Eyedropper, and Zoom).
+ * Multi-column studio tool icon grid for selecting interactive viewport tools
+ * (such as Move, Brush, Bezier Pen, Shape, Bucket Fill, Eyedropper, and Zoom).
  */
 class ToolPalette(
     columns: Int = 2

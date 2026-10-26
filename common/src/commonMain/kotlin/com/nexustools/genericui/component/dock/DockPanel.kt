@@ -6,6 +6,8 @@ import com.nexustools.genericui.enums.dock.DockPosition
 import com.nexustools.genericui.geometry.Rect
 import com.nexustools.genericui.nativeimpl.dock.DockPanelNativeImpl
 import com.nexustools.genericui.window.TitleBar
+import com.nexustools.genericui.window.TitleCapabilities
+import kotlin.jvm.JvmName
 
 /**
  * Detachable, collapsible dock panel with custom header actions and its own [TitleBar].
@@ -76,7 +78,22 @@ open class DockPanel(
     var panelWindow: PanelWindow? = null
         internal set
 
+    val titleCapabilities: TitleCapabilities = TitleCapabilities(
+        isEmulated = true,
+        supportsWindowIcon = false,
+        supportsMinimizeButton = false,
+        supportsMaximizeButton = false,
+        supportsCollapseToggle = true,
+        isToolWindowTitleBar = true
+    )
+
     private var titleBarInstructions: TitleBar? = TitleBar(customTitleBar = false)
+
+    @get:JvmName("getTitleBarProperty")
+    @set:JvmName("setTitleBarProperty")
+    var titleBar: TitleBar?
+        get() = titleBarInstructions
+        set(value) = setTitleBar(value)
 
     private val _headerActions = mutableListOf<DockHeaderAction>()
     val headerActions: List<DockHeaderAction> get() = _headerActions
@@ -87,6 +104,7 @@ open class DockPanel(
 
     init {
         htmlTag = "genericui:dockpanel"
+        titleBarInstructions?.setHostEmbedsComponents(titleCapabilities.canEmbedComponentsInTitleBar)
         titleBarInstructions?.onInstructionsChanged = {
             syncTitleBarToNative()
         }
@@ -101,8 +119,13 @@ open class DockPanel(
      *   the [TitleBar] is automatically applied to the [PanelWindow] as its window titlebar.
      */
     fun setTitleBar(titleBar: TitleBar?) {
-        titleBarInstructions?.onInstructionsChanged = null
+        val old = titleBarInstructions
+        old?.onInstructionsChanged = null
+        if (old !== titleBar) {
+            old?.setHostEmbedsComponents(false)
+        }
         titleBarInstructions = titleBar
+        titleBar?.setHostEmbedsComponents(titleCapabilities.canEmbedComponentsInTitleBar)
         titleBar?.onInstructionsChanged = {
             syncTitleBarToNative()
         }
@@ -116,6 +139,7 @@ open class DockPanel(
 
     internal fun syncTitleBarToNative() {
         val tb = titleBarInstructions
+        tb?.setHostEmbedsComponents(titleCapabilities.canEmbedComponentsInTitleBar)
         if (tb != null) {
             for (comp in tb.leadingComponents + tb.centerComponents + tb.trailingComponents) {
                 if (comp.parent == null) {

@@ -6,7 +6,9 @@ import com.nexustools.genericui.enums.bootstrap.BootstrapSize
 import com.nexustools.genericui.enums.bootstrap.BootstrapType
 import com.nexustools.genericui.nativeimpl.action.ButtonNativeImpl
 import com.nexustools.genericui.res.ResourceId
+import com.nexustools.genericui.res.ResourceType
 import com.nexustools.genericui.res.Resources
+import com.nexustools.genericui.resources.ResourceResolver
 
 /**
  * Interactive push button component (`<button class="btn">`) supporting dual-mode
@@ -38,11 +40,30 @@ open class Button(
     )
 
     /**
-     * Icon-only [Button] constructor accepting a typed [ResourceId] (`R.drawable.*` / `RC.drawable.*`).
+     * Resource-backed [Button] constructor accepting a string or drawable [ResourceId] (`R.string.*` / `R.drawable.*`)
+     * and an optional icon [ResourceId].
+     */
+    constructor(
+        textResId: ResourceId,
+        iconResId: ResourceId? = null
+    ) : this(
+        text = if (textResId.type == ResourceType.DRAWABLE && iconResId == null) "" else ResourceResolver.getString(textResId),
+        icon = if (textResId.type == ResourceType.DRAWABLE && iconResId == null) textResId.toResourceUri() else iconResId?.toResourceUri()
+    ) {
+        if (textResId.type == ResourceType.DRAWABLE && iconResId == null) {
+            this.iconRes = textResId
+        } else {
+            this.textRes = textResId
+            this.iconRes = iconResId
+        }
+    }
+
+    /**
+     * Icon-only [Button] constructor accepting a typed [ResourceId] (`R.drawable.*` / `RC.drawable.*`) and tooltip.
      */
     constructor(
         iconRes: ResourceId,
-        tooltipText: String? = null,
+        tooltipText: String?,
         type: BootstrapType? = null,
         size: BootstrapSize = BootstrapSize.SM,
         outline: Boolean = false
@@ -58,16 +79,17 @@ open class Button(
     }
 
     /**
-     * Resource-backed [Button] constructor accepting a string [ResourceId] (`R.string.*`) and optional drawable [ResourceId].
+     * Resource-backed [Button] constructor accepting a string [ResourceId] (`R.string.*`), optional drawable [ResourceId],
+     * and Bootstrap styling options.
      */
     constructor(
         textRes: ResourceId,
-        iconRes: ResourceId? = null,
-        type: BootstrapType? = null,
+        iconRes: ResourceId?,
+        type: BootstrapType?,
         size: BootstrapSize = BootstrapSize.MD,
         outline: Boolean = false
     ) : this(
-        text = Resources.getString(textRes),
+        text = ResourceResolver.getString(textRes),
         icon = iconRes?.toResourceUri(),
         type = type,
         size = size,
@@ -75,6 +97,15 @@ open class Button(
     ) {
         this.textRes = textRes
         this.iconRes = iconRes
+    }
+
+    fun setText(resId: ResourceId, vararg formatArgs: Any) {
+        this.textRes = resId
+        this.text = ResourceResolver.getString(resId, *formatArgs)
+    }
+
+    fun setIcon(resId: ResourceId) {
+        this.iconRes = resId
     }
 
     var textRes: ResourceId? = null

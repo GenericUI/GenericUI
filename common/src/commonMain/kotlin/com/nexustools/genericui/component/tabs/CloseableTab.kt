@@ -7,7 +7,7 @@ import com.nexustools.genericui.nativeimpl.tabs.TabNativeImpl
 /**
  * A [Tab] with a native close button, dirty state indicator (`*`), and close-confirmation hook
  * ([onCloseRequested]), used inside [TabContainer] and [FragmentTabContainer] for IDE editors,
- * studio documents (such as HAEditor's `Main Canvas` and `Shared Object` tabs), and browser-style tabs.
+ * studio document tabs, and browser-style tabs.
  *
  * Translates directly to each platform's native closeable tab widget (`QTabBar` close button on `:qt`,
  * `AdwTabPage` / `GtkNotebook` close button on `:gtk`, `NSTabViewItem` close `NSButton` on `:macos`,

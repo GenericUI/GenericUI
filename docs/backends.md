@@ -1,57 +1,60 @@
 # GenericUI Platform Backends Guide
 
-`GenericUI` provides **8 Native-First Platform Backends** organized across three submodules ([`desktop`](../desktop/README.md), [`mobile`](../mobile/README.md), and [`web`](../web/README.md)). Every backend implements `:common`'s [`NativeFactory`](../common/src/commonMain/kotlin/com/nexustools/genericui/core/NativeFactory.kt) and the symmetrical 17-subpackage `NativeImpl` interfaces while using **real OS/platform widgets**—never emulating standard buttons, inputs, scrollbars, or menus on a raw canvas.
+> **Root Repository**: [**GenericUI (`../README.md`)**](../README.md) | **Master Docs Index**: [**`docs/README.md`**](./README.md)  
+> **Related Guides**: [Architecture (`architecture.md`)](./architecture.md) · [SourceSets (`sourcesets.md`)](./sourcesets.md) · [Fragments & Windows (`fragments-and-windows.md`)](./fragments-and-windows.md) · [Application (`application.md`)](./application.md) · [Resources (`resources.md`)](./resources.md) · [Gradle Plugin (`gradle-plugin.md`)](./gradle-plugin.md) · [Extensions (`extensions.md`)](./extensions.md)
+
+GenericUI provides **8 Native-First Platform Backends** (`Windows`, `MacOS`, `Gtk`, `Qt`, `Swing`, `Android`, `IOS`, `Web`) organized across common foundation modules (`:common`, `:systemCommon`) and three platform submodules ([`desktop`](../desktop/README.md), [`mobile`](../mobile/README.md), and [`web`](../web/README.md)). Every backend implements `:common`'s [`NativeFactory`](../common/src/commonMain/kotlin/com/nexustools/genericui/core/NativeFactory.kt) and symmetrical `NativeImpl` peer contracts using **real OS/platform widgets**, while providing a generated launcher (`<Backend>Launcher`) that boots directly into the application's resolved `@MainAppFragment`.
 
 ---
 
-## Navigation & Related Documentation
+## 1. Core & Backend Module Hierarchy
 
-- **Root Repository**: [GenericUI README](../README.md) | [Master Documentation Index](README.md)
-- **Architecture & SourceSets**: [Architecture Guide](architecture.md) | [Hierarchical SourceSet Setup (`sourcesets.md`)](sourcesets.md)
-- **Build & Testing**: [Gradle Plugin Guide](gradle-plugin.md) | [IntelliJ IDEA Plugin Guide](idea-plugin.md) | [Testing Guide (`JestElectricRunner`)](testing.md)
-- **Extensions**: [Extensions Overview](extensions.md) | [Extensions Submodule](../extensions/README.md)
+### Category A — Multi-Backend Foundation Modules
+
+| Module Coordinate | Variant Scope | Targets | Responsibility |
+| :--- | :--- | :--- | :--- |
+| **`:common`** | `common` | All 8 backends | Platform-agnostic UI widgets, `NativeImpl` contracts, `IWindow`, `TitleCapabilities`, `IApplication`, `BackendTarget`, `AppTarget`, `IFragment`, `@MainAppFragment`, `@AppFragment`, `FragmentHostFragment`, `FragmentHostSystem`, `DockWorkspace`, `LazyList`/`LazyGrid`/`TreeView`, `FileBrowserDialog`, `PreferenceStore`, `Resource`/`ResourceID`/`ResourceResolver`, Image API (`com.nexustools.genericui.image.*`), `AbstractCanvas`, and Bootstrap/SASS/CSS styling. |
+| **`:systemCommon`** | `systemCommon` | `Windows`, `MacOS`, `Gtk`, `Qt`, `Swing`, `Android`, `IOS` | Pure-Kotlin system-target helpers (`SystemStorageKeyHelper`, filesystem/storage key sanitization, and non-browser OS utilities across all 7 installed targets including JVM Swing). |
 
 ---
 
-## 1. Backend Submodules & Dedicated Documentation Index
-
-### Category A — Desktop Backends ([`desktop/` Submodule](../desktop/README.md))
+### Category B — Desktop Backends ([`desktop/` Submodule](../desktop/README.md))
 
 > [!IMPORTANT]
-> **Strict Media Separation Rule**: The `:desktop` submodule (`:desktop:shared`, `:desktop:windows`, `:desktop:macos`, `:desktop:gtk`, `:desktop:qt`, `:desktop:swing`) contains **ZERO VLC or media playback code**. All VLC video/audio decoding, SMPTE ST 2084 PQ / HLG / Dolby Vision HDR tone-mapping, playback clock drift correction, and FFT audio analysis reside strictly inside the [`:extensions:media` extension](../extensions/docs/media.md).
+> **Strict Media Separation Rule**: The `:desktop` submodule (`:desktop:common`, `:desktop:nativeCommon`, `:desktop:linuxCommon`, `:desktop:windows`, `:desktop:macos`, `:desktop:gtk`, `:desktop:qt`, `:desktop:swing`) contains **ZERO VLC or media playback code**. All VLC video/audio decoding, HDR tone-mapping, and FFT audio analysis reside strictly inside [`:extensions:media`](../extensions/docs/media.md).
 
-| Module Coordinate | SourceSet Tier | Native Widget Toolkit & Graphics Stack | Dedicated Backend Documentation |
+| Module Coordinate | Variant Scope | Native Widget Toolkit, Windowing, & Graphics Stack | Dedicated Documentation |
 | :--- | :--- | :--- | :--- |
-| **`:desktop:shared`** | `desktopNativeCommon`<br/>(`nativeDesktopCommon`) | Shared native desktop widget hierarchy (`DesktopBaseNativeImpl`), `DesktopLazyViewportEngine`, `DesktopFileBrowserHelper`, `DesktopConfigDirectoryHelper`, and `DesktopMultiWindowDockCoordinator`. | [Desktop Shared Docs (`desktop/docs/shared.md`)](../desktop/docs/shared.md) |
-| **`:desktop:windows`** | `windows`<br/>(`windowsMain` / `windowsTest`) | Win32 `HWND` controls, Direct2D `Canvas2D`, **Google ANGLE** (`libEGL.dll` / `libGLESv2.dll` over D3D11) for `GLCanvas`, Vulkan `VK_KHR_win32_surface` for `VKCanvas`, COM `IFileOpenDialog`/`IFileSaveDialog` (`FOS_PICKFOLDERS`), and `WindowsPreferenceStoreImpl` (`%APPDATA%\<appName>\<key>.bson` via `BinaryJson`). | [Windows Backend Docs (`desktop/docs/windows.md`)](../desktop/docs/windows.md) |
-| **`:desktop:macos`** | `mac`<br/>(`macMain` / `macosMain`) | AppKit `NSWindow`/`NSView`, automatic top-of-screen macOS system menu bar integration via `TitleBar`, CoreGraphics `Canvas2D`, **`MoltenVK`** (`VK_EXT_metal_surface`), `NSOpenPanel`/`NSSavePanel`, and `MacosPreferenceStoreImpl` (`~/Library/Preferences/<appName>/<key>.plist` via `BinaryPlist`). | [macOS Backend Docs (`desktop/docs/macos.md`)](../desktop/docs/macos.md) |
-| **`:desktop:gtk`** | `linuxCommon` $\to$ `gtk`<br/>(`gtkMain` / `gtkTest`) | GTK4 native widgets, Cairo `Canvas2D`, EGL/OpenGL ES 3.0 `GLCanvas`, Vulkan `VK_KHR_wayland_surface` / `VK_KHR_xlib_surface`, `GtkFileDialog`, and `GtkPreferenceStoreImpl` (`$XDG_CONFIG_HOME/<appName>/<key>.bson` via `BinaryJson`). | [Linux GTK4 Backend Docs (`desktop/docs/gtk.md`)](../desktop/docs/gtk.md) |
-| **`:desktop:qt`** | `linuxCommon` $\to$ `qt`<br/>(`qtMain` / `qtTest`) | Qt6 `QWidget` / `QMainWindow`, `QPainter` `Canvas2D`, `QOpenGLWidget` `GLCanvas`, `QVulkanWindow` `VKCanvas`, `QFileDialog`, and `QtPreferenceStoreImpl` (`$XDG_CONFIG_HOME/<appName>/<key>.bson` via `BinaryJson`). | [Linux Qt6 Backend Docs (`desktop/docs/qt.md`)](../desktop/docs/qt.md) |
-| **`:desktop:swing`** | `desktopCommon` $\to$ `swing`<br/>(`swingMain` / `swingTest`) | JVM AWT/Swing components, `Java2D` `Canvas2D`, `JFileChooser`, `JScrollPane` lazy viewport recycling, `SwingPreferenceStoreImpl` (`.plist` `BinaryPlist` on macOS, `.bson` `BinaryJson` on Windows/Linux + `WatchService`), and **optional** LWJGL 3 OpenGL ES (`useLwjglGL`) & Vulkan (`useVulkan`). | [JVM Swing Backend Docs (`desktop/docs/swing.md`)](../desktop/docs/swing.md) |
+| **`:desktop:common`** | `desktopCommon` | Pure-Kotlin desktop foundation shared by all 5 desktop backends (`Windows`, `MacOS`, `Gtk`, `Qt`, `Swing`): [`DesktopFileBrowserHelper`](../desktop/common/src/commonMain/kotlin/com/nexustools/genericui/desktop/dialog/DesktopFileBrowserHelper.kt), [`DesktopLazyViewportEngine`](../desktop/common/src/commonMain/kotlin/com/nexustools/genericui/desktop/lazy/DesktopLazyViewportEngine.kt), `DesktopUiTimerNativeImpl`, and desktop dialog/system-tray/notification implementations. | [Desktop Common (`desktop/docs/common.md`)](../desktop/docs/common.md) |
+| **`:desktop:nativeCommon`** | `nativeDesktopCommon` | Native C/C++/ObjC desktop foundation shared by `Windows`, `MacOS`, `Gtk`, and `Qt`: [`DesktopBaseNativeImpl`](../desktop/nativeCommon/src/commonMain/kotlin/com/nexustools/genericui/desktop/core/DesktopBaseNativeImpl.kt), [`DesktopConfigDirectoryHelper`](../desktop/nativeCommon/src/commonMain/kotlin/com/nexustools/genericui/desktop/system/DesktopConfigDirectoryHelper.kt), [`DesktopMultiWindowDockCoordinator`](../desktop/nativeCommon/src/commonMain/kotlin/com/nexustools/genericui/desktop/dock/DesktopMultiWindowDockCoordinator.kt), and POSIX/native widget peers. | [Desktop NativeCommon (`desktop/docs/nativeCommon.md`)](../desktop/docs/nativeCommon.md) |
+| **`:desktop:linuxCommon`** | `linuxCommon` | Linux XDG desktop foundation shared by `Gtk` and `Qt`: [`LinuxXdgConfigDirectoryImpl`](../desktop/linuxCommon/src/commonMain/kotlin/com/nexustools/genericui/linux/LinuxXdgConfigDirectoryImpl.kt), [`LinuxXdgCacheDirectoryImpl`](../desktop/linuxCommon/src/commonMain/kotlin/com/nexustools/genericui/linux/LinuxXdgCacheDirectoryImpl.kt), and [`LinuxXdgPreferenceStoreImpl`](../desktop/linuxCommon/src/commonMain/kotlin/com/nexustools/genericui/linux/LinuxXdgPreferenceStoreImpl.kt). | [Desktop LinuxCommon (`desktop/docs/linuxCommon.md`)](../desktop/docs/linuxCommon.md) |
+| **`:desktop:windows`** | `windows` (`mingwX64`) | `WindowsLauncher`, Win32 `HWND` controls, single-placement custom `TitleBar` (`Win32NativeWindowHost`), embedded `.exe` Win32 `.rc`/`.res` `Resource.ResourceID` loading (`WindowsResourceResolverImpl`), Direct2D, **Google ANGLE** (`libEGL.dll` / `libGLESv2.dll` over D3D11), Vulkan `VK_KHR_win32_surface`, COM `IFileOpenDialog`/`IFileSaveDialog`, and `WindowsPreferenceStoreImpl` (`%APPDATA%\<appName>\<key>.bson` via `BinaryJson`). | [Windows Backend (`desktop/docs/windows.md`)](../desktop/docs/windows.md) |
+| **`:desktop:macos`** | `macos` (`macosArm64`, `macosX64`) | `MacosLauncher`, AppKit `NSWindow`/`NSView`, automatic top-of-screen macOS system menu bar (`NSApplication.mainMenu`), `NSBundle` `Resource.ResourceID` resolution (`MacosResourceResolverImpl`), CoreGraphics, **`MoltenVK`** (`VK_EXT_metal_surface`), `NSOpenPanel`/`NSSavePanel`, and `MacosPreferenceStoreImpl` (`~/Library/Preferences/<appName>/<key>.plist` via `BinaryPlist`). | [macOS Backend (`desktop/docs/macos.md`)](../desktop/docs/macos.md) |
+| **`:desktop:gtk`** | `gtk` (`linuxX64`, `linuxArm64`) | `GtkLauncher`, GTK4 / Libadwaita native widgets (`GtkWindow`, `GtkHeaderBar`), `GResource` `Resource.ResourceID` resolution (`GtkResourceResolverImpl`), Cairo, EGL/OpenGL ES 3.0, Vulkan `VK_KHR_wayland_surface` / `VK_KHR_xlib_surface`, `GtkFileDialog`, and `GtkPreferenceStoreImpl` (`.bson`). | [Linux GTK4 Backend (`desktop/docs/gtk.md`)](../desktop/docs/gtk.md) |
+| **`:desktop:qt`** | `qt` (`linuxX64`, `linuxArm64`) | `QtLauncher`, Qt6 `QWidget` / `QMainWindow`, `QResource` `Resource.ResourceID` resolution (`QtResourceResolverImpl`), `QPainter`, `QOpenGLWidget`, `QVulkanWindow`, `QFileDialog`, and `QtPreferenceStoreImpl` (`.bson`). | [Linux Qt6 Backend (`desktop/docs/qt.md`)](../desktop/docs/qt.md) |
+| **`:desktop:swing`** | `swing` (`jvm`) | `SwingLauncher`, JVM AWT/Swing `JFrame`/`JComponent`, `JFileChooser`, JAR classpath `Resource.ResourceID` resolution (`SwingResourceResolverImpl`), `SwingPreferenceStoreImpl` (`.plist` on macOS, `.bson` on Windows/Linux + `WatchService`), and optional LWJGL 3 OpenGL ES (`useLwjglGL`) & Vulkan (`useVulkan`). | [JVM Swing Backend (`desktop/docs/swing.md`)](../desktop/docs/swing.md) |
 
 ---
 
-### Category B — Mobile Backends ([`mobile/` Submodule](../mobile/README.md))
+### Category C — Mobile Backends ([`mobile/` Submodule](../mobile/README.md))
 
-| Module Coordinate | SourceSet Tier | Native Widget Toolkit & Graphics Stack | Dedicated Backend Documentation |
+| Module Coordinate | Variant Scope | Native Widget Toolkit, Activities, & Graphics Stack | Dedicated Documentation |
 | :--- | :--- | :--- | :--- |
-| **`:mobile:shared`** | `mobileCommon`<br/>(`mobileMain` / `mobileTest`) | Shared form-factor breakpoint detection (`MobileDeviceFormFactor`), gesture recognizer (`MobileGestureRecognizer`), fling spline physics, Picture-in-Picture (`MobilePipController`), document picker bridge, and `MobileLazyViewportPool`. | [Mobile Shared Docs (`mobile/docs/shared.md`)](../mobile/docs/shared.md) |
-| **`:mobile:android`** | `android`<br/>(`androidMain` / `androidTest`) | `GenericUiFragmentActivity` (1:1 Android `Activity` lifecycle), Material 3 widgets, `RecyclerView` lazy windowing, `Intent.ACTION_OPEN_DOCUMENT` / `ACTION_OPEN_DOCUMENT_TREE` system file/folder browser, `AndroidPreferenceStoreImpl` (`SharedPreferences`), and native Vulkan 1.1+ / EGL GLES 3.0+. | [Android Backend Docs (`mobile/docs/android.md`)](../mobile/docs/android.md) |
-| **`:mobile:ios`** | `ios`<br/>(`iosMain` / `iosTest`) | UIKit `UIViewController` / `UIScene`, `CADisplayLink` VBlank loop with `deltaMs`, `UIDocumentPickerViewController` file/folder browser, `IosPreferenceStoreImpl` (`~/Library/Preferences/<appName>/<key>.plist` via `BinaryPlist`), CoreGraphics `Canvas2D`, and **`MoltenVK`** Metal Vulkan + `EAGLContext`. | [iOS Backend Docs (`mobile/docs/ios.md`)](../mobile/docs/ios.md) |
+| **`:mobile:common`** | `mobileCommon` | Mobile foundation shared by `Android` and `IOS`: [`MobileDeviceFormFactor`](../mobile/common/src/commonMain/kotlin/com/nexustools/genericui/mobile/layout/MobileDeviceFormFactor.kt), [`MobileAdaptiveFragmentCoordinator`](../mobile/common/src/commonMain/kotlin/com/nexustools/genericui/mobile/layout/MobileAdaptiveFragmentCoordinator.kt), [`MobileGestureRecognizer`](../mobile/common/src/commonMain/kotlin/com/nexustools/genericui/mobile/gesture/MobileGestureRecognizer.kt), [`MobileFlingPhysics`](../mobile/common/src/commonMain/kotlin/com/nexustools/genericui/mobile/gesture/MobileFlingPhysics.kt), [`MobilePipController`](../mobile/common/src/commonMain/kotlin/com/nexustools/genericui/mobile/system/MobilePipController.kt), and [`MobileLazyViewportPool`](../mobile/common/src/commonMain/kotlin/com/nexustools/genericui/mobile/system/MobileLazyViewportPool.kt). | [Mobile Common (`mobile/docs/common.md`)](../mobile/docs/common.md) |
+| **`:mobile:android`** | `android` | 1:1 generated `AppCompatActivity` subclasses (`<FragmentName>Activity : GenericUiFragmentActivity()`) for every `@MainAppFragment` and `@AppFragment`, generated `AndroidManifest.xml` & `AndroidActivityRegistry`, conditional `MaterialToolbar` navbar (rendered **only** when a `TitleBar` or `MenuBar` is set), Android `R.*` `Resource.ResourceID` translation (`AndroidResourceResolverImpl`), `RecyclerView` lazy views, SAF `ACTION_OPEN_DOCUMENT` / `ACTION_OPEN_DOCUMENT_TREE`, `SharedPreferences`, and Vulkan 1.1+ / EGL GLES 3.0+. | [Android Backend (`mobile/docs/android.md`)](../mobile/docs/android.md) |
+| **`:mobile:ios`** | `ios` (`iosArm64`, `iosSimulatorArm64`) | `IosLauncher`, UIKit `UIWindow` / `UIViewController`, native iOS navigation bar (rendered **only** when a `TitleBar` or `MenuBar` is set), `CADisplayLink` VBlank loop, `UIDocumentPickerViewController`, `NSBundle` `Resource.ResourceID` resolution (`IosResourceResolverImpl`), `IosPreferenceStoreImpl` (`bplist00` `.plist`), and **`MoltenVK`** Metal Vulkan + `EAGLContext`. | [iOS Backend (`mobile/docs/ios.md`)](../mobile/docs/ios.md) |
 
 ---
 
-### Category C — Web Backend ([`web/` Submodule](../web/README.md))
+### Category D — Web Backend ([`web/` Submodule](../web/README.md))
 
-| Module Coordinate | SourceSet Tier | Native Widget Toolkit & Graphics Stack | Dedicated Backend Documentation |
+| Module Coordinate | Variant Scope | Browser DOM, Loader, History Bridge, & Graphics Stack | Dedicated Documentation |
 | :--- | :--- | :--- | :--- |
-| **`:web`** | `web`<br/>(`webMain` / `webTest` $\to$ `wasmJsMain`, `jsMain`) | Dual **Kotlin/Wasm (`wasmJs`, primary default)** + **Kotlin/JS IR (`js`, automatic fallback)** compilation, `genericui-loader.js` with SHA-1 cache busting, Bootstrap 5 splash screen (`#genericui-splash`, `64x64` icon) with progress bar & error stacktrace display, `.svg`-preferred `webIcon` favicon & splash icon, optional W3C/MDN `manifest.webmanifest` & installable WebApp HTML `<head>` tags (`allowInstallAsWebApp` for Android Chrome WebAPK installation), cross-backend `themeColor` (`<meta name="theme-color">`), HTML5 DOM widgets, `WebPreferenceStoreImpl` (direct `window.localStorage` keys + `storage` event listener), hidden `<input type="file" webkitdirectory>` browser, and Canvas2D / WebGL2 / WebGPU. | [Web Backend Docs (`web/docs/web-backend.md`)](../web/docs/web-backend.md)<br/>[Wasm/JS Loader, Splash, & PWA Manifest Docs (`web/docs/wasm-js-loader-and-splash.md`)](../web/docs/wasm-js-loader-and-splash.md) |
+| **`:web`** | `web` (`wasmJs` + `js`) | `WebLauncher`, dual **Kotlin/Wasm (`wasmJs`, primary default)** + **Kotlin/JS IR (`js`, automatic fallback)** compilation with `genericui-loader.js` & SHA-1 cache busting, Bootstrap 5 splash screen (`#genericui-splash`) with `.svg`-preferred `webIcon`, URL `Resource.ResourceID` translation (`WebResourceResolverImpl` $\rightarrow$ `"assets/<type>/<name>.<ext>"`), `WebFragmentHistoryBridge` (`window.location.hash` + `window.history.state` `FragmentBundle` persistence for `FragmentHostSystem`), conditional Bootstrap navbar/menubar chrome (`TitleCapabilities`), `WebPreferenceStoreImpl` (`window.localStorage`), hidden `<input type="file" webkitdirectory>`, and HTML5 Canvas2D / WebGL2 / WebGPU. | [Web Backend (`web/docs/web-backend.md`)](../web/docs/web-backend.md)<br/>[Wasm/JS Loader & Splash (`web/docs/wasm-js-loader-and-splash.md`)](../web/docs/wasm-js-loader-and-splash.md) |
 
 ---
 
 ## 2. Selecting Backends in `build.gradle.kts`
-
-The `genericui { backends { ... } }` block provides both individual backend toggles and presets:
 
 ```kotlin
 genericui {
@@ -77,8 +80,6 @@ genericui {
 ---
 
 ## 3. Lifecycle Development & Production Build Tasks
-
-When `id("com.nexustools.genericui")` is applied, the plugin registers high-level Development and Production build tasks for every platform:
 
 | Platform Backend | Development Task | Production Task |
 | :--- | :--- | :--- |

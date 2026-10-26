@@ -167,26 +167,49 @@ open class GenericUiBackendsConfig(
         web(true)
     }
 
-    /** True whenever `:desktop` or any of the 4 native desktop backends (`:windows`, `:macos`, `:gtk`, `:qt`) is enabled. */
-    val requiresSharedDesktopModule: Boolean
+    /** True whenever `:desktop:nativeCommon` or any of the 4 native desktop backends (`:windows`, `:macos`, `:gtk`, `:qt`) is enabled. */
+    val requiresNativeDesktopCommonModule: Boolean
         get() = desktopEnabled || windowsEnabled || macosEnabled || gtkEnabled || qtEnabled
 
-    /** True whenever `:mobile` or either mobile backend (`:android`, `:ios`) is enabled. */
-    val requiresSharedMobileModule: Boolean
+    /** Alias for [requiresNativeDesktopCommonModule]. */
+    val requiresSharedDesktopModule: Boolean
+        get() = requiresNativeDesktopCommonModule
+
+    /** True whenever `:desktop:common` is needed (native desktop or `:swing`). */
+    val requiresDesktopCommonModule: Boolean
+        get() = requiresNativeDesktopCommonModule || swingConfig.enabled
+
+    /** True whenever `:desktop:linuxCommon` is needed (`:gtk` or `:qt`). */
+    val requiresLinuxCommonModule: Boolean
+        get() = gtkEnabled || qtEnabled
+
+    /** True whenever `:mobile:common` or either mobile backend (`:android`, `:ios`) is enabled. */
+    val requiresMobileCommonModule: Boolean
         get() = mobileEnabled || androidEnabled || iosEnabled
 
+    /** Alias for [requiresMobileCommonModule]. */
+    val requiresSharedMobileModule: Boolean
+        get() = requiresMobileCommonModule
+
     /** True whenever any non-web system backend (`:desktop`, `:swing`, or `:mobile`) is enabled. */
+    val requiresSystemCommonModule: Boolean
+        get() = requiresDesktopCommonModule || requiresMobileCommonModule
+
+    /** Alias for [requiresSystemCommonModule]. */
     val requiresSharedSystemModule: Boolean
-        get() = requiresSharedDesktopModule || swingConfig.enabled || requiresSharedMobileModule
+        get() = requiresSystemCommonModule
 
     /**
      * Returns the list of enabled GenericUI backend module paths, automatically including
-     * `:desktop:shared` when `:desktop:windows`, `:desktop:macos`, `:desktop:gtk`, or `:desktop:qt` is enabled,
-     * and `:mobile:shared` when `:mobile:android` or `:mobile:ios` is enabled.
+     * `:systemCommon`, `:desktop:common`, `:desktop:nativeCommon`, `:desktop:linuxCommon`,
+     * and `:mobile:common` when their downstream platform backends are enabled.
      */
     fun enabledBackendModulePaths(): List<String> = buildList {
-        if (requiresSharedDesktopModule) add(":desktop:shared")
-        if (requiresSharedMobileModule) add(":mobile:shared")
+        if (requiresSystemCommonModule) add(":systemCommon")
+        if (requiresDesktopCommonModule) add(":desktop:common")
+        if (requiresNativeDesktopCommonModule) add(":desktop:nativeCommon")
+        if (requiresLinuxCommonModule) add(":desktop:linuxCommon")
+        if (requiresMobileCommonModule) add(":mobile:common")
         if (windowsEnabled) add(":desktop:windows")
         if (macosEnabled) add(":desktop:macos")
         if (gtkEnabled) add(":desktop:gtk")

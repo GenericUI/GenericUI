@@ -58,6 +58,21 @@ object GenericUiMultiplatformConfigurator {
         val backends = extension.backends
         val app = extension.application
 
+        val discoveredFragments = GenericUiFragmentScanner.scanProject(project.projectDir)
+        val hasMainAppFragment = discoveredFragments.any { it.isMainFragment }
+        val generatedLauncherPackage = if (hasMainAppFragment) {
+            GenericUiGenerateLaunchersTask.resolveGeneratedLauncherPackage(
+                extension = extension,
+                projectGroup = project.group.toString(),
+                discoveredFragments = discoveredFragments
+            )
+        } else {
+            ""
+        }
+        if (hasMainAppFragment && app.mainClass.isBlank()) {
+            app.mainClass = "$generatedLauncherPackage.GeneratedSwingMain"
+        }
+
         // 1. Register enabled KMP targets
         val mingwTarget: Any? = if (backends.windowsEnabled) {
             targets.findByName("mingwX64") ?: invokeNoArg(kmp, "mingwX64")
@@ -95,13 +110,15 @@ object GenericUiMultiplatformConfigurator {
             }
         }
 
-        if (backends.iosEnabled) {
-            if (targets.findByName("iosArm64") == null) {
-                invokeNoArg(kmp, "iosArm64")
-            }
-            if (targets.findByName("iosSimulatorArm64") == null) {
-                invokeNoArg(kmp, "iosSimulatorArm64")
-            }
+        val iosArm64Target: Any? = if (backends.iosEnabled) {
+            targets.findByName("iosArm64") ?: invokeNoArg(kmp, "iosArm64")
+        } else {
+            targets.findByName("iosArm64")
+        }
+        val iosSimArm64Target: Any? = if (backends.iosEnabled) {
+            targets.findByName("iosSimulatorArm64") ?: invokeNoArg(kmp, "iosSimulatorArm64")
+        } else {
+            targets.findByName("iosSimulatorArm64")
         }
 
         if (backends.webEnabled) {
@@ -155,6 +172,7 @@ object GenericUiMultiplatformConfigurator {
                 dependsOnIfNotConnected(it, web)
                 addKotlinSrcDir(it, "src/webMain/kotlin")
                 addKotlinSrcDir(it, "src/web/kotlin")
+                addKotlinSrcDir(it, project.layout.buildDirectory.dir("generated/genericui/launchers/web/kotlin"))
                 addResourcesSrcDir(it, "src/webMain/resources")
                 addResourcesSrcDir(it, "src/web/resources")
             }
@@ -237,6 +255,7 @@ object GenericUiMultiplatformConfigurator {
                 dependsOnIfNotConnected(it, swing)
                 addKotlinSrcDir(it, "src/swingMain/kotlin")
                 addKotlinSrcDir(it, "src/swing/kotlin")
+                addKotlinSrcDir(it, project.layout.buildDirectory.dir("generated/genericui/launchers/swing/kotlin"))
                 addResourcesSrcDir(it, "src/swingMain/resources")
                 addResourcesSrcDir(it, "src/swing/resources")
             }
@@ -248,45 +267,41 @@ object GenericUiMultiplatformConfigurator {
             ss.findByName("jvmTest")?.let { dependsOnIfNotConnected(it, swingTest) }
         }
 
-        var desktopNativeCommon: Any? = null
-        var desktopNativeMain: Any? = null
-        var desktopNativeTest: Any? = null
         var nativeDesktopCommon: Any? = null
         var nativeDesktopMain: Any? = null
         var nativeDesktopTest: Any? = null
         if (anyNativeDesktop && desktopMain != null && desktopTest != null) {
-            desktopNativeCommon = ss.maybeCreate("desktopNativeCommon").also {
-                dependsOnIfNotConnected(it, desktopMain)
-                addKotlinSrcDir(it, "src/desktopNativeCommon/kotlin")
-                addResourcesSrcDir(it, "src/desktopNativeCommon/resources")
-                addKotlinSrcDir(it, "src/nativeDesktopCommon/kotlin")
-                addResourcesSrcDir(it, "src/nativeDesktopCommon/resources")
-            }
-            desktopNativeMain = ss.maybeCreate("desktopNativeMain").also {
-                dependsOnIfNotConnected(it, desktopNativeCommon)
-                addKotlinSrcDir(it, "src/desktopNativeMain/kotlin")
-                addKotlinSrcDir(it, "src/desktopNativeCommon/kotlin")
-                addResourcesSrcDir(it, "src/desktopNativeMain/resources")
-                addResourcesSrcDir(it, "src/desktopNativeCommon/resources")
-            }
-            desktopNativeTest = ss.maybeCreate("desktopNativeTest").also {
-                dependsOnIfNotConnected(it, desktopTest)
-                addKotlinSrcDir(it, "src/desktopNativeTest/kotlin")
-                addKotlinSrcDir(it, "src/nativeDesktopTest/kotlin")
-            }
             nativeDesktopCommon = ss.maybeCreate("nativeDesktopCommon").also {
-                dependsOnIfNotConnected(it, desktopNativeMain)
+                dependsOnIfNotConnected(it, desktopMain)
                 addKotlinSrcDir(it, "src/nativeDesktopCommon/kotlin")
                 addResourcesSrcDir(it, "src/nativeDesktopCommon/resources")
+                addKotlinSrcDir(it, "src/desktopNativeCommon/kotlin")
+                addResourcesSrcDir(it, "src/desktopNativeCommon/resources")
             }
             nativeDesktopMain = ss.maybeCreate("nativeDesktopMain").also {
                 dependsOnIfNotConnected(it, nativeDesktopCommon)
                 addKotlinSrcDir(it, "src/nativeDesktopMain/kotlin")
+                addKotlinSrcDir(it, "src/nativeDesktopCommon/kotlin")
+                addKotlinSrcDir(it, "src/desktopNativeMain/kotlin")
+                addKotlinSrcDir(it, "src/desktopNativeCommon/kotlin")
                 addResourcesSrcDir(it, "src/nativeDesktopMain/resources")
+                addResourcesSrcDir(it, "src/nativeDesktopCommon/resources")
+                addResourcesSrcDir(it, "src/desktopNativeMain/resources")
+                addResourcesSrcDir(it, "src/desktopNativeCommon/resources")
             }
             nativeDesktopTest = ss.maybeCreate("nativeDesktopTest").also {
-                dependsOnIfNotConnected(it, desktopNativeTest)
+                dependsOnIfNotConnected(it, desktopTest)
                 addKotlinSrcDir(it, "src/nativeDesktopTest/kotlin")
+                addKotlinSrcDir(it, "src/desktopNativeTest/kotlin")
+            }
+            ss.maybeCreate("desktopNativeCommon").also {
+                dependsOnIfNotConnected(it, nativeDesktopCommon)
+            }
+            ss.maybeCreate("desktopNativeMain").also {
+                dependsOnIfNotConnected(it, nativeDesktopMain)
+            }
+            ss.maybeCreate("desktopNativeTest").also {
+                dependsOnIfNotConnected(it, nativeDesktopTest)
             }
         }
 
@@ -300,12 +315,14 @@ object GenericUiMultiplatformConfigurator {
                 dependsOnIfNotConnected(it, windows)
                 addKotlinSrcDir(it, "src/windowsMain/kotlin")
                 addKotlinSrcDir(it, "src/windows/kotlin")
+                addKotlinSrcDir(it, project.layout.buildDirectory.dir("generated/genericui/launchers/windows/kotlin"))
                 addResourcesSrcDir(it, "src/windowsMain/resources")
                 addResourcesSrcDir(it, "src/windows/resources")
             }
             val windowsTest = ss.maybeCreate("windowsTest").also {
                 dependsOnIfNotConnected(it, nativeDesktopTest)
                 addKotlinSrcDir(it, "src/windowsTest/kotlin")
+                addKotlinSrcDir(it, project.layout.buildDirectory.dir("generated/genericui/launchers/windowsTest/kotlin"))
             }
             ss.findByName("mingwMain")?.let { dependsOnIfNotConnected(it, windowsMain) }
             ss.findByName("mingwX64Main")?.let { dependsOnIfNotConnected(it, windowsMain) }
@@ -328,6 +345,7 @@ object GenericUiMultiplatformConfigurator {
             val macosMain = ss.maybeCreate("macosMain").also {
                 dependsOnIfNotConnected(it, macMain)
                 addKotlinSrcDir(it, "src/macosMain/kotlin")
+                addKotlinSrcDir(it, project.layout.buildDirectory.dir("generated/genericui/launchers/macos/kotlin"))
                 addResourcesSrcDir(it, "src/macosMain/resources")
             }
             val macTest = ss.maybeCreate("macTest").also {
@@ -381,6 +399,7 @@ object GenericUiMultiplatformConfigurator {
                     dependsOnIfNotConnected(it, gtk)
                     addKotlinSrcDir(it, "src/gtkMain/kotlin")
                     addKotlinSrcDir(it, "src/gtk/kotlin")
+                    addKotlinSrcDir(it, project.layout.buildDirectory.dir("generated/genericui/launchers/gtk/kotlin"))
                     addResourcesSrcDir(it, "src/gtkMain/resources")
                     addResourcesSrcDir(it, "src/gtk/resources")
                 }
@@ -414,6 +433,7 @@ object GenericUiMultiplatformConfigurator {
                     dependsOnIfNotConnected(it, qt)
                     addKotlinSrcDir(it, "src/qtMain/kotlin")
                     addKotlinSrcDir(it, "src/qt/kotlin")
+                    addKotlinSrcDir(it, project.layout.buildDirectory.dir("generated/genericui/launchers/qt/kotlin"))
                     addResourcesSrcDir(it, "src/qtMain/resources")
                     addResourcesSrcDir(it, "src/qt/resources")
                 }
@@ -429,7 +449,7 @@ object GenericUiMultiplatformConfigurator {
                         dependsOnIfNotConnected(defaultSs, qtMain)
                     }
                 }
-                if (!bothGtkAndQtDirsExist) {
+                if (!bothGtkAndQtDirsExist && !(hasMainAppFragment && backends.gtkEnabled)) {
                     ss.findByName("linuxX64Main")?.let { dependsOnIfNotConnected(it, qtMain) }
                     ss.findByName("linuxArm64Main")?.let { dependsOnIfNotConnected(it, qtMain) }
                 }
@@ -466,6 +486,7 @@ object GenericUiMultiplatformConfigurator {
                     dependsOnIfNotConnected(it, android)
                     addKotlinSrcDir(it, "src/androidMain/kotlin")
                     addKotlinSrcDir(it, "src/android/kotlin")
+                    addKotlinSrcDir(it, project.layout.buildDirectory.dir("generated/genericui/android/kotlin"))
                     addResourcesSrcDir(it, "src/androidMain/resources")
                     addResourcesSrcDir(it, "src/android/resources")
                 }
@@ -486,6 +507,7 @@ object GenericUiMultiplatformConfigurator {
                     dependsOnIfNotConnected(it, ios)
                     addKotlinSrcDir(it, "src/iosMain/kotlin")
                     addKotlinSrcDir(it, "src/ios/kotlin")
+                    addKotlinSrcDir(it, project.layout.buildDirectory.dir("generated/genericui/launchers/ios/kotlin"))
                     addResourcesSrcDir(it, "src/iosMain/resources")
                     addResourcesSrcDir(it, "src/ios/resources")
                 }
@@ -506,8 +528,17 @@ object GenericUiMultiplatformConfigurator {
             extension = extension,
             mingwTarget = mingwTarget,
             macTargets = listOfNotNull(macArm64Target, macX64Target),
-            linuxTargets = listOfNotNull(linuxX64Target, linuxArm64Target)
+            linuxTargets = listOfNotNull(linuxX64Target, linuxArm64Target),
+            defaultEntryPoint = if (hasMainAppFragment) "$generatedLauncherPackage.main" else ""
         )
+
+        if (backends.iosEnabled) {
+            configureIosFrameworks(
+                project = project,
+                extension = extension,
+                iosTargets = listOfNotNull(iosArm64Target, iosSimArm64Target)
+            )
+        }
 
         // 4. Register Development/Production build target tasks
         registerBuildTargetTasks(project, extension)
@@ -588,9 +619,9 @@ object GenericUiMultiplatformConfigurator {
                     "systemCommon" -> ssContainer?.findByName("systemMain") ?: ssContainer?.findByName("commonMain")
                     "macMain" -> ssContainer?.findByName("macosMain")
                     "linuxCommon" -> ssContainer?.findByName("linuxMain") ?: ssContainer?.findByName("linuxX64Main")
-                    "desktopNativeCommon", "nativeDesktopCommon" ->
-                        ssContainer?.findByName("desktopNativeMain")
-                            ?: ssContainer?.findByName("nativeDesktopMain")
+                    "nativeDesktopCommon", "desktopNativeCommon" ->
+                        ssContainer?.findByName("nativeDesktopMain")
+                            ?: ssContainer?.findByName("desktopNativeMain")
                             ?: ssContainer?.findByName("mingwX64Main")
                     "desktopCommon" -> ssContainer?.findByName("desktopMain") ?: ssContainer?.findByName("commonMain")
                     else -> null
@@ -628,9 +659,9 @@ object GenericUiMultiplatformConfigurator {
                         ?: project.configurations.findByName("desktopNativeMainImplementation")
                         ?: project.configurations.findByName("nativeDesktopMainImplementation")
                         ?: project.configurations.findByName("commonMainImplementation")
-                configName.startsWith("desktopNative") || configName.startsWith("nativeDesktop") ->
-                    project.configurations.findByName("desktopNativeMainImplementation")
-                        ?: project.configurations.findByName("nativeDesktopMainImplementation")
+                configName.startsWith("nativeDesktop") || configName.startsWith("desktopNative") ->
+                    project.configurations.findByName("nativeDesktopMainImplementation")
+                        ?: project.configurations.findByName("desktopNativeMainImplementation")
                         ?: project.configurations.findByName("mingwX64MainImplementation")
                         ?: project.configurations.findByName("commonMainImplementation")
                 configName.startsWith("desktop") ->
@@ -670,10 +701,11 @@ object GenericUiMultiplatformConfigurator {
         extension: GenericUiExtension,
         mingwTarget: Any?,
         macTargets: List<Any>,
-        linuxTargets: List<Any>
+        linuxTargets: List<Any>,
+        defaultEntryPoint: String = ""
     ) {
         val app = extension.application
-        val entryPointStr = app.entryPoint.trim()
+        val entryPointStr = defaultEntryPoint.trim()
         if (!app.createExecutableBinaries || entryPointStr.isEmpty()) {
             return
         }
@@ -760,6 +792,43 @@ object GenericUiMultiplatformConfigurator {
         }
     }
 
+    private fun configureIosFrameworks(
+        project: Project,
+        extension: GenericUiExtension,
+        iosTargets: List<Any>
+    ) {
+        val app = extension.application
+        if (!app.createExecutableBinaries) return
+        val frameworkBaseName = GenericUiGenerateIosAppTask.sanitizeFrameworkName(
+            app.baseName.trim().ifEmpty { project.name }
+        )
+        for (iosTarget in iosTargets) {
+            runCatching {
+                val binaries = invokeNoArg(iosTarget, "getBinaries") ?: return@runCatching
+                val configureAction = Action<Any> {
+                    val fw = this
+                    fw.javaClass.methods.firstOrNull {
+                        it.name == "setBaseName" && it.parameterCount == 1
+                    }?.invoke(fw, frameworkBaseName)
+                }
+                val findFw = binaries.javaClass.methods.firstOrNull {
+                    it.name == "findFramework" && it.parameterCount == 1 && it.parameterTypes[0] == String::class.java
+                }
+                val existingDebug = findFw?.invoke(binaries, "DEBUG")
+                val existingRelease = findFw?.invoke(binaries, "RELEASE")
+                if (existingDebug == null && existingRelease == null) {
+                    binaries.javaClass.methods.firstOrNull {
+                        it.name == "framework" && it.parameterCount == 1 &&
+                            Action::class.java.isAssignableFrom(it.parameterTypes[0])
+                    }?.invoke(binaries, configureAction)
+                } else {
+                    existingDebug?.let { configureAction.execute(it) }
+                    existingRelease?.let { configureAction.execute(it) }
+                }
+            }
+        }
+    }
+
     private fun configureTargetExecutable(
         nativeTarget: Any,
         namePrefix: String?,
@@ -800,31 +869,37 @@ object GenericUiMultiplatformConfigurator {
 
         runCatching {
             if (namePrefix == null) {
-                val existingDebug = binaries.javaClass.methods.firstOrNull {
+                val findExec = binaries.javaClass.methods.firstOrNull {
                     it.name == "findExecutable" && it.parameterCount == 1 && it.parameterTypes[0] == String::class.java
-                }?.invoke(binaries, "DEBUG")
-                if (existingDebug == null) {
+                }
+                val existingDebug = findExec?.invoke(binaries, "DEBUG")
+                val existingRelease = findExec?.invoke(binaries, "RELEASE")
+                if (existingDebug == null && existingRelease == null) {
                     binaries.javaClass.methods.firstOrNull {
                         it.name == "executable" && it.parameterCount == 1 &&
                             Action::class.java.isAssignableFrom(it.parameterTypes[0])
                     }?.invoke(binaries, configureAction)
                 } else {
-                    configureAction.execute(existingDebug)
+                    existingDebug?.let { configureAction.execute(it) }
+                    existingRelease?.let { configureAction.execute(it) }
                 }
             } else {
-                val existingNamed = binaries.javaClass.methods.firstOrNull {
+                val findNamedExec = binaries.javaClass.methods.firstOrNull {
                     it.name == "findExecutable" && it.parameterCount == 2 &&
                         it.parameterTypes[0] == String::class.java &&
                         it.parameterTypes[1] == String::class.java
-                }?.invoke(binaries, namePrefix, "DEBUG")
-                if (existingNamed == null) {
+                }
+                val existingNamedDebug = findNamedExec?.invoke(binaries, namePrefix, "DEBUG")
+                val existingNamedRelease = findNamedExec?.invoke(binaries, namePrefix, "RELEASE")
+                if (existingNamedDebug == null && existingNamedRelease == null) {
                     binaries.javaClass.methods.firstOrNull {
                         it.name == "executable" && it.parameterCount == 2 &&
                             it.parameterTypes[0] == String::class.java &&
                             Action::class.java.isAssignableFrom(it.parameterTypes[1])
                     }?.invoke(binaries, namePrefix, configureAction)
                 } else {
-                    configureAction.execute(existingNamed)
+                    existingNamedDebug?.let { configureAction.execute(it) }
+                    existingNamedRelease?.let { configureAction.execute(it) }
                 }
             }
         }
@@ -855,8 +930,13 @@ object GenericUiMultiplatformConfigurator {
                 group = GenericUiGradlePlugin.TASK_GROUP
                 description = desc
                 dependsOn(project.provider {
-                    val baseTasks = (candidateTaskNames + "compileGenericUiResources").distinct()
-                        .mapNotNull { taskName -> project.tasks.findByName(taskName) }
+                    val baseTasks = (
+                        listOf(
+                            "genericuiValidateApp",
+                            "generateGenericUiLaunchers",
+                            "compileGenericUiResources"
+                        ) + candidateTaskNames
+                    ).distinct().mapNotNull { taskName -> project.tasks.findByName(taskName) }
                     val depBuildTasks = resolveCompanionDependencyBuildTasks(project, extension)
                     baseTasks + depBuildTasks
                 })
@@ -971,23 +1051,42 @@ object GenericUiMultiplatformConfigurator {
         registerTargetTask(
             name = "androidDevelopment",
             desc = "Builds the Android Development target.",
-            candidateTaskNames = listOf("compileAndroidMain", "assembleDebug", "compileDebugKotlinAndroid")
+            candidateTaskNames = listOf(
+                "generateGenericUiAndroidManifest",
+                "generateGenericUiAndroidActivities",
+                "compileAndroidMain",
+                "assembleDebug",
+                "compileDebugKotlinAndroid"
+            )
         )
         registerTargetTask(
             name = "androidProduction",
             desc = "Builds the Android Production target.",
-            candidateTaskNames = listOf("compileAndroidMain", "assembleRelease", "compileReleaseKotlinAndroid")
+            candidateTaskNames = listOf(
+                "generateGenericUiAndroidManifest",
+                "generateGenericUiAndroidActivities",
+                "compileAndroidMain",
+                "assembleRelease",
+                "compileReleaseKotlinAndroid"
+            )
         )
 
         registerTargetTask(
             name = "iosDevelopment",
             desc = "Builds the iOS (UIKit / MoltenVK) Development target.",
-            candidateTaskNames = listOf("compileKotlinIosSimulatorArm64", "compileKotlinIosArm64")
+            candidateTaskNames = listOf(
+                "generateGenericUiIosApp",
+                "compileKotlinIosSimulatorArm64",
+                "compileKotlinIosArm64"
+            )
         )
         registerTargetTask(
             name = "iosProduction",
             desc = "Builds the iOS (UIKit / MoltenVK) Production target.",
-            candidateTaskNames = listOf("compileKotlinIosArm64")
+            candidateTaskNames = listOf(
+                "generateGenericUiIosApp",
+                "compileKotlinIosArm64"
+            )
         )
 
         registerTargetTask(

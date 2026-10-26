@@ -37,6 +37,66 @@ open class GenericUiExtension {
     /** Version string used when resolving GenericUI composite build or Maven coordinates. */
     var version: String = "0.1.0-SNAPSHOT"
 
+    /** Core application identity and metadata (`genericui { app { ... } }`). */
+    val app: GenericUiAppConfig = GenericUiAppConfig()
+
+    /** Top-level window geometry and chrome defaults (`genericui { window { ... } }`). */
+    val windowConfig: GenericUiWindowConfig = GenericUiWindowConfig()
+
+    /** Top-level theme mode and color defaults (`genericui { theme { ... } }`). */
+    val themeConfig: GenericUiThemeConfig = GenericUiThemeConfig()
+
+    /** Variant scope configuration for [GenericUiVariantScope.COMMON]. */
+    val common: GenericUiVariantConfig = GenericUiVariantConfig(GenericUiVariantScope.COMMON)
+
+    /** Variant scope configuration for [GenericUiVariantScope.SYSTEM_COMMON]. */
+    val systemCommon: GenericUiVariantConfig = GenericUiVariantConfig(GenericUiVariantScope.SYSTEM_COMMON)
+
+    /** Variant scope configuration for [GenericUiVariantScope.DESKTOP_COMMON]. */
+    val desktopCommon: GenericUiVariantConfig = GenericUiVariantConfig(GenericUiVariantScope.DESKTOP_COMMON)
+
+    /** Variant scope configuration for [GenericUiVariantScope.NATIVE_DESKTOP_COMMON]. */
+    val nativeDesktopCommon: GenericUiVariantConfig = GenericUiVariantConfig(GenericUiVariantScope.NATIVE_DESKTOP_COMMON)
+
+    /** Deprecated alias for [nativeDesktopCommon]. */
+    @Deprecated("Use nativeDesktopCommon", ReplaceWith("nativeDesktopCommon"))
+    val desktopNativeCommon: GenericUiVariantConfig
+        get() = nativeDesktopCommon
+
+    /** Variant scope configuration for [GenericUiVariantScope.LINUX_COMMON]. */
+    val linuxCommon: GenericUiVariantConfig = GenericUiVariantConfig(GenericUiVariantScope.LINUX_COMMON)
+
+    /** Variant scope configuration for [GenericUiVariantScope.MOBILE_COMMON]. */
+    val mobileCommon: GenericUiVariantConfig = GenericUiVariantConfig(GenericUiVariantScope.MOBILE_COMMON)
+
+    /** Variant scope configuration for [GenericUiVariantScope.WINDOWS]. */
+    val windows: GenericUiVariantConfig = GenericUiVariantConfig(GenericUiVariantScope.WINDOWS)
+
+    /** Variant scope configuration for [GenericUiVariantScope.MACOS]. */
+    val macos: GenericUiVariantConfig = GenericUiVariantConfig(GenericUiVariantScope.MACOS)
+
+    /** Alias for [macos]. */
+    val mac: GenericUiVariantConfig
+        get() = macos
+
+    /** Variant scope configuration for [GenericUiVariantScope.GTK]. */
+    val gtk: GenericUiVariantConfig = GenericUiVariantConfig(GenericUiVariantScope.GTK)
+
+    /** Variant scope configuration for [GenericUiVariantScope.QT]. */
+    val qt: GenericUiVariantConfig = GenericUiVariantConfig(GenericUiVariantScope.QT)
+
+    /** Variant scope configuration for [GenericUiVariantScope.SWING]. */
+    val swing: GenericUiVariantConfig = GenericUiVariantConfig(GenericUiVariantScope.SWING)
+
+    /** Android variant scope configuration (`manifest { ... }`, `services { ... }`, `window { ... }`, `theme { ... }`). */
+    val android: GenericUiAndroidConfig = GenericUiAndroidConfig()
+
+    /** Variant scope configuration for [GenericUiVariantScope.IOS]. */
+    val ios: GenericUiVariantConfig = GenericUiVariantConfig(GenericUiVariantScope.IOS)
+
+    /** Variant scope configuration for [GenericUiVariantScope.WEB]. */
+    val web: GenericUiVariantConfig = GenericUiVariantConfig(GenericUiVariantScope.WEB)
+
     /** Application binary entry point, executable baseName, Windows GUI subsystem, and Android namespace config. */
     val application: GenericUiApplicationConfig = GenericUiApplicationConfig()
 
@@ -133,12 +193,17 @@ open class GenericUiExtension {
         externalTargetsConfiguredCallbacks.add(callback)
     }
 
-    /** Shorthand for [GenericUiApplicationConfig.entryPoint]. */
+    /**
+     * Deprecated legacy shorthand retained only so unmigrated build scripts compile during multi-project evaluation.
+     */
+    @Deprecated(
+        message = "Manual entryPoint is replaced by @MainAppFragment discovery and generated entrypoints."
+    )
+    @Suppress("DEPRECATION")
     var entryPoint: String
         get() = application.entryPoint
         set(value) {
             application.entryPoint = value
-            onConfiguredCallback?.invoke()
         }
 
     /** Shorthand for [GenericUiApplicationConfig.baseName]. */
@@ -430,4 +495,150 @@ open class GenericUiExtension {
     fun testing(action: Action<in GenericUiTestingConfig>) {
         action.execute(testing)
     }
+
+    /** Configures core application identity and metadata (`genericui { app { ... } }`). */
+    fun app(action: Action<in GenericUiAppConfig>) {
+        action.execute(app)
+        if (app.id.isNotBlank()) application.appId = app.id
+        if (app.name.isNotBlank()) application.appName = app.name
+        if (app.versionExplicitlySet && app.version.isNotBlank()) application.appVersion = app.version
+        if (app.description.isNotBlank()) application.description = app.description
+        if (app.vendor.isNotBlank()) application.vendor = app.vendor
+        if (app.packageName.isNotBlank() && application.androidNamespace.isBlank()) {
+            application.androidNamespace = app.packageName
+        }
+        onConfiguredCallback?.invoke()
+    }
+
+    /** Configures top-level window settings (`genericui { window { ... } }`). */
+    fun window(action: Action<in GenericUiWindowConfig>) {
+        action.execute(windowConfig)
+        onConfiguredCallback?.invoke()
+    }
+
+    /** Configures top-level theme mode and primary accent color (`genericui { theme { ... } }`). */
+    fun theme(action: Action<in GenericUiThemeConfig>) {
+        action.execute(themeConfig)
+        themeConfig.color?.takeIf { it.isNotBlank() }?.let { application.themeColor = it }
+        onConfiguredCallback?.invoke()
+    }
+
+    /** Configures the `common` scope (`genericui { common { ... } }`). */
+    fun common(action: Action<in GenericUiVariantConfig>) {
+        action.execute(common)
+        onConfiguredCallback?.invoke()
+    }
+
+    /** Configures the `systemCommon` scope (`genericui { systemCommon { ... } }`). */
+    fun systemCommon(action: Action<in GenericUiVariantConfig>) {
+        action.execute(systemCommon)
+        onConfiguredCallback?.invoke()
+    }
+
+    /** Configures the `desktopCommon` scope (`genericui { desktopCommon { ... } }`). */
+    fun desktopCommon(action: Action<in GenericUiVariantConfig>) {
+        action.execute(desktopCommon)
+        onConfiguredCallback?.invoke()
+    }
+
+    /** Configures the `nativeDesktopCommon` scope (`genericui { nativeDesktopCommon { ... } }`). */
+    fun nativeDesktopCommon(action: Action<in GenericUiVariantConfig>) {
+        action.execute(nativeDesktopCommon)
+        onConfiguredCallback?.invoke()
+    }
+
+    /** Deprecated alias for [nativeDesktopCommon] (`genericui { desktopNativeCommon { ... } }`). */
+    @Deprecated("Use nativeDesktopCommon", ReplaceWith("nativeDesktopCommon(action)"))
+    fun desktopNativeCommon(action: Action<in GenericUiVariantConfig>) {
+        action.execute(nativeDesktopCommon)
+        onConfiguredCallback?.invoke()
+    }
+
+    /** Configures the `linuxCommon` scope (`genericui { linuxCommon { ... } }`). */
+    fun linuxCommon(action: Action<in GenericUiVariantConfig>) {
+        action.execute(linuxCommon)
+        onConfiguredCallback?.invoke()
+    }
+
+    /** Configures the `mobileCommon` scope (`genericui { mobileCommon { ... } }`). */
+    fun mobileCommon(action: Action<in GenericUiVariantConfig>) {
+        action.execute(mobileCommon)
+        onConfiguredCallback?.invoke()
+    }
+
+    /** Configures the `windows` scope (`genericui { windows { ... } }`). */
+    fun windows(action: Action<in GenericUiVariantConfig>) {
+        action.execute(windows)
+        onConfiguredCallback?.invoke()
+    }
+
+    /** Configures the `macos` scope (`genericui { macos { ... } }`). */
+    fun macos(action: Action<in GenericUiVariantConfig>) {
+        action.execute(macos)
+        onConfiguredCallback?.invoke()
+    }
+
+    /** Alias for [macos] (`genericui { mac { ... } }`). */
+    fun mac(action: Action<in GenericUiVariantConfig>) {
+        action.execute(macos)
+        onConfiguredCallback?.invoke()
+    }
+
+    /** Configures the `gtk` scope (`genericui { gtk { ... } }`). */
+    fun gtk(action: Action<in GenericUiVariantConfig>) {
+        action.execute(gtk)
+        onConfiguredCallback?.invoke()
+    }
+
+    /** Configures the `qt` scope (`genericui { qt { ... } }`). */
+    fun qt(action: Action<in GenericUiVariantConfig>) {
+        action.execute(qt)
+        onConfiguredCallback?.invoke()
+    }
+
+    /** Configures the `swing` scope (`genericui { swing { ... } }`). */
+    fun swing(action: Action<in GenericUiVariantConfig>) {
+        action.execute(swing)
+        onConfiguredCallback?.invoke()
+    }
+
+    /** Configures the `android` scope (`genericui { android { manifest { ... }; services { ... }; window { ... } } }`). */
+    fun android(action: Action<in GenericUiAndroidConfig>) {
+        action.execute(android)
+        onConfiguredCallback?.invoke()
+    }
+
+    /** Configures the `ios` scope (`genericui { ios { ... } }`). */
+    fun ios(action: Action<in GenericUiVariantConfig>) {
+        action.execute(ios)
+        onConfiguredCallback?.invoke()
+    }
+
+    /** Configures the `web` scope (`genericui { web { ... } }`). */
+    fun web(action: Action<in GenericUiVariantConfig>) {
+        action.execute(web)
+        onConfiguredCallback?.invoke()
+    }
+
+    /** Returns the [GenericUiVariantConfig] corresponding to [scope]. */
+    fun variantConfigFor(scope: GenericUiVariantScope): GenericUiVariantConfig = when (scope) {
+        GenericUiVariantScope.COMMON -> common
+        GenericUiVariantScope.SYSTEM_COMMON -> systemCommon
+        GenericUiVariantScope.DESKTOP_COMMON -> desktopCommon
+        GenericUiVariantScope.MOBILE_COMMON -> mobileCommon
+        GenericUiVariantScope.NATIVE_DESKTOP_COMMON -> nativeDesktopCommon
+        GenericUiVariantScope.LINUX_COMMON -> linuxCommon
+        GenericUiVariantScope.WINDOWS -> windows
+        GenericUiVariantScope.MACOS -> macos
+        GenericUiVariantScope.GTK -> gtk
+        GenericUiVariantScope.QT -> qt
+        GenericUiVariantScope.SWING -> swing
+        GenericUiVariantScope.ANDROID -> android
+        GenericUiVariantScope.IOS -> ios
+        GenericUiVariantScope.WEB -> web
+    }
+
+    /** Resolves the effective [GenericUiResolvedVariantConfig] for [scope] along its specificity chain. */
+    fun resolveVariantConfig(scope: GenericUiVariantScope): GenericUiResolvedVariantConfig =
+        GenericUiVariantResolver.resolve(this, scope)
 }

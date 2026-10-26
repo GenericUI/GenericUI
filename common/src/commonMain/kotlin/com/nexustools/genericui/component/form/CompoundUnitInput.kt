@@ -7,7 +7,7 @@ import kotlin.math.roundToInt
 
 /**
  * Dual-number compound unit input group (e.g., Feet + Inches with `subdivisionsPerPrimary = 12.0`
- * or Pounds + Ounces with `subdivisionsPerPrimary = 16.0`, matching `DCGame`'s `CharGenStep11`).
+ * or Pounds + Ounces with `subdivisionsPerPrimary = 16.0`).
  */
 open class CompoundUnitInput(
     primaryUnitSuffix: String = "ft.",

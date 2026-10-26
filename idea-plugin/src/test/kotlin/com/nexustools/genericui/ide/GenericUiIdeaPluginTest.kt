@@ -32,6 +32,7 @@ class GenericUiIdeaPluginTest {
         assertFalse(panel.swingLwjglGlCheckbox.isEnabled)
         assertFalse(panel.swingVulkanCheckbox.isEnabled)
         assertTrue(panel.getDslPreviewText().contains("allExceptSwing()"))
+        assertTrue(panel.getDslPreviewText().contains("app {"))
         assertTrue(panel.getDslPreviewText().contains("application {"))
 
         // Preset: Desktop Only (No Swing) / Native Desktop
@@ -74,21 +75,24 @@ class GenericUiIdeaPluginTest {
         val panel = GenericUiTargetCheckboxPanel()
         assertTrue(panel.getSelectedExtensions().isEmpty())
 
-        // Checking THREE_JS should automatically check CANVAS_3D, CANVAS_2D, and GPU
+        // Checking THREE_JS should automatically check CANVAS_3D, OVERLAY, CANVAS_2D, and GPU
         panel.setExtensionSelected(GenericUiExtensionModule.THREE_JS, true)
         assertTrue(panel.isExtensionSelected(GenericUiExtensionModule.THREE_JS))
         assertTrue(panel.isExtensionSelected(GenericUiExtensionModule.CANVAS_3D))
+        assertTrue(panel.isExtensionSelected(GenericUiExtensionModule.OVERLAY))
         assertTrue(panel.isExtensionSelected(GenericUiExtensionModule.CANVAS_2D))
         assertTrue(panel.isExtensionSelected(GenericUiExtensionModule.GPU))
 
-        // Checking AI_CHAT should automatically check CODE_EDITOR and CANVAS_2D
+        // Checking AI_CHAT should automatically check CODE_EDITOR, OVERLAY, and CANVAS_2D
         panel.setExtensionSelected(GenericUiExtensionModule.AI_CHAT, true)
         assertTrue(panel.isExtensionSelected(GenericUiExtensionModule.AI_CHAT))
         assertTrue(panel.isExtensionSelected(GenericUiExtensionModule.CODE_EDITOR))
+        assertTrue(panel.isExtensionSelected(GenericUiExtensionModule.OVERLAY))
         assertTrue(panel.isExtensionSelected(GenericUiExtensionModule.CANVAS_2D))
 
         val preview = panel.getDslPreviewText()
         assertTrue(preview.contains("gpu()"))
+        assertTrue(preview.contains("overlay()"))
         assertTrue(preview.contains("canvas2d()"))
         assertTrue(preview.contains("canvas3d()"))
         assertTrue(preview.contains("codeEditor()"))
@@ -110,10 +114,13 @@ class GenericUiIdeaPluginTest {
         )
         val buildAllExceptSwing = generator.generateBuildGradleKts(allExceptSwingConfig)
         assertFalse(buildAllExceptSwing.contains("kotlin {"))
-        assertTrue(buildAllExceptSwing.contains("entryPoint = \"com.nexustools.studio.main\""))
+        assertFalse(buildAllExceptSwing.contains("entryPoint"))
+        assertTrue(buildAllExceptSwing.contains("id = \"com.nexustools.studio\""))
+        assertTrue(buildAllExceptSwing.contains("name = \"StudioApp\""))
         assertTrue(buildAllExceptSwing.contains("baseName = \"StudioApp\""))
         assertTrue(buildAllExceptSwing.contains("allExceptSwing()"))
         assertTrue(buildAllExceptSwing.contains("gpu()"))
+        assertTrue(buildAllExceptSwing.contains("overlay()"))
         assertTrue(buildAllExceptSwing.contains("media()"))
         assertTrue(buildAllExceptSwing.contains("canvas2d()"))
         assertTrue(buildAllExceptSwing.contains("codeEditor()"))
@@ -169,6 +176,7 @@ class GenericUiIdeaPluginTest {
         assertEquals(
             setOf(
                 GenericUiExtensionModule.GPU,
+                GenericUiExtensionModule.OVERLAY,
                 GenericUiExtensionModule.CANVAS_2D,
                 GenericUiExtensionModule.CANVAS_3D,
                 GenericUiExtensionModule.THREE_JS
@@ -233,16 +241,23 @@ class GenericUiIdeaPluginTest {
             assertTrue(Files.isRegularFile(createdRoot.resolve("settings.gradle.kts")))
             assertTrue(Files.isRegularFile(createdRoot.resolve("build.gradle.kts")))
             assertTrue(Files.isRegularFile(createdRoot.resolve("gradle.properties")))
-            assertTrue(Files.isRegularFile(createdRoot.resolve("src/commonMain/kotlin/com/nexustools/sampleide/Main.kt")))
+            assertFalse(Files.exists(createdRoot.resolve("src/commonMain/kotlin/com/nexustools/sampleide/Main.kt")))
             assertTrue(Files.isRegularFile(createdRoot.resolve("src/commonMain/kotlin/com/nexustools/sampleide/MainFragment.kt")))
             assertTrue(Files.isRegularFile(createdRoot.resolve("src/commonMain/resources/styles/main.scss")))
 
+            val mainFragmentText = Files.readString(createdRoot.resolve("src/commonMain/kotlin/com/nexustools/sampleide/MainFragment.kt"))
+            assertTrue(mainFragmentText.contains("@MainAppFragment"))
+            assertTrue(mainFragmentText.contains("class MainFragment : Fragment()"))
+
             val settingsText = Files.readString(createdRoot.resolve("settings.gradle.kts"))
             assertTrue(settingsText.contains("includeBuild(\"lib/GenericUI\")"))
+            assertTrue(settingsText.contains("id(\"com.nexustools.genericui.settings\")"))
 
             val buildText = Files.readString(createdRoot.resolve("build.gradle.kts"))
             assertFalse(buildText.contains("kotlin {"))
-            assertTrue(buildText.contains("entryPoint = \"com.nexustools.sampleide.main\""))
+            assertFalse(buildText.contains("entryPoint"))
+            assertTrue(buildText.contains("id = \"com.nexustools.sampleide\""))
+            assertTrue(buildText.contains("name = \"SampleDockIde\""))
             assertTrue(buildText.contains("baseName = \"SampleDockIde\""))
 
             // Open Manage Targets Dialog on the scaffolded project and modify checkboxes
@@ -262,6 +277,7 @@ class GenericUiIdeaPluginTest {
             assertTrue(GenericUiTargetBackend.WEB in reloaded.selectedBackends)
             assertTrue(GenericUiExtensionModule.MEDIA in reloaded.selectedExtensions)
             assertTrue(GenericUiExtensionModule.GPU in reloaded.selectedExtensions)
+            assertTrue(GenericUiExtensionModule.OVERLAY in reloaded.selectedExtensions)
         } finally {
             Files.deleteIfExists(tempDir.resolve("lib/GenericUI"))
             deleteDirectorySafe(tempDir)

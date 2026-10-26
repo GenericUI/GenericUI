@@ -6,13 +6,15 @@ import com.nexustools.genericui.component.navigation.BottomNavigationBar
 import com.nexustools.genericui.component.navigation.Navbar
 import com.nexustools.genericui.component.shell.MenuBar
 import com.nexustools.genericui.component.shell.Window
+import com.nexustools.genericui.core.UiTimerScheduler
 import com.nexustools.genericui.enums.fragment.FragmentState
 import com.nexustools.genericui.enums.window.DisplayCutoutMode
+import com.nexustools.genericui.window.IWindow
 import com.nexustools.genericui.window.TitleBar
 import com.nexustools.genericui.window.WindowConfiguration
 
 /**
- * Activity-like lifecycle component extending [Container].
+ * Activity-like lifecycle component extending [Container] and implementing [IFragment].
  *
  * - **1:1 Android `Activity` Compatibility**: Mirrors the full Android `Activity` lifecycle (`onCreate`,
  *   `onStart`, `onResume`, `onPause`, `onStop`, `onDestroy`, `onSaveInstanceState`, `onRestoreInstanceState`,
@@ -22,16 +24,30 @@ import com.nexustools.genericui.window.WindowConfiguration
  *   Top navigation bars (`Navbar`) and other window chrome are completely optional (`null` by default) and
  *   only attach when explicitly configured on the fragment.
  */
-abstract class Fragment : Container("fragment") {
+open class Fragment : Container("fragment"), IFragment {
 
-    var state: FragmentState = FragmentState.INITIALIZED
+    override var state: FragmentState = FragmentState.INITIALIZED
         internal set
 
-    var fragmentHost: FragmentHost? = null
+    override var fragmentHost: FragmentHost? = null
         internal set
 
-    var attachedWindow: Window? = null
+    override var attachedWindow: Window? = null
         internal set
+
+    internal var attachedIWindow: IWindow? = null
+
+    @Suppress("USELESS_CAST")
+    override val hostingWindow: IWindow?
+        get() = attachedIWindow ?: (attachedWindow as? IWindow)
+
+    override var arguments: FragmentBundle? = null
+
+    /** Optional route identifier when hosted inside `FragmentHostSystem` / `FragmentHostFragment`. */
+    open var routeKey: String = ""
+
+    /** Optional display title for window titlebars and navigation bars. */
+    open var pageTitle: String = ""
 
     private var navBar: Navbar? = null
     private var bottomNavigationBar: BottomNavigationBar? = null
@@ -40,75 +56,90 @@ abstract class Fragment : Container("fragment") {
     private var fullscreenMode: Boolean = false
     private var displayCutoutMode: DisplayCutoutMode = DisplayCutoutMode.DEFAULT
 
-    fun setNavBar(navBar: Navbar?) {
+    override fun setNavBar(navBar: Navbar?) {
         this.navBar = navBar
         syncChromeToAttachedWindow()
     }
 
-    fun getNavBar(): Navbar? = navBar
+    override fun getNavBar(): Navbar? = navBar
 
-    fun setBottomNavigationBar(bottomNav: BottomNavigationBar?) {
+    override fun setBottomNavigationBar(bottomNav: BottomNavigationBar?) {
         this.bottomNavigationBar = bottomNav
         syncChromeToAttachedWindow()
     }
 
-    fun getBottomNavigationBar(): BottomNavigationBar? = bottomNavigationBar
+    override fun getBottomNavigationBar(): BottomNavigationBar? = bottomNavigationBar
 
-    fun setMenuBar(menuBar: MenuBar?) {
+    override fun setMenuBar(menuBar: MenuBar?) {
         this.menuBar = menuBar
         syncChromeToAttachedWindow()
     }
 
-    fun getMenuBar(): MenuBar? = menuBar
+    override fun getMenuBar(): MenuBar? = menuBar
 
-    fun setTitleBar(titleBar: TitleBar?) {
+    override fun setTitleBar(titleBar: TitleBar?) {
         this.titleBar = titleBar
         syncChromeToAttachedWindow()
     }
 
-    fun getTitleBar(): TitleBar? = titleBar
+    override fun getTitleBar(): TitleBar? = titleBar
 
-    fun setFullscreen(fullscreen: Boolean, cutoutMode: DisplayCutoutMode = DisplayCutoutMode.SHORT_EDGES) {
+    override fun setFullscreen(fullscreen: Boolean, cutoutMode: DisplayCutoutMode) {
         this.fullscreenMode = fullscreen
         this.displayCutoutMode = cutoutMode
         syncChromeToAttachedWindow()
     }
 
-    fun isFullscreen(): Boolean = fullscreenMode
+    override fun isFullscreen(): Boolean = fullscreenMode
 
-    fun getDisplayCutoutMode(): DisplayCutoutMode = displayCutoutMode
+    override fun getDisplayCutoutMode(): DisplayCutoutMode = displayCutoutMode
 
     internal fun syncChromeToAttachedWindow() {
-        val win = attachedWindow ?: return
-        win.setFullscreen(fullscreenMode, displayCutoutMode)
-        win.setNavBar(if (fullscreenMode) null else navBar)
-        win.setBottomNavigationBar(if (fullscreenMode) null else bottomNavigationBar)
-        if (titleBar != null) {
-            win.setTitleBar(titleBar)
+        val win = attachedWindow ?: (attachedIWindow as? Window)
+        if (win != null) {
+            win.setFullscreen(fullscreenMode, displayCutoutMode)
+            win.setNavBar(if (fullscreenMode) null else navBar)
+            win.setBottomNavigationBar(if (fullscreenMode) null else bottomNavigationBar)
+            if (titleBar != null) {
+                win.setTitleBar(titleBar)
+            }
+            if (menuBar != null) {
+                win.setMenuBar(menuBar)
+            }
+            return
         }
-        if (menuBar != null) {
-            win.setMenuBar(menuBar)
+        val iWin = attachedIWindow ?: return
+        iWin.setFullscreen(fullscreenMode, displayCutoutMode)
+        if (titleBar != null) {
+            iWin.setTitleBar(titleBar)
         }
     }
 
     // 1:1 Android Activity & Cross-Platform Lifecycle Callbacks
-    open fun onCreate(savedState: FragmentBundle?) {}
-    open fun onStart() {}
-    open fun onResume() {}
-    open fun onPause() {}
-    open fun onStop() {}
-    open fun onDestroy() {}
-    open fun onSaveInstanceState(outState: FragmentBundle) {}
-    open fun onRestoreInstanceState(savedState: FragmentBundle) {}
-    open fun onConfigurationChanged(newConfig: WindowConfiguration) {}
-    open fun onBackPressed(): Boolean = false
-    open fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean) {}
-    open fun onWindowFocusChanged(hasFocus: Boolean) {}
+    override fun onCreate(savedState: FragmentBundle?) {}
+    override fun onStart() {}
+    override fun onResume() {}
+    override fun onPause() {}
+    override fun onStop() {}
+    override fun onDestroy() {}
+    override fun onSaveInstanceState(outState: FragmentBundle) {}
+    override fun onRestoreInstanceState(savedState: FragmentBundle) {}
+    override fun onConfigurationChanged(newConfig: WindowConfiguration) {}
+    override fun onBackPressed(): Boolean = false
+    override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean) {}
+    override fun onWindowFocusChanged(hasFocus: Boolean) {}
+
+    // Customizable Transition & Viewport Lifecycle Hooks
+    open fun onBeginEnterTransition(durationMs: Int) {}
+    open fun onActivateEnterTransition(durationMs: Int) {}
+    open fun onBeginExitTransition(durationMs: Int) {}
+    open fun onFinishExitTransition() {}
+    open fun onResize(viewportWidth: Int, viewportHeight: Int) {}
 
     // Reference-counted asynchronous loading state (`loading++` / `loading--`)
     private var loadingCounter: Int = 0
 
-    var loading: Int
+    override var loading: Int
         get() = loadingCounter
         set(value) {
             val next = value.coerceAtLeast(0)
@@ -128,21 +159,21 @@ abstract class Fragment : Container("fragment") {
             }
         }
 
-    val isLoading: Boolean
+    override val isLoading: Boolean
         get() = loadingCounter > 0
 
-    var onLoadingStateChanged: ((isLoading: Boolean, count: Int) -> Unit)? = null
+    override var onLoadingStateChanged: ((isLoading: Boolean, count: Int) -> Unit)? = null
 
-    fun beginLoading() {
+    override fun beginLoading() {
         loading += 1
     }
 
-    fun endLoading() {
+    override fun endLoading() {
         loading = (loading - 1).coerceAtLeast(0)
     }
 
-    open fun onLoadingStart() {}
-    open fun onLoadingFinished() {}
+    override fun onLoadingStart() {}
+    override fun onLoadingFinished() {}
 
     // Lifecycle-scoped timers (automatically cancelled on performDestroy / dispose)
     private class ScopedTimerEntry(
@@ -150,16 +181,17 @@ abstract class Fragment : Container("fragment") {
         val delayMs: Int,
         val repeating: Boolean,
         val callback: () -> Unit,
+        var schedulerTimerId: Int = -1,
         var active: Boolean = true
     )
 
     private var nextTimerId: Int = 1
     private val activeTimers = linkedMapOf<Int, ScopedTimerEntry>()
 
-    val activeTimerCount: Int
+    override val activeTimerCount: Int
         get() = activeTimers.size
 
-    fun setImmediate(block: () -> Unit): Int {
+    override fun setImmediate(block: () -> Unit): Int {
         if (state == FragmentState.DESTROYED) return -1
         val id = nextTimerId++
         val entry = ScopedTimerEntry(id = id, delayMs = 0, repeating = false, callback = block)
@@ -172,53 +204,87 @@ abstract class Fragment : Container("fragment") {
         return id
     }
 
-    fun setTimeout(delayMs: Int, block: () -> Unit): Int {
+    @Suppress("PARAMETER_NAME_CHANGED_ON_OVERRIDE")
+    override fun setTimeout(delayMs: Int, callback: () -> Unit): Int {
         if (state == FragmentState.DESTROYED) return -1
         val id = nextTimerId++
-        val entry = ScopedTimerEntry(id = id, delayMs = delayMs.coerceAtLeast(0), repeating = false, callback = block)
+        val clampedDelay = delayMs.coerceAtLeast(0)
+        val entry = ScopedTimerEntry(id = id, delayMs = clampedDelay, repeating = false, callback = callback)
         activeTimers[id] = entry
-        if (delayMs <= 0 && entry.active && state != FragmentState.DESTROYED) {
+        if (clampedDelay <= 0 && entry.active && state != FragmentState.DESTROYED) {
             activeTimers.remove(id)
             entry.active = false
-            block()
+            callback()
+        } else if (clampedDelay > 0) {
+            entry.schedulerTimerId = UiTimerScheduler.setTimeout(clampedDelay) {
+                triggerTimer(id)
+            }
         }
         return id
     }
 
-    fun setInterval(intervalMs: Int, block: () -> Unit): Int {
+    @Suppress("PARAMETER_NAME_CHANGED_ON_OVERRIDE")
+    override fun setInterval(intervalMs: Int, callback: () -> Unit): Int {
         if (state == FragmentState.DESTROYED) return -1
         val id = nextTimerId++
-        val entry = ScopedTimerEntry(id = id, delayMs = intervalMs.coerceAtLeast(1), repeating = true, callback = block)
+        val clampedInterval = intervalMs.coerceAtLeast(1)
+        val entry = ScopedTimerEntry(id = id, delayMs = clampedInterval, repeating = true, callback = callback)
         activeTimers[id] = entry
+        entry.schedulerTimerId = UiTimerScheduler.setInterval(clampedInterval) {
+            triggerTimer(id)
+        }
         return id
     }
 
-    fun clearTimeout(id: Int) {
-        activeTimers.remove(id)?.active = false
+    @Suppress("PARAMETER_NAME_CHANGED_ON_OVERRIDE")
+    override fun clearTimeout(timerId: Int) {
+        val removed = activeTimers.remove(timerId)
+        if (removed != null) {
+            removed.active = false
+            if (removed.schedulerTimerId > 0) {
+                UiTimerScheduler.clearTimer(removed.schedulerTimerId)
+            }
+        }
+        super.clearTimeout(timerId)
     }
 
-    fun clearInterval(id: Int) {
-        activeTimers.remove(id)?.active = false
+    @Suppress("PARAMETER_NAME_CHANGED_ON_OVERRIDE")
+    override fun clearInterval(timerId: Int) {
+        val removed = activeTimers.remove(timerId)
+        if (removed != null) {
+            removed.active = false
+            if (removed.schedulerTimerId > 0) {
+                UiTimerScheduler.clearTimer(removed.schedulerTimerId)
+            }
+        }
+        super.clearInterval(timerId)
     }
 
-    fun clearAllTimers() {
+    override fun clearAllTimers() {
         for (entry in activeTimers.values) {
             entry.active = false
+            if (entry.schedulerTimerId > 0) {
+                UiTimerScheduler.clearTimer(entry.schedulerTimerId)
+            }
         }
         activeTimers.clear()
+        super.clearAllTimers()
     }
 
     /**
      * Executes a pending timer by [id] if it is still active and this fragment has not been destroyed.
      * Repeating intervals remain registered; one-shot timeouts are removed upon firing.
      */
-    fun triggerTimer(id: Int): Boolean {
+    override fun triggerTimer(id: Int): Boolean {
         if (state == FragmentState.DESTROYED) return false
         val entry = activeTimers[id] ?: return false
         if (!entry.active) return false
         if (!entry.repeating) {
             activeTimers.remove(id)
             entry.active = false
+            if (entry.schedulerTimerId > 0) {
+                UiTimerScheduler.clearTimer(entry.schedulerTimerId)
+            }
         }
         entry.callback()
         return true
@@ -227,7 +293,7 @@ abstract class Fragment : Container("fragment") {
     /**
      * Advances and executes all currently active one-shot timeouts whose `delayMs <= maxDelayMs`.
      */
-    fun flushTimeouts(maxDelayMs: Int = Int.MAX_VALUE): Int {
+    override fun flushTimeouts(maxDelayMs: Int): Int {
         if (state == FragmentState.DESTROYED) return 0
         val dueIds = activeTimers.values
             .filter { it.active && !it.repeating && it.delayMs <= maxDelayMs }
@@ -239,19 +305,19 @@ abstract class Fragment : Container("fragment") {
         return executed
     }
 
-    // Convenience Dialog Helpers (matching DCGame PageController / Context patterns)
-    fun alert(message: String, title: String = "Notice", onDismiss: () -> Unit = {}) {
+    // Convenience Dialog Helpers
+    override fun alert(message: String, title: String, onDismiss: () -> Unit) {
         Dialogs.alert(title = title, message = message, ownerWindow = attachedWindow, onDismiss = onDismiss)
     }
 
-    fun confirm(message: String, title: String = "Confirm", onResult: (Boolean) -> Unit) {
+    override fun confirm(message: String, title: String, onResult: (Boolean) -> Unit) {
         Dialogs.confirm(title = title, message = message, ownerWindow = attachedWindow, onResult = onResult)
     }
 
-    fun prompt(
+    override fun prompt(
         message: String,
-        defaultValue: String = "",
-        title: String = "Input",
+        defaultValue: String,
+        title: String,
         onResult: (String?) -> Unit
     ) {
         Dialogs.prompt(
@@ -263,12 +329,12 @@ abstract class Fragment : Container("fragment") {
         )
     }
 
-    fun promptInt(
+    override fun promptInt(
         message: String,
-        defaultValue: Int = 1,
-        min: Int = 1,
-        max: Int = Int.MAX_VALUE,
-        title: String = "Enter Amount",
+        defaultValue: Int,
+        min: Int,
+        max: Int,
+        title: String,
         onResult: (Int?) -> Unit
     ) {
         prompt(message = message, defaultValue = defaultValue.toString(), title = title) { raw ->
@@ -284,7 +350,16 @@ abstract class Fragment : Container("fragment") {
     internal fun performCreate(savedState: FragmentBundle? = null) {
         if (state == FragmentState.INITIALIZED || state == FragmentState.DESTROYED) {
             state = FragmentState.CREATED
-            onCreate(savedState)
+            val launchArgs = arguments
+            val effectiveBundle = if (launchArgs != null) {
+                FragmentBundle().apply {
+                    putAll(launchArgs)
+                    savedState?.let { putAll(it) }
+                }
+            } else {
+                savedState
+            }
+            onCreate(effectiveBundle)
             if (savedState != null) {
                 onRestoreInstanceState(savedState)
             }

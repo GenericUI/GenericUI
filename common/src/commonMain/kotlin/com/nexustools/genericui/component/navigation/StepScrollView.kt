@@ -13,8 +13,8 @@ import com.nexustools.genericui.enums.bootstrap.TextAlignment
  * Vertical stepper scroll container (`scrollview`) with top `▲` (`selectitemup`) and bottom `▼`
  * (`selectitemdown`) buttons, a clipped [viewport], wrap-around scrolling, and mouse wheel support.
  *
- * Designed for `DCGame`-style item lists (`ScrollView`), overlay association pickers, and
- * single-row vertical wheel selectors (`CharGenVSelectPage`).
+ * Designed for scrollable item lists (`ScrollView`), overlay association pickers, and
+ * single-row vertical wheel selectors ([com.nexustools.genericui.component.fragment.helper.VSelectPageFragment]).
  */
 open class StepScrollView(
     var wrapAround: Boolean = true,

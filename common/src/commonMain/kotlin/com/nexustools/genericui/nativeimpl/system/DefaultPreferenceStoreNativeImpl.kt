@@ -18,7 +18,7 @@ class DefaultPreferenceStoreNativeImpl(
     override var isDisposed: Boolean = false
         private set
 
-    private val entries = LinkedHashMap<String, ByteArray>()
+    private val entries: LinkedHashMap<String, ByteArray> = sharedEntriesForApp(appName)
     private val listeners = mutableListOf<PreferenceChangeListener>()
 
     override fun writeElement(key: String, element: PreferenceElement) {
@@ -74,5 +74,12 @@ class DefaultPreferenceStoreNativeImpl(
         for (listener in snapshot) {
             listener.onPreferenceChanged(appName, key, newValue)
         }
+    }
+
+    companion object {
+        private val storesByApp = LinkedHashMap<String, LinkedHashMap<String, ByteArray>>()
+
+        fun sharedEntriesForApp(appName: String): LinkedHashMap<String, ByteArray> =
+            storesByApp.getOrPut(appName) { LinkedHashMap() }
     }
 }

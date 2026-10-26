@@ -4,13 +4,13 @@ import com.nexustools.genericui.component.content.MasterDetailStepSelect
 import com.nexustools.genericui.component.layout.Container
 
 /**
- * Generic master-detail selector step page (`DCGame`'s `CharGenVHSelectPage<T>`) combining
+ * Generic master-detail selector step page combining
  * [ValidatedStepPageFragment] with a [MasterDetailStepSelect] component.
  */
 abstract class VHSelectPageFragment<T>(
     stepNames: List<String>,
     currentStepOrdinal: Int,
-    titlePrefix: String = "Character Generator"
+    titlePrefix: String = "Step Wizard"
 ) : ValidatedStepPageFragment(stepNames, currentStepOrdinal, titlePrefix) {
 
     val selector: MasterDetailStepSelect = MasterDetailStepSelect()

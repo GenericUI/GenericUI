@@ -4,8 +4,8 @@ package com.nexustools.genericui.event
  * High-precision pointer event (mouse, touch, stylus/pen) with pressure, tilt, button, and modifier flags.
  */
 data class PointerEvent(
-    val x: Float,
-    val y: Float,
+    val x: Float = 0f,
+    val y: Float = 0f,
     val screenX: Float = x,
     val screenY: Float = y,
     val button: Int = 0,

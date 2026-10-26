@@ -6,7 +6,7 @@ import com.nexustools.genericui.enums.bootstrap.TextAlignment
 import kotlin.math.min
 
 /**
- * Centered `.menu` page fragment (`DCGame`'s `MenuPageController`) that wraps page content
+ * Centered `.menu` page fragment that wraps page content
  * inside a centered [menuContainer] (`left: 50%; top: 50%; transform: translate(-50%, -50%)`)
  * and proportionally scales the menu (`scale(s, s)`) on viewport resize when the viewport exceeds
  * the menu's natural dimensions.
@@ -62,7 +62,7 @@ abstract class CenteredMenuPageFragment(
         if (hasClass("created") || hasClass("destroyed")) {
             menuContainer.transform = "translate(-50%, -50%) scale(0, 0)"
         } else {
-            menuContainer.transform = "translate(-50%, -50%)"
+            menuContainer.transform = activeMenuTransform()
         }
         super.onLoadingFinished()
     }
@@ -76,11 +76,7 @@ abstract class CenteredMenuPageFragment(
     override fun onFinishLoadTransition(durationMs: Int) {
         super.onFinishLoadTransition(durationMs)
         menuContainer.transition = "transform ${durationMs}ms ease"
-        menuContainer.transform = if (currentScale > 1.0f) {
-            "translate(-50%, -50%) scale($currentScale, $currentScale)"
-        } else {
-            "translate(-50%, -50%)"
-        }
+        menuContainer.transform = activeMenuTransform()
     }
 
     override fun onBeginUnloadTransition(durationMs: Int) {
@@ -88,6 +84,25 @@ abstract class CenteredMenuPageFragment(
         menuContainer.transition = "transform ${durationMs}ms ease"
         menuContainer.transform = "translate(-50%, -50%) scale(0, 0)"
     }
+
+    override fun onBeginEnterTransition(durationMs: Int) {
+        onBeginLoadTransition(durationMs)
+    }
+
+    override fun onActivateEnterTransition(durationMs: Int) {
+        onFinishLoadTransition(durationMs)
+    }
+
+    override fun onBeginExitTransition(durationMs: Int) {
+        onBeginUnloadTransition(durationMs)
+    }
+
+    private fun activeMenuTransform(): String =
+        if (currentScale > 1.0f) {
+            "translate(-50%, -50%) scale($currentScale, $currentScale)"
+        } else {
+            "translate(-50%, -50%)"
+        }
 
     override fun onResize(viewportWidth: Int, viewportHeight: Int) {
         super.onResize(viewportWidth, viewportHeight)

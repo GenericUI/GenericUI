@@ -130,24 +130,35 @@ abstract class GenericUiDesktopResourceTask : DefaultTask() {
         val defaultPngIcon = GenericUiDefaultIconProvider.ensureDefaultPngIcon(rootDir, defaultIconsDir)
         val defaultIcoIcon = GenericUiDefaultIconProvider.ensureDefaultIcoIcon(rootDir, defaultIconsDir)
 
-        val winIconFile = resolveIconFile(
+        val rawWinIconCandidate = resolveIconFile(
             rootDir,
             windowsIconPath.orNull,
-            fallbackIconPath.orNull,
+            null,
             listOf("icon.ico", "src/windowsMain/resources/icon.ico", "src/commonMain/resources/icon.ico")
-        ) ?: defaultIcoIcon
+        ) ?: resolveIconFile(
+            rootDir,
+            null,
+            fallbackIconPath.orNull,
+            emptyList()
+        )
+        val winIconFile = GenericUiDefaultIconProvider.ensureWindowsIcoFromSourceOrDefault(
+            rawWinIconCandidate,
+            rootDir,
+            defaultIconsDir
+        ).takeIf { it.exists() } ?: defaultIcoIcon
+
         val macIconFile = resolveIconFile(
             rootDir,
             macIconPath.orNull,
             fallbackIconPath.orNull,
-            listOf("icon.icns", "icon.png", "icon.svg", "src/macMain/resources/icon.icns", "src/commonMain/resources/icon.png", "src/commonMain/resources/icon.svg")
+            listOf("icon.icns", "icon.png", "src/macMain/resources/icon.icns", "src/commonMain/resources/icon.png", "icon.svg", "src/commonMain/resources/icon.svg")
         ) ?: defaultPngIcon
         val linuxIconFile = resolveIconFile(
             rootDir,
             linuxIconPath.orNull,
             fallbackIconPath.orNull,
-            listOf("icon.svg", "icon.png", "src/linuxCommon/resources/icon.svg", "src/linuxCommon/resources/icon.png", "src/commonMain/resources/icon.svg", "src/commonMain/resources/icon.png")
-        ) ?: defaultSvgIcon
+            listOf("icon.png", "icon.svg", "src/linuxCommon/resources/icon.png", "src/linuxCommon/resources/icon.svg", "src/commonMain/resources/icon.png", "src/commonMain/resources/icon.svg")
+        ) ?: defaultPngIcon
 
         // Stage runtime assets into outDir/runtime-assets so they can be copied next to executables
         val runtimeAssetsDir = File(outDir, "runtime-assets").apply { mkdirs() }
@@ -342,16 +353,14 @@ abstract class GenericUiDesktopResourceTask : DefaultTask() {
     private fun compileWindowsRcToRes(rcFile: File, resFile: File) {
         val windresExe = findWindresExecutable() ?: return
         val clangExe = findClangPreprocessorExecutable()
-        runCatching {
-            val cmd = mutableListOf(windresExe.absolutePath)
-            if (clangExe != null) {
-                cmd.add("--preprocessor=${clangExe.absolutePath}")
-                cmd.add("--preprocessor-arg=-E")
-                cmd.add("--preprocessor-arg=-xc-header")
-                cmd.add("--preprocessor-arg=-DRC_INVOKED")
-            }
-            cmd.addAll(
-                listOf(
+        if (clangExe != null) {
+            runCatching {
+                val cmd = listOf(
+                    windresExe.absolutePath,
+                    "--preprocessor=${clangExe.absolutePath}",
+                    "--preprocessor-arg=-E",
+                    "--preprocessor-arg=-xc-header",
+                    "--preprocessor-arg=-DRC_INVOKED",
                     "-i",
                     rcFile.absolutePath,
                     "-o",
@@ -359,11 +368,28 @@ abstract class GenericUiDesktopResourceTask : DefaultTask() {
                     "-O",
                     "coff"
                 )
-            )
-            val process = ProcessBuilder(cmd)
-                .redirectErrorStream(true)
-                .start()
-            process.waitFor()
+                val process = ProcessBuilder(cmd)
+                    .redirectErrorStream(true)
+                    .start()
+                process.waitFor()
+            }
+        }
+        if (!resFile.exists() || resFile.length() == 0L) {
+            runCatching {
+                val cmd = listOf(
+                    windresExe.absolutePath,
+                    "-i",
+                    rcFile.absolutePath,
+                    "-o",
+                    resFile.absolutePath,
+                    "-O",
+                    "coff"
+                )
+                val process = ProcessBuilder(cmd)
+                    .redirectErrorStream(true)
+                    .start()
+                process.waitFor()
+            }
         }
     }
 

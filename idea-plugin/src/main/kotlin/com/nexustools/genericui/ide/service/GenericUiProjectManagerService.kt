@@ -66,11 +66,6 @@ class GenericUiProjectManagerService(
         Files.createDirectories(kotlinDir)
 
         Files.writeString(
-            kotlinDir.resolve("Main.kt"),
-            sourceGenerator.generateMainKt(config),
-            StandardCharsets.UTF_8
-        )
-        Files.writeString(
             kotlinDir.resolve("MainFragment.kt"),
             sourceGenerator.generateMainFragmentKt(config),
             StandardCharsets.UTF_8

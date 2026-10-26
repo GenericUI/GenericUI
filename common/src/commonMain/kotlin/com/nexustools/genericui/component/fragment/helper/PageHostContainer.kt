@@ -8,7 +8,7 @@ import com.nexustools.genericui.style.css.CssStyleSheet
 import com.nexustools.genericui.style.css.PrecompiledStyleSheet
 
 /**
- * Root host container for [PageFragment] navigation (`DCGame`'s `Context.navigate` & global `.loader` coordinator).
+ * Root host container for [PageFragment] navigation and global `.loader` coordination.
  *
  * Coordinates:
  * - Window title updates (`"$appTitle - ${page.title}"`).

@@ -1,5 +1,6 @@
 package com.nexustools.genericui.core
 
+import com.nexustools.genericui.enums.system.BackendTarget
 import com.nexustools.genericui.nativeimpl.action.ButtonNativeImpl
 import com.nexustools.genericui.nativeimpl.action.DropdownNativeImpl
 import com.nexustools.genericui.nativeimpl.content.ImageNativeImpl
@@ -41,6 +42,10 @@ import com.nexustools.genericui.nativeimpl.typography.TextNativeImpl
  */
 interface NativeFactory {
     val backendName: String
+
+    /** Platform [BackendTarget] resolved from [backendName] (backends may override with an explicit value). */
+    val backendTarget: BackendTarget
+        get() = BackendTarget.fromBackendName(backendName)
 
     // Shell & Window
     fun createApplication(): ApplicationNativeImpl<*>
@@ -101,6 +106,7 @@ interface NativeFactory {
     fun createTreeView(): TreeViewNativeImpl<*>
 
     // System Services
+    fun createUiTimerScheduler(): UiTimerNativeImpl = DefaultUiTimerNativeImpl()
     fun createPermissionManager(): PermissionManagerNativeImpl
     fun createSystemTray(): SystemTrayNativeImpl
     fun createNotificationManager(): NotificationManagerNativeImpl
@@ -115,4 +121,6 @@ interface NativeFactory {
         appName: String = GenericUI.applicationName,
         subdirectory: String = ""
     ): UserDirectoryNativeImpl = DefaultUserDirectoryNativeImpl(appName, subdirectory, "cache")
+    fun createResourceResolver(): com.nexustools.genericui.resources.ResourceResolverNativeImpl =
+        com.nexustools.genericui.resources.DefaultResourceResolverNativeImpl()
 }

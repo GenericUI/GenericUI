@@ -16,7 +16,8 @@ class TitleBar(
     var customTitleBar: Boolean = true,
     var showMinimizeButton: Boolean = true,
     var showMaximizeButton: Boolean = true,
-    var showCloseButton: Boolean = true
+    var showCloseButton: Boolean = true,
+    var iconPath: String? = null
 ) {
     var htmlTag: String = "genericui:titlebar"
 
@@ -31,27 +32,43 @@ class TitleBar(
     val trailingComponents: List<AbstractComponent>
         get() = _trailingComponents
 
+    internal var activeHostEmbedsComponents: Boolean = false
     internal var onInstructionsChanged: (() -> Unit)? = null
 
+    internal fun markEmbeddedComponentsMounted(mounted: Boolean) {
+        for (c in _leadingComponents) c.mountedInTitleBar = mounted
+        for (c in _centerComponents) c.mountedInTitleBar = mounted
+        for (c in _trailingComponents) c.mountedInTitleBar = mounted
+    }
+
+    fun setHostEmbedsComponents(embeds: Boolean) {
+        activeHostEmbedsComponents = embeds
+        markEmbeddedComponentsMounted(embeds)
+    }
+
     fun addLeading(component: AbstractComponent): TitleBar {
+        component.mountedInTitleBar = activeHostEmbedsComponents
         _leadingComponents.add(component)
         onInstructionsChanged?.invoke()
         return this
     }
 
     fun addCenter(component: AbstractComponent): TitleBar {
+        component.mountedInTitleBar = activeHostEmbedsComponents
         _centerComponents.add(component)
         onInstructionsChanged?.invoke()
         return this
     }
 
     fun addTrailing(component: AbstractComponent): TitleBar {
+        component.mountedInTitleBar = activeHostEmbedsComponents
         _trailingComponents.add(component)
         onInstructionsChanged?.invoke()
         return this
     }
 
     fun clearComponents() {
+        markEmbeddedComponentsMounted(false)
         _leadingComponents.clear()
         _centerComponents.clear()
         _trailingComponents.clear()

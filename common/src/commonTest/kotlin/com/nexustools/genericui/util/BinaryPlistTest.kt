@@ -33,7 +33,7 @@ class BinaryPlistTest {
             height = 1440,
             retinaScale = 2.0,
             maximized = true,
-            recentFiles = listOf("/Users/dev/scene1.hacanvas", "/Users/dev/scene2.hacanvas")
+            recentFiles = listOf("/Users/dev/scene1.svg", "/Users/dev/scene2.svg")
         )
 
         val bplistBytes = BinaryPlist.encode(pref)
@@ -48,7 +48,7 @@ class BinaryPlistTest {
         assertEquals(2.0, decodedElement["retinaScale"]?.asDouble())
         assertEquals(true, decodedElement["maximized"]?.asBoolean())
         assertEquals(
-            listOf("/Users/dev/scene1.hacanvas", "/Users/dev/scene2.hacanvas"),
+            listOf("/Users/dev/scene1.svg", "/Users/dev/scene2.svg"),
             decodedElement["recentFiles"]?.arrayElements?.map { it.asString() }
         )
 

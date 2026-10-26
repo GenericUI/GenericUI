@@ -90,6 +90,9 @@ class GenericUiGradlePlugin : Plugin<Project> {
                 }
             })
             candidateSourceDirs.set(project.provider { extension.resources.sourceDirs.toList() })
+            upstreamResourceManifestPaths.set(project.provider {
+                resolveUpstreamResourceManifestPaths(project)
+            })
             translateForAllBackends.set(project.provider { extension.resources.translateForAllBackends })
             themeColor.set(project.provider { extension.application.desktop.themeColor })
             appName.set(project.provider {
@@ -99,6 +102,227 @@ class GenericUiGradlePlugin : Plugin<Project> {
             })
             kotlinOutputDirectory.set(project.layout.buildDirectory.dir("generated/genericui/resources/kotlin/commonMain"))
             backendOutputDirectory.set(project.layout.buildDirectory.dir("generated/genericui/resources/backends"))
+        }
+
+        val compileWindowsResourcesTask = project.tasks.register(
+            "compileGenericUiWindowsResources",
+            GenericUiCompileWindowsResourcesTask::class.java
+        ) {
+            group = TASK_GROUP
+            description = "Compiles generated Win32 genericui_resources.rc into genericui_resources.res and genericui_resources.o."
+            dependsOn(resourcesTask)
+            windowsResourceDirectory.set(project.layout.buildDirectory.dir("generated/genericui/resources/backends/windows"))
+            rcScriptFile.set(project.layout.buildDirectory.file("generated/genericui/resources/backends/windows/genericui_resources.rc"))
+            outputDirectory.set(project.layout.buildDirectory.dir("generated/genericui/resources/backends/windows/compiled"))
+            outputResFile.set(project.layout.buildDirectory.file("generated/genericui/resources/backends/windows/compiled/genericui_resources.res"))
+            outputObjectFile.set(project.layout.buildDirectory.file("generated/genericui/resources/backends/windows/compiled/genericui_resources.o"))
+        }
+
+        val validateAppTask = project.tasks.register(
+            "genericuiValidateApp",
+            GenericUiValidateAppTask::class.java
+        ) {
+            group = TASK_GROUP
+            description = "Validates @MainAppFragment, @AppFragment, and @AppApplication declarations for all enabled GenericUI backend targets."
+            projectRootPath.set(project.projectDir.absolutePath)
+            extraSourceDirectories.set(project.provider {
+                extension.sourceSets.allSpecs().flatMap { spec ->
+                    spec.kotlinSrcDirs.mapNotNull { dir -> (dir as? File)?.absolutePath ?: (dir as? String) }
+                }
+            })
+            enabledBackendIds.set(project.provider {
+                GenericUiGenerateLaunchersTask.enabledAllBackendScopes(extension.backends).map { it.id }
+            })
+            generatedLauncherPackage.set(project.provider {
+                val discovered = GenericUiFragmentScanner.scanProject(project.projectDir)
+                GenericUiGenerateLaunchersTask.resolveGeneratedLauncherPackage(
+                    extension = extension,
+                    projectGroup = project.group.toString(),
+                    discoveredFragments = discovered
+                )
+            })
+            requireMainAppFragment.set(project.provider { extension.application.createExecutableBinaries })
+            validationReportFile.set(project.layout.buildDirectory.file("generated/genericui/validation/app-validation.txt"))
+        }
+
+        val generateLaunchersTask = project.tasks.register(
+            "generateGenericUiLaunchers",
+            GenericUiGenerateLaunchersTask::class.java
+        ) {
+            group = TASK_GROUP
+            description = "Generates per-backend GenericUiAppDescriptor and launcher main() entrypoints for @MainAppFragment."
+            projectRootPath.set(project.projectDir.absolutePath)
+            extraSourceDirectories.set(project.provider {
+                extension.sourceSets.allSpecs().flatMap { spec ->
+                    spec.kotlinSrcDirs.mapNotNull { dir -> (dir as? File)?.absolutePath ?: (dir as? String) }
+                }
+            })
+            enabledBackendIds.set(project.provider {
+                GenericUiGenerateLaunchersTask.enabledLauncherBackendScopes(extension.backends).map { it.id }
+            })
+            generatedPackageName.set(project.provider {
+                val discovered = GenericUiFragmentScanner.scanProject(project.projectDir)
+                GenericUiGenerateLaunchersTask.resolveGeneratedLauncherPackage(
+                    extension = extension,
+                    projectGroup = project.group.toString(),
+                    discoveredFragments = discovered
+                )
+            })
+            resourcesEnabled.set(project.provider { extension.resources.enabled })
+            resourcePackageName.set(project.provider {
+                val configured = extension.resources.packageName.trim()
+                if (configured.isNotEmpty()) {
+                    configured
+                } else {
+                    val grp = project.group.toString().trim()
+                    if (grp.isNotEmpty() && grp != "unspecified") "$grp.res" else "com.nexustools.genericui.generated.res"
+                }
+            })
+            backendAppIds.set(project.provider {
+                resolveBackendVariantMap(project, extension) { it.appId }
+            })
+            backendAppNames.set(project.provider {
+                resolveBackendVariantMap(project, extension) { it.appName }
+            })
+            backendAppVersions.set(project.provider {
+                resolveBackendVariantMap(project, extension) { it.appVersion }
+            })
+            backendWindowTitles.set(project.provider {
+                resolveBackendVariantMap(project, extension) { it.windowTitle }
+            })
+            backendWindowWidths.set(project.provider {
+                resolveBackendVariantMap(project, extension) { it.windowWidth }
+            })
+            backendWindowHeights.set(project.provider {
+                resolveBackendVariantMap(project, extension) { it.windowHeight }
+            })
+            backendMinWindowWidths.set(project.provider {
+                resolveBackendVariantMap(project, extension) { it.minWindowWidth }
+            })
+            backendMinWindowHeights.set(project.provider {
+                resolveBackendVariantMap(project, extension) { it.minWindowHeight }
+            })
+            backendWindowResizables.set(project.provider {
+                resolveBackendVariantMap(project, extension) { it.windowResizable }
+            })
+            backendFullscreens.set(project.provider {
+                resolveBackendVariantMap(project, extension) { it.fullscreen }
+            })
+            backendThemeModes.set(project.provider {
+                resolveBackendVariantMap(project, extension) { it.themeMode }
+            })
+            backendThemeColors.set(project.provider {
+                resolveBackendVariantMap(project, extension) { it.themeColor }
+            })
+            backendIconPaths.set(project.provider {
+                resolveBackendVariantMap(project, extension) { it.iconPath ?: "" }
+            })
+            backendProviderInstallerCalls.set(project.provider {
+                resolveBackendVariantMap(project, extension) { resolved ->
+                    extension.extensions.providerInstallerCallsForBackend(resolved.targetScope, resolved.extensionOverrides)
+                }
+            })
+            generateVisualWindowsTestHelper.set(project.provider { extension.testing.visualOnWindows })
+            outputDirectory.set(project.layout.buildDirectory.dir("generated/genericui/launchers"))
+        }
+
+        val generateAndroidActivitiesTask = project.tasks.register(
+            "generateGenericUiAndroidActivities",
+            GenericUiGenerateAndroidActivitiesTask::class.java
+        ) {
+            group = TASK_GROUP
+            description = "Generates one concrete AppCompatActivity per Android @MainAppFragment/@AppFragment and GeneratedAndroidApplication."
+            androidEnabled.set(project.provider { extension.backends.androidEnabled })
+            projectRootPath.set(project.projectDir.absolutePath)
+            sourceDirectories.set(project.provider {
+                extension.sourceSets.allSpecs().flatMap { spec ->
+                    spec.kotlinSrcDirs.mapNotNull { dir -> (dir as? File)?.absolutePath ?: (dir as? String) }
+                }
+            })
+            appId.set(project.provider { resolveAndroidVariant(project, extension).appId })
+            appName.set(project.provider { resolveAndroidVariant(project, extension).appName })
+            appVersion.set(project.provider { resolveAndroidVariant(project, extension).appVersion })
+            packageName.set(project.provider { resolveAndroidVariant(project, extension).packageName })
+            windowTitle.set(project.provider { resolveAndroidVariant(project, extension).windowTitle })
+            windowWidth.set(project.provider { resolveAndroidVariant(project, extension).windowWidth })
+            windowHeight.set(project.provider { resolveAndroidVariant(project, extension).windowHeight })
+            minWindowWidth.set(project.provider { resolveAndroidVariant(project, extension).minWindowWidth })
+            minWindowHeight.set(project.provider { resolveAndroidVariant(project, extension).minWindowHeight })
+            windowResizable.set(project.provider { resolveAndroidVariant(project, extension).windowResizable })
+            fullscreen.set(project.provider { resolveAndroidVariant(project, extension).fullscreen })
+            themeMode.set(project.provider { resolveAndroidVariant(project, extension).themeMode })
+            themeColor.set(project.provider { resolveAndroidVariant(project, extension).themeColor })
+            iconPath.set(project.provider { resolveAndroidVariant(project, extension).iconPath ?: "" })
+            providerInstallers.set(project.provider {
+                val resolved = resolveAndroidVariant(project, extension)
+                extension.extensions.providerInstallerCallsForBackend(GenericUiVariantScope.ANDROID, resolved.extensionOverrides)
+            })
+            resourceRegistryInstallerExpression.set(project.provider {
+                if (!extension.resources.enabled) {
+                    ""
+                } else {
+                    val configured = extension.resources.packageName.trim()
+                    val resPkg = if (configured.isNotEmpty()) {
+                        configured
+                    } else {
+                        val grp = project.group.toString().trim()
+                        if (grp.isNotEmpty() && grp != "unspecified") "$grp.res" else "com.nexustools.genericui.generated.res"
+                    }
+                    "$resPkg.GeneratedResourceRegistry.ensureInitialized()"
+                }
+            })
+            outputDirectory.set(project.layout.buildDirectory.dir("generated/genericui/android/kotlin"))
+        }
+
+        val generateAndroidManifestTask = project.tasks.register(
+            "generateGenericUiAndroidManifest",
+            GenericUiGenerateAndroidManifestTask::class.java
+        ) {
+            group = TASK_GROUP
+            description = "Generates AndroidManifest.xml with activities for all discovered Android @MainAppFragment/@AppFragment classes and services."
+            androidEnabled.set(project.provider { extension.backends.androidEnabled })
+            projectRootPath.set(project.projectDir.absolutePath)
+            sourceDirectories.set(project.provider {
+                extension.sourceSets.allSpecs().flatMap { spec ->
+                    spec.kotlinSrcDirs.mapNotNull { dir -> (dir as? File)?.absolutePath ?: (dir as? String) }
+                }
+            })
+            appId.set(project.provider { resolveAndroidVariant(project, extension).appId })
+            appName.set(project.provider { resolveAndroidVariant(project, extension).appName })
+            packageName.set(project.provider { resolveAndroidVariant(project, extension).packageName })
+            applicationClass.set(project.provider { extension.android.manifestConfig.applicationClass })
+            theme.set(project.provider { extension.android.manifestConfig.theme })
+            screenOrientation.set(project.provider { extension.android.manifestConfig.screenOrientation })
+            configChanges.set(project.provider { extension.android.manifestConfig.configChanges })
+            supportsPictureInPicture.set(project.provider { extension.android.manifestConfig.supportsPictureInPicture })
+            permissions.set(project.provider { extension.android.manifestConfig.permissions.toList() })
+            serializedServices.set(project.provider {
+                extension.android.servicesConfig.services.map { GenericUiGenerateAndroidManifestTask.serializeServiceSpec(it) }
+            })
+            outputDirectory.set(project.layout.buildDirectory.dir("generated/genericui/android-manifest"))
+            outputManifestFile.set(project.layout.buildDirectory.file("generated/genericui/android-manifest/AndroidManifest.xml"))
+        }
+
+        val generateIosAppTask = project.tasks.register(
+            "generateGenericUiIosApp",
+            GenericUiGenerateIosAppTask::class.java
+        ) {
+            group = TASK_GROUP
+            description = "Generates the minimal Swift/Xcode iOS host application project (build/genericui/iosApp/)."
+            iosEnabled.set(project.provider { extension.backends.iosEnabled })
+            projectRootPath.set(project.projectDir.absolutePath)
+            baseName.set(project.provider {
+                extension.application.baseName.trim().ifEmpty { project.name }
+            })
+            appName.set(project.provider { resolveIosVariant(project, extension).appName })
+            appId.set(project.provider { resolveIosVariant(project, extension).appId })
+            appVersion.set(project.provider { resolveIosVariant(project, extension).appVersion })
+            frameworkName.set(project.provider {
+                GenericUiGenerateIosAppTask.sanitizeFrameworkName(
+                    extension.application.baseName.trim().ifEmpty { project.name }
+                )
+            })
+            outputDirectory.set(project.layout.buildDirectory.dir("genericui/iosApp"))
         }
 
         val desktopResourcesTask = project.tasks.register(
@@ -240,6 +464,15 @@ class GenericUiGradlePlugin : Plugin<Project> {
             wireTestingModules(project, extension)
             wireOptionalSwingGraphicsDependencies(project, extension)
             wireGeneratedResourceKotlinSources(project, extension, resourcesTask.name)
+            wireGeneratedLauncherAndAndroidSources(
+                project = project,
+                extension = extension,
+                validateAppTaskName = validateAppTask.name,
+                generateLaunchersTaskName = generateLaunchersTask.name,
+                generateAndroidActivitiesTaskName = generateAndroidActivitiesTask.name,
+                generateAndroidManifestTaskName = generateAndroidManifestTask.name,
+                generateIosAppTaskName = generateIosAppTask.name
+            )
             wirePrecompiledSassKotlinSources(project, extension, sassTask.name)
             wireGeneratedWebCssResources(project, extension, sassTask.name)
             wireDesktopResourceTasks(project, desktopResourcesTask.name)
@@ -257,6 +490,108 @@ class GenericUiGradlePlugin : Plugin<Project> {
                 )
             }
         }
+    }
+
+    private fun wireGeneratedLauncherAndAndroidSources(
+        project: Project,
+        extension: GenericUiExtension,
+        validateAppTaskName: String,
+        generateLaunchersTaskName: String,
+        generateAndroidActivitiesTaskName: String,
+        generateAndroidManifestTaskName: String,
+        generateIosAppTaskName: String
+    ) {
+        project.tasks.matching {
+            it.name.startsWith("compile") &&
+                !it.name.startsWith("compileGenericUi") &&
+                (it.name.contains("Kotlin") || it.name.contains("Android"))
+        }.configureEach {
+            dependsOn(validateAppTaskName, generateLaunchersTaskName)
+            if (extension.backends.androidEnabled &&
+                (name.contains("Android", ignoreCase = true) || name == "compileKotlin")
+            ) {
+                dependsOn(generateAndroidActivitiesTaskName, generateAndroidManifestTaskName)
+            }
+            if (extension.backends.iosEnabled && name.contains("Ios", ignoreCase = true)) {
+                dependsOn(generateIosAppTaskName)
+            }
+        }
+    }
+
+    private fun <T> resolveBackendVariantMap(
+        project: Project,
+        extension: GenericUiExtension,
+        selector: (GenericUiResolvedVariantConfig) -> T
+    ): Map<String, T> {
+        val result = linkedMapOf<String, T>()
+        for (backendScope in GenericUiGenerateLaunchersTask.enabledLauncherBackendScopes(extension.backends)) {
+            val resolved = resolveVariantWithProjectFallbacks(project, extension, backendScope)
+            result[backendScope.id] = selector(resolved)
+        }
+        return result
+    }
+
+    private fun resolveAndroidVariant(
+        project: Project,
+        extension: GenericUiExtension
+    ): GenericUiResolvedVariantConfig =
+        resolveVariantWithProjectFallbacks(project, extension, GenericUiVariantScope.ANDROID)
+
+    private fun resolveIosVariant(
+        project: Project,
+        extension: GenericUiExtension
+    ): GenericUiResolvedVariantConfig =
+        resolveVariantWithProjectFallbacks(project, extension, GenericUiVariantScope.IOS)
+
+    private fun resolveVariantWithProjectFallbacks(
+        project: Project,
+        extension: GenericUiExtension,
+        backend: GenericUiVariantScope
+    ): GenericUiResolvedVariantConfig {
+        val base = GenericUiVariantResolver.resolve(extension, backend)
+        val projectGroup = project.group.toString().trim().takeIf { it.isNotEmpty() && it != "unspecified" }
+        val projectVersion = project.version.toString().trim().takeIf { it.isNotEmpty() && it != "unspecified" }
+        val fallbackAppId = if (base.appId == "com.nexustools.genericui.app" && projectGroup != null) {
+            projectGroup
+        } else {
+            base.appId
+        }
+        val fallbackAppName = if (base.appName == "GenericUI" && project.name.isNotBlank()) {
+            project.name
+        } else {
+            base.appName
+        }
+        val fallbackVersion = if (base.appVersion == "1.0.0" && projectVersion != null) {
+            projectVersion
+        } else {
+            base.appVersion
+        }
+        return base.copy(
+            appId = fallbackAppId,
+            appName = fallbackAppName,
+            appVersion = fallbackVersion,
+            packageName = base.packageName.ifBlank { fallbackAppId }
+        )
+    }
+
+    private fun resolveUpstreamResourceManifestPaths(project: Project): List<String> {
+        val paths = linkedSetOf<String>()
+        for (cfg in project.configurations) {
+            for (dep in cfg.dependencies) {
+                if (dep is org.gradle.api.artifacts.ProjectDependency) {
+                    val depPath = dep.path
+                    val otherProj = project.rootProject.findProject(depPath)
+                    if (otherProj != null && otherProj != project) {
+                        val manifestFile = File(
+                            otherProj.layout.buildDirectory.asFile.get(),
+                            "generated/genericui/resources/backends/manifest/genericui-module-resources.json"
+                        )
+                        paths.add(manifestFile.absolutePath)
+                    }
+                }
+            }
+        }
+        return paths.toList()
     }
 
     private fun wireGeneratedResourceKotlinSources(
@@ -286,7 +621,9 @@ class GenericUiGradlePlugin : Plugin<Project> {
             }
         }
         project.tasks.matching {
-            it.name.startsWith("compile") && it.name.contains("Kotlin")
+            it.name.startsWith("compile") &&
+                !it.name.startsWith("compileGenericUi") &&
+                (it.name.contains("Kotlin") || it.name.contains("Android"))
         }.configureEach {
             dependsOn(resourcesTaskName)
         }
@@ -301,7 +638,9 @@ class GenericUiGradlePlugin : Plugin<Project> {
         if (depTasks.isEmpty()) return
 
         project.tasks.matching {
-            (it.name.startsWith("compile") && it.name.contains("Kotlin")) ||
+            (it.name.startsWith("compile") &&
+                !it.name.startsWith("compileGenericUi") &&
+                (it.name.contains("Kotlin") || it.name.contains("Android"))) ||
                 it.name == desktopResourcesTaskName ||
                 it.name.endsWith("ProcessResources", ignoreCase = true) ||
                 it.name == "processResources"
@@ -360,11 +699,14 @@ class GenericUiGradlePlugin : Plugin<Project> {
                     project.dependencies.add(commonConfigName, dep)
                     addDepToEnabledBackendConfigs(project, backends, dep, commonConfigName)
                 }
-                if (backends.requiresSharedSystemModule) {
-                    addBackendModuleDependency(project, ":system:shared", "$extPath:sharedSystem", version, commonConfigName)
+                if (backends.requiresSystemCommonModule) {
+                    addBackendModuleDependency(project, ":systemCommon", "$extPath:systemCommon", version, commonConfigName)
                 }
-                if (backends.requiresSharedDesktopModule) {
-                    addBackendModuleDependency(project, ":desktop:shared", "$extPath:desktop:shared", version, commonConfigName)
+                if (backends.requiresDesktopCommonModule) {
+                    addBackendModuleDependency(project, ":desktop:common", "$extPath:desktop:common", version, commonConfigName)
+                }
+                if (backends.requiresNativeDesktopCommonModule) {
+                    addBackendModuleDependency(project, ":desktop:nativeCommon", "$extPath:desktop:nativeCommon", version, commonConfigName)
                 }
                 val desktopPlatformMap = listOf(
                     Triple(":desktop:windows", backends.windowsEnabled, "$extPath:desktop:windows"),
@@ -377,8 +719,8 @@ class GenericUiGradlePlugin : Plugin<Project> {
                         addBackendModuleDependency(project, backendKey, subPath, version, commonConfigName)
                     }
                 }
-                if (backends.requiresSharedMobileModule) {
-                    addBackendModuleDependency(project, ":mobile:shared", "$extPath:mobile:shared", version, commonConfigName)
+                if (backends.requiresMobileCommonModule) {
+                    addBackendModuleDependency(project, ":mobile:common", "$extPath:mobile:common", version, commonConfigName)
                 }
                 if (backends.androidEnabled) {
                     addBackendModuleDependency(project, ":mobile:android", "$extPath:mobile:android", version, commonConfigName)
@@ -427,13 +769,13 @@ class GenericUiGradlePlugin : Plugin<Project> {
             }
         }
 
-        if (backends.requiresSharedDesktopModule) {
+        if (backends.requiresNativeDesktopCommonModule) {
             addTestDepIfConfigExists(
-                ":tests:desktop:shared",
-                "desktopNativeTestImplementation",
-                "desktopNativeCommonTestImplementation",
+                ":tests:desktop:nativeCommon",
                 "nativeDesktopTestImplementation",
                 "nativeDesktopCommonTestImplementation",
+                "desktopNativeTestImplementation",
+                "desktopNativeCommonTestImplementation",
                 "mingwX64TestImplementation",
                 "linuxX64TestImplementation",
                 "linuxArm64TestImplementation",
@@ -456,9 +798,9 @@ class GenericUiGradlePlugin : Plugin<Project> {
         if (backends.swingConfig.enabled) {
             addTestDepIfConfigExists(":tests:desktop:swing", "swingTestImplementation", "jvmTestImplementation", "testImplementation")
         }
-        if (backends.requiresSharedMobileModule) {
+        if (backends.requiresMobileCommonModule) {
             addTestDepIfConfigExists(
-                ":tests:mobile:shared",
+                ":tests:mobile:common",
                 "mobileCommonTestImplementation",
                 "androidUnitTestImplementation",
                 "iosArm64TestImplementation",
@@ -626,7 +968,9 @@ class GenericUiGradlePlugin : Plugin<Project> {
             }
         }
         project.tasks.matching {
-            it.name.startsWith("compile") && it.name.contains("Kotlin")
+            it.name.startsWith("compile") &&
+                !it.name.startsWith("compileGenericUi") &&
+                (it.name.contains("Kotlin") || it.name.contains("Android"))
         }.configureEach {
             dependsOn(sassTaskName)
         }
@@ -834,16 +1178,16 @@ class GenericUiGradlePlugin : Plugin<Project> {
                     "linuxX64QtImplementation",
                     "linuxArm64QtImplementation"
                 )
-            ":system:shared" ->
+            ":systemCommon", ":system:shared" ->
                 allExisting(
                     "systemCommonImplementation",
                     "systemMainImplementation",
                     "desktopCommonImplementation",
                     "desktopMainImplementation",
-                    "desktopNativeCommonImplementation",
-                    "desktopNativeMainImplementation",
                     "nativeDesktopCommonImplementation",
                     "nativeDesktopMainImplementation",
+                    "desktopNativeCommonImplementation",
+                    "desktopNativeMainImplementation",
                     "mobileCommonImplementation",
                     "mobileMainImplementation",
                     "swingImplementation",
@@ -861,17 +1205,41 @@ class GenericUiGradlePlugin : Plugin<Project> {
                     "iosSimulatorArm64MainImplementation",
                     "iosX64MainImplementation"
                 )
-            ":desktop:shared" ->
+            ":desktop:common" ->
                 allExisting(
-                    "desktopNativeCommonImplementation",
-                    "desktopNativeMainImplementation",
+                    "desktopCommonImplementation",
+                    "desktopMainImplementation",
                     "nativeDesktopCommonImplementation",
                     "nativeDesktopMainImplementation",
+                    "desktopNativeCommonImplementation",
+                    "desktopNativeMainImplementation",
+                    "swingImplementation",
+                    "swingMainImplementation",
+                    "jvmMainImplementation",
                     "mingwX64MainImplementation",
                     "linuxX64MainImplementation",
                     "linuxArm64MainImplementation",
                     "macosX64MainImplementation",
                     "macosArm64MainImplementation"
+                )
+            ":desktop:nativeCommon", ":desktop:shared" ->
+                allExisting(
+                    "nativeDesktopCommonImplementation",
+                    "nativeDesktopMainImplementation",
+                    "desktopNativeCommonImplementation",
+                    "desktopNativeMainImplementation",
+                    "mingwX64MainImplementation",
+                    "linuxX64MainImplementation",
+                    "linuxArm64MainImplementation",
+                    "macosX64MainImplementation",
+                    "macosArm64MainImplementation"
+                )
+            ":desktop:linuxCommon" ->
+                allExisting(
+                    "linuxCommonImplementation",
+                    "linuxMainImplementation",
+                    "linuxX64MainImplementation",
+                    "linuxArm64MainImplementation"
                 )
             ":desktop:swing" ->
                 allExisting("swingImplementation", "swingMainImplementation", "jvmMainImplementation")
@@ -885,7 +1253,7 @@ class GenericUiGradlePlugin : Plugin<Project> {
                     "iosSimulatorArm64MainImplementation",
                     "iosX64MainImplementation"
                 )
-            ":mobile:shared" ->
+            ":mobile:common", ":mobile:shared" ->
                 allExisting(
                     "mobileCommonImplementation",
                     "mobileMainImplementation",
@@ -943,6 +1311,7 @@ class GenericUiGradlePlugin : Plugin<Project> {
             ":extensions:canvas2d",
             ":extensions:canvas3d",
             ":extensions:media",
+            ":extensions:mediacontrols",
             ":extensions:webview",
             ":extensions:alien",
             ":tests"
@@ -953,84 +1322,104 @@ class GenericUiGradlePlugin : Plugin<Project> {
          */
         val KNOWN_GENERICUI_MODULES: Set<String> = setOf(
             ":common",
-            ":desktop:shared",
+            ":systemCommon",
+            ":desktop:common",
+            ":desktop:nativeCommon",
+            ":desktop:linuxCommon",
             ":desktop:qt",
             ":desktop:gtk",
             ":desktop:windows",
             ":desktop:macos",
             ":desktop:swing",
-            ":mobile:shared",
+            ":mobile:common",
             ":mobile:android",
             ":mobile:ios",
             ":web",
             ":extensions:gpu",
             ":extensions:gpu:common",
-            ":extensions:gpu:sharedSystem",
-            ":extensions:gpu:desktop:shared",
+            ":extensions:gpu:systemCommon",
+            ":extensions:gpu:desktop:nativeCommon",
             ":extensions:gpu:desktop:swing",
-            ":extensions:gpu:mobile:shared",
+            ":extensions:gpu:mobile:common",
             ":extensions:gpu:mobile:android",
             ":extensions:gpu:mobile:ios",
             ":extensions:gpu:web",
             ":extensions:imageprocessing",
             ":extensions:imageprocessing:common",
-            ":extensions:imageprocessing:sharedSystem",
+            ":extensions:imageprocessing:systemCommon",
             ":extensions:imageprocessing:web",
+            ":extensions:overlay",
+            ":extensions:overlay:dsl",
             ":extensions:canvas2d",
             ":extensions:canvas2d:common",
-            ":extensions:canvas2d:sharedSystem",
-            ":extensions:canvas2d:desktop:shared",
+            ":extensions:canvas2d:systemCommon",
+            ":extensions:canvas2d:desktop:nativeCommon",
             ":extensions:canvas2d:desktop:windows",
             ":extensions:canvas2d:desktop:macos",
             ":extensions:canvas2d:desktop:gtk",
             ":extensions:canvas2d:desktop:qt",
             ":extensions:canvas2d:desktop:swing",
-            ":extensions:canvas2d:mobile:shared",
+            ":extensions:canvas2d:mobile:common",
             ":extensions:canvas2d:mobile:android",
             ":extensions:canvas2d:mobile:ios",
             ":extensions:canvas2d:web",
             ":extensions:canvas3d",
             ":extensions:canvas3d:common",
-            ":extensions:canvas3d:sharedSystem",
-            ":extensions:canvas3d:desktop:shared",
+            ":extensions:canvas3d:systemCommon",
+            ":extensions:canvas3d:desktop:nativeCommon",
             ":extensions:canvas3d:desktop:windows",
             ":extensions:canvas3d:desktop:macos",
             ":extensions:canvas3d:desktop:gtk",
             ":extensions:canvas3d:desktop:qt",
             ":extensions:canvas3d:desktop:swing",
-            ":extensions:canvas3d:mobile:shared",
+            ":extensions:canvas3d:mobile:common",
             ":extensions:canvas3d:mobile:android",
             ":extensions:canvas3d:mobile:ios",
             ":extensions:canvas3d:web",
             ":extensions:media",
             ":extensions:media:common",
-            ":extensions:media:sharedSystem",
-            ":extensions:media:desktop:shared",
+            ":extensions:media:systemCommon",
+            ":extensions:media:desktop:nativeCommon",
             ":extensions:media:desktop:windows",
             ":extensions:media:desktop:macos",
             ":extensions:media:desktop:gtk",
             ":extensions:media:desktop:qt",
             ":extensions:media:desktop:swing",
-            ":extensions:media:mobile:shared",
+            ":extensions:media:mobile:common",
             ":extensions:media:mobile:android",
             ":extensions:media:mobile:ios",
             ":extensions:media:web",
+            ":extensions:mediacontrols",
+            ":extensions:mediacontrols:common",
+            ":extensions:mediacontrols:systemCommon",
+            ":extensions:mediacontrols:desktop:nativeCommon",
+            ":extensions:mediacontrols:desktop:windows",
+            ":extensions:mediacontrols:desktop:macos",
+            ":extensions:mediacontrols:desktop:gtk",
+            ":extensions:mediacontrols:desktop:qt",
+            ":extensions:mediacontrols:desktop:swing",
+            ":extensions:mediacontrols:mobile:common",
+            ":extensions:mediacontrols:mobile:android",
+            ":extensions:mediacontrols:mobile:ios",
+            ":extensions:mediacontrols:web",
+            ":extensions:mediacontrols:dsl",
             ":extensions:webview",
             ":extensions:webview:common",
-            ":extensions:webview:sharedSystem",
-            ":extensions:webview:desktop:shared",
+            ":extensions:webview:systemCommon",
+            ":extensions:webview:desktop:common",
+            ":extensions:webview:desktop:nativeCommon",
             ":extensions:webview:desktop:windows",
             ":extensions:webview:desktop:macos",
             ":extensions:webview:desktop:gtk",
             ":extensions:webview:desktop:qt",
             ":extensions:webview:desktop:swing",
-            ":extensions:webview:mobile:shared",
+            ":extensions:webview:mobile:common",
             ":extensions:webview:mobile:android",
             ":extensions:webview:mobile:ios",
             ":extensions:webview:web",
             ":extensions:alien",
             ":extensions:alien:common",
-            ":extensions:alien:sharedSystem",
+            ":extensions:alien:systemCommon",
             ":extensions:alien:web",
             ":extensions:alien:dsl",
             ":extensions:aichat",
@@ -1050,13 +1439,13 @@ class GenericUiGradlePlugin : Plugin<Project> {
             ":extensions:dsl",
             ":tests",
             ":tests:common",
-            ":tests:desktop:shared",
+            ":tests:desktop:nativeCommon",
             ":tests:desktop:windows",
             ":tests:desktop:macos",
             ":tests:desktop:gtk",
             ":tests:desktop:qt",
             ":tests:desktop:swing",
-            ":tests:mobile:shared",
+            ":tests:mobile:common",
             ":tests:mobile:android",
             ":tests:mobile:ios",
             ":tests:web"

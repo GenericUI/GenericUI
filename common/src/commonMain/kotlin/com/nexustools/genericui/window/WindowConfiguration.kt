@@ -25,7 +25,7 @@ data class WindowConfiguration(
         get() = !isLandscape
 
     val isTabletOrDesktop: Boolean
-        get() = smallestScreenWidthDp >= 600 || widthPx >= 768
+        get() = smallestScreenWidthDp >= 600
 
     val breakpoint: ResponsiveBreakpoint
         get() = ResponsiveBreakpoint.forWidthPx(widthPx)

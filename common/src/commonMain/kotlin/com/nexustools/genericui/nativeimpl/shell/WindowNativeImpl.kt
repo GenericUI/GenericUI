@@ -7,6 +7,7 @@ import com.nexustools.genericui.enums.window.WindowState
 import com.nexustools.genericui.geometry.Size
 import com.nexustools.genericui.window.PipConfig
 import com.nexustools.genericui.window.TitleBar
+import com.nexustools.genericui.window.TitleCapabilities
 import com.nexustools.genericui.window.WindowConfiguration
 
 /**
@@ -63,4 +64,10 @@ interface WindowNativeImpl<out W> : AbstractContainerNativeImpl<W> {
     ) {}
 
     fun bringToFront() {}
+
+    /**
+     * Titlebar capabilities of this native window on the active backend/OS.
+     * Default: [TitleCapabilities] defaults; backends override with accurate platform values.
+     */
+    fun getTitleCapabilities(): TitleCapabilities = TitleCapabilities()
 }

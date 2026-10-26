@@ -1,18 +1,21 @@
 # GenericUI Master Documentation Index
 
-Welcome to the **`GenericUI`** documentation hub. All documentation across the root repository and its Git submodules (`desktop`, `mobile`, `web`, `extensions`, `tests`, `NJS`) is organized by category and cross-referenced.
+Welcome to the **`GenericUI`** documentation hub. All documentation across the root repository and its submodules (`desktop`, `mobile`, `web`, `extensions`, `tests`, `lib/NJS`) is organized by category and cross-referenced.
 
 ---
 
-## Category 1 — Core Architecture, SourceSets, & UI Components
+## Category 1 — Core Architecture, Fragments, Application, Resources, SourceSets, & UI Components
 
 | Document | Summary |
 | :--- | :--- |
-| [**Core Architecture Guide (`architecture.md`)**](architecture.md) | Deferred Upward `NativeImpl` Resolution, Native-First widget philosophy, 1-Class-Per-File standard, symmetrical 17-subpackage structure, and non-unified canvases. |
-| [**Hierarchical SourceSet Setup (`sourcesets.md`)**](sourcesets.md) | Complete guide to the multi-tier KMP sourceSet tree: `common` $\to$ `web` & `systemCommon` $\to$ `desktopCommon` (`swing`, `desktopNativeCommon` $\to$ `windows`, `mac`, `linuxCommon` $\to$ `gtk`, `qt`) & `mobileCommon` (`android`, `ios`). |
-| [**Components, Fragments, Docking, & Styling (`components-and-docking.md`)**](components-and-docking.md) | 75+ components, `FragmentApplication`, 1:1 Android `Activity`-compatible `Fragment`s, Helper Fragments (`DockWorkspaceFragment`, `OverlayDockWorkspaceFragment`, `AdaptiveSplitTabFragment`), Dual-Mode Bootstrap Enums + SASS/CSS, and `LinearGradient` / `RadialGradient` background styling. |
-| [**Utilities, Binary Codecs, & `PreferenceStore` (`utils.md`)**](utils.md) | Catalog of all GenericUI utilities: `BinaryJson` (`.bson` 1-byte tag + big-endian binary JSON), `BinaryPlist` (`bplist00` `.plist`), cross-platform `PreferenceStore` & `PreferenceObjectCodec`, geometry, color, SASS/CSS, lazy diffing, and platform helpers. |
-| [**Media & Hardware Canvases (`media-and-canvases.md`)**](media-and-canvases.md) | `AbstractCanvas` (`Canvas2D`, `GLCanvas`, `VKCanvas`), `registerVBlankRender` (`deltaMs`), Google ANGLE on Windows, MoltenVK on Apple, and `:extensions:media` VLC HDR video/audio. |
+| [**Core Architecture Guide (`architecture.md`)**](architecture.md) | Multi-tier module hierarchy (`:common`, `:systemCommon`, `:desktop:common`, `:desktop:nativeCommon`, `:desktop:linuxCommon`, `:mobile:common`, `:web`), Deferred Upward `NativeImpl` Resolution, `TitleCapabilities` single-placement rules, and 1-Class-Per-File standard. |
+| [**Fragments & Windows Guide (`fragments-and-windows.md`)**](fragments-and-windows.md) | `@MainAppFragment` & `@AppFragment`, `AppTarget` specificity resolution (`5 -> 0`), `FragmentBundle` CLI args on system targets, `IFragment`, `launchFragment(FragmentClass, LaunchArgs)` & `FragmentLaunchMode`, 1:1 Android `AppCompatActivity` generation, `IWindow` & `TitleCapabilities`, `FragmentHostFragment`, `FragmentHostSystem`, `FadeExpandShrink`, and Web `#hash` + `window.history.state`. |
+| [**Application & `BackendTarget` Guide (`application.md`)**](application.md) | Zero-boilerplate `@MainAppFragment` bootstrapping, optional `@AppApplication`, `BackendTarget` enum & multi-target group checks (`isSystem`, `isDesktop`, `isNativeDesktop`, `isLinux`, `isMobile`, `isApple`, `isUnix`, `isPosix`, `isNative`, `isJvm`, `isTouchPrimary`, `isBrowser`), and `IApplication` capabilities. |
+| [**Resource System Guide (`resources.md`)**](resources.md) | Android-style `Resource` (`Resource.drawable.*`, `Resource.string.*`, `Resource.raw.*`) & `Resource.ResourceID` generation across shared/library modules and translation across all 8 backends (`WebResourceResolverImpl` URLs, `WindowsResourceResolverImpl` embedded `.exe` Win32 `.rc`/`.res`, Android `R.*`, Apple `NSBundle`, GTK `GResource`, Qt `QResource`, Swing JAR classpath). |
+| [**Hierarchical SourceSet Setup (`sourcesets.md`)**](sourcesets.md) | Single-`commonMain` default + optional hierarchical source sets (`commonMain` $\to$ `webMain` & `systemMain` $\to$ `desktopMain` (`swingMain`, `nativeDesktopMain` $\to$ `windowsMain`, `macosMain`, `linuxMain` $\to$ `gtkMain`, `qtMain`) & `mobileMain` (`androidMain`, `iosMain`)). |
+| [**Components, Helper Fragments, Docking, & Styling (`components-and-docking.md`)**](components-and-docking.md) | 75+ components, `FragmentHostFragment`, `DockWorkspaceFragment`, `AdaptiveSplitTabFragment`, `FileBrowserDialog`, true lazy views, Dual-Mode Bootstrap Enums + SASS/CSS, and `LinearGradient` / `RadialGradient` background styling. |
+| [**Utilities, Binary Codecs, & `PreferenceStore` (`utils.md`)**](utils.md) | Catalog of all GenericUI utilities: `BinaryJson` (`.bson`), `BinaryPlist` (`bplist00` `.plist`), cross-platform `PreferenceStore` & `PreferenceObjectCodec`, `UserDirectory` / `ConfigDirectory` / `CacheDirectory`, `UiTimer`, `ResourceID` / `ResourceResolver`, geometry, color, SASS/CSS, and lazy diffing. |
+| [**Media & Hardware Canvases (`media-and-canvases.md`)**](media-and-canvases.md) | Base `:common` Image API, `AbstractCanvas` (`registerVBlankRender` with `deltaMs`), `:extensions:gpu` (Google ANGLE on Windows, MoltenVK on Apple), `:extensions:imageprocessing`, `:extensions:overlay`, `:extensions:canvas2d`, `:extensions:canvas3d`, `:extensions:media`, and `:extensions:mediacontrols`. |
 
 ---
 
@@ -20,25 +23,27 @@ Welcome to the **`GenericUI`** documentation hub. All documentation across the r
 
 | Document | Summary |
 | :--- | :--- |
-| [**Gradle Plugin Guide (`gradle-plugin.md`)**](gradle-plugin.md) | Full reference for `id("com.nexustools.genericui")`: `backends`, `application` (`webIcon` `.svg` preference), `graphics`, `extensions`, `styles` (SASS $\to$ CSS & precompiled Kotlin), `resources` (`R.kt` / `RC.kt`), `sourceSets`, and `packageGenericUiWebDistribution`. |
-| [**IntelliJ IDEA Plugin Guide (`idea-plugin.md`)**](idea-plugin.md) | New Project Wizard and live `Manage GenericUI Targets & Extensions` checkbox dialog (`:idea-plugin`). |
+| [**Gradle Plugin Guide (`gradle-plugin.md`)**](gradle-plugin.md) | Full reference for `id("com.nexustools.genericui")`: `app`, `window`, `theme`, `backends`, `extensions` (including `overlay()` & `mediaControls()`), variant override blocks (`common`, `systemCommon`, `desktopCommon`, `nativeDesktopCommon`, `linuxCommon`, `mobileCommon`, plus per-backend scopes), `android { manifest { ... }; services { ... } }`, `resources`, `sourceSets`, and registered tasks. |
+| [**IntelliJ IDEA Plugin Guide (`idea-plugin.md`)**](idea-plugin.md) | New Project Wizard for single-`commonMain` `@MainAppFragment` projects and live `Manage GenericUI Targets & Extensions` checkbox dialog (`:idea-plugin`). |
 | [**Agent & Developer Rules (`../AGENTS.md`)**](../AGENTS.md) | Authoritative engineering rules and architectural invariants for contributors and AI agents. |
 
 ---
 
-## Category 3 — Platform Backends (8 Targets Across 3 Submodules)
+## Category 3 — Platform Backends (8 Targets Across Common Foundation & 3 Submodules)
 
 - [**Platform Backends Overview (`backends.md`)**](backends.md)
 - [**Desktop Submodule (`../desktop/README.md`)**](../desktop/README.md) *(Zero VLC/media code; all media code is strictly in `:extensions:media`)*:
-  - [`:desktop:shared` — Shared Native Desktop Core (`../desktop/docs/shared.md`)](../desktop/docs/shared.md)
+  - [`:desktop:common` — Pure-Kotlin Desktop Foundation (`../desktop/docs/common.md`)](../desktop/docs/common.md)
+  - [`:desktop:nativeCommon` — Native C/C++/ObjC Desktop Foundation (`../desktop/docs/nativeCommon.md`)](../desktop/docs/nativeCommon.md)
+  - [`:desktop:linuxCommon` — Linux XDG Desktop Foundation (`../desktop/docs/linuxCommon.md`)](../desktop/docs/linuxCommon.md)
   - [`:desktop:windows` — Windows Win32 / Direct2D / ANGLE / Vulkan (`../desktop/docs/windows.md`)](../desktop/docs/windows.md)
   - [`:desktop:macos` — macOS AppKit / CoreGraphics / MoltenVK (`../desktop/docs/macos.md`)](../desktop/docs/macos.md)
   - [`:desktop:gtk` — Linux GTK4 / Cairo / EGL / Vulkan (`../desktop/docs/gtk.md`)](../desktop/docs/gtk.md)
   - [`:desktop:qt` — Linux Qt6 / QPainter / QVulkanWindow (`../desktop/docs/qt.md`)](../desktop/docs/qt.md)
   - [`:desktop:swing` — JVM Swing / Java2D / Optional LWJGL GL & Vulkan (`../desktop/docs/swing.md`)](../desktop/docs/swing.md)
 - [**Mobile Submodule (`../mobile/README.md`)**](../mobile/README.md):
-  - [`:mobile:shared` — Shared Mobile Layout, Gestures, PiP, & Lazy Pool (`../mobile/docs/shared.md`)](../mobile/docs/shared.md)
-  - [`:mobile:android` — Android Material 3 / RecyclerView / SAF / Vulkan (`../mobile/docs/android.md`)](../mobile/docs/android.md)
+  - [`:mobile:common` — Mobile Layout, Gestures, PiP, & Lazy Pool (`../mobile/docs/common.md`)](../mobile/docs/common.md)
+  - [`:mobile:android` — Android 1:1 `AppCompatActivity` Generation / Material 3 / RecyclerView / SAF / Vulkan (`../mobile/docs/android.md`)](../mobile/docs/android.md)
   - [`:mobile:ios` — iOS UIKit / CADisplayLink / UIDocumentPicker / MoltenVK (`../mobile/docs/ios.md`)](../mobile/docs/ios.md)
 - [**Web Submodule (`../web/README.md`)**](../web/README.md):
   - [`:web` — HTML5 DOM / Canvas2D / WebGL2 / WebGPU Backend (`../web/docs/web-backend.md`)](../web/docs/web-backend.md)
@@ -46,17 +51,20 @@ Welcome to the **`GenericUI`** documentation hub. All documentation across the r
 
 ---
 
-## Category 4 — First-Party Extensions (12 Extensions + 9 `:dsl` Submodules)
+## Category 4 — First-Party Extensions (15 Extensions + 9 `:dsl` Submodules)
 
 - [**Extensions Overview (`extensions.md`)**](extensions.md) | [**Extensions Submodule Index (`../extensions/README.md`)**](../extensions/README.md)
-- **GPU, Image Processing, & Canvases**:
+- **GPU, Image Processing, Compositing Overlay, & Canvases**:
   - [`:extensions:gpu` — Cross-Platform Vulkan & OpenGL ES GPU Compute (`../extensions/docs/gpu.md`)](../extensions/docs/gpu.md)
   - [`:extensions:imageprocessing` — Offscreen GPU Filters & Layer Compositor (`../extensions/docs/imageprocessing.md`)](../extensions/docs/imageprocessing.md)
+  - [`:extensions:overlay` — Cross-Platform Translucent GPU/Native Compositing Overlay (`../extensions/docs/overlay.md`)](../extensions/docs/overlay.md)
   - [`:extensions:canvas2d` & `:extensions:canvas2d:dsl` — Extended 2D Canvas & Curve Editor (`../extensions/docs/canvas2d.md`)](../extensions/docs/canvas2d.md)
   - [`:extensions:canvas3d` & `:extensions:canvas3d:dsl` — Extended OpenGL ES & Vulkan Canvases (`../extensions/docs/canvas3d.md`)](../extensions/docs/canvas3d.md)
-- **Multimedia & Embedded Web**:
+- **Multimedia, Media Controls, Embedded Web, & Alien Views**:
   - [`:extensions:media` & `:extensions:media:dsl` — VideoPlayer, AudioPlayer, AudioAnalyzer, & Desktop VLC HDR Engine (`../extensions/docs/media.md`)](../extensions/docs/media.md)
+  - [`:extensions:mediacontrols` — Reusable Transport Bar, Seek Scrubber, & Auto-Hiding OSD (`../extensions/docs/mediacontrols.md`)](../extensions/docs/mediacontrols.md)
   - [`:extensions:webview` & `:extensions:webview:dsl` — Embedded WebView & `:NJS` Bridge (`../extensions/docs/webview.md`)](../extensions/docs/webview.md)
+  - [`:extensions:alien` — Escape-Hatch Raw Platform Widget Wrapper (`../extensions/docs/alien.md`)](../extensions/docs/alien.md)
   - [**`:NJS` — Nexus JavaScript & TypeScript Engine (`../lib/NJS/README.md`)**](../lib/NJS/README.md) | [**NJS Master Docs Index (`../lib/NJS/docs/README.md`)**](../lib/NJS/docs/README.md):
     - [NJS Core Architecture (`../lib/NJS/docs/architecture.md`)](../lib/NJS/docs/architecture.md)
     - [`:NJS:common` — Lexer, Parser, AST, & Bytecode IR (`../lib/NJS/docs/common.md`)](../lib/NJS/docs/common.md)

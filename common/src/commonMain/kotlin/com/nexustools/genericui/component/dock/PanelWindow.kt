@@ -11,6 +11,7 @@ import com.nexustools.genericui.geometry.Rect
 import com.nexustools.genericui.geometry.Size
 import com.nexustools.genericui.nativeimpl.shell.WindowNativeImpl
 import com.nexustools.genericui.window.TitleBar
+import com.nexustools.genericui.window.TitleCapabilities
 
 /**
  * Tool-modal utility window hosting an individual [DockPanel] in Multi-Window Mode
@@ -35,19 +36,42 @@ class PanelWindow(
 ) {
     val isToolModalWindow: Boolean = true
     val hasTaskbarEntry: Boolean = false
-    val isMinimizable: Boolean = false
+    override val isMinimizable: Boolean = false
+    override val isMaximizable: Boolean = false
+    override val isToolWindow: Boolean = true
+    override val isAlwaysOnTop: Boolean = true
     val isAlwaysOnTopOfOwner: Boolean = true
 
     var attachedMainWindow: Window? = null
         private set
 
-    val ownerWindow: Window?
+    override val ownerWindow: Window?
         get() = attachedMainWindow
+
+    override val titleCapabilities: TitleCapabilities
+        get() = super.titleCapabilities.copy(
+            supportsWindowIcon = false,
+            supportsMinimizeButton = false,
+            supportsMaximizeButton = false,
+            isToolWindowTitleBar = true
+        )
 
     init {
         htmlTag = "genericui:panelwindow"
-        val initialTitleBar = (panel?.getTitleBar() ?: TitleBar(showMinimizeButton = false)).apply {
+        windowBounds = Rect(
+            x = initialBounds.x,
+            y = initialBounds.y,
+            width = getWindowSize().width,
+            height = getWindowSize().height
+        )
+        val initialTitleBar = (panel?.getTitleBar() ?: TitleBar(
+            showWindowIcon = false,
+            showMinimizeButton = false,
+            showMaximizeButton = false
+        )).apply {
+            showWindowIcon = false
             showMinimizeButton = false
+            showMaximizeButton = false
         }
         super.setTitleBar(initialTitleBar)
         if (panel != null) {
@@ -63,8 +87,14 @@ class PanelWindow(
     }
 
     override fun setTitleBar(titleBar: TitleBar?) {
-        val resolved = (titleBar ?: TitleBar(showMinimizeButton = false)).apply {
+        val resolved = (titleBar ?: TitleBar(
+            showWindowIcon = false,
+            showMinimizeButton = false,
+            showMaximizeButton = false
+        )).apply {
+            showWindowIcon = false
             showMinimizeButton = false
+            showMaximizeButton = false
         }
         super.setTitleBar(resolved)
     }
@@ -105,7 +135,7 @@ class PanelWindow(
             ?: panel?.resolveActiveFactory()
             ?: GenericUI.activeFactory
 
-    fun hide() {
+    override fun hide() {
         isVisible = false
     }
 

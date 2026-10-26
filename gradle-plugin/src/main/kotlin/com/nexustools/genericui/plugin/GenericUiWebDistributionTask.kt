@@ -919,8 +919,7 @@ genericui\:toolpaletteitem,
 genericui\:colorswatchbox,
 genericui\:breadcrumbitem,
 genericui\:buttongroup,
-genericui\:avatar,
-genericui\:currencypursebar {
+genericui\:avatar {
     display: inline-flex;
     box-sizing: border-box;
 }
@@ -946,7 +945,7 @@ genericui\:toolpalette {
 
         const val NAMESPACE_CSS_SOURCE: String = """genericui\:root, genericui\:component, genericui\:fragment, genericui\:fragment-container, genericui\:scrollfragment, genericui\:container, genericui\:box, genericui\:col, genericui\:scrollview, genericui\:stepscrollview, genericui\:lazylist, genericui\:lazycolumn, genericui\:lazygrid, genericui\:lazygridtree, genericui\:treeview, genericui\:collapsiblepanel, genericui\:accordion, genericui\:accordionitem, genericui\:jumbotron, genericui\:well, genericui\:listgroupitem, genericui\:tabcontainer, genericui\:formgroup, genericui\:radiogroup, genericui\:markdownview, genericui\:alert, genericui\:toast, genericui\:skeletonplaceholder, genericui\:modal, genericui\:popover, genericui\:backdrop, genericui\:dialogwindow, genericui\:dockpanel, genericui\:panelwindow, genericui\:categorizedtreeview, genericui\:menuitem, genericui\:checkmenuitem, genericui\:radiomenuitem, genericui\:menuseparator, genericui\:contextmenu, genericui\:mdidesktop { display: block; box-sizing: border-box; }
 genericui\:window, genericui\:menubar, genericui\:splitpane, genericui\:titlebar, genericui\:statusbar, genericui\:mdicontainer, genericui\:mdiwindow, genericui\:dockworkspace, genericui\:dockarea, genericui\:dockgroup, genericui\:row, genericui\:flexbox, genericui\:hstack, genericui\:vstack, genericui\:lazyrow, genericui\:card, genericui\:listgroup, genericui\:navbar, genericui\:nav, genericui\:sidenav, genericui\:bottomnavigationbar, genericui\:breadcrumb, genericui\:pagination, genericui\:stepper, genericui\:toolbar, genericui\:inputgroup, genericui\:compoundunitinput, genericui\:filedropzone, genericui\:masterdetailstepselect, genericui\:horizontalcarouselselector, genericui\:banner, genericui\:toastcontainer, genericui\:progressbar, genericui\:drawer, genericui\:bottomsheet { display: flex; box-sizing: border-box; }
-genericui\:toolpaletteitem, genericui\:colorswatchbox, genericui\:breadcrumbitem, genericui\:buttongroup, genericui\:avatar, genericui\:currencypursebar { display: inline-flex; box-sizing: border-box; }
+genericui\:toolpaletteitem, genericui\:colorswatchbox, genericui\:breadcrumbitem, genericui\:buttongroup, genericui\:avatar { display: inline-flex; box-sizing: border-box; }
 genericui\:menu, genericui\:tab, genericui\:closeabletab, genericui\:pinnedtab, genericui\:badgetab, genericui\:editabletab, genericui\:dropdown, genericui\:spinner, genericui\:tooltip { display: inline-block; box-sizing: border-box; }
 genericui\:toolpalette { display: grid; box-sizing: border-box; }"""
 
@@ -1038,7 +1037,6 @@ genericui\:toolpalette { display: grid; box-sizing: border-box; }"""
         <element name="avatar" tag="genericui:avatar" componentClass="Avatar" category="content" display="inline-flex" role="img" description="Circular or rounded user/entity avatar with image or initials fallback."/>
         <element name="masterdetailstepselect" tag="genericui:masterdetailstepselect" componentClass="MasterDetailStepSelect" category="content" display="flex" role="region" description="Two-pane master category and detail item selector."/>
         <element name="horizontalcarouselselector" tag="genericui:horizontalcarouselselector" componentClass="HorizontalCarouselSelector" category="content" display="flex" role="region" description="Horizontal card carousel with previous/next selection controls."/>
-        <element name="currencypursebar" tag="genericui:currencypursebar" componentClass="CurrencyPurseBar" category="content" display="inline-flex" role="status" description="Multi-denomination currency or resource balance bar."/>
         <element name="alert" tag="genericui:alert" componentClass="Alert" category="feedback" display="block" role="alert" description="Contextual feedback alert banner."/>
         <element name="banner" tag="genericui:banner" componentClass="Banner" category="feedback" display="flex" role="banner" description="Full-width top announcement or warning banner."/>
         <element name="toast" tag="genericui:toast" componentClass="Toast" category="feedback" display="block" role="status" description="Transient non-modal notification toast."/>

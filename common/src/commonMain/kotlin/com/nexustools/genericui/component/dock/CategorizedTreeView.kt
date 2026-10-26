@@ -5,8 +5,8 @@ import com.nexustools.genericui.core.NativeFactory
 import com.nexustools.genericui.nativeimpl.layout.ContainerNativeImpl
 
 /**
- * Searchable, categorized tree view (used in HAEditor for browsing 121+ GIMP filter presets,
- * layer hierarchies, and shared object libraries).
+ * Searchable, categorized tree view for browsing grouped presets,
+ * layer hierarchies, and component libraries.
  */
 class CategorizedTreeView : AbstractContainer() {
     init {

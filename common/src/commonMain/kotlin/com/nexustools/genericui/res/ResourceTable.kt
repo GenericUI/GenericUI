@@ -1,6 +1,10 @@
 package com.nexustools.genericui.res
 
+import com.nexustools.genericui.image.ImageBuffer
+import com.nexustools.genericui.image.ImageLoader
 import com.nexustools.genericui.style.RgbaColor
+import kotlin.io.encoding.Base64
+import kotlin.io.encoding.ExperimentalEncodingApi
 
 /**
  * In-memory cross-platform resource table populated at startup by the Gradle-generated
@@ -18,6 +22,7 @@ class ResourceTable {
     private val drawables = mutableMapOf<Int, DrawableResource>()
     private val rawTexts = mutableMapOf<Int, String>()
     private val rawBase64 = mutableMapOf<Int, String>()
+    private val rawBytes = mutableMapOf<Int, ByteArray>()
     private val fontPaths = mutableMapOf<Int, String>()
 
     fun registerResourceId(resId: ResourceId) {
@@ -70,6 +75,11 @@ class ResourceTable {
         rawBase64[resId.id] = base64
     }
 
+    fun registerRawBytes(resId: ResourceId, bytes: ByteArray) {
+        registerResourceId(resId)
+        rawBytes[resId.id] = bytes
+    }
+
     fun registerFont(resId: ResourceId, path: String) {
         registerResourceId(resId)
         fontPaths[resId.id] = path
@@ -80,8 +90,11 @@ class ResourceTable {
     fun findResourceId(type: ResourceType, name: String): ResourceId? =
         byTypeAndName[type to normalizeName(name)]
 
+    fun getStringOrNull(resId: ResourceId): String? =
+        strings[resId.id] ?: byTypeAndName[ResourceType.STRING to resId.name]?.let { strings[it.id] }
+
     fun getString(resId: ResourceId): String =
-        strings[resId.id] ?: byTypeAndName[ResourceType.STRING to resId.name]?.let { strings[it.id] } ?: resId.name
+        getStringOrNull(resId) ?: resId.name
 
     fun getString(id: Int): String =
         strings[id] ?: byNumericId[id]?.name ?: ""
@@ -89,14 +102,20 @@ class ResourceTable {
     fun getStringByName(name: String): String? =
         findResourceId(ResourceType.STRING, name)?.let { strings[it.id] }
 
+    fun getColorOrNull(resId: ResourceId): RgbaColor? =
+        colors[resId.id] ?: byTypeAndName[ResourceType.COLOR to resId.name]?.let { colors[it.id] }
+
     fun getColor(resId: ResourceId): RgbaColor =
-        colors[resId.id] ?: byTypeAndName[ResourceType.COLOR to resId.name]?.let { colors[it.id] } ?: RgbaColor.BLACK
+        getColorOrNull(resId) ?: RgbaColor.BLACK
 
     fun getColorByName(name: String): RgbaColor? =
         findResourceId(ResourceType.COLOR, name)?.let { colors[it.id] }
 
+    fun getDimenOrNull(resId: ResourceId): Float? =
+        dimens[resId.id] ?: byTypeAndName[ResourceType.DIMEN to resId.name]?.let { dimens[it.id] }
+
     fun getDimen(resId: ResourceId): Float =
-        dimens[resId.id] ?: byTypeAndName[ResourceType.DIMEN to resId.name]?.let { dimens[it.id] } ?: 0f
+        getDimenOrNull(resId) ?: 0f
 
     fun getInteger(resId: ResourceId): Int =
         integers[resId.id] ?: byTypeAndName[ResourceType.INTEGER to resId.name]?.let { integers[it.id] } ?: 0
@@ -116,10 +135,61 @@ class ResourceTable {
     fun getRawBase64(resId: ResourceId): String? =
         rawBase64[resId.id] ?: byTypeAndName[ResourceType.RAW to resId.name]?.let { rawBase64[it.id] }
 
+    fun getRawBytes(resId: ResourceId): ByteArray? {
+        rawBytes[resId.id]?.let { return it }
+        byTypeAndName[resId.type to resId.name]?.let { matched ->
+            rawBytes[matched.id]?.let { return it }
+        }
+        getRawBase64(resId)?.let { b64 ->
+            decodeBase64Safe(b64)?.let { return it }
+        }
+        getRawText(resId)?.let { txt ->
+            return txt.encodeToByteArray()
+        }
+        getDrawable(resId)?.let { drawable ->
+            drawable.base64Data?.let { b64 ->
+                decodeBase64Safe(b64)?.let { return it }
+            }
+            drawable.svgSource?.let { svg ->
+                return svg.encodeToByteArray()
+            }
+        }
+        return null
+    }
+
+    fun getBytes(resId: ResourceId): ByteArray? = getRawBytes(resId)
+
+    fun getUrl(resId: ResourceId): String {
+        val registered = byNumericId[resId.id]
+            ?: byTypeAndName[resId.type to resId.name]
+            ?: resId
+        val rel = registered.relativePath.trim()
+        if (rel.isNotEmpty()) {
+            val fileName = rel.substringAfterLast('/')
+            if (fileName.isNotEmpty()) {
+                return "assets/${registered.type.directoryName}/$fileName"
+            }
+        }
+        return registered.toResourceUri()
+    }
+
+    fun getImageBuffer(resId: ResourceId): ImageBuffer? {
+        val bytes = getRawBytes(resId) ?: return null
+        if (bytes.isEmpty()) return null
+        return ImageLoader.loadFromBytes(bytes)
+    }
+
     fun getFontPath(resId: ResourceId): String? =
         fontPaths[resId.id] ?: byTypeAndName[ResourceType.FONT to resId.name]?.let { fontPaths[it.id] }
 
     fun allDrawables(): Collection<DrawableResource> = drawables.values
+
+    @OptIn(ExperimentalEncodingApi::class)
+    private fun decodeBase64Safe(base64: String): ByteArray? = try {
+        Base64.decode(base64.trim())
+    } catch (_: Throwable) {
+        null
+    }
 
     companion object {
         fun normalizeName(raw: String): String =
