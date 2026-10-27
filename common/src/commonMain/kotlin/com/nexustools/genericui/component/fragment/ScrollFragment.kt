@@ -2,6 +2,7 @@ package com.nexustools.genericui.component.fragment
 
 import com.nexustools.genericui.core.NativeFactory
 import com.nexustools.genericui.core.NativeImpl
+import com.nexustools.genericui.enums.bootstrap.OverflowBehavior
 import com.nexustools.genericui.nativeimpl.layout.ScrollViewNativeImpl
 
 /**
@@ -21,7 +22,7 @@ open class ScrollFragment : Fragment() {
 
     init {
         htmlTag = "genericui:scrollfragment"
-        addClass("overflow-auto")
+        getBootstrap().overflow = OverflowBehavior.AUTO
         addClass("scroll-fragment")
     }
 

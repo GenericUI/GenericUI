@@ -217,6 +217,9 @@ class GenericUiGradlePlugin : Plugin<Project> {
             backendIconPaths.set(project.provider {
                 resolveBackendVariantMap(project, extension) { it.iconPath ?: "" }
             })
+            backendGlobalStyleSheets.set(project.provider {
+                resolveBackendVariantMap(project, extension) { it.globalStyleSheet ?: "" }
+            })
             backendProviderInstallerCalls.set(project.provider {
                 resolveBackendVariantMap(project, extension) { resolved ->
                     extension.extensions.providerInstallerCallsForBackend(resolved.targetScope, resolved.extensionOverrides)
@@ -253,6 +256,7 @@ class GenericUiGradlePlugin : Plugin<Project> {
             themeMode.set(project.provider { resolveAndroidVariant(project, extension).themeMode })
             themeColor.set(project.provider { resolveAndroidVariant(project, extension).themeColor })
             iconPath.set(project.provider { resolveAndroidVariant(project, extension).iconPath ?: "" })
+            globalStyleSheet.set(project.provider { resolveAndroidVariant(project, extension).globalStyleSheet ?: "" })
             providerInstallers.set(project.provider {
                 val resolved = resolveAndroidVariant(project, extension)
                 extension.extensions.providerInstallerCallsForBackend(GenericUiVariantScope.ANDROID, resolved.extensionOverrides)
@@ -660,6 +664,8 @@ class GenericUiGradlePlugin : Plugin<Project> {
         }
         val fallbackDirs = listOf(
             "src/commonMain/resources/styles",
+            "src/commonMain/resources/style",
+            "src/commonMain/resources/css",
             "src/commonMain/resources",
             "src/webMain/resources/styles",
             "src/webMain/resources",

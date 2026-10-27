@@ -38,9 +38,11 @@ class Phase2CodegenAndAndroidTasksTest {
                 size(1280, 720)
             }
             theme {
-                mode = "dark"
                 color = "#0d6efd"
             }
+        }
+        ext.styles {
+            globalStyleSheet = "styles/studio.scss"
         }
         ext.windows {
             window {
@@ -102,6 +104,10 @@ class Phase2CodegenAndAndroidTasksTest {
         )
         val xmlDir = File(resRoot, "xml").apply { mkdirs() }
         File(xmlDir, "app_config.xml").writeText("<config version=\"1\"/>")
+        val stylesDir = File(resRoot, "styles").apply { mkdirs() }
+        File(stylesDir, "studio.scss").writeText(".studio-shell { background-color: @color/brand_primary; }")
+        val cursorsDir = File(resRoot, "cursors").apply { mkdirs() }
+        File(cursorsDir, "crosshair.svg").writeText("<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\"><path d=\"M12 2L12 22M2 12L22 12\"/></svg>")
 
         // 1. Validate app
         val validateTask = project.tasks.getByName("genericuiValidateApp") as GenericUiValidateAppTask
@@ -124,8 +130,12 @@ class Phase2CodegenAndAndroidTasksTest {
         val winDescriptorText = winDescriptor.readText()
         assertTrue(winDescriptorText.contains("windowTitle = \"Studio Windows\""))
         assertTrue(winDescriptorText.contains("windowWidth = 1600"))
+        assertTrue(winDescriptorText.contains("themeMode = \"auto\""))
+        assertTrue(winDescriptorText.contains("globalStyleSheetPath = \"styles/studio.scss\""))
+        assertTrue(winDescriptorText.contains("app.addStyleSheet(\"styles/studio.scss\")"))
         assertTrue(winDescriptorText.contains("mainFragmentClass = com.example.studio.DesktopAndWebMainFragment::class"))
         assertTrue(winDescriptorText.contains("WindowsMediaControlsProvider.register()"))
+        assertTrue(winMain.readText().contains("app.addStyleSheet(\"styles/studio.scss\")"))
         assertTrue(winMain.readText().contains("WindowsLauncher.launch(args, GeneratedWindowsAppDescriptor.create())"))
 
         val webDescriptor = File(launchersRoot, "web/kotlin/com/example/studio/generated/GeneratedWebAppDescriptor.kt")
@@ -155,6 +165,9 @@ class Phase2CodegenAndAndroidTasksTest {
         assertTrue(mobileMainActivityFile.readText().contains("class MobileMainFragmentActivity : GenericUiFragmentActivity()"))
         assertTrue(prefsActivityFile.readText().contains("class PreferencesFragmentActivity : GenericUiFragmentActivity()"))
         val androidAppText = androidAppFile.readText()
+        assertTrue(androidAppText.contains("themeMode = \"auto\""))
+        assertTrue(androidAppText.contains("globalStyleSheetPath = \"styles/studio.scss\""))
+        assertTrue(androidAppText.contains("app.addStyleSheet(\"styles/studio.scss\")"))
         assertTrue(androidAppText.contains("AndroidActivityRegistry.register(fragmentClass = com.example.studio.MobileMainFragment::class, activityClass = com.example.studio.MobileMainFragmentActivity::class.java, isMain = true)"))
         assertTrue(androidAppText.contains("AndroidActivityRegistry.register(fragmentClass = com.example.studio.PreferencesFragment::class, activityClass = com.example.studio.PreferencesFragmentActivity::class.java, isMain = false)"))
 
@@ -194,8 +207,18 @@ class Phase2CodegenAndAndroidTasksTest {
         assertTrue(resourceKtText.contains("val app_title: ResourceID"))
         assertTrue(resourceKtText.contains("val brand_primary: ResourceID"))
         assertTrue(resourceKtText.contains("val app_config: ResourceID"))
+        assertTrue(resourceKtText.contains("object style"))
+        assertTrue(resourceKtText.contains("val studio: ResourceID"))
+        val rKtText = File(ktResDir, "com/example/studio/res/R.kt").readText()
+        assertTrue(rKtText.contains("object style"))
+        assertTrue(rKtText.contains("val studio: ResourceId"))
 
         val backendResDir = resTask.backendOutputDirectory.get().asFile
+        val winCurFile = File(backendResDir, "windows/cursors/crosshair.cur")
+        assertTrue(winCurFile.isFile, "Expected Windows .cur cursor file to be generated")
+        val curBytes = winCurFile.readBytes()
+        assertTrue(curBytes.size > 22, "Expected non-empty .cur binary")
+        assertEquals(2, (curBytes[2].toInt() and 0xFF) or ((curBytes[3].toInt() and 0xFF) shl 8), "Expected ICONDIR idType == 2 (.cur)")
         assertTrue(File(backendResDir, "web/assets/drawable/logo.png").isFile, "Expected Web drawable asset")
         assertTrue(File(backendResDir, "web/assets/xml/app_config.xml").isFile, "Expected Web xml asset")
         assertTrue(File(backendResDir, "manifest/genericui-module-resources.json").isFile, "Expected module resource manifest")

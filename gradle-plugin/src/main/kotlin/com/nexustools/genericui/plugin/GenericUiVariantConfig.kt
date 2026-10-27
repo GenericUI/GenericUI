@@ -16,6 +16,12 @@ open class GenericUiVariantConfig(val scope: GenericUiVariantScope) {
     var icon: String? = null
     var title: String? = null
     var themeColor: String? = null
+    var styleSheet: String? = null
+    var globalStyleSheet: String?
+        get() = styleSheet
+        set(value) {
+            styleSheet = value
+        }
     val extensionOverrides: MutableMap<String, Boolean> = linkedMapOf()
 
     /** Configures window geometry, title, resizability, fullscreen, and icon for this scope. */
@@ -36,6 +42,11 @@ open class GenericUiVariantConfig(val scope: GenericUiVariantScope) {
     /** Sets the primary theme color for this scope. */
     fun themeColor(color: String) {
         this.themeColor = color
+    }
+
+    /** Sets the global stylesheet path for this scope. */
+    fun styleSheet(path: String) {
+        this.styleSheet = path
     }
 
     /**

@@ -1,7 +1,7 @@
 # GenericUI Gradle Plugin Guide (`:gradle-plugin`)
 
 > **Root Repository**: [**GenericUI (`../README.md`)**](../README.md) | **Master Docs Index**: [**`docs/README.md`**](./README.md)  
-> **Related Guides**: [Fragments & Windows (`fragments-and-windows.md`)](./fragments-and-windows.md) · [Resources (`resources.md`)](./resources.md) · [Application (`application.md`)](./application.md) · [SourceSets (`sourcesets.md`)](./sourcesets.md) · [Platform Backends (`backends.md`)](./backends.md) · [Extensions (`extensions.md`)](./extensions.md)
+> **Related Guides**: [Fragments & Windows (`fragments-and-windows.md`)](./fragments-and-windows.md) · [Hybrid Layouts & Helpers (`layouts-and-helpers.md`)](./layouts-and-helpers.md) · [Resources (`resources.md`)](./resources.md) · [Application & Theming (`application.md`)](./application.md) · [SourceSets (`sourcesets.md`)](./sourcesets.md) · [Platform Backends (`backends.md`)](./backends.md) · [Extensions (`extensions.md`)](./extensions.md)
 
 The `:gradle-plugin` module provides `id("com.nexustools.genericui")` (and the companion settings plugin `id("com.nexustools.genericui.settings")`) to build complete multiplatform applications from a **single `src/commonMain` source set** with zero per-backend boilerplate.
 
@@ -53,8 +53,9 @@ genericui {
     }
 
     theme {
-        mode = "DARK"       // "LIGHT", "DARK", or "SYSTEM"
+        mode = "auto"       // "auto" (default, ThemeMode.AUTO), "dark" (ThemeMode.DARK), or "light" (ThemeMode.LIGHT)
         color = "#2563EB"   // Propagated to Web meta/PWA, Android colors.xml, Apple AccentColor, Win32 .rc, Linux .desktop
+        styleSheet = "styles/main.scss" // Optional global stylesheet automatically attached via app.addStyleSheet(...)
     }
 
     // 3. Target Platform Backends
@@ -153,10 +154,13 @@ genericui {
         enableVlcHardwareDecode = true
     }
 
-    // 9. SASS / CSS Compilation Pipeline
+    // 9. SASS / CSS Compilation & Build-Time PrecompiledStyleSheet Pipeline
     styles {
         compileSass = true
+        generateWebCss = true
+        precompileToKotlin = true
         sourceDir = "src/commonMain/resources/styles"
+        globalStyleSheet = "styles/main.scss" // Automatically emits app.addStyleSheet(...) in generated main()
         minify = false
         includeBootstrapVariables = true
     }
@@ -218,8 +222,8 @@ For each enabled backend, [`GenericUiVariantResolver`](../gradle-plugin/src/main
 | Task Name | Implementation Class | Description |
 | :--- | :--- | :--- |
 | `genericuiValidateApp` | `GenericUiValidateAppTask` | Validates `@MainAppFragment` and `@AppFragment` classes across all enabled targets, verifying specificity resolution and checking for conflicting `@MainAppFragment` declarations. |
-| `generateGenericUiLaunchers` | `GenericUiGenerateLaunchersTask` | Generates per-target launcher entry points, `GenericUiAppDescriptor` objects, `FragmentRegistry` registrations, provider registrations, and visual test runners under `build/generated/genericui/<target>/kotlin`. |
-| `generateGenericUiResources`<br/>`compileGenericUiResources` | `GenericUiGenerateResourcesTask`<br/>`GenericUiResourceCompilerTask` | Generates `<package>.Resource` (`Resource.ResourceID`), `R`, and `RC`, and translates `drawable/`, `values/`, `raw/`, `font/`, and `xml/` resources across all enabled backends. |
+| `generateGenericUiLaunchers` | `GenericUiGenerateLaunchersTask` | Generates per-target launcher entry points, `GenericUiAppDescriptor` objects, `FragmentRegistry` registrations, provider registrations, automatic `app.addStyleSheet(...)` calls when `globalStyleSheet` is set, and visual test runners under `build/generated/genericui/<target>/kotlin`. |
+| `generateGenericUiResources`<br/>`compileGenericUiResources` | `GenericUiGenerateResourcesTask`<br/>`GenericUiResourceCompilerTask` | Generates `<package>.Resource` (`Resource.ResourceID`, including `Resource.style.<name>`), `R`, and `RC`, precompiles `.scss` into typed `PrecompiledStyleSheet` (`CompiledStyleRule`) objects on non-web and `.css` on `:web`, synthesizes Windows `.cur` cursor binaries, and translates `drawable/`, `values/`, `raw/`, `font/`, and `xml/` resources across all enabled backends. |
 | `compileGenericUiWindowsResources` | `GenericUiCompileWindowsResourcesTask` | Generates Win32 `.rc` and header files (`GenericUiWin32RcGenerator`), compiles them via `windres` into COFF `.res`, and links them into the Windows `.exe`. |
 | `generateGenericUiAndroidResources` | `GenericUiGenerateAndroidResourcesTask` | Translates and generates Android `res/` directories (`drawable/`, `mipmap-*/`, `values/*.xml`, `raw/`, `font/`, `xml/`). |
 | `generateGenericUiAndroidActivities` | `GenericUiGenerateAndroidActivitiesTask` | Generates 1:1 `AppCompatActivity` subclasses (`<FragmentName>Activity : GenericUiFragmentActivity()`) for every `@MainAppFragment` and `@AppFragment` applicable to Android. |

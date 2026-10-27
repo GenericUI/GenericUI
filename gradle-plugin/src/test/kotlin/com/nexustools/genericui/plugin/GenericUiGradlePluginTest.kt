@@ -181,6 +181,10 @@ class GenericUiGradlePluginTest {
         assertTrue(generatedKt.contains("package com.example.styles"))
         assertTrue(generatedKt.contains("object StylePrecompiledStyleSheet : PrecompiledStyleSheet"))
         assertTrue(generatedKt.contains("override val cssResourcePath: String = \"style.css\""))
+        assertTrue(generatedKt.contains("override val compiledRules: List<CompiledStyleRule>"))
+        assertTrue(generatedKt.contains("CompiledStyleRule("))
+        assertTrue(generatedKt.contains("ComponentStyle().apply"))
+        assertTrue(generatedKt.contains("StyleSheetRegistry.register(name, cssResourcePath, this)"))
         assertTrue(generatedKt.contains("CssStyleSheet.precompiled("))
         assertTrue(generatedKt.contains("selector = \".page\""))
         assertTrue(generatedKt.contains("selector = \".page .menu\""))
@@ -205,7 +209,21 @@ class GenericUiGradlePluginTest {
 
         val resourcesDir = java.io.File(project.projectDir, "src/commonMain/resources")
         val stylesSubDir = java.io.File(resourcesDir, "styles")
+        val valuesSubDir = java.io.File(resourcesDir, "values")
+        val drawableSubDir = java.io.File(resourcesDir, "drawable")
         stylesSubDir.mkdirs()
+        valuesSubDir.mkdirs()
+        drawableSubDir.mkdirs()
+
+        java.io.File(valuesSubDir, "colors.xml").writeText(
+            """
+            <resources>
+                <color name="brand_primary">#2563eb</color>
+                <dimen name="card_pad">16dp</dimen>
+            </resources>
+            """.trimIndent()
+        )
+        java.io.File(drawableSubDir, "hero_bg.svg").writeText("<svg xmlns=\"http://www.w3.org/2000/svg\"></svg>")
 
         java.io.File(resourcesDir, "_tokens.scss").writeText("\$brand-bg: #112233;\n")
         java.io.File(resourcesDir, "style.scss").writeText(
@@ -214,7 +232,9 @@ class GenericUiGradlePluginTest {
             body {
                 background: ${'$'}brand-bg;
                 .hero {
-                    color: #ffffff;
+                    color: @color/brand_primary;
+                    background-image: url("@drawable/hero_bg");
+                    padding: @dimen/card_pad;
                 }
             }
             """.trimIndent()
@@ -247,6 +267,9 @@ class GenericUiGradlePluginTest {
 
         val styleCssContent = rootStyleCss.readText()
         assertTrue(styleCssContent.contains("#112233"), "Compiled web style.css should resolve imported SASS variables")
+        assertTrue(styleCssContent.contains("#2563eb"), "Compiled web style.css should resolve @color/brand_primary")
+        assertTrue(styleCssContent.contains("assets/drawable/hero_bg.svg"), "Compiled web style.css should resolve @drawable/hero_bg to web asset URL")
+        assertTrue(styleCssContent.contains("16px"), "Compiled web style.css should resolve @dimen/card_pad")
         assertTrue(styleCssContent.contains("body .hero"), "Compiled web style.css should flatten nested SASS selectors")
         assertTrue(rootAppCss.readText().contains("#ff6600"), "Compiled web app.css should resolve SASS variables")
         assertTrue(rootAppCss.readText().contains("genericui\\:root .card"), "Compiled web app.css should escape genericui:<tag> selectors")

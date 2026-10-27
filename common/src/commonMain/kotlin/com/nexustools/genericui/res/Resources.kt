@@ -44,6 +44,9 @@ object Resources {
 
     fun getFontPath(resId: ResourceId): String = activeTable.getFontPath(resId) ?: resId.relativePath
 
+    fun getStyleSheet(resId: ResourceId): com.nexustools.genericui.style.css.PrecompiledStyleSheet? =
+        activeTable.getStyleSheet(resId)
+
     /**
      * Resolves a string that may be a `@string/name` or `res://string/name` reference.
      */

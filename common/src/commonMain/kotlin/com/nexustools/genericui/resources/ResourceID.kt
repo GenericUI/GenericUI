@@ -45,3 +45,8 @@ fun ResourceID.getImageBuffer(): ImageBuffer? =
 /** Resolves this [ResourceID] as a [DrawableResource] via [ResourceResolver.getDrawable]. */
 fun ResourceID.getDrawable(): DrawableResource? =
     ResourceResolver.getDrawable(this)
+
+/** Resolves this [ResourceID] as a [com.nexustools.genericui.style.css.PrecompiledStyleSheet] via [ResourceResolver.getStyleSheet]. */
+fun ResourceID.getStyleSheet(): com.nexustools.genericui.style.css.PrecompiledStyleSheet? =
+    ResourceResolver.getStyleSheet(this)
+

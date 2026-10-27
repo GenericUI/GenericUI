@@ -160,7 +160,8 @@ class CommonComponentsTest {
     fun testScrollFragmentStateAndEvents() {
         val scrollFragment = object : ScrollFragment() {}
         assertEquals("genericui:scrollfragment", scrollFragment.htmlTag)
-        assertTrue(scrollFragment.hasClass("overflow-auto"))
+        assertEquals(com.nexustools.genericui.enums.bootstrap.OverflowBehavior.AUTO, scrollFragment.getBootstrap().overflow)
+        assertTrue(!scrollFragment.hasClass("overflow-auto"))
         assertTrue(scrollFragment.hasClass("scroll-fragment"))
 
         var observedX = -1

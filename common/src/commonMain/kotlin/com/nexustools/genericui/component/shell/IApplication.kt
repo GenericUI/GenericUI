@@ -9,6 +9,9 @@ import com.nexustools.genericui.core.NativeFactory
 import com.nexustools.genericui.enums.fragment.FragmentLaunchMode
 import com.nexustools.genericui.enums.system.BackendTarget
 import com.nexustools.genericui.enums.ui.ThemeMode
+import com.nexustools.genericui.resources.ResourceID
+import com.nexustools.genericui.style.css.PrecompiledStyleSheet
+import com.nexustools.genericui.style.theme.SystemThemeDetector
 import com.nexustools.genericui.window.IWindow
 import com.nexustools.genericui.window.TitleBar
 import com.nexustools.genericui.window.TitleCapabilities
@@ -147,7 +150,7 @@ interface IApplication : Disposable {
     val supportsHardwareGpuAcceleration: Boolean
         get() = true
 
-    // Content, Chrome, Fragment & Theme Management
+    // Content, Chrome, Fragment, StyleSheet & Theme Management
     fun setContent(container: Container)
     fun getContent(): Container?
     fun setMenuBar(menuBar: MenuBar?)
@@ -156,8 +159,67 @@ interface IApplication : Disposable {
     fun getTitleBar(): TitleBar?
     fun setThemeMode(mode: ThemeMode)
     fun getThemeMode(): ThemeMode
+    fun setTheme(theme: ThemeMode) = setThemeMode(theme)
+    fun getTheme(): ThemeMode = getThemeMode()
+    fun getResolvedTheme(): ThemeMode = SystemThemeDetector.resolveTheme(getTheme())
+    fun addThemeChangeListener(listener: (ThemeMode) -> Unit) {}
+    fun removeThemeChangeListener(listener: (ThemeMode) -> Unit) {}
     fun setThemeColor(colorHex: String?)
     fun getThemeColor(): String?
+
+    /**
+     * Registers and activates a global precompiled stylesheet by its source file path
+     * (e.g., `"styles/app.scss"` or `"app.css"`).
+     */
+    fun addStyleSheet(styleSheetPath: String) {}
+
+    /**
+     * Registers and activates a global precompiled stylesheet by its compiled [ResourceID]
+     * (e.g., `R.style.app_theme`).
+     */
+    fun addStyleSheet(styleSheetResourceId: ResourceID) {}
+
+    /**
+     * Registers and activates a [PrecompiledStyleSheet] instance on the application.
+     */
+    fun addStyleSheet(styleSheet: PrecompiledStyleSheet) {}
+
+    /**
+     * Removes a previously added global stylesheet by its source file path.
+     *
+     * @return `true` if the stylesheet was active and removed.
+     */
+    fun removeStyleSheet(styleSheetPath: String): Boolean = false
+
+    /**
+     * Removes a previously added global stylesheet by its [ResourceID].
+     *
+     * @return `true` if the stylesheet was active and removed.
+     */
+    fun removeStyleSheet(styleSheetResourceId: ResourceID): Boolean = false
+
+    /**
+     * Removes a previously added [PrecompiledStyleSheet] instance.
+     *
+     * @return `true` if the stylesheet was active and removed.
+     */
+    fun removeStyleSheet(styleSheet: PrecompiledStyleSheet): Boolean = false
+
+    /** Returns `true` if a stylesheet with [styleSheetPath] is currently active on this application. */
+    fun hasStyleSheet(styleSheetPath: String): Boolean = false
+
+    /** Returns `true` if a stylesheet with [styleSheetResourceId] is currently active on this application. */
+    fun hasStyleSheet(styleSheetResourceId: ResourceID): Boolean = false
+
+    /** Returns `true` if [styleSheet] is currently active on this application. */
+    fun hasStyleSheet(styleSheet: PrecompiledStyleSheet): Boolean =
+        hasStyleSheet(styleSheet.sourcePath) || getStyleSheets().any { it === styleSheet || it.sourcePath == styleSheet.sourcePath }
+
+    /** Returns the ordered list of currently active [PrecompiledStyleSheet] instances on this application. */
+    fun getStyleSheets(): List<PrecompiledStyleSheet> = emptyList()
+
+    /** Returns the ordered list of source file paths for all active stylesheets on this application. */
+    fun getStyleSheetPaths(): List<String> = emptyList()
 
     /** Launches [fragmentClass] into [mainWindow] (see [IWindow.launchFragment]). */
     fun <T : IFragment> launchFragment(

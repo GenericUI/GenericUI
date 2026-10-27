@@ -1,19 +1,20 @@
 # `:gradle-plugin` — GenericUI Gradle Plugin (`com.nexustools.genericui`)
 
 ## Overview
-`:gradle-plugin` implements the `com.nexustools.genericui` Gradle plugin, which enables GenericUI's **Single-`commonMain` Consumer Architecture**. Consumer projects write 100% of their application code in `src/commonMain/kotlin` and `src/commonMain/resources`, while the plugin automatically generates all platform launchers, Android manifests and `AppCompatActivity` subclasses, compiled native/mobile/web resource bundles, web Wasm/JS splash loaders, and visual test runners.
+`:gradle-plugin` implements the `com.nexustools.genericui` Gradle plugin, which powers GenericUI's **Single-`commonMain` Consumer Architecture**, **Build-Time `.scss` Precompilation (`SassKotlinPrecompiler`)**, **Windows `.cur` Custom Cursor Generation (`WindowsCurResourceGenerator`)**, and **8-Backend Launcher & Resource Compilation Pipeline**.
 
 ---
 
-## Plugin Architecture & Tasks
+## Plugin Architecture & Key Tasks
 
 | Class | Package | Responsibility |
 |-------|---------|----------------|
-| `GenericUiPlugin` | `com.nexustools.genericui.gradle` | Registers the `genericui { ... }` DSL extension and wires code/resource generation tasks into Kotlin Multiplatform target compilations |
-| `GenericUiExtension` | `com.nexustools.genericui.gradle` | Type-safe DSL configuring `applicationId`, `appName`, `version`, `window { ... }`, `android { manifest { ... } services { ... } }`, `web { ... }`, and `testing { visualOnWindows = ... }` |
-| `GenericUiGenerateLaunchersTask` | `com.nexustools.genericui.gradle` | Scans `src/commonMain/kotlin` for `@MainAppFragment` and `@AppFragment` annotations and generates platform launchers (`WindowsLauncher`, `MacosLauncher`, `GtkLauncher`, `QtLauncher`, `SwingLauncher`, `AndroidLauncher` + 1:1 `AppCompatActivity` subclasses + `AndroidManifest.xml`, `IosLauncher`, `WebLauncher`, and `GeneratedWindowsVisualTestLauncher`) |
-| `GenericUiCompileResourcesTask` | `com.nexustools.genericui.gradle` | Compiles `src/commonMain/resources/` (`values/strings.xml`, `values-<lang>/strings.xml`, `values/colors.xml`, `values/dimens.xml`, `values/themes.xml`, `layout/*.xml`, `drawable/*`, `raw/*`, `font/*`) into typed `R.kt` accessors and native platform resource formats |
-| `GenericUiGenerateSplashTask` | `com.nexustools.genericui.gradle` | Generates `index.html` and `genericui-loader.js` (Wasm-first with JS fallback and animated splash screen) for `:web` targets |
+| `GenericUiGradlePlugin` | `com.nexustools.genericui.plugin` | Registers the `genericui { ... }` DSL extension and wires code, stylesheet, cursor, and resource generation tasks into Kotlin Multiplatform target compilations |
+| `GenericUiExtension` | `com.nexustools.genericui.plugin` | Type-safe DSL configuring `app { ... }`, `backends { ... }`, `window { ... }`, `theme { mode = "auto" \| "dark" \| "light" }`, `styles { globalStyleSheet = "..." }`, `android { manifest { ... } services { ... } }`, `extensions { ... }`, and `testing { visualOnWindows = ... }` |
+| `GenericUiSassCompileTask` & `SassKotlinPrecompiler` | `com.nexustools.genericui.plugin` | Compiles `.scss` / `.sass` / `.css` files in `src/commonMain/resources/**` into typed `PrecompiledStyleSheet` (`CompiledStyleRule`) `.kt` objects for non-web targets and `.css` bundles for `:web`, registering each stylesheet as `ResourceType.STYLE` (`R.style.<name>` / `Resource.style.<name>`) |
+| `WindowsCurResourceGenerator` | `com.nexustools.genericui.plugin` | Converts `.png` and `.svg` cursor assets at build time into valid Windows `.cur` binary files (`ICONDIR` `idType = 2`, `ICONDIRENTRY` `wXHotSpot` & `wYHotSpot`, 32-bit BGRA DIB + 1-bpp AND mask) under `backends/windows/cursors/<name>.cur` |
+| `GenericUiGenerateLaunchersTask` & `GenericUiGenerateAndroidActivitiesTask` | `com.nexustools.genericui.plugin` | Scans `src/commonMain/kotlin` for `@MainAppFragment` and `@AppFragment` annotations and generates platform launchers (`WindowsLauncher`, `MacosLauncher`, `GtkLauncher`, `QtLauncher`, `SwingLauncher`, `GeneratedAndroidApplication` + 1:1 `AppCompatActivity` subclasses + `AndroidManifest.xml`, `IosLauncher`, `WebLauncher`, and `GeneratedWindowsVisualTestLauncher`), automatically emitting `app.addStyleSheet(...)` and `app.setTheme(...)` when configured |
+| `GenericUiCompileResourcesTask` | `com.nexustools.genericui.plugin` | Compiles `src/commonMain/resources/` (`values/strings.xml`, `values-<lang>/strings.xml`, `values/colors.xml`, `values/dimens.xml`, `values/themes.xml`, `styles/*.scss`, `layout/*.xml`, `drawable/*`, `raw/*`, `font/*`) into typed `R.kt` / `Resource.kt` accessors and native platform resource bundles |
 
 ---
 
@@ -21,19 +22,40 @@
 
 ```kotlin
 plugins {
-    kotlin("multiplatform")
     id("com.nexustools.genericui")
 }
 
 genericui {
-    applicationId = "com.example.myapp"
-    appName = "My App"
-    version = "1.0.0"
+    app {
+        id = "com.example.myapp"
+        name = "My App"
+        version = "1.0.0"
+    }
+
+    backends {
+        all()
+    }
 
     window {
         width = 1280
         height = 800
         resizable = true
+    }
+
+    theme {
+        mode = "auto" // "auto" (default), "dark", or "light"
+    }
+
+    styles {
+        compileSass = true
+        precompileToKotlin = true
+        generateWebCss = true
+        globalStyleSheet = "styles/main.scss"
+    }
+
+    extensions {
+        dsl()
+        alien()
     }
 
     android {
@@ -54,13 +76,6 @@ genericui {
         }
     }
 
-    web {
-        splashTitle = "My App"
-        splashSubtitle = "Initializing WebAssembly UI..."
-        accentColor = "#3B82F6"
-        backgroundColor = "#0F172A"
-    }
-
     testing {
         visualOnWindows = false
     }
@@ -69,35 +84,36 @@ genericui {
 
 ---
 
-## Annotation-Driven Launcher Generation (`GenericUiGenerateLaunchersTask`)
+## Build-Time `.scss` Precompilation (`SassKotlinPrecompiler`) & `IApplication.addStyleSheet`
 
-`GenericUiGenerateLaunchersTask` discovers the single `@MainAppFragment` class and all `@AppFragment(id = "...")` classes in `src/commonMain/kotlin` and generates:
+1. **`ResourceType.STYLE` (`R.style.<name>` / `Resource.style.<name>`)**:
+   - Every `.scss`, `.sass`, or `.css` file placed in `src/commonMain/resources/styles/` (or any subdirectory of `src/commonMain/resources/`) is registered as `ResourceType.STYLE` and exposed as `R.style.<name>` / `Resource.style.<name>`.
+2. **Non-Web Precompilation to `PrecompiledStyleSheet`**:
+   - `GenericUiSassCompileTask` (`SassKotlinPrecompiler`) parses variables, nested selectors, pseudo-classes (`:hover`, `:focus`, `:active`, `:disabled`, `:checked`), `!important` flags, transitions, custom cursors (`cursor: url("@drawable/...") x y, pointer`), and `@color/...`, `@drawable/...`, `@dimen/...`, `@font/...`, and `@string/...` resource references at build time.
+   - Emits a generated `<Name>PrecompiledStyleSheet` object implementing `PrecompiledStyleSheet` in `build/generated/genericui/kotlin/com/nexustools/genericui/generated/styles/` and registers it in `StyleSheetRegistry` so zero SASS/CSS text parsing occurs at runtime.
+3. **Web Compilation to `.css`**:
+   - Emits standard `.css` files into `build/generated/genericui/web-css/styles/<name>.css` and bundles them into the `:web` distribution, where `WebStyleSheetManager` links them via `<link rel="stylesheet" href="styles/<name>.css">` in `document.head`.
+4. **Automatic Startup Wiring in Generated Launchers**:
+   - When `styles { globalStyleSheet = "styles/main.scss" }` (or `theme { styleSheet = "styles/main.scss" }`) is configured, `GenericUiGenerateLaunchersTask` and `GenericUiGenerateAndroidActivitiesTask` (`Generated<Target>LauncherMain.kt`, `Generated<Target>AppDescriptor.kt`, `GeneratedAndroidApplication.kt`) automatically emit `app.addStyleSheet(...)` at startup.
+   - At runtime, applications can dynamically attach or detach stylesheets via `app.addStyleSheet(R.style.main)` and `app.removeStyleSheet(R.style.main)`.
 
-1. **Windows (`mingwX64Main`)**: Calls `WindowsLauncher.launch(...)` and registers `@AppFragment` factories with `WindowsAppFragmentLauncher`.
-2. **macOS (`macosX64Main`, `macosArm64Main`)**: Calls `MacosLauncher.launch(...)`.
-3. **Linux GTK (`linuxX64Main`)**: Calls `GtkLauncher.launch(...)`.
-4. **Linux Qt (`linuxX64Main`)**: Calls `QtLauncher.launch(...)`.
-5. **JVM Swing (`jvmMain`)**: Generates `@file:JvmName("GeneratedSwingMain")` calling `SwingLauncher.launch(...)`.
-6. **Android (`androidMain` + `AndroidManifest.xml`)**:
-   - Generates `AndroidManifest.xml` with permissions, features, metadata, services, `GenericUiGeneratedApplication`, and an `<activity>` entry for every `@MainAppFragment` and `@AppFragment`.
-   - Generates a dedicated `<FragmentName>Activity : GenericUiFragmentActivity()` subclass for each `@MainAppFragment` and `@AppFragment`, registered in `AndroidActivityRegistry` so `launchFragment(...)` starts the corresponding `AppCompatActivity` via Android `Intent`.
-7. **iOS (`iosX64Main`, `iosArm64Main`, `iosSimulatorArm64Main`)**: Generates `GeneratedIosMain` calling `IosLauncher.createRootViewController(...)` and `IosLauncher.launch(...)`.
-8. **Web (`jsMain`, `wasmJsMain`)**: Calls `WebLauncher.launch(...)`, wiring `WebFragmentHistoryBridge` for `#hash` and `window.history.state` navigation.
-9. **Windows Visual Test Runner (`mingwX64Test`)**: Generates `GeneratedWindowsVisualTestLauncher` when `testing.visualOnWindows` is enabled.
+---
+
+## Build-Time Windows `.cur` Cursor Generation (`WindowsCurResourceGenerator`)
+
+During `compileGenericUiResources`, `WindowsCurResourceGenerator` converts `.png` and `.svg` cursor assets into standards-compliant Windows `.cur` binaries (`ICONDIR` with `idType = 2`, `ICONDIRENTRY` with `wXHotSpot` and `wYHotSpot`, 40-byte `BITMAPINFOHEADER`, 32-bit BGRA XOR bitmap + 1-bpp AND mask) output under `backends/windows/cursors/<name>.cur`. At runtime, `:desktop:windows` also includes `WindowsCurCodec` to synthesize `.cur` bytes and `HCURSOR` handles dynamically from any `CssCustomCursor`.
 
 ---
 
 ## Multiplatform Resource Compilation (`GenericUiCompileResourcesTask`)
 
-`GenericUiCompileResourcesTask` processes Android-style resources under `src/commonMain/resources/` and outputs both common `R` accessors (`R.string.*`, `R.color.*`, `R.dimen.*`, `R.style.*`, `R.layout.*`, `R.drawable.*`, `R.raw.*`, `R.font.*`) and native platform bundles:
-
 | Target Platform | Compiled Output Format | Runtime Resolver |
 |-----------------|------------------------|------------------|
-| Windows (`:desktop:windows`) | Win32 `genericui_resources.rc` $\rightarrow$ `windres` `.res` (`STRINGTABLE` + `RCDATA`) linked into `.exe` | `WindowsResourceResolverImpl` (`FindResourceW` / `LoadResource`) |
+| Windows (`:desktop:windows`) | Win32 `genericui_resources.rc` $\rightarrow$ `windres` `.res` (`STRINGTABLE` + `RCDATA`) + `.cur` cursors | `WindowsResourceResolverImpl` (`FindResourceW` / `LoadResource`) |
 | macOS (`:desktop:macos`) | Apple `.app/Contents/Resources/` + `.lproj/Localizable.strings` | `MacosResourceResolverImpl` (`NSBundle.mainBundle`) |
 | Linux GTK (`:desktop:gtk`) | `genericui.gresource.xml` $\rightarrow$ `glib-compile-resources` `.gresource` | `GtkResourceResolverImpl` (`GResource`) |
 | Linux Qt (`:desktop:qt`) | `genericui_resources.qrc` $\rightarrow$ `rcc` `.rcc` bundle | `QtResourceResolverImpl` (`QResource`) |
 | JVM Swing (`:desktop:swing`) | Classpath JAR resources | `SwingResourceResolverImpl` (`ClassLoader.getResource`) |
 | Android (`:mobile:android`) | Standard Android `res/values*/`, `res/drawable/`, `res/raw/`, `res/font/` | `AndroidResourceResolverImpl` (`Context.resources`) |
 | iOS (`:mobile:ios`) | Apple bundle resources + `.lproj/Localizable.strings` | `IosResourceResolverImpl` (`NSBundle.mainBundle`) |
-| Web (`:web`) | `assets/<type>/<fileName>` static web bundle + resource tables | `WebResourceResolverImpl` (`assets/...` URLs) |
+| Web (`:web`) | `assets/<type>/<fileName>` + compiled `styles/<name>.css` web bundles | `WebResourceResolverImpl` (`assets/...` URLs) + `WebStyleSheetManager` |

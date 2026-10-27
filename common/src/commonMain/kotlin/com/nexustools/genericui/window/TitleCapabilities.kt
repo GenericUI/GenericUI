@@ -9,10 +9,8 @@ data class TitleCapabilities(
     val isSupported: Boolean = true,
     /**
      * `true` when the titlebar is emulated/custom-rendered by GenericUI or the UI toolkit (e.g., `MdiWindow`,
-     * docked `DockPanel` header, `DialogWindow` overlay, `:qt` frameless custom titlebar, `:android`/`:ios`
-     * synthesized top `Navbar`, or Windows fallback when DWM/`UxTheme` is unavailable);
-     * `false` when using or extending the native OS window manager titlebar (`Win32` DWM/`UxTheme` `HTCAPTION`,
-     * macOS `NSWindow` titlebar, GTK `GtkHeaderBar` / `AdwHeaderBar`).
+     * docked `DockPanel` header, `DialogWindow` overlay, or synthesized top `Navbar`);
+     * `false` when using or extending the native OS window manager titlebar.
      */
     val isEmulated: Boolean = false,
     /** `true` if custom [TitleBar] instructions are supported on this window. */

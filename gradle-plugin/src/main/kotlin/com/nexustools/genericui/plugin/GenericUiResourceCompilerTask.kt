@@ -122,6 +122,8 @@ abstract class GenericUiResourceCompilerTask : DefaultTask() {
         val raws = linkedMapOf<String, RawEntry>()
         val fonts = linkedMapOf<String, ValueEntry>()
         val xmls = linkedMapOf<String, RawEntry>()
+        val styles = linkedMapOf<String, RawEntry>()
+        val cursors = linkedMapOf<String, File>()
 
         var nextDrawableIdx = 1
         var nextStringIdx = 1
@@ -132,6 +134,7 @@ abstract class GenericUiResourceCompilerTask : DefaultTask() {
         var nextRawIdx = 1
         var nextFontIdx = 1
         var nextXmlIdx = 1
+        var nextStyleIdx = 1
 
         for (root in existingDirs) {
             root.walkTopDown().filter { it.isFile }.forEach { file ->
@@ -141,9 +144,49 @@ abstract class GenericUiResourceCompilerTask : DefaultTask() {
                 val ident = sanitizeIdentifier(file.nameWithoutExtension)
 
                 when {
+                    parentDir == "cursors" || parentDir == "cursor" || ext == "cur" -> {
+                        if (ident.isNotEmpty() && ext in setOf("svg", "png", "cur", "ico", "webp", "jpg", "jpeg")) {
+                            cursors.putIfAbsent(ident, file)
+                            if (ident !in drawables) {
+                                val numId = (0x7f01 shl 16) or (nextDrawableIdx++ and 0xFFFF)
+                                if (ext == "svg") {
+                                    val svgText = file.readText()
+                                    val (vbW, vbH) = extractSvgViewBox(svgText)
+                                    val pathList = extractSvgPaths(svgText)
+                                    drawables[ident] = DrawableEntry(
+                                        name = ident,
+                                        numericId = numId,
+                                        relativePath = relPath,
+                                        format = "svg",
+                                        svgSource = svgText,
+                                        svgPaths = pathList,
+                                        viewBoxWidth = vbW,
+                                        viewBoxHeight = vbH,
+                                        base64Data = null
+                                    )
+                                } else {
+                                    val b64 = Base64.getEncoder().encodeToString(file.readBytes())
+                                    drawables[ident] = DrawableEntry(
+                                        name = ident,
+                                        numericId = numId,
+                                        relativePath = relPath,
+                                        format = ext,
+                                        svgSource = null,
+                                        svgPaths = emptyList(),
+                                        viewBoxWidth = 32f,
+                                        viewBoxHeight = 32f,
+                                        base64Data = b64
+                                    )
+                                }
+                            }
+                        }
+                    }
                     parentDir.startsWith("drawable") || parentDir == "icons" || parentDir == "images" ||
                         (parentDir == root.name.lowercase() && ext in setOf("svg", "png", "ico", "webp", "jpg")) -> {
                         if (ident.isNotEmpty() && ident !in drawables && ext in setOf("svg", "png", "ico", "webp", "jpg", "jpeg")) {
+                            if (ident.contains("cursor")) {
+                                cursors.putIfAbsent(ident, file)
+                            }
                             val numId = (0x7f01 shl 16) or (nextDrawableIdx++ and 0xFFFF)
                             if (ext == "svg") {
                                 val svgText = file.readText()
@@ -174,6 +217,19 @@ abstract class GenericUiResourceCompilerTask : DefaultTask() {
                                     base64Data = b64
                                 )
                             }
+                        }
+                    }
+                    (parentDir in setOf("styles", "style", "css", "scss", "sass") || parentDir == root.name.lowercase()) &&
+                        ext in setOf("scss", "sass", "css") && !file.name.startsWith("_") -> {
+                        if (ident.isNotEmpty() && ident !in styles) {
+                            val numId = (0x7f0c shl 16) or (nextStyleIdx++ and 0xFFFF)
+                            styles[ident] = RawEntry(
+                                name = ident,
+                                numericId = numId,
+                                relativePath = relPath,
+                                textContent = file.readText(),
+                                base64Content = null
+                            )
                         }
                     }
                     parentDir.startsWith("values") && ext == "xml" -> {
@@ -271,6 +327,7 @@ abstract class GenericUiResourceCompilerTask : DefaultTask() {
                     raws = raws,
                     fonts = fonts,
                     xmls = xmls,
+                    styles = styles,
                     nextDrawableId = { (0x7f01 shl 16) or (nextDrawableIdx++ and 0xFFFF) },
                     nextStringId = { (0x7f02 shl 16) or (nextStringIdx++ and 0xFFFF) },
                     nextColorId = { (0x7f03 shl 16) or (nextColorIdx++ and 0xFFFF) },
@@ -279,7 +336,8 @@ abstract class GenericUiResourceCompilerTask : DefaultTask() {
                     nextBoolId = { (0x7f06 shl 16) or (nextBoolIdx++ and 0xFFFF) },
                     nextRawId = { (0x7f07 shl 16) or (nextRawIdx++ and 0xFFFF) },
                     nextFontId = { (0x7f08 shl 16) or (nextFontIdx++ and 0xFFFF) },
-                    nextXmlId = { (0x7f09 shl 16) or (nextXmlIdx++ and 0xFFFF) }
+                    nextXmlId = { (0x7f09 shl 16) or (nextXmlIdx++ and 0xFFFF) },
+                    nextStyleId = { (0x7f0c shl 16) or (nextStyleIdx++ and 0xFFFF) }
                 )
             }
         }
@@ -339,7 +397,8 @@ abstract class GenericUiResourceCompilerTask : DefaultTask() {
                 bools = bools.values.toList(),
                 raws = raws.values.toList(),
                 fonts = fonts.values.toList(),
-                xmls = xmls.values.toList()
+                xmls = xmls.values.toList(),
+                styles = styles.values.toList()
             )
         )
 
@@ -355,7 +414,8 @@ abstract class GenericUiResourceCompilerTask : DefaultTask() {
                 bools = bools.values.toList(),
                 raws = raws.values.toList(),
                 fonts = fonts.values.toList(),
-                xmls = xmls.values.toList()
+                xmls = xmls.values.toList(),
+                styles = styles.values.toList()
             )
         )
 
@@ -374,7 +434,8 @@ abstract class GenericUiResourceCompilerTask : DefaultTask() {
                 bools = bools.values.toList(),
                 raws = raws.values.toList(),
                 fonts = fonts.values.toList(),
-                xmls = xmls.values.toList()
+                xmls = xmls.values.toList(),
+                styles = styles.values.toList()
             )
         )
 
@@ -390,7 +451,8 @@ abstract class GenericUiResourceCompilerTask : DefaultTask() {
             bools = bools.values.toList(),
             raws = raws.values.toList(),
             fonts = fonts.values.toList(),
-            xmls = xmls.values.toList()
+            xmls = xmls.values.toList(),
+            styles = styles.values.toList()
         )
 
         // 6. Emit translated native backend resource files when enabled
@@ -402,7 +464,9 @@ abstract class GenericUiResourceCompilerTask : DefaultTask() {
                 strings = strings.values.toList(),
                 raws = raws.values.toList(),
                 fonts = fonts.values.toList(),
-                xmls = xmls.values.toList()
+                xmls = xmls.values.toList(),
+                styles = styles.values.toList(),
+                cursors = cursors
             )
             emitAndroidResourceTranslations(
                 projDir = projDir,
@@ -451,7 +515,8 @@ abstract class GenericUiResourceCompilerTask : DefaultTask() {
         bools: List<ValueEntry>,
         raws: List<RawEntry>,
         fonts: List<ValueEntry>,
-        xmls: List<RawEntry>
+        xmls: List<RawEntry>,
+        styles: List<RawEntry> = emptyList()
     ): String = buildString {
         appendLine("package $pkgName")
         appendLine()
@@ -549,6 +614,13 @@ abstract class GenericUiResourceCompilerTask : DefaultTask() {
                 )
             }
         }
+        for (st in styles) {
+            if (st.textContent != null) {
+                appendLine(
+                    "        table.registerRawText(ResourceId(0x${st.numericId.toString(16)}, ResourceType.STYLE, ${escapeKotlinString(st.name)}, ${escapeKotlinString(st.relativePath)}), ${escapeKotlinString(st.textContent)})"
+                )
+            }
+        }
         appendLine("    }")
         appendLine("}")
     }
@@ -563,7 +635,8 @@ abstract class GenericUiResourceCompilerTask : DefaultTask() {
         bools: List<ValueEntry>,
         raws: List<RawEntry>,
         fonts: List<ValueEntry>,
-        xmls: List<RawEntry>
+        xmls: List<RawEntry>,
+        styles: List<RawEntry> = emptyList()
     ): String = buildString {
         appendLine("package $pkgName")
         appendLine()
@@ -658,6 +731,15 @@ abstract class GenericUiResourceCompilerTask : DefaultTask() {
             )
         }
         appendLine("    }")
+        appendLine()
+        appendLine("    object style {")
+        appendLine("        init { GeneratedResourceRegistry.ensureInitialized() }")
+        for (st in styles) {
+            appendLine(
+                "        val ${st.name}: ResourceId = ResourceId(0x${st.numericId.toString(16)}, ResourceType.STYLE, ${escapeKotlinString(st.name)}, ${escapeKotlinString(st.relativePath)})"
+            )
+        }
+        appendLine("    }")
         appendLine("}")
     }
 
@@ -671,7 +753,7 @@ import com.nexustools.genericui.style.RgbaColor
 
 /**
  * Android/Win32-style `RC` resource accessor generated by the GenericUI Gradle plugin.
- * Provides direct access to [R.drawable], [R.string], [R.color], [R.dimen], [R.raw], [R.font], and [R.xml]
+ * Provides direct access to [R.drawable], [R.string], [R.color], [R.dimen], [R.raw], [R.font], [R.xml], and [R.style]
  * as well as convenience lookup helpers across all target backends.
  */
 object RC {
@@ -688,6 +770,7 @@ object RC {
     val raw: R.raw get() = R.raw
     val font: R.font get() = R.font
     val xml: R.xml get() = R.xml
+    val style: R.style get() = R.style
 
     fun getString(resId: ResourceId): String = Resources.getString(resId)
     fun getString(resId: ResourceId, vararg args: Any): String = Resources.getString(resId, *args)
@@ -708,7 +791,8 @@ object RC {
         bools: List<ValueEntry>,
         raws: List<RawEntry>,
         fonts: List<ValueEntry>,
-        xmls: List<RawEntry>
+        xmls: List<RawEntry>,
+        styles: List<RawEntry> = emptyList()
     ): String = buildString {
         appendLine("package $pkgName")
         appendLine()
@@ -806,6 +890,15 @@ object RC {
         }
         appendLine("    }")
         appendLine()
+        appendLine("    object style {")
+        appendLine("        init { GeneratedResourceRegistry.ensureInitialized() }")
+        for (st in styles) {
+            appendLine(
+                "        val ${st.name}: ResourceID = ResourceID(0x${st.numericId.toString(16)}, ResourceType.STYLE, ${escapeKotlinString(st.name)}, ${escapeKotlinString(st.relativePath)})"
+            )
+        }
+        appendLine("    }")
+        appendLine()
         appendLine("    fun getString(id: ResourceID, vararg formatArgs: Any): String =")
         appendLine("        com.nexustools.genericui.resources.ResourceResolver.getString(id, *formatArgs)")
         appendLine()
@@ -843,7 +936,8 @@ object RC {
         bools: List<ValueEntry>,
         raws: List<RawEntry>,
         fonts: List<ValueEntry>,
-        xmls: List<RawEntry>
+        xmls: List<RawEntry>,
+        styles: List<RawEntry> = emptyList()
     ) {
         outDir.mkdirs()
         val entries = mutableListOf<String>()
@@ -904,6 +998,13 @@ object RC {
                     "\"relativePath\":${escapeJsonString(xm.relativePath)},\"textBase64\":${escapeJsonString(txtB64)}}"
             )
         }
+        for (st in styles) {
+            val txtB64 = st.textContent?.let { Base64.getEncoder().encodeToString(it.toByteArray(Charsets.UTF_8)) } ?: ""
+            entries.add(
+                "{\"type\":\"STYLE\",\"name\":${escapeJsonString(st.name)},\"id\":${st.numericId}," +
+                    "\"relativePath\":${escapeJsonString(st.relativePath)},\"textBase64\":${escapeJsonString(txtB64)}}"
+            )
+        }
 
         val sb = StringBuilder()
         sb.appendLine("{")
@@ -929,6 +1030,7 @@ object RC {
         raws: MutableMap<String, RawEntry>,
         fonts: MutableMap<String, ValueEntry>,
         xmls: MutableMap<String, RawEntry>,
+        styles: MutableMap<String, RawEntry> = linkedMapOf(),
         nextDrawableId: () -> Int,
         nextStringId: () -> Int,
         nextColorId: () -> Int,
@@ -937,7 +1039,8 @@ object RC {
         nextBoolId: () -> Int,
         nextRawId: () -> Int,
         nextFontId: () -> Int,
-        nextXmlId: () -> Int
+        nextXmlId: () -> Int,
+        nextStyleId: () -> Int = { 0x7f0c0001 }
     ) {
         manifestFile.readLines().forEach { rawLine ->
             val line = rawLine.trim().removeSuffix(",")
@@ -1016,6 +1119,16 @@ object RC {
                     }
                     xmls[name] = RawEntry(name, nextXmlId(), relPath, textContent, null)
                 }
+                "STYLE" -> if (name !in styles) {
+                    val relPath = extractJsonField(line, "relativePath") ?: "styles/$name.scss"
+                    val txtB64 = extractJsonField(line, "textBase64").orEmpty()
+                    val textContent = if (txtB64.isNotEmpty()) {
+                        String(Base64.getDecoder().decode(txtB64), Charsets.UTF_8)
+                    } else {
+                        ""
+                    }
+                    styles[name] = RawEntry(name, nextStyleId(), relPath, textContent, null)
+                }
             }
         }
     }
@@ -1027,10 +1140,13 @@ object RC {
         strings: List<ValueEntry>,
         raws: List<RawEntry>,
         fonts: List<ValueEntry>,
-        xmls: List<RawEntry>
+        xmls: List<RawEntry>,
+        styles: List<RawEntry> = emptyList(),
+        cursors: Map<String, File> = emptyMap()
     ) {
         outDir.mkdirs()
         val assetsRoot = File(outDir, "assets").apply { mkdirs() }
+        val cursorsDir = File(outDir, "cursors").apply { mkdirs() }
         val icoFile = GenericUiDefaultIconProvider.ensureDefaultIcoIcon(projDir, outDir)
         val headerSb = StringBuilder()
         headerSb.appendLine("// Auto-generated Win32 Resource Header by GenericUI")
@@ -1051,6 +1167,16 @@ object RC {
         for (x in xmls) {
             headerSb.appendLine("#define IDR_XML_${x.name.uppercase()} ${x.win32ResourceId(0x09)}")
         }
+        for (st in styles) {
+            headerSb.appendLine("#define IDR_STYLE_${st.name.uppercase()} ${st.win32ResourceId(0x0C)}")
+        }
+        var nextCursorResId = 13001
+        val cursorIds = linkedMapOf<String, Int>()
+        for (cursorName in cursors.keys) {
+            val cid = nextCursorResId++
+            cursorIds[cursorName] = cid
+            headerSb.appendLine("#define IDC_CURSOR_${cursorName.uppercase()} $cid")
+        }
         File(outDir, "genericui_resource_ids.h").writeText(headerSb.toString())
 
         val escapedIcoPath = icoFile.invariantSeparatorsPath
@@ -1061,12 +1187,26 @@ object RC {
         rcSb.appendLine("IDI_APPICON ICON \"$escapedIcoPath\"")
         rcSb.appendLine()
 
+        // Generate Windows .cur files for explicit cursors and for drawables so custom cursors work natively
+        val generatedCurFiles = linkedMapOf<String, File>()
+        for ((cursorName, srcFile) in cursors) {
+            val curOut = File(cursorsDir, "$cursorName.cur")
+            WindowsCurResourceGenerator.generateCurFile(srcFile, curOut)
+            generatedCurFiles[cursorName] = curOut
+            rcSb.appendLine("IDC_CURSOR_${cursorName.uppercase()} CURSOR \"${curOut.invariantSeparatorsPath}\"")
+        }
+
         val drawableAssetDir = File(assetsRoot, "drawable").apply { mkdirs() }
         for (d in drawables) {
             val fileName = d.relativePath.substringAfterLast('/').ifEmpty { "${d.name}.${d.format}" }
             val assetFile = File(drawableAssetDir, fileName)
             writeDrawablePayload(d, assetFile)
             rcSb.appendLine("IDR_DRAWABLE_${d.name.uppercase()} RCDATA \"${assetFile.invariantSeparatorsPath}\"")
+            if (d.name !in generatedCurFiles && d.format in setOf("svg", "png", "cur")) {
+                val curOut = File(cursorsDir, "${d.name}.cur")
+                WindowsCurResourceGenerator.generateCurFile(assetFile, curOut)
+                generatedCurFiles[d.name] = curOut
+            }
         }
 
         val rawAssetDir = File(assetsRoot, "raw").apply { mkdirs() }
@@ -1095,6 +1235,14 @@ object RC {
             val assetFile = File(xmlAssetDir, fileName)
             writeRawPayload(x, assetFile)
             rcSb.appendLine("IDR_XML_${x.name.uppercase()} RCDATA \"${assetFile.invariantSeparatorsPath}\"")
+        }
+
+        val styleAssetDir = File(assetsRoot, "style").apply { mkdirs() }
+        for (st in styles) {
+            val fileName = st.relativePath.substringAfterLast('/').ifEmpty { "${st.name}.scss" }
+            val assetFile = File(styleAssetDir, fileName)
+            writeRawPayload(st, assetFile)
+            rcSb.appendLine("IDR_STYLE_${st.name.uppercase()} RCDATA \"${assetFile.invariantSeparatorsPath}\"")
         }
 
         if (strings.isNotEmpty()) {

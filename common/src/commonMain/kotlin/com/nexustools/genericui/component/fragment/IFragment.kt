@@ -16,7 +16,7 @@ import kotlin.reflect.KClass
 
 /**
  * Common interface implemented by all fragments in GenericUI ([Fragment], [ScrollFragment],
- * `PageFragment`, `DockWorkspaceFragment`, `AlienFragment`, etc.).
+ * `PageFragment`, `DockWorkspaceFragment`, etc.).
  *
  * Every member mirrors the existing [Fragment] API (same names, signatures, and nullability), so [Fragment]
  * implements this interface by adding `: IFragment` and `override` modifiers. Notes for the implementer:

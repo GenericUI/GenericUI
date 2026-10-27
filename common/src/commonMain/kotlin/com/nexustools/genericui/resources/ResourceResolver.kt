@@ -60,4 +60,7 @@ object ResourceResolver {
 
     fun getDrawable(resId: ResourceID): DrawableResource? =
         Resources.activeTable.getDrawable(resId)
+
+    fun getStyleSheet(resId: ResourceID): com.nexustools.genericui.style.css.PrecompiledStyleSheet? =
+        Resources.activeTable.getStyleSheet(resId)
 }

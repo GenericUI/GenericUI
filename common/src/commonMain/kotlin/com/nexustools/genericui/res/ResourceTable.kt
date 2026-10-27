@@ -3,6 +3,8 @@ package com.nexustools.genericui.res
 import com.nexustools.genericui.image.ImageBuffer
 import com.nexustools.genericui.image.ImageLoader
 import com.nexustools.genericui.style.RgbaColor
+import com.nexustools.genericui.style.css.PrecompiledStyleSheet
+import com.nexustools.genericui.style.css.StyleSheetRegistry
 import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
 
@@ -24,6 +26,7 @@ class ResourceTable {
     private val rawBase64 = mutableMapOf<Int, String>()
     private val rawBytes = mutableMapOf<Int, ByteArray>()
     private val fontPaths = mutableMapOf<Int, String>()
+    private val styleSheets = mutableMapOf<Int, PrecompiledStyleSheet>()
 
     fun registerResourceId(resId: ResourceId) {
         byNumericId[resId.id] = resId
@@ -83,6 +86,17 @@ class ResourceTable {
     fun registerFont(resId: ResourceId, path: String) {
         registerResourceId(resId)
         fontPaths[resId.id] = path
+    }
+
+    fun registerStyleSheet(resId: ResourceId, styleSheet: PrecompiledStyleSheet) {
+        registerResourceId(resId)
+        styleSheets[resId.id] = styleSheet
+        StyleSheetRegistry.register(resId.name, resId.relativePath.ifBlank { styleSheet.cssResourcePath }, resId, styleSheet)
+    }
+
+    fun registerStyle(resId: ResourceId, pathOrCss: String) {
+        registerResourceId(resId)
+        rawTexts[resId.id] = pathOrCss
     }
 
     fun findResourceId(id: Int): ResourceId? = byNumericId[id]
@@ -182,6 +196,11 @@ class ResourceTable {
     fun getFontPath(resId: ResourceId): String? =
         fontPaths[resId.id] ?: byTypeAndName[ResourceType.FONT to resId.name]?.let { fontPaths[it.id] }
 
+    fun getStyleSheet(resId: ResourceId): PrecompiledStyleSheet? =
+        styleSheets[resId.id]
+            ?: byTypeAndName[ResourceType.STYLE to resId.name]?.let { styleSheets[it.id] }
+            ?: StyleSheetRegistry.resolveByResourceId(resId)
+
     fun allDrawables(): Collection<DrawableResource> = drawables.values
 
     @OptIn(ExperimentalEncodingApi::class)
@@ -200,12 +219,14 @@ class ResourceTable {
                 .removePrefix("res://dimen/")
                 .removePrefix("res://raw/")
                 .removePrefix("res://font/")
+                .removePrefix("res://style/")
                 .removePrefix("@drawable/")
                 .removePrefix("@string/")
                 .removePrefix("@color/")
                 .removePrefix("@dimen/")
                 .removePrefix("@raw/")
                 .removePrefix("@font/")
+                .removePrefix("@style/")
                 .substringBeforeLast('.')
                 .replace('-', '_')
                 .replace(' ', '_')

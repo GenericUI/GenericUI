@@ -1,8 +1,14 @@
 package com.nexustools.genericui.style.sass
 
+import com.nexustools.genericui.res.ResourceType
+import com.nexustools.genericui.res.Resources
+import com.nexustools.genericui.style.css.CompiledSelectorSegment
+import com.nexustools.genericui.style.css.CompiledStyleRule
+import com.nexustools.genericui.style.css.ComponentStyle
 import com.nexustools.genericui.style.css.CssRule
 import com.nexustools.genericui.style.css.CssStyleSheet
 import com.nexustools.genericui.style.css.PrecompiledStyleSheet
+import com.nexustools.genericui.style.css.StyleSheetRegistry
 
 /**
  * Compiles `.scss` / `.sass` / `.css` stylesheets into precompiled Kotlin (`.kt`) source files
@@ -11,29 +17,92 @@ import com.nexustools.genericui.style.css.PrecompiledStyleSheet
 object SassKotlinPrecompiler {
 
     /**
-     * Compiles [scssSource] into an in-memory [PrecompiledStyleSheet] with pre-sorted [CssRule]s.
+     * Resolves `@color/<name>`, `@dimen/<name>`, `@drawable/<name>`, `@font/<name>`, and `@string/<name>`
+     * resource references inside a CSS/SCSS declaration value against [Resources.activeTable].
+     */
+    fun resolveResourceReferencesInCssValue(rawValue: String): String {
+        var result = rawValue
+        // @color/<name>
+        result = Regex("@color/([a-zA-Z0-9_-]+)").replace(result) { match ->
+            val name = match.groupValues[1]
+            Resources.activeTable.getColorByName(name)?.toCssRgba() ?: match.value
+        }
+        // @dimen/<name>
+        result = Regex("@dimen/([a-zA-Z0-9_-]+)").replace(result) { match ->
+            val name = match.groupValues[1]
+            val id = Resources.activeTable.findResourceId(ResourceType.DIMEN, name)
+            val px = id?.let { Resources.activeTable.getDimenOrNull(it) }
+            if (px != null) "${px}px" else match.value
+        }
+        // @drawable/<name>
+        result = Regex("@drawable/([a-zA-Z0-9_-]+)").replace(result) { match ->
+            val name = match.groupValues[1]
+            val id = Resources.activeTable.findResourceId(ResourceType.DRAWABLE, name)
+            if (id != null) "url('${Resources.getUrl(id)}')" else match.value
+        }
+        // @font/<name>
+        result = Regex("@font/([a-zA-Z0-9_-]+)").replace(result) { match ->
+            val name = match.groupValues[1]
+            val id = Resources.activeTable.findResourceId(ResourceType.FONT, name)
+            val fontPath = id?.let { Resources.activeTable.getFontPath(it) }
+            val family = fontPath?.substringAfterLast('/')?.substringBeforeLast('.')?.takeIf { it.isNotBlank() } ?: name
+            "\"$family\""
+        }
+        // @string/<name>
+        result = Regex("@string/([a-zA-Z0-9_-]+)").replace(result) { match ->
+            val name = match.groupValues[1]
+            val resolved = Resources.activeTable.getStringByName(name)
+            if (resolved != null) "\"$resolved\"" else match.value
+        }
+        return result
+    }
+
+    /**
+     * Compiles [scssSource] into an in-memory [PrecompiledStyleSheet] with pre-sorted [CssRule]s
+     * and strongly-typed [CompiledStyleRule]s.
      */
     fun precompile(
         scssSource: String,
-        name: String = "PrecompiledStyles"
+        name: String = "PrecompiledStyles",
+        resourcePath: String = "/styles/$name.css"
     ): PrecompiledStyleSheet {
         val rawCss = SassCompiler.compileToCss(scssSource)
         val parsed = CssStyleSheet.parse(rawCss)
+        val resolvedRules = parsed.rules.map { rule ->
+            val resolvedDecls = rule.declarations.mapValues { (_, v) -> resolveResourceReferencesInCssValue(v) }
+            rule.copy(declarations = resolvedDecls)
+        }
+        val compiledRuleList = resolvedRules.sortedBy { it.specificity }.map { rule ->
+            CompiledStyleRule(
+                selector = rule.selector,
+                segments = CompiledSelectorSegment.parseChain(rule.selector),
+                style = ComponentStyle.fromDeclarations(rule.declarations),
+                declarations = rule.declarations,
+                specificity = rule.specificity,
+                pseudoClass = rule.pseudoClass,
+                mediaMinWidthPx = rule.mediaMinWidthPx,
+                mediaMaxWidthPx = rule.mediaMaxWidthPx
+            )
+        }
         val precompiledSheet = CssStyleSheet.precompiled(
-            rules = parsed.rules,
+            rules = resolvedRules,
             keyframes = parsed.keyframes
         )
         return object : PrecompiledStyleSheet {
             override val name: String = name
             override val styleSheet: CssStyleSheet = precompiledSheet
             override val rawCss: String = rawCss
+            override val cssResourcePath: String = resourcePath
+            override val compiledRules: List<CompiledStyleRule> = compiledRuleList
+        }.also { sheet ->
+            StyleSheetRegistry.register(name, resourcePath, sheet)
         }
     }
 
     /**
      * Precompiles [scssSource] into a standalone Kotlin source file (`<objectName>.kt`) declaring
-     * `object <objectName> : PrecompiledStyleSheet` with pre-parsed [CssRule]s, precomputed
-     * specificity, `@media` constraints, and `@keyframes`.
+     * `object <objectName> : PrecompiledStyleSheet` with pre-parsed [CompiledStyleRule]s, [CssRule]s,
+     * precomputed specificity, `@media` constraints, and `@keyframes`.
      */
     fun precompileToKotlinSource(
         scssSource: String,
@@ -60,15 +129,19 @@ object SassKotlinPrecompiler {
         rawCss: String,
         packageName: String,
         objectName: String,
-        stylesheetName: String = objectName
+        stylesheetName: String = objectName,
+        cssResourcePath: String = "/styles/$stylesheetName.css"
     ): String = buildString {
         if (packageName.isNotBlank()) {
             appendLine("package $packageName")
             appendLine()
         }
+        appendLine("import com.nexustools.genericui.style.css.CompiledStyleRule")
+        appendLine("import com.nexustools.genericui.style.css.ComponentStyle")
         appendLine("import com.nexustools.genericui.style.css.CssRule")
         appendLine("import com.nexustools.genericui.style.css.CssStyleSheet")
         appendLine("import com.nexustools.genericui.style.css.PrecompiledStyleSheet")
+        appendLine("import com.nexustools.genericui.style.css.StyleSheetRegistry")
         appendLine()
         appendLine("/**")
         appendLine(" * Auto-generated precompiled GenericUI stylesheet for `$stylesheetName`.")
@@ -77,11 +150,30 @@ object SassKotlinPrecompiler {
         appendLine("object $objectName : PrecompiledStyleSheet {")
         appendLine("    override val name: String = ${escapeKotlinString(stylesheetName)}")
         appendLine()
+        appendLine("    override val cssResourcePath: String = ${escapeKotlinString(cssResourcePath)}")
+        appendLine()
         appendLine("    override val rawCss: String = ${escapeKotlinString(rawCss)}")
+        appendLine()
+        val sortedRules = sheet.rules.sortedBy { it.specificity }
+        appendLine("    override val compiledRules: List<CompiledStyleRule> = listOf(")
+        for ((ruleIdx, rule) in sortedRules.withIndex()) {
+            val comma = if (ruleIdx < sortedRules.lastIndex) "," else ""
+            appendLine("        CompiledStyleRule(")
+            appendLine("            selector = ${escapeKotlinString(rule.selector)},")
+            appendLine("            style = ComponentStyle().apply {")
+            for ((k, v) in rule.declarations) {
+                appendLine("                setRawDeclaration(${escapeKotlinString(k)}, ${escapeKotlinString(v)})")
+            }
+            appendLine("            },")
+            appendLine("            specificity = ${rule.specificity},")
+            appendLine("            mediaMinWidthPx = ${rule.mediaMinWidthPx ?: "null"},")
+            appendLine("            mediaMaxWidthPx = ${rule.mediaMaxWidthPx ?: "null"}")
+            appendLine("        )$comma")
+        }
+        appendLine("    )")
         appendLine()
         appendLine("    override val styleSheet: CssStyleSheet = CssStyleSheet.precompiled(")
         appendLine("        rules = listOf(")
-        val sortedRules = sheet.rules.sortedBy { it.specificity }
         for ((ruleIdx, rule) in sortedRules.withIndex()) {
             val comma = if (ruleIdx < sortedRules.lastIndex) "," else ""
             appendLine("            CssRule(")
@@ -125,6 +217,10 @@ object SassKotlinPrecompiler {
             appendLine("        )")
         }
         appendLine("    )")
+        appendLine()
+        appendLine("    init {")
+        appendLine("        StyleSheetRegistry.register(name, cssResourcePath, this)")
+        appendLine("    }")
         appendLine("}")
     }
 

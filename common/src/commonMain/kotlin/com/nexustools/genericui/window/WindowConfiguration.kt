@@ -13,7 +13,7 @@ data class WindowConfiguration(
     val heightPx: Int,
     val smallestScreenWidthDp: Int = minOf(widthPx, heightPx),
     val densityScale: Float = 1.0f,
-    val themeMode: ThemeMode = ThemeMode.DARK,
+    val themeMode: ThemeMode = ThemeMode.AUTO,
     val windowState: WindowState = WindowState.NORMAL,
     val isFullscreen: Boolean = windowState == WindowState.FULLSCREEN,
     val isInPictureInPicture: Boolean = windowState == WindowState.PICTURE_IN_PICTURE

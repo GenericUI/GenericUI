@@ -11,6 +11,6 @@ open class HStack(
         htmlTag = "genericui:hstack"
         setDisplay(DisplayMode.FLEX)
         setFlexDirection(FlexDirection.ROW)
-        gap?.let { addClass("gap-${it.token}") }
+        gap?.let { getBootstrap().setGap(it) }
     }
 }

@@ -5,13 +5,14 @@ import com.nexustools.genericui.style.gradient.Gradient
 
 /**
  * Resolved style properties computed from Bootstrap Enums, custom CSS classes, SASS stylesheets,
- * responsive `@media` queries, pseudo-classes (`:hover`, `:focus`, `:active`), and inline styles.
+ * responsive `@media` queries, pseudo-classes (`:hover`, `:focus`, `:active`, `:disabled`, `:checked`),
+ * and inline `ComponentStyle` (`component.getStyle()`).
  */
 data class ComputedStyle(
-    val tint: RgbaColor? = null,
     val backgroundColor: RgbaColor? = null,
     val backgroundGradient: Gradient? = null,
     val textColor: RgbaColor? = null,
+    val accentColor: RgbaColor? = null,
     val borderColor: RgbaColor? = null,
     val borderWidthPx: Float? = null,
     val borderStyle: String? = null,
@@ -35,6 +36,7 @@ data class ComputedStyle(
     val aspectRatio: Float? = null,
     val pointerEventsEnabled: Boolean = true,
     val cursor: String? = null,
+    val customCursor: CssCursorValue? = null,
     val position: String? = null,
     val display: String? = null,
     val overflow: String? = null,
@@ -98,10 +100,10 @@ data class ComputedStyle(
         combinedDecls.putAll(rawDeclarations)
         combinedDecls.putAll(other.rawDeclarations)
         return ComputedStyle(
-            tint = other.tint ?: tint,
             backgroundColor = other.backgroundColor ?: backgroundColor,
             backgroundGradient = other.backgroundGradient ?: backgroundGradient,
             textColor = other.textColor ?: textColor,
+            accentColor = other.accentColor ?: accentColor,
             borderColor = other.borderColor ?: borderColor,
             borderWidthPx = other.borderWidthPx ?: borderWidthPx,
             borderStyle = other.borderStyle ?: borderStyle,
@@ -129,6 +131,7 @@ data class ComputedStyle(
                 pointerEventsEnabled
             },
             cursor = other.cursor ?: cursor,
+            customCursor = other.customCursor ?: customCursor,
             position = other.position ?: position,
             display = other.display ?: display,
             overflow = other.overflow ?: overflow,
@@ -155,5 +158,9 @@ data class ComputedStyle(
             rawDeclarations = combinedDecls,
             importantProperties = importantProperties + other.importantProperties
         )
+    }
+
+    companion object {
+        val EMPTY = ComputedStyle()
     }
 }

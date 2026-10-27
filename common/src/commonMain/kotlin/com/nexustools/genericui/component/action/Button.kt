@@ -18,7 +18,7 @@ import com.nexustools.genericui.resources.ResourceResolver
 open class Button(
     text: String = "",
     icon: String? = null,
-    type: BootstrapType? = null,
+    type: BootstrapType? = BootstrapType.NONE,
     size: BootstrapSize = BootstrapSize.MD,
     outline: Boolean = false,
     private val classPrefix: String = "btn"

@@ -107,6 +107,7 @@ abstract class GenericUiSassCompileTask : DefaultTask() {
 
         val srcDir = sourceDirectory.orNull?.asFile
         if (compileSass.getOrElse(true) && srcDir != null && srcDir.exists()) {
+            val resourceIndex = discoverLocalResources(srcDir)
             srcDir.walkTopDown()
                 .filter { it.isFile && !it.name.startsWith("_") }
                 .filter { it.extension.lowercase() in setOf("scss", "sass", "css") }
@@ -118,14 +119,25 @@ abstract class GenericUiSassCompileTask : DefaultTask() {
                     targetFile.parentFile?.mkdirs()
 
                     val rawContent = resolveSassImports(file, mutableSetOf(file.canonicalPath))
-                    val processedCss = transformSassToCss(bootstrapHeader + "\n" + rawContent, minify.getOrElse(false))
+                    val nativeResolvedContent = resolveResourceTokens(
+                        source = bootstrapHeader + "\n" + rawContent,
+                        forWeb = false,
+                        resources = resourceIndex
+                    )
+                    val processedCss = transformSassToCss(nativeResolvedContent, minify.getOrElse(false))
                     targetFile.writeText(processedCss)
                     compiledFiles.add(normalizedRelPath)
 
                     if (shouldEmitWebCss) {
+                        val webResolvedContent = resolveResourceTokens(
+                            source = bootstrapHeader + "\n" + rawContent,
+                            forWeb = true,
+                            resources = resourceIndex
+                        )
+                        val webProcessedCss = transformSassToCss(webResolvedContent, minify.getOrElse(false))
                         val webTargetFile = File(webCssOutDir, targetRelativePath)
                         webTargetFile.parentFile?.mkdirs()
-                        webTargetFile.writeText(processedCss)
+                        webTargetFile.writeText(webProcessedCss)
                         if (normalizedRelPath !in webCssFiles) {
                             webCssFiles.add(normalizedRelPath)
                         }
@@ -136,13 +148,13 @@ abstract class GenericUiSassCompileTask : DefaultTask() {
                         if (normalizedRelPath != rootFileName) {
                             val rootWebCssFile = File(webCssOutDir, rootFileName)
                             if (!rootWebCssFile.exists()) {
-                                rootWebCssFile.writeText(processedCss)
+                                rootWebCssFile.writeText(webProcessedCss)
                                 if (rootFileName !in webCssFiles) {
                                     webCssFiles.add(rootFileName)
                                 }
                             }
                         }
-                        combinedWebCssChunks.add("/* Source: $normalizedRelPath */\n$processedCss")
+                        combinedWebCssChunks.add("/* Source: $normalizedRelPath */\n$webProcessedCss")
                     }
 
                     if (shouldEmitKt) {
@@ -395,6 +407,156 @@ abstract class GenericUiSassCompileTask : DefaultTask() {
         return combined
     }
 
+    internal data class LocalResourceIndex(
+        val colors: Map<String, String> = emptyMap(),
+        val dimens: Map<String, String> = emptyMap(),
+        val strings: Map<String, String> = emptyMap(),
+        val drawables: Map<String, String> = emptyMap(),
+        val fonts: Map<String, String> = emptyMap()
+    )
+
+    internal fun discoverLocalResources(stylesDir: File): LocalResourceIndex {
+        val candidateRoots = buildList {
+            add(stylesDir)
+            stylesDir.parentFile?.let { add(it) }
+            stylesDir.parentFile?.parentFile?.let { parent2 ->
+                File(parent2, "resources").takeIf { it.isDirectory }?.let { add(it) }
+            }
+        }.distinctBy { it.canonicalPath }
+
+        val colors = linkedMapOf<String, String>()
+        val dimens = linkedMapOf<String, String>()
+        val strings = linkedMapOf<String, String>()
+        val drawables = linkedMapOf<String, String>()
+        val fonts = linkedMapOf<String, String>()
+
+        val xmlTagRegex = Regex("<(string|color|dimen)\\s+name\\s*=\\s*\"([^\"]+)\"[^>]*>([\\s\\S]*?)</\\1>")
+
+        for (root in candidateRoots) {
+            if (!root.exists() || !root.isDirectory) continue
+            root.walkTopDown().filter { it.isFile }.forEach { file ->
+                val parentName = file.parentFile?.name?.lowercase() ?: ""
+                val ext = file.extension.lowercase()
+                val ident = sanitizeResId(file.nameWithoutExtension)
+                when {
+                    parentName.startsWith("values") && ext == "xml" -> {
+                        for (match in xmlTagRegex.findAll(file.readText())) {
+                            val tag = match.groupValues[1]
+                            val name = sanitizeResId(match.groupValues[2])
+                            val rawVal = match.groupValues[3].trim()
+                            if (name.isNotEmpty() && rawVal.isNotEmpty()) {
+                                when (tag) {
+                                    "color" -> colors.putIfAbsent(name, rawVal)
+                                    "dimen" -> dimens.putIfAbsent(name, normalizeCssDimen(rawVal))
+                                    "string" -> strings.putIfAbsent(name, rawVal)
+                                }
+                            }
+                        }
+                    }
+                    (parentName.startsWith("drawable") || parentName in setOf("icons", "images", "cursors", "cursor")) &&
+                        ext in setOf("svg", "png", "cur", "ico", "webp", "jpg", "jpeg") -> {
+                        if (ident.isNotEmpty()) {
+                            drawables.putIfAbsent(ident, file.name)
+                        }
+                    }
+                    (parentName == "font" || parentName == "fonts") && ext in setOf("ttf", "otf", "woff", "woff2") -> {
+                        if (ident.isNotEmpty()) {
+                            fonts.putIfAbsent(ident, file.nameWithoutExtension)
+                        }
+                    }
+                }
+            }
+        }
+        return LocalResourceIndex(colors, dimens, strings, drawables, fonts)
+    }
+
+    internal fun resolveResourceTokens(
+        source: String,
+        forWeb: Boolean = false,
+        resources: LocalResourceIndex = LocalResourceIndex()
+    ): String {
+        var resolved = source
+
+        // 1. Resolve url("@drawable/<name>") / url("res://drawable/<name>") / url(@drawable/<name>)
+        val urlDrawableRegex = Regex("""url\(\s*(['"]?)(?:@drawable/|res://drawable/)([a-zA-Z0-9_.-]+)\1\s*\)""")
+        resolved = urlDrawableRegex.replace(resolved) { m ->
+            val rawName = m.groupValues[2]
+            val id = sanitizeResId(rawName.substringBeforeLast('.', rawName))
+            if (forWeb) {
+                val fileName = resources.drawables[id] ?: if ('.' in rawName) rawName else "$id.svg"
+                "url(\"assets/drawable/$fileName\")"
+            } else {
+                "url(\"res://drawable/$id\")"
+            }
+        }
+
+        // 2. Resolve bare @drawable/<name>
+        val bareDrawableRegex = Regex("""@drawable/([a-zA-Z0-9_-]+)""")
+        resolved = bareDrawableRegex.replace(resolved) { m ->
+            val id = sanitizeResId(m.groupValues[1])
+            if (forWeb) {
+                val fileName = resources.drawables[id] ?: "$id.svg"
+                "url(\"assets/drawable/$fileName\")"
+            } else {
+                "res://drawable/$id"
+            }
+        }
+
+        // 3. Resolve @color/<name> and res://color/<name>
+        val colorTokenRegex = Regex("""(?:@color/|res://color/)([a-zA-Z0-9_-]+)""")
+        resolved = colorTokenRegex.replace(resolved) { m ->
+            val id = sanitizeResId(m.groupValues[1])
+            val resolvedColor = resources.colors[id]
+            when {
+                resolvedColor != null -> resolvedColor
+                forWeb -> "var(--rc-color-${id.replace('_', '-')})"
+                else -> "res://color/$id"
+            }
+        }
+
+        // 4. Resolve @dimen/<name> and res://dimen/<name>
+        val dimenTokenRegex = Regex("""(?:@dimen/|res://dimen/)([a-zA-Z0-9_-]+)""")
+        resolved = dimenTokenRegex.replace(resolved) { m ->
+            val id = sanitizeResId(m.groupValues[1])
+            val resolvedDimen = resources.dimens[id]
+            when {
+                resolvedDimen != null -> resolvedDimen
+                forWeb -> "var(--rc-dimen-${id.replace('_', '-')})"
+                else -> "res://dimen/$id"
+            }
+        }
+
+        // 5. Resolve @font/<name> and res://font/<name>
+        val fontTokenRegex = Regex("""(?:@font/|res://font/)([a-zA-Z0-9_-]+)""")
+        resolved = fontTokenRegex.replace(resolved) { m ->
+            val id = sanitizeResId(m.groupValues[1])
+            resources.fonts[id] ?: id
+        }
+
+        // 6. Resolve @string/<name> and res://string/<name>
+        val stringTokenRegex = Regex("""(?:@string/|res://string/)([a-zA-Z0-9_-]+)""")
+        resolved = stringTokenRegex.replace(resolved) { m ->
+            val id = sanitizeResId(m.groupValues[1])
+            val strVal = resources.strings[id] ?: id
+            "\"${strVal.replace("\"", "\\\"")}\""
+        }
+
+        return resolved
+    }
+
+    private fun normalizeCssDimen(raw: String): String {
+        val trimmed = raw.trim()
+        return when {
+            trimmed.endsWith("dp", ignoreCase = true) -> trimmed.dropLast(2).trim() + "px"
+            trimmed.endsWith("sp", ignoreCase = true) -> trimmed.dropLast(2).trim() + "px"
+            trimmed.endsWith("dip", ignoreCase = true) -> trimmed.dropLast(3).trim() + "px"
+            else -> trimmed
+        }
+    }
+
+    private fun sanitizeResId(raw: String): String =
+        raw.trim().replace('-', '_').replace('.', '_').lowercase()
+
     internal fun generatePrecompiledKotlinSource(
         cssText: String,
         packageName: String,
@@ -402,7 +564,8 @@ abstract class GenericUiSassCompileTask : DefaultTask() {
         stylesheetName: String,
         cssResourcePath: String = "$stylesheetName.css"
     ): String {
-        val (rules, keyframes) = parseCssRulesAndKeyframes(cssText)
+        val normalizedCss = resolveResourceTokens(cssText, forWeb = false)
+        val (rules, keyframes) = parseCssRulesAndKeyframes(normalizedCss)
         val sortedRules = rules.sortedBy { it.specificity }
 
         return buildString {
@@ -410,9 +573,13 @@ abstract class GenericUiSassCompileTask : DefaultTask() {
                 appendLine("package $packageName")
                 appendLine()
             }
+            appendLine("import com.nexustools.genericui.style.RgbaColor")
+            appendLine("import com.nexustools.genericui.style.css.CompiledStyleRule")
+            appendLine("import com.nexustools.genericui.style.css.ComponentStyle")
             appendLine("import com.nexustools.genericui.style.css.CssRule")
             appendLine("import com.nexustools.genericui.style.css.CssStyleSheet")
             appendLine("import com.nexustools.genericui.style.css.PrecompiledStyleSheet")
+            appendLine("import com.nexustools.genericui.style.css.StyleSheetRegistry")
             appendLine()
             appendLine("/**")
             appendLine(" * Auto-generated precompiled GenericUI stylesheet for `$stylesheetName`.")
@@ -423,7 +590,50 @@ abstract class GenericUiSassCompileTask : DefaultTask() {
             appendLine()
             appendLine("    override val cssResourcePath: String = ${escapeKotlinString(cssResourcePath)}")
             appendLine()
-            appendLine("    override val rawCss: String = ${escapeKotlinString(cssText)}")
+            appendLine("    override val rawCss: String = ${escapeKotlinString(normalizedCss)}")
+            appendLine()
+            if (sortedRules.isEmpty()) {
+                appendLine("    override val compiledRules: List<CompiledStyleRule> = emptyList()")
+            } else {
+                appendLine("    override val compiledRules: List<CompiledStyleRule> = listOf(")
+                for ((ruleIdx, rule) in sortedRules.withIndex()) {
+                    val comma = if (ruleIdx < sortedRules.lastIndex) "," else ""
+                    appendLine("        CompiledStyleRule(")
+                    appendLine("            selector = ${escapeKotlinString(rule.selector)},")
+                    appendLine("            style = ComponentStyle().apply {")
+                    for ((prop, rawVal) in rule.declarations) {
+                        val isImp = rawVal.contains("!important", ignoreCase = true)
+                        val cleanVal = rawVal.replace(Regex("!\\s*important", RegexOption.IGNORE_CASE), "").trim()
+                        appendLine("                setRawDeclaration(${escapeKotlinString(prop)}, ${escapeKotlinString(cleanVal)}, $isImp)")
+                        when (prop) {
+                            "background-color" -> {
+                                appendLine("                RgbaColor.fromCss(${escapeKotlinString(cleanVal)})?.let { setBackgroundColor(it, $isImp) }")
+                            }
+                            "color" -> {
+                                appendLine("                RgbaColor.fromCss(${escapeKotlinString(cleanVal)})?.let { setTextColor(it, $isImp) }")
+                            }
+                            "accent-color" -> {
+                                appendLine("                RgbaColor.fromCss(${escapeKotlinString(cleanVal)})?.let { setAccentColor(it, $isImp) }")
+                            }
+                            "border-color" -> {
+                                appendLine("                RgbaColor.fromCss(${escapeKotlinString(cleanVal)})?.let { setBorderColor(it, $isImp) }")
+                            }
+                            "opacity" -> {
+                                val opVal = cleanVal.toFloatOrNull()
+                                if (opVal != null) {
+                                    appendLine("                setOpacity(${opVal}f, $isImp)")
+                                }
+                            }
+                        }
+                    }
+                    appendLine("            },")
+                    appendLine("            specificity = ${rule.specificity},")
+                    appendLine("            mediaMinWidthPx = ${rule.mediaMinWidthPx ?: "null"},")
+                    appendLine("            mediaMaxWidthPx = ${rule.mediaMaxWidthPx ?: "null"}")
+                    appendLine("        )$comma")
+                }
+                appendLine("    )")
+            }
             appendLine()
             appendLine("    override val styleSheet: CssStyleSheet = CssStyleSheet.precompiled(")
             if (sortedRules.isEmpty()) {
@@ -474,6 +684,10 @@ abstract class GenericUiSassCompileTask : DefaultTask() {
                 appendLine("        )")
             }
             appendLine("    )")
+            appendLine()
+            appendLine("    init {")
+            appendLine("        StyleSheetRegistry.register(name, cssResourcePath, this)")
+            appendLine("    }")
             appendLine("}")
         }
     }

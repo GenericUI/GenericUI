@@ -104,9 +104,8 @@ class CssStyleSheet(
         var p = component.parent
         while (p != null) {
             val pTokens = linkedSetOf<String>()
-            for (cls in p.getClass().split(Regex("\\s+"))) {
-                if (cls.isNotEmpty()) pTokens.add(cls)
-            }
+            pTokens.addAll(p.getClasses())
+            pTokens.addAll(p.getBootstrap().toEnumClassSet(p.componentClassPrefix))
             if (p.componentClassPrefix.isNotBlank()) {
                 for (prefixCls in p.componentClassPrefix.split(Regex("\\s+"))) {
                     if (prefixCls.isNotEmpty()) pTokens.add(prefixCls)
@@ -139,38 +138,41 @@ class CssStyleSheet(
         viewportWidthPx: Int = 1280
     ): ComputedStyle {
         val classes = linkedSetOf<String>()
-        for (cls in component.getClass().split(Regex("\\s+"))) {
-            if (cls.isNotEmpty()) classes.add(cls)
-        }
+        classes.addAll(component.getClasses())
+        classes.addAll(component.getBootstrap().toEnumClassSet(component.componentClassPrefix))
         if (component.componentClassPrefix.isNotBlank()) {
             for (prefixCls in component.componentClassPrefix.split(Regex("\\s+"))) {
                 if (prefixCls.isNotEmpty()) classes.add(prefixCls)
             }
         }
         val orderedAncestors = buildAncestorChain(component)
-        val sheetStyle = resolveStyleForClasses(
+        var resolved = resolveStyleForClasses(
             classes = classes,
             tagName = tagName,
             id = component.id,
             ancestorChain = orderedAncestors,
             viewportWidthPx = viewportWidthPx
         )
+        val compStyle = component.getStyle()
+        if (!compStyle.isEmpty()) {
+            resolved = compStyle.toComputedStyle(resolved)
+        }
         val inlineStyleStr = component.inlineStyle
-        return if (inlineStyleStr.isNotBlank()) {
+        return if (inlineStyleStr.isNotBlank() && compStyle.isEmpty()) {
             val inlineDecls = parseDeclarations(inlineStyleStr)
             val filteredInline = inlineDecls.filter { (prop, rawVal) ->
                 val inlineIsImportant = rawVal.contains("!important", ignoreCase = true)
-                inlineIsImportant || prop !in sheetStyle.importantProperties
+                inlineIsImportant || prop !in resolved.importantProperties
             }.mapValues { (_, v) ->
                 v.replace(Regex("!\\s*important", RegexOption.IGNORE_CASE), "").trim()
             }
             if (filteredInline.isEmpty()) {
-                sheetStyle
+                resolved
             } else {
-                sheetStyle.mergeWith(buildComputedStyleFromDeclarations(filteredInline))
+                resolved.mergeWith(buildComputedStyleFromDeclarations(filteredInline))
             }
         } else {
-            sheetStyle
+            resolved
         }
     }
 
@@ -405,6 +407,17 @@ class CssStyleSheet(
             isPrecompiled = true
         )
 
+        fun precompiledFromCompiledRules(
+            compiledRules: List<CompiledStyleRule>,
+            keyframes: Map<String, Map<String, Map<String, String>>> = emptyMap(),
+            rawCss: String = ""
+        ): CssStyleSheet = CssStyleSheet(
+            rules = compiledRules.map { it.toCssRule() }.sortedBy { it.specificity },
+            keyframes = keyframes,
+            isPrecompiled = true,
+            sourceCssText = rawCss
+        )
+
         fun parseInlineStyle(inlineCss: String): ComputedStyle {
             val decls = parseDeclarations(inlineCss)
             val cleaned = decls.mapValues { (_, v) ->
@@ -422,8 +435,7 @@ class CssStyleSheet(
             checkedStyle: ComputedStyle? = null,
             importantProperties: Set<String> = emptySet()
         ): ComputedStyle {
-            val tintProp = merged["tint"] ?: merged["-genericui-tint"] ?: merged["accent-color"]
-            val tintColor = tintProp?.let { RgbaColor.fromCss(it) }
+            val accentColor = merged["accent-color"]?.let { RgbaColor.fromCss(it) }
             val bgProp = merged["background-color"] ?: merged["background"]
             val bgColor = bgProp?.let { extractColorFromBackgroundShorthand(it) }
             val bgImageRaw = merged["background-image"] ?: merged["background"]
@@ -486,10 +498,10 @@ class CssStyleSheet(
             val pointerEvents = merged["pointer-events"]?.let { !it.equals("none", ignoreCase = true) } ?: true
 
             return ComputedStyle(
-                tint = tintColor,
                 backgroundColor = bgColor,
                 backgroundGradient = bgGradient,
                 textColor = fgColor,
+                accentColor = accentColor,
                 borderColor = borderColor,
                 borderWidthPx = borderWidthPx,
                 borderStyle = borderStyle,
@@ -513,6 +525,7 @@ class CssStyleSheet(
                 aspectRatio = aspectRatio,
                 pointerEventsEnabled = pointerEvents,
                 cursor = merged["cursor"],
+                customCursor = merged["cursor"]?.let { CssCustomCursor.parse(it) },
                 position = merged["position"],
                 display = merged["display"],
                 overflow = merged["overflow"],
@@ -684,10 +697,16 @@ class CssStyleSheet(
             return CssStyleSheet(rules, keyframes, sourceCssText = cssText)
         }
 
+        fun empty(): CssStyleSheet = CssStyleSheet()
+
         fun parseScss(scssSource: String): CssStyleSheet =
             com.nexustools.genericui.style.sass.SassCompiler.compileToStyleSheet(scssSource)
 
         fun fromScss(scssSource: String): CssStyleSheet =
             com.nexustools.genericui.style.sass.SassCompiler.compileToStyleSheet(scssSource)
+    }
+
+    fun applyToTree(root: AbstractComponent, viewportWidthPx: Int = 1280) {
+        root.applyStyleSheet(this, viewportWidthPx)
     }
 }

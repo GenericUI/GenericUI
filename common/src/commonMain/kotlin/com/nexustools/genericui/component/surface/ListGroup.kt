@@ -13,7 +13,7 @@ open class ListGroup(
 ) : AbstractContainer(classPrefix) {
     init {
         htmlTag = tagName
-        if (classPrefix.isNotBlank()) {
+        if (classPrefix.isNotBlank() && classPrefix != "list-group") {
             setClass(classPrefix)
         }
     }

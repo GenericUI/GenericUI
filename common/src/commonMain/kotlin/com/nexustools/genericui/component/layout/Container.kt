@@ -13,7 +13,7 @@ open class Container(
 
     init {
         htmlTag = "genericui:container"
-        if (classPrefix.isNotBlank()) {
+        if (classPrefix.isNotBlank() && classPrefix !in BUILTIN_LAYOUT_PREFIXES) {
             setClass(classPrefix)
         }
     }
@@ -24,4 +24,18 @@ open class Container(
 
     override fun createNativeImpl(factory: NativeFactory): ContainerNativeImpl<*> =
         factory.createContainer(componentClassPrefix, htmlTag)
+
+    companion object {
+        private val BUILTIN_LAYOUT_PREFIXES = setOf(
+            "container",
+            "fragment",
+            "row",
+            "col",
+            "hstack",
+            "vstack",
+            "position-relative",
+            "d-flex",
+            "list-group"
+        )
+    }
 }

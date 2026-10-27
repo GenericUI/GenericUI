@@ -50,4 +50,27 @@ open class GenericUiStylesConfig {
 
     /** Whether to emit Bootstrap 5 design tokens (`--bs-primary`, `--bs-border-radius`, etc.) at the root `:root` scope. */
     var includeBootstrapVariables: Boolean = true
+
+    /**
+     * Optional global stylesheet path (e.g. `"styles/main.scss"`, `"style.scss"`, or `"main.css"`)
+     * automatically attached via `app.addStyleSheet(...)` at application startup across all targets.
+     */
+    var globalStyleSheet: String? = null
+
+    /** Alias for [globalStyleSheet]. */
+    var styleSheet: String?
+        get() = globalStyleSheet
+        set(value) {
+            globalStyleSheet = value
+        }
+
+    /** Sets [globalStyleSheet] for this project. */
+    fun globalStyleSheet(path: String) {
+        this.globalStyleSheet = path
+    }
+
+    /** Sets [styleSheet] ([globalStyleSheet]) for this project. */
+    fun styleSheet(path: String) {
+        this.globalStyleSheet = path
+    }
 }

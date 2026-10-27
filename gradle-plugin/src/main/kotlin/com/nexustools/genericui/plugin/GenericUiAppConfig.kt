@@ -28,4 +28,14 @@ open class GenericUiAppConfig {
 
     /** Organization / publisher / vendor name. */
     var vendor: String = ""
+
+    /** Optional global stylesheet path (e.g. `"styles/main.scss"`) applied at application startup. */
+    var styleSheet: String? = null
+
+    /** Alias for [styleSheet]. */
+    var globalStyleSheet: String?
+        get() = styleSheet
+        set(value) {
+            styleSheet = value
+        }
 }

@@ -31,7 +31,6 @@ class GenericUiProjectManagerService(
      * - `build.gradle.kts`
      * - `gradle.properties`
      * - `lib/` directory
-     * - `src/commonMain/kotlin/<packagePath>/Main.kt`
      * - `src/commonMain/kotlin/<packagePath>/MainFragment.kt`
      * - `src/commonMain/resources/styles/main.scss`
      */

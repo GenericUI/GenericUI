@@ -49,6 +49,15 @@ data class CssTimingFunction(
         return sampleCurveY(u)
     }
 
+    fun toCssString(): String = when {
+        isLinear -> "linear"
+        this == EASE -> "ease"
+        this == EASE_IN -> "ease-in"
+        this == EASE_OUT -> "ease-out"
+        this == EASE_IN_OUT -> "ease-in-out"
+        else -> "cubic-bezier($x1, $y1, $x2, $y2)"
+    }
+
     private fun sampleCurveX(u: Float): Float {
         val inv = 1f - u
         return 3f * inv * inv * u * x1 + 3f * inv * u * u * x2 + u * u * u

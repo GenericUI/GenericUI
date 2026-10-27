@@ -20,8 +20,9 @@ data class GenericUiResolvedVariantConfig(
     val minWindowHeight: Int = 240,
     val windowResizable: Boolean = true,
     val fullscreen: Boolean = false,
-    val themeMode: String = "dark",
+    val themeMode: String = "auto",
     val themeColor: String = "#0d6efd",
     val iconPath: String? = null,
+    val globalStyleSheet: String? = null,
     val extensionOverrides: Map<String, Boolean> = emptyMap()
 )

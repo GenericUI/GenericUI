@@ -1,7 +1,7 @@
 # GenericUI Fragments, Windows, & Navigation Guide
 
 > **Root Repository**: [**GenericUI (`../README.md`)**](../README.md) | **Master Docs Index**: [**`docs/README.md`**](./README.md)  
-> **Related Guides**: [Application & BackendTarget (`application.md`)](./application.md) · [Gradle Plugin (`gradle-plugin.md`)](./gradle-plugin.md) · [SourceSet & Variant Scopes (`sourcesets.md`)](./sourcesets.md) · [Resources (`resources.md`)](./resources.md) · [Components & Docking (`components-and-docking.md`)](./components-and-docking.md)
+> **Related Guides**: [Application, Theming, & Stylesheets (`application.md`)](./application.md) · [Hybrid Layouts & Fragment Helpers (`layouts-and-helpers.md`)](./layouts-and-helpers.md) · [Gradle Plugin (`gradle-plugin.md`)](./gradle-plugin.md) · [SourceSet & Variant Scopes (`sourcesets.md`)](./sourcesets.md) · [Resources (`resources.md`)](./resources.md) · [Components & Docking (`components-and-docking.md`)](./components-and-docking.md)
 
 This guide covers GenericUI's annotation-driven `Fragment` discovery (`@MainAppFragment` and `@AppFragment`), `AppTarget` specificity resolution, `FragmentBundle` command-line arguments on system targets, `IFragment` and `IWindow`, `TitleCapabilities`, `launchFragment(FragmentClass, LaunchArgs)`, 1:1 generated Android `AppCompatActivity` classes, and multi-screen navigation with `FragmentHostFragment` and `FragmentHostSystem`.
 
@@ -279,3 +279,26 @@ class PortalHostFragment : FragmentHostFragment(
     }
 }
 ```
+
+---
+
+## 6. Styling (`getStyle()` & `getBootstrap()`), Global Stylesheets (`IApplication`), & Hybrid Fragment Helpers
+
+### 6.1 Component Styling Inside Fragments (`getStyle()` & `getBootstrap()`)
+- **`component.getBootstrap(): ComponentBootstrap`**: Configures strongly-typed Bootstrap 5 design-system utilities (`type = BootstrapType.NONE` default, `size`, `outline`, `width`, `height`, directional `SpacingScale` margins/paddings/gaps including `SpacingScale.AUTO`, `borderWidth`, `borderRadius`, `shadow`, `opacity`, `fontSize`, `lineHeight`, `flexGrow`, `flexShrink`, `floatSide`, `userSelect`, `pointerEvents`, `objectFit`, `aspectRatio`, `visibility`). All enum-managed classes remain 100% invisible to `getClasses()` / `hasClass()`.
+- **`component.getStyle(): ComponentStyle`**: Configures strongly-typed W3C inline CSS properties (`backgroundColor`, `backgroundImage`, `color`, `accentColor`, `borderRadius`, `boxShadow`, `cursor` including [`CssCustomCursor`](../common/src/commonMain/kotlin/com/nexustools/genericui/style/css/CssCustomCursor.kt), etc.) with per-property `important = true` (`!important`) support and `null` to clear. Inline `ComponentStyle` contains zero pseudo-states (`:hover`, `:focus`, `:active` belong in `.scss` stylesheets).
+- **`:extensions:dsl` Builders**: When `:extensions:dsl` is enabled, `style { ... }`, `bootstrap { ... }`, and `important { ... }` are available on all components inside DSL blocks.
+
+### 6.2 Global Stylesheets & Theme Mode Live on `IApplication` (Not `IFragment`)
+- Global stylesheet attachment (`addStyleSheet` / `removeStyleSheet` accepting `Resource.style.<name>`, path, or `PrecompiledStyleSheet`) and application theme mode (`setTheme(ThemeMode.AUTO | DARK | LIGHT)`, `getTheme()`, `getResolvedTheme()`) live on **`IApplication`** (`hostingWindow?.application` / `app`), **never** on `IFragment`.
+- Only `:extensions:alien`'s `AlienFragment` and `AlienContainer` (which implement [`IAlien`](../extensions/alien/common/src/commonMain/kotlin/com/nexustools/genericui/ext/alien/IAlien.kt)) maintain their own per-Alien stylesheet cascade (`IAlien.BOOTSTRAP_STYLE_SHEET_ID` at index `0` and `insertApplicationStyleSheets = 1` by default).
+
+### 6.3 Hybrid Responsive Fragment Helpers
+See the [**Hybrid Layouts & Fragment Helpers Guide (`layouts-and-helpers.md`)**](./layouts-and-helpers.md) for full documentation of all 7 responsive fragment helpers:
+- [`HybridColumnFragment`](../common/src/commonMain/kotlin/com/nexustools/genericui/component/fragment/helper/HybridColumnFragment.kt) (`HybridColumnLayout`, `HybridFoldMode`, `HybridTabPlacement`, `DynamicFullscreenController`, `HybridFullscreenPolicy`)
+- [`DockWorkspaceFragment`](../common/src/commonMain/kotlin/com/nexustools/genericui/component/fragment/helper/DockWorkspaceFragment.kt) (`DockWorkspace` with automatic compact mobile edge swipe-out drawers via `DockMobileDrawerPolicy`)
+- [`AdaptiveNavigationScaffoldFragment`](../common/src/commonMain/kotlin/com/nexustools/genericui/component/fragment/helper/AdaptiveNavigationScaffoldFragment.kt) (`Sidebar` $\leftrightarrow$ `NavigationRail` $\leftrightarrow$ `BottomNavigationBar`)
+- [`ResponsiveMasterDetailFragment`](../common/src/commonMain/kotlin/com/nexustools/genericui/component/fragment/helper/ResponsiveMasterDetailFragment.kt) (2/3-pane split $\leftrightarrow$ compact drill-down stack)
+- [`HybridSplitNavigationFragment`](../common/src/commonMain/kotlin/com/nexustools/genericui/component/fragment/helper/HybridSplitNavigationFragment.kt) (top `TabLayout` $\leftrightarrow$ bottom `BottomNavigationBar`)
+- [`CollapsibleBottomDockFragment`](../common/src/commonMain/kotlin/com/nexustools/genericui/component/fragment/helper/CollapsibleBottomDockFragment.kt) (main workspace + collapsible mini-player/bottom dock)
+- [`ResponsiveBentoGridFragment`](../common/src/commonMain/kotlin/com/nexustools/genericui/component/fragment/helper/ResponsiveBentoGridFragment.kt) (`BentoGridItemSpec` 12-column bento dashboard grid)

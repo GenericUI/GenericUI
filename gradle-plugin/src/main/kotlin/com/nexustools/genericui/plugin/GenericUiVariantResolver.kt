@@ -43,9 +43,16 @@ object GenericUiVariantResolver {
         var minWindowHeight: Int = desktop.minWindowHeight
         var windowResizable: Boolean = desktop.resizable
         var fullscreen: Boolean = false
-        var themeMode: String = if (desktop.darkTitleBar) "dark" else "light"
+        var themeMode: String = if (desktop.darkTitleBarExplicitlySet) {
+            if (desktop.darkTitleBar) "dark" else "light"
+        } else {
+            "auto"
+        }
         var themeColor: String = desktop.themeColor.trim().ifEmpty { "#0d6efd" }
         var iconPath: String? = resolveLegacyIconForTarget(desktop, targetScope)
+        var globalStyleSheet: String? = extension.styles.globalStyleSheet?.trim()?.takeIf { it.isNotEmpty() }
+            ?: extension.themeConfig.styleSheet?.trim()?.takeIf { it.isNotEmpty() }
+            ?: app.styleSheet?.trim()?.takeIf { it.isNotEmpty() }
         val mergedExtensionOverrides = linkedMapOf<String, Boolean>()
 
         // Apply top-level genericui { window { ... } } and genericui { theme { ... } }
@@ -59,9 +66,10 @@ object GenericUiVariantResolver {
             if (fs != null) fullscreen = fs
             if (ic != null) iconPath = ic
         }
-        applyThemeConfig(extension.themeConfig) { m, c ->
+        applyThemeConfig(extension.themeConfig) { m, c, ss ->
             if (m != null) themeMode = m
             if (c != null) themeColor = c
+            if (ss != null) globalStyleSheet = ss
         }
 
         // Cascade along specificity chain from COMMON (rank 0) up to targetScope (rank 5)
@@ -71,6 +79,7 @@ object GenericUiVariantResolver {
             variant.title?.takeIf { it.isNotBlank() }?.let { windowTitle = it }
             variant.icon?.takeIf { it.isNotBlank() }?.let { iconPath = it }
             variant.themeColor?.takeIf { it.isNotBlank() }?.let { themeColor = it }
+            variant.styleSheet?.trim()?.takeIf { it.isNotEmpty() }?.let { globalStyleSheet = it }
             applyWindowConfig(variant.window) { t, w, h, mw, mh, r, fs, ic ->
                 if (t != null) windowTitle = t
                 if (w != null) windowWidth = w
@@ -81,9 +90,10 @@ object GenericUiVariantResolver {
                 if (fs != null) fullscreen = fs
                 if (ic != null) iconPath = ic
             }
-            applyThemeConfig(variant.theme) { m, c ->
+            applyThemeConfig(variant.theme) { m, c, ss ->
                 if (m != null) themeMode = m
                 if (c != null) themeColor = c
+                if (ss != null) globalStyleSheet = ss
             }
             mergedExtensionOverrides.putAll(variant.extensionOverrides)
         }
@@ -106,6 +116,7 @@ object GenericUiVariantResolver {
             themeMode = themeMode,
             themeColor = themeColor,
             iconPath = iconPath,
+            globalStyleSheet = globalStyleSheet,
             extensionOverrides = mergedExtensionOverrides
         )
     }
@@ -152,11 +163,12 @@ object GenericUiVariantResolver {
 
     private inline fun applyThemeConfig(
         theme: GenericUiThemeConfig,
-        consumer: (mode: String?, color: String?) -> Unit
+        consumer: (mode: String?, color: String?, styleSheet: String?) -> Unit
     ) {
         consumer(
-            theme.mode?.takeIf { it.isNotBlank() },
-            theme.color?.takeIf { it.isNotBlank() }
+            if (theme.modeExplicitlySet) theme.mode.takeIf { it.isNotBlank() } else null,
+            theme.color?.takeIf { it.isNotBlank() },
+            theme.styleSheet?.trim()?.takeIf { it.isNotEmpty() }
         )
     }
 }

@@ -118,10 +118,22 @@ class GenericUiBuildFileInspector(
             !Regex("""useVulkan\s*=\s*false""").containsMatchIn(it)
         } ?: true
 
+        val themeBlock = extractBlockContent(buildGradleKtsContent, "theme")
+        val themeMode = themeBlock?.let {
+            Regex("""\bmode\s*=\s*"([^"]+)"""").find(it)?.groupValues?.get(1)
+        } ?: "auto"
+        val themeStyleSheet = themeBlock?.let {
+            Regex("""\bstyleSheet\s*=\s*"([^"]+)"""").find(it)?.groupValues?.get(1)
+        }
+
         val stylesBlock = extractBlockContent(buildGradleKtsContent, "styles")
         val compileSass = stylesBlock?.let {
             !Regex("""compileSass\s*=\s*false""").containsMatchIn(it)
         } ?: true
+        val stylesGlobalStyleSheet = stylesBlock?.let {
+            Regex("""\bglobalStyleSheet\s*=\s*"([^"]+)"""").find(it)?.groupValues?.get(1)
+        }
+        val globalStyleSheet = stylesGlobalStyleSheet ?: themeStyleSheet ?: "styles/main.scss"
 
         return GenericUiProjectConfig(
             projectName = resolvedProjectName,
@@ -131,7 +143,9 @@ class GenericUiBuildFileInspector(
             selectedExtensions = extensions,
             compileSass = compileSass,
             swingUseLwjglGL = swingUseLwjglGL,
-            swingUseVulkan = swingUseVulkan
+            swingUseVulkan = swingUseVulkan,
+            themeMode = themeMode,
+            globalStyleSheet = globalStyleSheet
         )
     }
 

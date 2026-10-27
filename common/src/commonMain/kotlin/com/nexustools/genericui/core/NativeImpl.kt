@@ -7,8 +7,10 @@ import com.nexustools.genericui.event.WheelEvent
 import com.nexustools.genericui.geometry.EdgeInsets
 import com.nexustools.genericui.geometry.Rect
 import com.nexustools.genericui.geometry.Size
-import com.nexustools.genericui.style.color.RgbaColor
+import com.nexustools.genericui.style.bootstrap.ComponentBootstrap
+import com.nexustools.genericui.style.css.ComponentStyle
 import com.nexustools.genericui.style.css.ComputedStyle
+import com.nexustools.genericui.style.css.CssCursorValue
 import com.nexustools.genericui.style.gradient.Gradient
 import com.nexustools.genericui.style.transition.CssTransitionSpec
 
@@ -33,9 +35,11 @@ interface NativeImpl<out W> : Disposable {
     val nativeWidget: W
     val componentClassPrefix: String
 
-    // String-based CSS Class API
+    // String-based CSS Class API (exclusively user-added custom classes)
     fun setClass(className: String)
     fun getClass(): String
+    fun getClasses(): Set<String> =
+        getClass().split(Regex("\\s+")).filter { it.isNotEmpty() }.toSet()
     fun addClass(className: String)
     fun removeClass(className: String)
     fun hasClass(className: String): Boolean
@@ -129,9 +133,9 @@ interface NativeImpl<out W> : Disposable {
     fun setMargin(margin: EdgeInsets)
 
     fun applyComputedStyle(style: ComputedStyle)
-
-    fun setTint(tint: RgbaColor?) {}
-    fun getTint(): RgbaColor? = null
+    fun applyComponentStyle(style: ComponentStyle) {}
+    fun applyComponentBootstrap(bootstrap: ComponentBootstrap) {}
+    fun setCustomCursor(cursor: CssCursorValue?) {}
 
     fun setBackgroundGradient(gradient: Gradient?) {}
     fun getBackgroundGradient(): Gradient? = null

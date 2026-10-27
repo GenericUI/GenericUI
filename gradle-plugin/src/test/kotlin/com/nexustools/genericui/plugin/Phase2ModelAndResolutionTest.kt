@@ -305,4 +305,32 @@ class Phase2ModelAndResolutionTest {
         }
         assertTrue(winManifestEx.message.orEmpty().contains("Android-only"))
     }
+
+    @Test
+    fun `variant resolver defaults themeMode to auto and cascades globalStyleSheet across styles app and variants`() {
+        val project = ProjectBuilder.builder().build()
+        project.pluginManager.apply("com.nexustools.genericui")
+        val ext = project.extensions.getByType(GenericUiExtension::class.java)
+
+        // Default unconfigured themeMode must be "auto"
+        val defaultWeb = GenericUiVariantResolver.resolve(ext, GenericUiVariantScope.WEB)
+        val defaultWin = GenericUiVariantResolver.resolve(ext, GenericUiVariantScope.WINDOWS)
+        assertEquals("auto", defaultWeb.themeMode)
+        assertEquals("auto", defaultWin.themeMode)
+
+        ext.styles {
+            globalStyleSheet = "styles/global.scss"
+        }
+        assertEquals("styles/global.scss", GenericUiVariantResolver.resolve(ext, GenericUiVariantScope.WEB).globalStyleSheet)
+
+        ext.desktopCommon {
+            styleSheet("styles/desktop.scss")
+        }
+        ext.windows {
+            styleSheet = "styles/windows.scss"
+        }
+        assertEquals("styles/global.scss", GenericUiVariantResolver.resolve(ext, GenericUiVariantScope.WEB).globalStyleSheet)
+        assertEquals("styles/desktop.scss", GenericUiVariantResolver.resolve(ext, GenericUiVariantScope.MACOS).globalStyleSheet)
+        assertEquals("styles/windows.scss", GenericUiVariantResolver.resolve(ext, GenericUiVariantScope.WINDOWS).globalStyleSheet)
+    }
 }

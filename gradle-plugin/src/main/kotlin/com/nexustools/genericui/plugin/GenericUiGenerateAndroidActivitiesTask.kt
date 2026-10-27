@@ -93,6 +93,10 @@ abstract class GenericUiGenerateAndroidActivitiesTask : DefaultTask() {
 
     @get:Input
     @get:Optional
+    abstract val globalStyleSheet: Property<String>
+
+    @get:Input
+    @get:Optional
     abstract val providerInstallers: ListProperty<String>
 
     @get:Input
@@ -134,9 +138,10 @@ abstract class GenericUiGenerateAndroidActivitiesTask : DefaultTask() {
             minWindowHeight = minWindowHeight.orNull ?: 240,
             windowResizable = windowResizable.orNull ?: true,
             fullscreen = fullscreen.orNull ?: false,
-            themeMode = themeMode.orNull?.takeIf { it.isNotBlank() } ?: "dark",
+            themeMode = themeMode.orNull?.takeIf { it.isNotBlank() } ?: "auto",
             themeColor = themeColor.orNull?.takeIf { it.isNotBlank() } ?: "#0d6efd",
-            iconPath = iconPath.orNull?.takeIf { it.isNotBlank() }
+            iconPath = iconPath.orNull?.takeIf { it.isNotBlank() },
+            globalStyleSheet = globalStyleSheet.orNull?.takeIf { it.isNotBlank() }
         )
 
         generateAndroidActivities(
@@ -312,6 +317,11 @@ abstract class GenericUiGenerateAndroidActivitiesTask : DefaultTask() {
             appendLine("        themeMode = ${quoteKotlin(resolvedConfig.themeMode)},")
             appendLine("        themeColor = ${quoteKotlin(resolvedConfig.themeColor)},")
             appendLine("        iconPath = ${resolvedConfig.iconPath?.let { quoteKotlin(it) } ?: "null"},")
+            val styleSheetPath = resolvedConfig.globalStyleSheet?.trim()?.takeIf { it.isNotEmpty() }
+            if (styleSheetPath != null) {
+                appendLine("        globalStyleSheetPath = ${quoteKotlin(styleSheetPath)},")
+                appendLine("        precompiledStyleSheetInstaller = { app -> app.addStyleSheet(${quoteKotlin(styleSheetPath)}) },")
+            }
             if (mainFragment != null) {
                 appendLine("        mainFragmentClass = ${mainFragment.qualifiedName}::class,")
                 appendLine("        mainFragmentFactory = { _: com.nexustools.genericui.component.fragment.FragmentBundle? -> ${mainFragment.qualifiedName}() },")
@@ -352,6 +362,12 @@ abstract class GenericUiGenerateAndroidActivitiesTask : DefaultTask() {
                 appendLine("        resourceRegistryInstaller = null")
             }
             appendLine("    )")
+            if (styleSheetPath != null) {
+                appendLine()
+                appendLine("    fun configureGlobalStyleSheet(app: com.nexustools.genericui.component.shell.IApplication) {")
+                appendLine("        app.addStyleSheet(${quoteKotlin(styleSheetPath)})")
+                appendLine("    }")
+            }
             appendLine()
             appendLine("    override fun registerActivities() {")
             for (frag in fragments) {

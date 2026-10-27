@@ -1,5 +1,6 @@
 package com.nexustools.genericui.ide.generator
 
+import com.nexustools.genericui.ide.model.GenericUiExtensionModule
 import com.nexustools.genericui.ide.model.GenericUiProjectConfig
 import com.nexustools.genericui.ide.model.GenericUiProjectTemplateType
 
@@ -11,19 +12,31 @@ class GenericUiStarterSourceGenerator {
 
     /**
      * Generates `src/commonMain/kotlin/<packagePath>/MainFragment.kt` matching [GenericUiProjectConfig.templateType].
+     *
+     * When [GenericUiExtensionModule.DSL] is enabled, demonstrates the `:extensions:dsl` `bootstrap { ... }`
+     * and `style { ... }` builders; otherwise demonstrates core `getBootstrap().apply { ... }` and
+     * `getStyle().apply { ... }` configuration.
      */
     fun generateMainFragmentKt(config: GenericUiProjectConfig): String = buildString {
+        val useDsl = GenericUiExtensionModule.DSL in config.resolvedExtensions()
+
         appendLine("package ${config.packageName}")
         appendLine()
         appendLine("import com.nexustools.genericui.component.fragment.Fragment")
         appendLine("import com.nexustools.genericui.component.fragment.FragmentBundle")
         appendLine("import com.nexustools.genericui.component.fragment.MainAppFragment")
+        if (useDsl) {
+            appendLine("import com.nexustools.genericui.ext.dsl.bootstrap")
+            appendLine("import com.nexustools.genericui.ext.dsl.style")
+        }
+        appendLine("import com.nexustools.genericui.style.CssCursor")
+        appendLine("import com.nexustools.genericui.theme.SpacingScale")
         appendLine()
         when (config.templateType) {
             GenericUiProjectTemplateType.STANDARD_FRAGMENT -> {
                 appendLine("/**")
                 appendLine(" * Primary application fragment for ${config.projectName}.")
-                appendLine(" * Built on GenericUI's Fragment & Bootstrap/SASS dual-mode styling system.")
+                appendLine(" * Built on GenericUI's Fragment & Bootstrap/CSS/SASS styling system.")
                 appendLine(" */")
                 appendLine("@MainAppFragment")
                 appendLine("class MainFragment : Fragment() {")
@@ -31,6 +44,7 @@ class GenericUiStarterSourceGenerator {
                 appendLine()
                 appendLine("    override fun onCreate(savedState: FragmentBundle?) {")
                 appendLine("        super.onCreate(savedState)")
+                appendStylingSnippet(useDsl)
                 appendLine("        // Initialize GenericUI Fragment hierarchy, MenuBar, ToolBar, and responsive widgets")
                 appendLine("    }")
                 appendLine("}")
@@ -47,6 +61,7 @@ class GenericUiStarterSourceGenerator {
                 appendLine()
                 appendLine("    override fun onCreate(savedState: FragmentBundle?) {")
                 appendLine("        super.onCreate(savedState)")
+                appendStylingSnippet(useDsl)
                 appendLine("        // Configure DockWorkspaceFragment panels, IdeCodeEditor, and AIChatDrawer")
                 appendLine("    }")
                 appendLine("}")
@@ -61,6 +76,7 @@ class GenericUiStarterSourceGenerator {
                 appendLine()
                 appendLine("    override fun onCreate(savedState: FragmentBundle?) {")
                 appendLine("        super.onCreate(savedState)")
+                appendStylingSnippet(useDsl)
                 appendLine("        // Configure OverlayDockWorkspaceFragment with ThreeSceneCanvas and floating HUD docks")
                 appendLine("    }")
                 appendLine("}")
@@ -76,6 +92,7 @@ class GenericUiStarterSourceGenerator {
                 appendLine()
                 appendLine("    override fun onCreate(savedState: FragmentBundle?) {")
                 appendLine("        super.onCreate(savedState)")
+                appendStylingSnippet(useDsl)
                 appendLine("        // Configure AdaptiveSplitTabFragment sections and VideoPlayer / AudioPlayer media views")
                 appendLine("    }")
                 appendLine("}")
@@ -90,10 +107,29 @@ class GenericUiStarterSourceGenerator {
                 appendLine()
                 appendLine("    override fun onCreate(savedState: FragmentBundle?) {")
                 appendLine("        super.onCreate(savedState)")
+                appendStylingSnippet(useDsl)
                 appendLine("        // Configure CenteredMenuPageFragment and ValidatedStepPageFragment navigation stack")
                 appendLine("    }")
                 appendLine("}")
             }
+        }
+    }
+
+    private fun StringBuilder.appendStylingSnippet(useDsl: Boolean) {
+        if (useDsl) {
+            appendLine("        bootstrap {")
+            appendLine("            padding = SpacingScale.S3")
+            appendLine("        }")
+            appendLine("        style {")
+            appendLine("            setCursor(CssCursor.DEFAULT)")
+            appendLine("        }")
+        } else {
+            appendLine("        getBootstrap().apply {")
+            appendLine("            padding = SpacingScale.S3")
+            appendLine("        }")
+            appendLine("        getStyle().apply {")
+            appendLine("            setCursor(CssCursor.DEFAULT)")
+            appendLine("        }")
         }
     }
 

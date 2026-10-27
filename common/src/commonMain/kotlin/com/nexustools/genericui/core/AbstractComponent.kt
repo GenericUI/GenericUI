@@ -8,14 +8,16 @@ import com.nexustools.genericui.event.WheelEvent
 import com.nexustools.genericui.geometry.EdgeInsets
 import com.nexustools.genericui.geometry.Rect
 import com.nexustools.genericui.geometry.Size
+import com.nexustools.genericui.style.bootstrap.ComponentBootstrap
 import com.nexustools.genericui.style.color.RgbaColor
+import com.nexustools.genericui.style.css.ComponentStyle
 import com.nexustools.genericui.style.css.ComputedStyle
+import com.nexustools.genericui.style.css.CssCursorValue
 import com.nexustools.genericui.style.css.CssStyleSheet
 import com.nexustools.genericui.style.css.PrecompiledStyleSheet
 import com.nexustools.genericui.style.gradient.Gradient
 import com.nexustools.genericui.style.mapper.BootstrapClassMapper
 import com.nexustools.genericui.style.mapper.BootstrapStyleSnapshot
-import com.nexustools.genericui.style.state.ComponentStyleBlock
 import com.nexustools.genericui.style.transition.CssTransitionController
 
 /**
@@ -104,6 +106,35 @@ abstract class AbstractComponent(
         get() = transitionController.isTransitioning
 
     private var styleSnapshot: BootstrapStyleSnapshot = BootstrapStyleSnapshot(componentPrefix = componentClassPrefix)
+
+    private val componentStyleInstance: ComponentStyle = ComponentStyle(
+        onChange = { onComponentStyleChanged() }
+    )
+
+    private val componentBootstrapInstance: ComponentBootstrap = ComponentBootstrap(
+        owner = this,
+        onChange = { onComponentBootstrapChanged(it) }
+    )
+
+    private fun onComponentStyleChanged() {
+        val base = lastAppliedStyleSheet?.resolveStyleForComponent(this, viewportWidthPx = lastStyleSheetViewportWidthPx)
+            ?: computedStyleState
+        val updated = componentStyleInstance.toComputedStyle(base)
+        applyComputedStyle(updated)
+        nativeImpl?.applyComponentStyle(componentStyleInstance)
+        nativeImpl?.setBackgroundGradient(updated.backgroundGradient)
+        nativeImpl?.setCustomCursor(updated.customCursor)
+    }
+
+    private fun onComponentBootstrapChanged(bootstrap: ComponentBootstrap) {
+        styleSnapshot = bootstrap.applyToSnapshot(styleSnapshot)
+        notifyParentCacheDirty()
+        val impl = nativeImpl
+        if (impl != null) {
+            syncBootstrapEnumsToNative(impl)
+            impl.applyComponentBootstrap(bootstrap)
+        }
+    }
 
     /**
      * Marks any ancestor [AbstractContainer] offscreen render caches as dirty because this
@@ -383,9 +414,13 @@ abstract class AbstractComponent(
         impl.setMargin(margin)
         computedStyleState?.let {
             impl.applyComputedStyle(it)
-            impl.setTint(it.tint)
             impl.setBackgroundGradient(it.backgroundGradient)
+            impl.setCustomCursor(it.customCursor)
         }
+        if (!componentStyleInstance.isEmpty()) {
+            impl.applyComponentStyle(componentStyleInstance)
+        }
+        impl.applyComponentBootstrap(componentBootstrapInstance)
         impl.setOnClick(onClick)
         impl.setOnDoubleClick(onDoubleClick)
         impl.setOnContextMenu(buildEffectiveContextMenuListener())
@@ -399,7 +434,7 @@ abstract class AbstractComponent(
         impl.setOnKeyUp(onKeyUp)
     }
 
-    private fun syncStyleSnapshotToNative(impl: NativeImpl<*>) {
+    private fun syncBootstrapEnumsToNative(impl: NativeImpl<*>) {
         impl.setType(styleSnapshot.type)
         impl.setOutline(styleSnapshot.outline)
         impl.setSize(styleSnapshot.size)
@@ -422,41 +457,83 @@ abstract class AbstractComponent(
         impl.setPosition(styleSnapshot.position)
         impl.setMarginAll(styleSnapshot.marginAll)
         impl.setPaddingAll(styleSnapshot.paddingAll)
+    }
+
+    private fun syncStyleSnapshotToNative(impl: NativeImpl<*>) {
+        syncBootstrapEnumsToNative(impl)
         for (custom in styleSnapshot.customClasses) {
             impl.addClass(custom)
         }
     }
 
-    // String-based CSS Class API
+    // String-based CSS Class API (strictly isolated to user-added custom classes)
     var cssClass: String
         get() = getClass()
         set(value) = setClass(value)
 
+    @get:kotlin.jvm.JvmName("obtainCustomClasses")
+    val classes: Set<String>
+        get() = getClasses()
+
+    fun getClasses(): Set<String> = styleSnapshot.customClasses.toSet()
+
     fun setClass(className: String) {
-        styleSnapshot = BootstrapClassMapper.fromClassString(className, componentClassPrefix)
+        val customSet = className.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }.toSet()
+        styleSnapshot = styleSnapshot.copy(customClasses = customSet)
         notifyParentCacheDirty()
-        nativeImpl?.setClass(className)
+        nativeImpl?.setClass(customSet.joinToString(" "))
     }
 
-    fun getClass(): String =
-        nativeImpl?.getClass() ?: BootstrapClassMapper.toClassString(styleSnapshot)
+    fun getClass(): String = styleSnapshot.customClasses.joinToString(" ")
 
     fun addClass(className: String) {
-        val combined = (getClass() + " " + className).trim()
-        styleSnapshot = BootstrapClassMapper.fromClassString(combined, componentClassPrefix)
+        val tokens = className.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
+        if (tokens.isEmpty()) return
+        val updated = LinkedHashSet(styleSnapshot.customClasses)
+        updated.addAll(tokens)
+        styleSnapshot = styleSnapshot.copy(customClasses = updated)
         notifyParentCacheDirty()
-        nativeImpl?.addClass(className)
+        for (tok in tokens) {
+            nativeImpl?.addClass(tok)
+        }
+    }
+
+    fun addClass(vararg classNames: String) {
+        for (cls in classNames) {
+            addClass(cls)
+        }
     }
 
     fun removeClass(className: String) {
-        val tokens = getClass().split(Regex("\\s+")).filter { it.isNotEmpty() && it != className }
-        styleSnapshot = BootstrapClassMapper.fromClassString(tokens.joinToString(" "), componentClassPrefix)
+        val tokens = className.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
+        if (tokens.isEmpty()) return
+        val updated = LinkedHashSet(styleSnapshot.customClasses)
+        updated.removeAll(tokens.toSet())
+        styleSnapshot = styleSnapshot.copy(customClasses = updated)
         notifyParentCacheDirty()
-        nativeImpl?.removeClass(className)
+        for (tok in tokens) {
+            nativeImpl?.removeClass(tok)
+        }
     }
 
-    fun hasClass(className: String): Boolean =
-        nativeImpl?.hasClass(className) ?: getClass().split(Regex("\\s+")).contains(className)
+    fun removeClass(vararg classNames: String) {
+        for (cls in classNames) {
+            removeClass(cls)
+        }
+    }
+
+    fun hasClass(className: String): Boolean {
+        val tokens = className.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
+        if (tokens.isEmpty()) return false
+        return styleSnapshot.customClasses.containsAll(tokens)
+    }
+
+    // ComponentBootstrap API & Convenience Delegation
+    fun getBootstrap(): ComponentBootstrap = componentBootstrapInstance
+
+    @get:kotlin.jvm.JvmName("obtainComponentBootstrap")
+    val bootstrap: ComponentBootstrap
+        get() = componentBootstrapInstance
 
     // Bootstrap Enum Helper Properties & Methods
     var type: BootstrapType?
@@ -465,13 +542,11 @@ abstract class AbstractComponent(
 
     @kotlin.jvm.JvmName("assignType")
     fun setType(type: BootstrapType?) {
-        styleSnapshot = styleSnapshot.copy(type = type)
-        nativeImpl?.setType(type)
+        componentBootstrapInstance.setType(type)
     }
 
     @kotlin.jvm.JvmName("obtainType")
-    fun getType(): BootstrapType? =
-        nativeImpl?.getType() ?: styleSnapshot.type
+    fun getType(): BootstrapType? = componentBootstrapInstance.getType()
 
     var outline: Boolean
         get() = isOutline()
@@ -479,12 +554,10 @@ abstract class AbstractComponent(
 
     @kotlin.jvm.JvmName("assignOutline")
     fun setOutline(outline: Boolean) {
-        styleSnapshot = styleSnapshot.copy(outline = outline)
-        nativeImpl?.setOutline(outline)
+        componentBootstrapInstance.setOutline(outline)
     }
 
-    fun isOutline(): Boolean =
-        nativeImpl?.isOutline() ?: styleSnapshot.outline
+    fun isOutline(): Boolean = componentBootstrapInstance.isOutline()
 
     var size: BootstrapSize?
         get() = getSize()
@@ -492,13 +565,11 @@ abstract class AbstractComponent(
 
     @kotlin.jvm.JvmName("assignSize")
     fun setSize(size: BootstrapSize?) {
-        styleSnapshot = styleSnapshot.copy(size = size)
-        nativeImpl?.setSize(size)
+        componentBootstrapInstance.setSize(size)
     }
 
     @kotlin.jvm.JvmName("obtainSize")
-    fun getSize(): BootstrapSize? =
-        nativeImpl?.getSize() ?: styleSnapshot.size
+    fun getSize(): BootstrapSize? = componentBootstrapInstance.getSize()
 
     var backgroundType: BootstrapType?
         get() = getBackgroundType()
@@ -506,13 +577,11 @@ abstract class AbstractComponent(
 
     @kotlin.jvm.JvmName("assignBackgroundType")
     fun setBackgroundType(type: BootstrapType?) {
-        styleSnapshot = styleSnapshot.copy(backgroundType = type)
-        nativeImpl?.setBackgroundType(type)
+        componentBootstrapInstance.setBackgroundType(type)
     }
 
     @kotlin.jvm.JvmName("obtainBackgroundType")
-    fun getBackgroundType(): BootstrapType? =
-        nativeImpl?.getBackgroundType() ?: styleSnapshot.backgroundType
+    fun getBackgroundType(): BootstrapType? = componentBootstrapInstance.getBackgroundType()
 
     var textColorType: BootstrapType?
         get() = getTextColorType()
@@ -520,13 +589,11 @@ abstract class AbstractComponent(
 
     @kotlin.jvm.JvmName("assignTextColorType")
     fun setTextColorType(type: BootstrapType?) {
-        styleSnapshot = styleSnapshot.copy(textColorType = type)
-        nativeImpl?.setTextColorType(type)
+        componentBootstrapInstance.setTextColorType(type)
     }
 
     @kotlin.jvm.JvmName("obtainTextColorType")
-    fun getTextColorType(): BootstrapType? =
-        nativeImpl?.getTextColorType() ?: styleSnapshot.textColorType
+    fun getTextColorType(): BootstrapType? = componentBootstrapInstance.getTextColorType()
 
     var borderType: BootstrapType?
         get() = getBorderType()
@@ -534,13 +601,11 @@ abstract class AbstractComponent(
 
     @kotlin.jvm.JvmName("assignBorderType")
     fun setBorderType(type: BootstrapType?) {
-        styleSnapshot = styleSnapshot.copy(borderType = type)
-        nativeImpl?.setBorderType(type)
+        componentBootstrapInstance.setBorderType(type)
     }
 
     @kotlin.jvm.JvmName("obtainBorderType")
-    fun getBorderType(): BootstrapType? =
-        nativeImpl?.getBorderType() ?: styleSnapshot.borderType
+    fun getBorderType(): BootstrapType? = componentBootstrapInstance.getBorderType()
 
     var textAlignment: TextAlignment?
         get() = getTextAlignment()
@@ -548,13 +613,11 @@ abstract class AbstractComponent(
 
     @kotlin.jvm.JvmName("assignTextAlignment")
     fun setTextAlignment(alignment: TextAlignment?) {
-        styleSnapshot = styleSnapshot.copy(textAlignment = alignment)
-        nativeImpl?.setTextAlignment(alignment)
+        componentBootstrapInstance.setTextAlignment(alignment)
     }
 
     @kotlin.jvm.JvmName("obtainTextAlignment")
-    fun getTextAlignment(): TextAlignment? =
-        nativeImpl?.getTextAlignment() ?: styleSnapshot.textAlignment
+    fun getTextAlignment(): TextAlignment? = componentBootstrapInstance.getTextAlignment()
 
     var fontWeight: FontWeight?
         get() = getFontWeight()
@@ -562,13 +625,11 @@ abstract class AbstractComponent(
 
     @kotlin.jvm.JvmName("assignFontWeight")
     fun setFontWeight(weight: FontWeight?) {
-        styleSnapshot = styleSnapshot.copy(fontWeight = weight)
-        nativeImpl?.setFontWeight(weight)
+        componentBootstrapInstance.setFontWeight(weight)
     }
 
     @kotlin.jvm.JvmName("obtainFontWeight")
-    fun getFontWeight(): FontWeight? =
-        nativeImpl?.getFontWeight() ?: styleSnapshot.fontWeight
+    fun getFontWeight(): FontWeight? = componentBootstrapInstance.getFontWeight()
 
     var textTransform: TextTransform?
         get() = getTextTransform()
@@ -576,13 +637,11 @@ abstract class AbstractComponent(
 
     @kotlin.jvm.JvmName("assignTextTransform")
     fun setTextTransform(transform: TextTransform?) {
-        styleSnapshot = styleSnapshot.copy(textTransform = transform)
-        nativeImpl?.setTextTransform(transform)
+        componentBootstrapInstance.setTextTransform(transform)
     }
 
     @kotlin.jvm.JvmName("obtainTextTransform")
-    fun getTextTransform(): TextTransform? =
-        nativeImpl?.getTextTransform() ?: styleSnapshot.textTransform
+    fun getTextTransform(): TextTransform? = componentBootstrapInstance.getTextTransform()
 
     var textOverflow: TextOverflow?
         get() = getTextOverflow()
@@ -590,49 +649,41 @@ abstract class AbstractComponent(
 
     @kotlin.jvm.JvmName("assignTextOverflow")
     fun setTextOverflow(overflow: TextOverflow?) {
-        styleSnapshot = styleSnapshot.copy(textOverflow = overflow)
-        nativeImpl?.setTextOverflow(overflow)
+        componentBootstrapInstance.setTextOverflow(overflow)
     }
 
     @kotlin.jvm.JvmName("obtainTextOverflow")
-    fun getTextOverflow(): TextOverflow? =
-        nativeImpl?.getTextOverflow() ?: styleSnapshot.textOverflow
+    fun getTextOverflow(): TextOverflow? = componentBootstrapInstance.getTextOverflow()
 
     var borderRadiusStyle: BorderRadiusStyle?
         get() = getBorderRadius()
         set(value) = setBorderRadius(value)
 
     fun setBorderRadius(radius: BorderRadiusStyle?) {
-        styleSnapshot = styleSnapshot.copy(borderRadius = radius)
-        nativeImpl?.setBorderRadius(radius)
+        componentBootstrapInstance.setBorderRadius(radius)
     }
 
-    fun getBorderRadius(): BorderRadiusStyle? =
-        nativeImpl?.getBorderRadius() ?: styleSnapshot.borderRadius
+    fun getBorderRadius(): BorderRadiusStyle? = componentBootstrapInstance.getBorderRadius()
 
     var shadowElevation: ShadowElevation?
         get() = getShadow()
         set(value) = setShadow(value)
 
     fun setShadow(shadow: ShadowElevation?) {
-        styleSnapshot = styleSnapshot.copy(shadow = shadow)
-        nativeImpl?.setShadow(shadow)
+        componentBootstrapInstance.setShadow(shadow)
     }
 
-    fun getShadow(): ShadowElevation? =
-        nativeImpl?.getShadow() ?: styleSnapshot.shadow
+    fun getShadow(): ShadowElevation? = componentBootstrapInstance.getShadow()
 
     var displayMode: DisplayMode?
         get() = getDisplay()
         set(value) = setDisplay(value)
 
     fun setDisplay(display: DisplayMode?) {
-        styleSnapshot = styleSnapshot.copy(display = display)
-        nativeImpl?.setDisplay(display)
+        componentBootstrapInstance.setDisplay(display)
     }
 
-    fun getDisplay(): DisplayMode? =
-        nativeImpl?.getDisplay() ?: styleSnapshot.display
+    fun getDisplay(): DisplayMode? = componentBootstrapInstance.getDisplay()
 
     var flexDirection: FlexDirection?
         get() = getFlexDirection()
@@ -640,13 +691,11 @@ abstract class AbstractComponent(
 
     @kotlin.jvm.JvmName("assignFlexDirection")
     fun setFlexDirection(direction: FlexDirection?) {
-        styleSnapshot = styleSnapshot.copy(flexDirection = direction)
-        nativeImpl?.setFlexDirection(direction)
+        componentBootstrapInstance.setFlexDirection(direction)
     }
 
     @kotlin.jvm.JvmName("obtainFlexDirection")
-    fun getFlexDirection(): FlexDirection? =
-        nativeImpl?.getFlexDirection() ?: styleSnapshot.flexDirection
+    fun getFlexDirection(): FlexDirection? = componentBootstrapInstance.getFlexDirection()
 
     var flexWrap: FlexWrap?
         get() = getFlexWrap()
@@ -654,13 +703,11 @@ abstract class AbstractComponent(
 
     @kotlin.jvm.JvmName("assignFlexWrap")
     fun setFlexWrap(wrap: FlexWrap?) {
-        styleSnapshot = styleSnapshot.copy(flexWrap = wrap)
-        nativeImpl?.setFlexWrap(wrap)
+        componentBootstrapInstance.setFlexWrap(wrap)
     }
 
     @kotlin.jvm.JvmName("obtainFlexWrap")
-    fun getFlexWrap(): FlexWrap? =
-        nativeImpl?.getFlexWrap() ?: styleSnapshot.flexWrap
+    fun getFlexWrap(): FlexWrap? = componentBootstrapInstance.getFlexWrap()
 
     var justifyContent: JustifyContent?
         get() = getJustifyContent()
@@ -668,13 +715,11 @@ abstract class AbstractComponent(
 
     @kotlin.jvm.JvmName("assignJustifyContent")
     fun setJustifyContent(justify: JustifyContent?) {
-        styleSnapshot = styleSnapshot.copy(justifyContent = justify)
-        nativeImpl?.setJustifyContent(justify)
+        componentBootstrapInstance.setJustifyContent(justify)
     }
 
     @kotlin.jvm.JvmName("obtainJustifyContent")
-    fun getJustifyContent(): JustifyContent? =
-        nativeImpl?.getJustifyContent() ?: styleSnapshot.justifyContent
+    fun getJustifyContent(): JustifyContent? = componentBootstrapInstance.getJustifyContent()
 
     var alignItems: AlignItems?
         get() = getAlignItems()
@@ -682,13 +727,11 @@ abstract class AbstractComponent(
 
     @kotlin.jvm.JvmName("assignAlignItems")
     fun setAlignItems(align: AlignItems?) {
-        styleSnapshot = styleSnapshot.copy(alignItems = align)
-        nativeImpl?.setAlignItems(align)
+        componentBootstrapInstance.setAlignItems(align)
     }
 
     @kotlin.jvm.JvmName("obtainAlignItems")
-    fun getAlignItems(): AlignItems? =
-        nativeImpl?.getAlignItems() ?: styleSnapshot.alignItems
+    fun getAlignItems(): AlignItems? = componentBootstrapInstance.getAlignItems()
 
     var alignSelf: AlignSelf?
         get() = getAlignSelf()
@@ -696,37 +739,31 @@ abstract class AbstractComponent(
 
     @kotlin.jvm.JvmName("assignAlignSelf")
     fun setAlignSelf(align: AlignSelf?) {
-        styleSnapshot = styleSnapshot.copy(alignSelf = align)
-        nativeImpl?.setAlignSelf(align)
+        componentBootstrapInstance.setAlignSelf(align)
     }
 
     @kotlin.jvm.JvmName("obtainAlignSelf")
-    fun getAlignSelf(): AlignSelf? =
-        nativeImpl?.getAlignSelf() ?: styleSnapshot.alignSelf
+    fun getAlignSelf(): AlignSelf? = componentBootstrapInstance.getAlignSelf()
 
     var overflowBehavior: OverflowBehavior?
         get() = getOverflow()
         set(value) = setOverflow(value)
 
     fun setOverflow(overflow: OverflowBehavior?) {
-        styleSnapshot = styleSnapshot.copy(overflow = overflow)
-        nativeImpl?.setOverflow(overflow)
+        componentBootstrapInstance.setOverflow(overflow)
     }
 
-    fun getOverflow(): OverflowBehavior? =
-        nativeImpl?.getOverflow() ?: styleSnapshot.overflow
+    fun getOverflow(): OverflowBehavior? = componentBootstrapInstance.getOverflow()
 
     var positionMode: PositionMode?
         get() = getPosition()
         set(value) = setPosition(value)
 
     fun setPosition(position: PositionMode?) {
-        styleSnapshot = styleSnapshot.copy(position = position)
-        nativeImpl?.setPosition(position)
+        componentBootstrapInstance.setPosition(position)
     }
 
-    fun getPosition(): PositionMode? =
-        nativeImpl?.getPosition() ?: styleSnapshot.position
+    fun getPosition(): PositionMode? = componentBootstrapInstance.getPosition()
 
     var marginAll: SpacingScale?
         get() = getMarginAll()
@@ -734,13 +771,11 @@ abstract class AbstractComponent(
 
     @kotlin.jvm.JvmName("assignMarginAll")
     fun setMarginAll(scale: SpacingScale?) {
-        styleSnapshot = styleSnapshot.copy(marginAll = scale)
-        nativeImpl?.setMarginAll(scale)
+        componentBootstrapInstance.setMargin(scale)
     }
 
     @kotlin.jvm.JvmName("obtainMarginAll")
-    fun getMarginAll(): SpacingScale? =
-        nativeImpl?.getMarginAll() ?: styleSnapshot.marginAll
+    fun getMarginAll(): SpacingScale? = componentBootstrapInstance.getMargin()
 
     var paddingAll: SpacingScale?
         get() = getPaddingAll()
@@ -748,13 +783,11 @@ abstract class AbstractComponent(
 
     @kotlin.jvm.JvmName("assignPaddingAll")
     fun setPaddingAll(scale: SpacingScale?) {
-        styleSnapshot = styleSnapshot.copy(paddingAll = scale)
-        nativeImpl?.setPaddingAll(scale)
+        componentBootstrapInstance.setPadding(scale)
     }
 
     @kotlin.jvm.JvmName("obtainPaddingAll")
-    fun getPaddingAll(): SpacingScale? =
-        nativeImpl?.getPaddingAll() ?: styleSnapshot.paddingAll
+    fun getPaddingAll(): SpacingScale? = componentBootstrapInstance.getPadding()
 
     // Visibility, State & Geometry
     open var isVisible: Boolean
@@ -885,9 +918,18 @@ abstract class AbstractComponent(
     private val inlineStyleMap = linkedMapOf<String, String>()
 
     var inlineStyle: String
-        get() = inlineStyleMap.entries.joinToString("; ") { "${it.key}: ${it.value}" }
+        get() {
+            val combined = linkedMapOf<String, String>()
+            combined.putAll(inlineStyleMap)
+            for ((prop, pair) in componentStyleInstance.toCssPropertyMap()) {
+                val (v, imp) = pair
+                combined[prop] = if (imp) "$v !important" else v
+            }
+            return combined.entries.joinToString("; ") { "${it.key}: ${it.value}" }
+        }
         set(value) {
             inlineStyleMap.clear()
+            componentStyleInstance.clear()
             if (value.isNotBlank()) {
                 for (decl in value.split(';')) {
                     val colon = decl.indexOf(':')
@@ -896,6 +938,7 @@ abstract class AbstractComponent(
                         val v = decl.substring(colon + 1).trim()
                         if (k.isNotEmpty() && v.isNotEmpty()) {
                             inlineStyleMap[k] = v
+                            componentStyleInstance.setRawDeclaration(k, v)
                         }
                     }
                 }
@@ -908,17 +951,24 @@ abstract class AbstractComponent(
         val trimmedValue = value.trim()
         if (trimmedValue.isEmpty()) {
             inlineStyleMap.remove(key)
+            componentStyleInstance.setRawDeclaration(key, null)
         } else {
             inlineStyleMap[key] = trimmedValue
+            componentStyleInstance.setRawDeclaration(key, trimmedValue)
         }
         rebuildComputedStyleFromInlineMap()
     }
 
-    fun getStyleProperty(property: String): String? =
-        inlineStyleMap[property.trim().lowercase()]
+    fun getStyleProperty(property: String): String? {
+        val key = property.trim().lowercase()
+        inlineStyleMap[key]?.let { return it }
+        val pair = componentStyleInstance.toCssPropertyMap()[key] ?: return null
+        return if (pair.second) "${pair.first} !important" else pair.first
+    }
 
     fun clearStyleProperties() {
         inlineStyleMap.clear()
+        componentStyleInstance.clear()
         rebuildComputedStyleFromInlineMap()
     }
 
@@ -969,43 +1019,13 @@ abstract class AbstractComponent(
     fun getBackgroundGradient(): Gradient? = this.backgroundGradient
 
     /**
-     * Native system component color tint (`tint: ColorRgba(...)`), which tints the native OS widget's
-     * bevel/surface/chrome while still using the system native component when possible.
+     * Returns this component's inline [ComponentStyle] (`style="..."`), modeled after Web `HTMLElement.style`.
      */
-    var tint: RgbaColor?
-        get() = nativeImpl?.getTint() ?: computedStyleState?.tint
-        set(value) {
-            val base = computedStyleState ?: ComputedStyle()
-            applyComputedStyle(
-                base.copy(
-                    tint = value,
-                    rawDeclarations = syncRawDeclarations(base, "tint", value?.toCssRgba())
-                )
-            )
-            nativeImpl?.setTint(value)
-        }
+    fun getStyle(): ComponentStyle = componentStyleInstance
 
-    @kotlin.jvm.JvmName("assignTint")
-    fun setTint(color: RgbaColor?) {
-        this.tint = color
-    }
-
-    @kotlin.jvm.JvmName("obtainTint")
-    fun getTint(): RgbaColor? = this.tint
-
-    /**
-     * Configures this component's [ComputedStyle] and CSS pseudo-class states (`hover { ... }`,
-     * `focus { ... }`, `active { ... }`, `disabled { ... }`, `checked { ... }`) using the declarative style DSL.
-     */
-    fun style(block: ComponentStyleBlock.() -> Unit): AbstractComponent {
-        val builder = ComponentStyleBlock()
-        builder.block()
-        val updated = builder.toComputedStyle(computedStyleState)
-        applyComputedStyle(updated)
-        nativeImpl?.setTint(updated.tint)
-        nativeImpl?.setBackgroundGradient(updated.backgroundGradient)
-        return this
-    }
+    @get:kotlin.jvm.JvmName("obtainComponentStyle")
+    val style: ComponentStyle
+        get() = componentStyleInstance
 
     /**
      * Resolves the effective [ComputedStyle] for this component's current interactive state

@@ -17,8 +17,14 @@ data class GenericUiProjectConfig(
     val swingUseVulkan: Boolean = true,
     val bundleAngleOnWindows: Boolean = true,
     val bundleMoltenVkOnApple: Boolean = true,
-    val bundleShaderc: Boolean = true
+    val bundleShaderc: Boolean = true,
+    val themeMode: String = "auto",
+    val globalStyleSheet: String = "styles/main.scss"
 ) {
+    /** Transitively resolved set of enabled extension modules for this project configuration. */
+    val enabledExtensions: Set<GenericUiExtensionModule>
+        get() = resolvedExtensions()
+
     /** Returns [selectedExtensions] expanded with all transitively required extension modules. */
     fun resolvedExtensions(): Set<GenericUiExtensionModule> =
         GenericUiExtensionModule.resolveTransitive(selectedExtensions)

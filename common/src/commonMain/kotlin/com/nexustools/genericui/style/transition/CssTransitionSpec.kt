@@ -15,6 +15,16 @@ data class CssTransitionSpec(
         return property == "all" || property == norm
     }
 
+    fun toCssString(): String {
+        val durStr = "${durationMs.toInt()}ms"
+        val timingStr = timingFunction.toCssString()
+        return if (delayMs > 0f) {
+            "$property $durStr $timingStr ${delayMs.toInt()}ms"
+        } else {
+            "$property $durStr $timingStr"
+        }
+    }
+
     companion object {
         fun parseList(transitionCss: String?): List<CssTransitionSpec> {
             if (transitionCss.isNullOrBlank()) return emptyList()

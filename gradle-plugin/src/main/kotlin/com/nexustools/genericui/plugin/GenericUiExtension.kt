@@ -245,6 +245,27 @@ open class GenericUiExtension {
             onConfiguredCallback?.invoke()
         }
 
+    /** Shorthand for [GenericUiStylesConfig.globalStyleSheet]. */
+    var globalStyleSheet: String?
+        get() = styles.globalStyleSheet ?: themeConfig.styleSheet ?: app.styleSheet
+        set(value) {
+            styles.globalStyleSheet = value
+            onConfiguredCallback?.invoke()
+        }
+
+    /** Alias for [globalStyleSheet]. */
+    var styleSheet: String?
+        get() = globalStyleSheet
+        set(value) {
+            globalStyleSheet = value
+        }
+
+    /** Sets the global stylesheet path for this application. */
+    fun styleSheet(path: String) {
+        styles.globalStyleSheet = path
+        onConfiguredCallback?.invoke()
+    }
+
     /** Shorthand for [GenericUiApplicationConfig.allowInstallAsWebApp]. */
     var allowInstallAsWebApp: Boolean
         get() = application.allowInstallAsWebApp

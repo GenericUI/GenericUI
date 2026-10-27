@@ -50,14 +50,15 @@ object GenericUiLaunchSequence {
             null
         }
 
-        val resolvedThemeMode = when (descriptor.themeMode.trim().lowercase()) {
-            "light" -> ThemeMode.LIGHT
-            "system", "auto" -> ThemeMode.SYSTEM
-            else -> ThemeMode.DARK
-        }
+        val resolvedThemeMode = ThemeMode.fromString(descriptor.themeMode)
 
         val app: IApplication = if (descriptor.applicationFactory != null) {
-            descriptor.applicationFactory.invoke(launchBundle)
+            descriptor.applicationFactory.invoke(launchBundle).also { createdApp ->
+                createdApp.setThemeMode(resolvedThemeMode)
+                if (descriptor.themeColor.isNotBlank()) {
+                    createdApp.setThemeColor(descriptor.themeColor)
+                }
+            }
         } else {
             val mainFragment = descriptor.mainFragmentFactory?.invoke(launchBundle)
                 ?: descriptor.mainFragmentClass?.let { FragmentRegistry.instantiate(it, launchBundle) }
@@ -91,6 +92,8 @@ object GenericUiLaunchSequence {
             mainWindow.setWindowIcon(iconUriOrPath)
         }
 
+        descriptor.globalStyleSheetResourceId?.let { app.addStyleSheet(it) }
+        descriptor.globalStyleSheetPath?.takeIf { it.isNotBlank() }?.let { app.addStyleSheet(it) }
         descriptor.precompiledStyleSheetInstaller?.invoke(app)
         return app
     }

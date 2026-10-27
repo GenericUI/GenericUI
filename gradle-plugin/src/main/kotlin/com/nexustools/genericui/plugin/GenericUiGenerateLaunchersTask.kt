@@ -94,6 +94,10 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
 
     @get:Input
     @get:Optional
+    abstract val backendGlobalStyleSheets: MapProperty<String, String>
+
+    @get:Input
+    @get:Optional
     abstract val backendProviderInstallerCalls: MapProperty<String, List<String>>
 
     @get:Input
@@ -162,6 +166,7 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
         val themeModesMap = backendThemeModes.getOrElse(emptyMap())
         val themeColorsMap = backendThemeColors.getOrElse(emptyMap())
         val iconPathsMap = backendIconPaths.getOrElse(emptyMap())
+        val globalStyleSheetsMap = backendGlobalStyleSheets.getOrElse(emptyMap())
         val providerCallsMap = backendProviderInstallerCalls.getOrElse(emptyMap())
 
         for (backendScope in enabledScopes) {
@@ -178,9 +183,10 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
                 minWindowHeight = minHeightsMap[key] ?: 240,
                 windowResizable = resizablesMap[key] ?: true,
                 fullscreen = fullscreensMap[key] ?: false,
-                themeMode = themeModesMap[key] ?: "dark",
+                themeMode = themeModesMap[key] ?: "auto",
                 themeColor = themeColorsMap[key] ?: "#0d6efd",
-                iconPath = iconPathsMap[key]?.takeIf { it.isNotBlank() }
+                iconPath = iconPathsMap[key]?.takeIf { it.isNotBlank() },
+                globalStyleSheet = globalStyleSheetsMap[key]?.takeIf { it.isNotBlank() }
             )
             val providerCalls = providerCallsMap[key].orEmpty()
 
@@ -388,7 +394,8 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
                 buildLauncherMainKotlin(
                     generatedPackage = generatedPackage,
                     descriptorObjectName = descriptorObjectName,
-                    backendScope = backendScope
+                    backendScope = backendScope,
+                    globalStyleSheet = variantConfig.globalStyleSheet
                 )
             )
 
@@ -449,6 +456,11 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
             appendLine("        themeColor = ${escapeKotlinString(variantConfig.themeColor)},")
             val iconLiteral = variantConfig.iconPath?.takeIf { it.isNotBlank() }?.let { escapeKotlinString(it) } ?: "null"
             appendLine("        iconPath = $iconLiteral,")
+            val styleSheetPath = variantConfig.globalStyleSheet?.trim()?.takeIf { it.isNotEmpty() }
+            if (styleSheetPath != null) {
+                appendLine("        globalStyleSheetPath = ${escapeKotlinString(styleSheetPath)},")
+                appendLine("        precompiledStyleSheetInstaller = { app -> app.addStyleSheet(${escapeKotlinString(styleSheetPath)}) },")
+            }
             appendLine("        mainFragmentClass = ${winningMain.qualifiedName}::class,")
             appendLine("        mainFragmentFactory = { _: com.nexustools.genericui.component.fragment.FragmentBundle? -> ${winningMain.qualifiedName}() },")
             if (customApplication != null) {
@@ -486,7 +498,8 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
         private fun buildLauncherMainKotlin(
             generatedPackage: String,
             descriptorObjectName: String,
-            backendScope: GenericUiVariantScope
+            backendScope: GenericUiVariantScope,
+            globalStyleSheet: String? = null
         ): String = buildString {
             if (backendScope == GenericUiVariantScope.SWING) {
                 appendLine("@file:JvmName(\"GeneratedSwingMain\")")
@@ -494,6 +507,13 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
             }
             appendLine("package $generatedPackage")
             appendLine()
+            val cleanStyleSheet = globalStyleSheet?.trim()?.takeIf { it.isNotEmpty() }
+            if (cleanStyleSheet != null) {
+                appendLine("fun configureGlobalStyleSheet(app: com.nexustools.genericui.component.shell.IApplication) {")
+                appendLine("    app.addStyleSheet(${escapeKotlinString(cleanStyleSheet)})")
+                appendLine("}")
+                appendLine()
+            }
             when (backendScope) {
                 GenericUiVariantScope.WINDOWS -> {
                     appendLine("fun main(args: Array<String>) {")

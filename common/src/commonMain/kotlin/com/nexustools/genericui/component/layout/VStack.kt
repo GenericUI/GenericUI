@@ -11,6 +11,6 @@ open class VStack(
         htmlTag = "genericui:vstack"
         setDisplay(DisplayMode.FLEX)
         setFlexDirection(FlexDirection.COLUMN)
-        gap?.let { addClass("gap-${it.token}") }
+        gap?.let { getBootstrap().setGap(it) }
     }
 }

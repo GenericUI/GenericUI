@@ -2,6 +2,7 @@ package com.nexustools.genericui.ide
 
 import com.nexustools.genericui.ide.generator.GenericUiBuildFileInspector
 import com.nexustools.genericui.ide.generator.GenericUiGradleScriptGenerator
+import com.nexustools.genericui.ide.generator.GenericUiStarterSourceGenerator
 import com.nexustools.genericui.ide.model.GenericUiExtensionModule
 import com.nexustools.genericui.ide.model.GenericUiProjectConfig
 import com.nexustools.genericui.ide.model.GenericUiProjectTemplateType
@@ -34,6 +35,9 @@ class GenericUiIdeaPluginTest {
         assertTrue(panel.getDslPreviewText().contains("allExceptSwing()"))
         assertTrue(panel.getDslPreviewText().contains("app {"))
         assertTrue(panel.getDslPreviewText().contains("application {"))
+        assertTrue(panel.getDslPreviewText().contains("theme {"))
+        assertTrue(panel.getDslPreviewText().contains("mode = \"auto\""))
+        assertTrue(panel.getDslPreviewText().contains("globalStyleSheet = \"styles/main.scss\""))
 
         // Preset: Desktop Only (No Swing) / Native Desktop
         panel.selectNativeDesktop()
@@ -118,6 +122,9 @@ class GenericUiIdeaPluginTest {
         assertTrue(buildAllExceptSwing.contains("id = \"com.nexustools.studio\""))
         assertTrue(buildAllExceptSwing.contains("name = \"StudioApp\""))
         assertTrue(buildAllExceptSwing.contains("baseName = \"StudioApp\""))
+        assertTrue(buildAllExceptSwing.contains("theme {"))
+        assertTrue(buildAllExceptSwing.contains("mode = \"auto\""))
+        assertTrue(buildAllExceptSwing.contains("globalStyleSheet = \"styles/main.scss\""))
         assertTrue(buildAllExceptSwing.contains("allExceptSwing()"))
         assertTrue(buildAllExceptSwing.contains("gpu()"))
         assertTrue(buildAllExceptSwing.contains("overlay()"))
@@ -172,6 +179,8 @@ class GenericUiIdeaPluginTest {
 
         val parsed = inspector.inspectBuildGradleKts(initialBuildKts, "InspectorDemo", "/tmp/inspector")
         assertEquals("InspectorDemo", parsed.projectName)
+        assertEquals("auto", parsed.themeMode)
+        assertEquals("styles/main.scss", parsed.globalStyleSheet)
         assertEquals(GenericUiTargetBackend.allExceptSwingSet(), parsed.selectedBackends)
         assertEquals(
             setOf(
@@ -183,6 +192,21 @@ class GenericUiIdeaPluginTest {
             ),
             parsed.selectedExtensions
         )
+
+        // Verify parsing of theme { mode = ...; styleSheet = ... } and styles { globalStyleSheet = ... }
+        val customThemeParsed = inspector.inspectBuildGradleKts(
+            """
+            genericui {
+                theme {
+                    mode = "dark"
+                    styleSheet = "styles/theme-override.scss"
+                }
+                backends { allNativeDesktop() }
+            }
+            """.trimIndent()
+        )
+        assertEquals("dark", customThemeParsed.themeMode)
+        assertEquals("styles/theme-override.scss", customThemeParsed.globalStyleSheet)
 
         // Verify parsing of allNativeDesktop() and allDesktopExceptSwing()
         assertEquals(
@@ -248,6 +272,22 @@ class GenericUiIdeaPluginTest {
             val mainFragmentText = Files.readString(createdRoot.resolve("src/commonMain/kotlin/com/nexustools/sampleide/MainFragment.kt"))
             assertTrue(mainFragmentText.contains("@MainAppFragment"))
             assertTrue(mainFragmentText.contains("class MainFragment : Fragment()"))
+            assertTrue(mainFragmentText.contains("getBootstrap().apply {"))
+            assertTrue(mainFragmentText.contains("getStyle().apply {"))
+            assertFalse(mainFragmentText.lowercase().contains("tint"))
+
+            val styleScssText = Files.readString(createdRoot.resolve("src/commonMain/resources/styles/main.scss"))
+            assertFalse(styleScssText.lowercase().contains("tint"))
+
+            val starterGenerator = GenericUiStarterSourceGenerator()
+            val dslFragmentText = starterGenerator.generateMainFragmentKt(
+                initialConfig.copy(selectedExtensions = initialConfig.selectedExtensions + GenericUiExtensionModule.DSL)
+            )
+            assertTrue(dslFragmentText.contains("import com.nexustools.genericui.ext.dsl.bootstrap"))
+            assertTrue(dslFragmentText.contains("import com.nexustools.genericui.ext.dsl.style"))
+            assertTrue(dslFragmentText.contains("bootstrap {"))
+            assertTrue(dslFragmentText.contains("style {"))
+            assertFalse(dslFragmentText.lowercase().contains("tint"))
 
             val settingsText = Files.readString(createdRoot.resolve("settings.gradle.kts"))
             assertTrue(settingsText.contains("includeBuild(\"lib/GenericUI\")"))
@@ -259,6 +299,9 @@ class GenericUiIdeaPluginTest {
             assertTrue(buildText.contains("id = \"com.nexustools.sampleide\""))
             assertTrue(buildText.contains("name = \"SampleDockIde\""))
             assertTrue(buildText.contains("baseName = \"SampleDockIde\""))
+            assertTrue(buildText.contains("theme {"))
+            assertTrue(buildText.contains("mode = \"auto\""))
+            assertTrue(buildText.contains("globalStyleSheet = \"styles/main.scss\""))
 
             // Open Manage Targets Dialog on the scaffolded project and modify checkboxes
             val manageDialog = actions.createManageTargetsDialog(createdRoot)

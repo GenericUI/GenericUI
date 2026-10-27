@@ -2,7 +2,7 @@
 
 This document defines the **mandatory architectural rules, file layout invariants, and runtime contracts** for AI coding agents and software engineers working in the `GenericUI` repository.
 
-- **Related Documentation**: [GenericUI README](README.md) | [Master Documentation Index](docs/README.md) | [Hierarchical SourceSet Setup](docs/sourcesets.md) | [Platform Backends](docs/backends.md) | [First-Party Extensions](docs/extensions.md) | [Gradle Plugin](docs/gradle-plugin.md) | [Fragments & Windows](docs/fragments-and-windows.md) | [Resources (`Resource.ResourceID`)](docs/resources.md) | [Application & Targets](docs/application.md) | [Testing (`JestElectricRunner`)](docs/testing.md)
+- **Related Documentation**: [GenericUI README](README.md) | [Master Documentation Index](docs/README.md) | [Hybrid Layouts & Helpers](docs/layouts-and-helpers.md) | [Hierarchical SourceSet Setup](docs/sourcesets.md) | [Platform Backends](docs/backends.md) | [First-Party Extensions](docs/extensions.md) | [Gradle Plugin](docs/gradle-plugin.md) | [Fragments & Windows](docs/fragments-and-windows.md) | [Resources (`Resource.ResourceID`)](docs/resources.md) | [Application & Targets](docs/application.md) | [Testing (`JestElectricRunner`)](docs/testing.md)
 
 ---
 
@@ -49,9 +49,9 @@ All 8 platform backend modules mirror the subpackage hierarchy of `com.nexustool
 | 3 | `window` & `enums.system` | `TitleCapabilities`, `TitleBar`, `WindowConfiguration`, `BackendTarget`, `AppTarget` |
 | 4 | `resources` & `component.system` | `ResourceID`, `ResourceType`, `ResourceResolver`, `PreferenceStore`, `PreferenceChangeListener`, `PreferenceCodec`, `PreferenceObjectCodec` |
 | 5 | `nativeimpl` | `WindowNativeImpl`, `ContainerNativeImpl`, `PreferenceStoreNativeImpl`, `ResourceResolverNativeImpl`, and per-component `*NativeImpl` peer interfaces |
-| 6 | `enums.bootstrap` & `style` | Type-safe Bootstrap tokens, `CssStyleSheet`, `PrecompiledStyleSheet`, `ComputedStyle`, `BootstrapClassMapper`, `LiveScssStyleEngine` |
+| 6 | `enums.bootstrap`, `enums.css`, & `style` | `ComponentStyle` (`getStyle()`), `ComponentBootstrap` (`getBootstrap()`), `CssCustomCursor`, `PrecompiledStyleSheet`, `CompiledStyleRule`, `CssStyleSheet`, `ComputedStyle`, `BootstrapClassMapper`, `SystemThemeDetector` |
 | 7 | `event` | `UiEvent`, `ClickEvent`, `PointerEvent` (including `onPointerEnter` / `onPointerLeave`), `KeyEvent`, `WheelEvent`, `FocusEvent`, `ResizeEvent`, `WindowEvent` |
-| 8 | `component.layout`, `component.surface`, `component.htmlcompat` | `Container`, `Box`, `Row`, `Col`, `FlexBox`, `HStack`, `VStack`, `ScrollView`, `SplitPane`, `Card`, `Accordion`, and HTML tag wrapper classes (`Div`, `Header`, `Footer`, `Main`, `Section`, `H1`..`H6`, `Span`, `P`, etc.) |
+| 8 | `component.layout`, `component.surface`, `component.htmlcompat` | `Container`, `Box`, `Row`, `Col`, `FlexBox`, `HStack`, `VStack`, `ScrollView`, `SplitPane`, `Card`, `Accordion`, **Hybrid Responsive Layouts** (`HybridColumnLayout`, `AdaptiveNavigationScaffold`, `ResponsiveMasterDetailLayout`, `HybridSplitNavigationLayout`, `CollapsibleBottomDockLayout`, `ResponsiveBentoGridLayout`, `HybridBreakpointSpec`, `HybridLayoutMode`), and HTML tag wrapper classes (`Div`, `Header`, `Footer`, `Main`, `Section`, `H1`..`H6`, `Span`, `P`, etc.) |
 | 9 | `component.typography`, `component.content`, `component.feedback` | `Heading`, `Text`, `Label`, `Badge`, `ImageView`, `Icon`, `VectorGraphicView`, `MarkdownView`, `Table`, `Alert`, `ProgressBar`, `Spinner`, `Toast` |
 | 10 | `component.action`, `component.navigation`, `component.tabs` | `Button`, `IconButton`, `ToggleButton`, `Toolbar`, `MenuBar`, `Menu`, `MenuItem`, `ContextMenu`, `Navbar`, `TabContainer`, `Tab`, `CloseableTab`, `BottomNavigationBar` |
 | 11 | `component.form` | `TextField`, `TextArea`, `PasswordField`, `NumberField`, `SearchField`, `CheckBox`, `RadioButton`, `RadioGroup`, `Switch`, `RangeSlider`, `Select`, `ColorPicker`, `DatePicker` |
@@ -94,6 +94,7 @@ Used when an extension requires native C/C++/ObjC (`:desktop:*`, `:mobile:*`), J
    - On **Mobile (`:extensions:webview:mobile:android` `android.webkit.WebView`, `:extensions:webview:mobile:ios` `WKWebView`) and `:extensions:webview:web` (`<iframe>`)**, uses the native platform implementation and **NEVER uses `NJS`**.
 8. **`:extensions:alien`** (`:extensions:alien:{common,systemCommon,web}` + `:extensions:alien:dsl`):
    - Self-rendered Bootstrap 5.3 `Canvas2D` UI engine (`AlienFactory`, `AlienContainer`, `AlienFragment`, `AlienScrollFragment`, `UnalienContainer`, `AlienRepaintManager` with dirty update regions) on System targets (`:extensions:alien:systemCommon`), and zero-overhead native DOM pass-through on Web (`:extensions:alien:web`). Relies on `:extensions:canvas2d`.
+   - Precompiles `bootstrap.scss` into `AlienPrecompiledBootstrapStyleSheet`, implements `IAlien` (`addStyleSheet` / `removeStyleSheet`, default Bootstrap stylesheet removable via `IAlien.BOOTSTRAP_STYLE_SHEET_ID`, and `insertApplicationStyleSheets: Int = 1` by default or `-1` to disable application stylesheets), and supports 100% of all `ComponentStyle`, `ComponentBootstrap`, and `PrecompiledStyleSheet` CSS properties and transitions.
 
 ### B. Single Multiplatform Project Extensions (`:extensions:<name>` + optional `:extensions:<name>:dsl`)
 Used when an extension is implemented in 100% shared KMP code atop `:common` and other extensions:
@@ -150,7 +151,32 @@ Used when an extension is implemented in 100% shared KMP code atop `:common` and
   - Supports **fully customizable transitions** (`FragmentTransitionSpec` / `FragmentTransitionController`), including `FadeExpandShrink` (`fadein/expand` + `fadeout/shrink` with outgoing/incoming co-mounting).
   - On **`:web`**, `FragmentHostSystem` tracks pages via URL `#hashes` (`window.location.hash`) and saves/restores fragment states (`FragmentBundle`) via the browser's native page state API (`window.history.state` + `popstate`) so the browser Back/Forward buttons work natively.
   - On **desktop platforms supporting custom titlebars** (`titleCapabilities.canEmbedComponentsInTitleBar`), optional Back/Forward buttons and custom components are embedded in the `TitleBar`; otherwise, an optional `Navbar` is added below the titlebar.
-- Additional helper fragments (`AdaptiveSplitTabFragment`, `DockWorkspaceFragment`, `OverlayDockWorkspaceFragment`, `CenteredMenuPageFragment`) standardize responsive and dockable workspaces.
+- Additional helper fragments (`HybridColumnFragment`, `DockWorkspaceFragment` with compact mobile edge swipe-out drawers via `DockMobileDrawerPolicy`, `AdaptiveNavigationScaffoldFragment`, `ResponsiveMasterDetailFragment`, `HybridSplitNavigationFragment`, `CollapsibleBottomDockFragment`, `ResponsiveBentoGridFragment`, `AdaptiveSplitTabFragment`, `OverlayDockWorkspaceFragment`, `CenteredMenuPageFragment`) standardize responsive and dockable workspaces across desktop, tablet, mobile, and web. See [`docs/layouts-and-helpers.md`](docs/layouts-and-helpers.md).
+
+---
+
+## 7B. `ComponentStyle` (`getStyle()`), `ComponentBootstrap` (`getBootstrap()`), Native `UxTheme`, Custom Cursors (`CssCustomCursor`), Precompiled `.scss` Stylesheets, & `IApplication` Theming (`ThemeMode.AUTO`)
+
+1. **`component.getStyle(): ComponentStyle` (W3C Inline CSS, Full `!important`, Zero Pseudo-States)**:
+   - Every `AbstractComponent` exposes `getStyle(): ComponentStyle` (`val style: ComponentStyle`).
+   - Strongly-typed W3C CSS properties accept typed CSS enums/value classes and `null` to clear, with per-property `important: Boolean = false` (`!important`) support (`setImportant`, `isImportant`, `getImportantProperties()`).
+   - **Zero Pseudo-States on Inline `ComponentStyle`**: Inline `ComponentStyle` never contains `:hover`, `:focus`, `:active`, `:disabled`, or `:checked` subblocks (pseudo-classes belong strictly in `.scss`/`.css` stylesheets).
+   - Uses standard W3C `accentColor` (`accent-color`).
+2. **`component.getBootstrap(): ComponentBootstrap` & Strict User CSS Class Isolation**:
+   - Every `AbstractComponent` exposes `getBootstrap(): ComponentBootstrap` (`val bootstrap: ComponentBootstrap`), encapsulating all Bootstrap properties and `Bootstrap*` utility enums: `BootstrapType` (defaulting to `BootstrapType.NONE` / `BootstrapType.None`), `BootstrapSize`, `BootstrapWidth`, `BootstrapHeight`, directional `SpacingScale` margins/paddings/gaps (including `SpacingScale.AUTO`), `BootstrapBorderWidth`, `BootstrapOpacity`, `BootstrapFontSize`, `BootstrapLineHeight`, `BootstrapFlexGrow`, `BootstrapFlexShrink`, `BootstrapFloat`, `BootstrapUserSelect`, `BootstrapPointerEvents`, `BootstrapObjectFit`, `BootstrapAspectRatio`, `BootstrapVisibility`.
+   - **Strict User CSS Class Isolation**: `addClass`, `removeClass`, `hasClass`, `getClasses()`, and `getClass()` operate strictly on user-added custom classes (`customClasses`), keeping enum-added classes 100% invisible.
+3. **Strict `:extensions:dsl` Isolation**:
+   - DSL builder functions (`style { ... }`, `bootstrap { ... }`, `important { ... }`) live exclusively in `:extensions:dsl` (`DslStyleAndBootstrapBuilders.kt`) and are **never** part of `:common`.
+4. **Native System Control Styling (`BootstrapType.NONE` + Win32 `UxTheme`) vs. `:extensions:alien` Precompiled Bootstrap SCSS**:
+   - Native system applications **never** use Bootstrap CSS styling: `BootstrapType.NONE` (default) renders the genuine OS system control (Win32 `UxTheme` `DarkMode_Explorer::BUTTON` / `Explorer::BUTTON` on `:desktop:windows`), and semantic `BootstrapType` (`DANGER`, `PRIMARY`, `SUCCESS`, etc.) colors the native control. Unsupported CSS properties on native backends are silently ignored.
+   - `:extensions:alien` precompiles `bootstrap.scss` into `AlienPrecompiledBootstrapStyleSheet` and implements `IAlien` on `AlienContainer`, `AlienFragment`, and `AlienScrollFragment` (`IAlien.BOOTSTRAP_STYLE_SHEET_ID` active at index `0` by default and removable via `removeStyleSheet(IAlien.BOOTSTRAP_STYLE_SHEET_ID)`, plus `insertApplicationStyleSheets: Int = 1` by default or `-1` to disable application stylesheets).
+5. **Custom Cursors (`CssCustomCursor`)**:
+   - `CssCustomCursor` (from PNG `ResourceID`, SVG `ResourceID`, inline `svgMarkup`, or `ImageBuffer` with `hotspotX` / `hotspotY` and `CssCursor` fallback) is automatically translated to a valid Windows `.cur` binary on `:desktop:windows` (`WindowsCurCodec`) and `NSCursor` on `:desktop:macos` (`MacosCursorTranslator`).
+6. **Build-Time `.scss` Precompilation & `IApplication.addStyleSheet` / `removeStyleSheet`**:
+   - `.scss` files in `src/commonMain/resources/**` compile at build time to `Resource.style.<name>` (`R.style.<name>`) backed by typed `PrecompiledStyleSheet` (`CompiledStyleRule`) on all 7 non-web targets and `.css` files on `:web`.
+   - `IApplication.addStyleSheet` and `IApplication.removeStyleSheet` live on `IApplication` (NOT `IFragment`), and the Gradle plugin automatically injects `app.addStyleSheet(...)` in generated `main()` startup code when `styles { globalStyleSheet = "..." }` is configured in `build.gradle.kts`.
+7. **`IApplication` Theming (`ThemeMode.AUTO`, `DARK`, `LIGHT` — Default `AUTO`)**:
+   - `IApplication.setTheme(ThemeMode)`, `getTheme()`, and `getResolvedTheme()` default to `ThemeMode.AUTO` with live 8-target OS dark/light theme detection (`SystemThemeDetector`) and `:web` Bootstrap `data-bs-theme="light|dark"` switching.
 
 ---
 
@@ -176,10 +202,11 @@ Used when an extension is implemented in 100% shared KMP code atop `:common` and
 
 ---
 
-## 10. `:extensions:dsl` (`kotlinx.html`-Style MVC & Component DSL) Boundary Rule
+## 10. `:extensions:dsl` (`kotlinx.html`-Style MVC, Hybrid Layout, & Style/Bootstrap DSL) Boundary Rule
 
-1. **`:common`-Only Scope**:
-   - `:extensions:dsl` (`com.nexustools.genericui.ext.dsl`) depends strictly on `:common` and provides `MvcModel`, `MvcView`, `MvcController`, and `kotlinx.html`-style in-place component builders (`div`, `row`, `col`, `h1`..`h6`, `p`, `span`, `button`, `select { option(...) }`, `table { tr { th(...); td(...) } }`, etc.) for `:common` components only.
+1. **`:common`-Only Scope & Strict DSL Isolation**:
+   - `:extensions:dsl` (`com.nexustools.genericui.ext.dsl`) depends strictly on `:common` and provides `MvcModel`, `MvcView`, `MvcController`, `kotlinx.html`-style in-place component builders (`div`, `row`, `col`, `h1`..`h6`, `p`, `span`, `button`, `select { option(...) }`, `table { tr { th(...); td(...) } }`, etc.), hybrid layout builders (`HybridLayoutDsl.kt`: `hybridColumnLayout`, `adaptiveNavigationScaffold`, `responsiveMasterDetailLayout`, `hybridSplitNavigationLayout`, `collapsibleBottomDockLayout`, `responsiveBentoGridLayout`), and style/Bootstrap DSL builders (`DslStyleAndBootstrapBuilders.kt`: `style { ... }`, `bootstrap { ... }`, `important { ... }`) for `:common` components only.
+   - `:common` MUST NEVER define `style { ... }` or `bootstrap { ... }` DSL functions; all DSL builders live strictly in `:extensions:dsl` and companion `:extensions:<name>:dsl` modules.
    - **Never** add dependencies or builders for other extensions inside `:extensions:dsl`; other extensions provide their own `:extensions:<name>:dsl` extension modules (including `:extensions:overlay:dsl`, `:extensions:canvas2d:dsl`, `:extensions:canvas3d:dsl`, `:extensions:media:dsl`, `:extensions:mediacontrols:dsl`, `:extensions:webview:dsl`, `:extensions:alien:dsl`, `:extensions:codeeditor:dsl`, `:extensions:aichat:dsl`, `:extensions:threejs:dsl`, `:extensions:box2d:dsl`, and `:extensions:box3d:dsl`).
 
 ---

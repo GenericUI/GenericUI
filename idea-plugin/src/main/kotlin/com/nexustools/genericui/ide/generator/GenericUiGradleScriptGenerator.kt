@@ -81,6 +81,9 @@ class GenericUiGradleScriptGenerator {
         appendLine("    application {")
         appendLine("        baseName = \"${config.projectName}\"")
         appendLine("    }")
+        appendLine("    theme {")
+        appendLine("        mode = \"${config.themeMode}\"")
+        appendLine("    }")
         appendLine("    backends {")
         when {
             config.isAllExceptSwingSelected() -> {
@@ -129,6 +132,9 @@ class GenericUiGradleScriptGenerator {
 
         appendLine("    styles {")
         appendLine("        compileSass = ${config.compileSass}")
+        if (config.compileSass && config.globalStyleSheet.isNotBlank()) {
+            appendLine("        globalStyleSheet = \"${config.globalStyleSheet}\"")
+        }
         appendLine("        sourceDir = \"src/commonMain/resources/styles\"")
         appendLine("    }")
         append("}")

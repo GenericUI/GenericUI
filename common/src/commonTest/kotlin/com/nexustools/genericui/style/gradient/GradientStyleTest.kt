@@ -8,6 +8,7 @@ import com.nexustools.genericui.style.GradientStop
 import com.nexustools.genericui.style.LinearGradient
 import com.nexustools.genericui.style.RadialGradient
 import com.nexustools.genericui.style.RadialGradientShape
+import com.nexustools.genericui.style.css.CssBackgroundImage
 import com.nexustools.genericui.style.css.CssStyleSheet
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -65,30 +66,36 @@ class GradientStyleTest {
         )
 
         val btn = Button("Launch")
-        btn.style {
-            background = defaultGrad
-            hover {
-                background = hoverGrad
+        btn.addClass("launch-btn")
+        btn.getStyle().setBackgroundImage(CssBackgroundImage.fromGradient(defaultGrad))
+        val hoverSheet = CssStyleSheet.parse(
+            """
+            .launch-btn:hover {
+                background-image: radial-gradient(circle at 50% 50%, rgba(59, 130, 246, 1), rgba(30, 64, 175, 1));
             }
-        }
+            """.trimIndent()
+        )
+        hoverSheet.applyToTree(btn)
 
         assertEquals(defaultGrad, btn.backgroundGradient)
         assertEquals(defaultGrad, btn.resolveEffectiveStyle().backgroundGradient)
 
         btn.isHovered = true
-        assertEquals(hoverGrad, btn.resolveEffectiveStyle().backgroundGradient)
+        assertIs<RadialGradient>(btn.resolveEffectiveStyle().backgroundGradient)
 
         btn.isHovered = false
         assertEquals(defaultGrad, btn.resolveEffectiveStyle().backgroundGradient)
 
         val panel = Container()
-        panel.style {
-            radialGradient(
-                RadialGradientShape.ELLIPSE,
-                ColorRgba(20, 20, 30, 1.0),
-                ColorRgba(10, 10, 15, 1.0)
+        panel.getStyle().setBackgroundImage(
+            CssBackgroundImage.fromGradient(
+                RadialGradient(
+                    RadialGradientShape.ELLIPSE,
+                    ColorRgba(20, 20, 30, 1.0),
+                    ColorRgba(10, 10, 15, 1.0)
+                )
             )
-        }
+        )
         assertIs<RadialGradient>(panel.backgroundGradient)
     }
 

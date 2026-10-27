@@ -134,8 +134,14 @@ open class GenericUiDesktopConfig(
     /** Linux freedesktop.org `.desktop` categories string. */
     var linuxCategories: String = "Utility;AudioVideo;"
 
+    internal var darkTitleBarExplicitlySet: Boolean = false
+
     /** Whether dark mode titlebar (`DWMWA_USE_IMMERSIVE_DARK_MODE`) is enabled by default on Windows. */
     var darkTitleBar: Boolean = true
+        set(value) {
+            field = value
+            darkTitleBarExplicitlySet = true
+        }
 
     /** Whether to compile and link `.rc` -> `.res` (Windows PE icon + `VERSIONINFO`) via `windres`. */
     var embedWindowsResources: Boolean = true
