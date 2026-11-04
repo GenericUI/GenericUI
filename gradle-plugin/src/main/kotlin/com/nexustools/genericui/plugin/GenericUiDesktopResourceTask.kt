@@ -127,19 +127,40 @@ abstract class GenericUiDesktopResourceTask : DefaultTask() {
         // 1. Resolve icon files on disk (falling back to the default GenericUI icon when none are provided)
         val defaultIconsDir = File(outDir, "default-icons").apply { mkdirs() }
         val defaultSvgIcon = GenericUiDefaultIconProvider.ensureDefaultSvgIcon(rootDir, defaultIconsDir)
-        val defaultPngIcon = GenericUiDefaultIconProvider.ensureDefaultPngIcon(rootDir, defaultIconsDir)
-        val defaultIcoIcon = GenericUiDefaultIconProvider.ensureDefaultIcoIcon(rootDir, defaultIconsDir)
+
+        val primaryFallbackCandidate = resolveIconFile(
+            rootDir,
+            fallbackIconPath.orNull,
+            null,
+            listOf(
+                "src/commonMain/resources/icon.svg",
+                "src/commonMain/resources/icon.png",
+                "src/commonMain/resources/icon.ico",
+                "src/commonMain/resources/favicon.ico",
+                "icon.svg",
+                "icon.png",
+                "icon.ico",
+                "favicon.ico"
+            )
+        )
+        val defaultPngIcon = GenericUiDefaultIconProvider.ensurePngFromSourceOrDefault(primaryFallbackCandidate, rootDir, defaultIconsDir)
+        val defaultIcoIcon = GenericUiDefaultIconProvider.ensureWindowsIcoFromSourceOrDefault(primaryFallbackCandidate, rootDir, defaultIconsDir)
+        val defaultIcnsIcon = GenericUiDefaultIconProvider.ensureAppleIcnsFromSourceOrDefault(primaryFallbackCandidate, rootDir, defaultIconsDir)
 
         val rawWinIconCandidate = resolveIconFile(
             rootDir,
             windowsIconPath.orNull,
-            null,
-            listOf("icon.ico", "src/windowsMain/resources/icon.ico", "src/commonMain/resources/icon.ico")
-        ) ?: resolveIconFile(
-            rootDir,
-            null,
             fallbackIconPath.orNull,
-            emptyList()
+            listOf(
+                "src/windowsMain/resources/icon.ico",
+                "src/commonMain/resources/icon.svg",
+                "src/commonMain/resources/icon.png",
+                "src/commonMain/resources/icon.ico",
+                "src/commonMain/resources/favicon.ico",
+                "icon.ico",
+                "icon.svg",
+                "icon.png"
+            )
         )
         val winIconFile = GenericUiDefaultIconProvider.ensureWindowsIcoFromSourceOrDefault(
             rawWinIconCandidate,
@@ -147,18 +168,51 @@ abstract class GenericUiDesktopResourceTask : DefaultTask() {
             defaultIconsDir
         ).takeIf { it.exists() } ?: defaultIcoIcon
 
-        val macIconFile = resolveIconFile(
+        val rawMacCandidate = resolveIconFile(
             rootDir,
             macIconPath.orNull,
             fallbackIconPath.orNull,
-            listOf("icon.icns", "icon.png", "src/macMain/resources/icon.icns", "src/commonMain/resources/icon.png", "icon.svg", "src/commonMain/resources/icon.svg")
-        ) ?: defaultPngIcon
-        val linuxIconFile = resolveIconFile(
+            listOf(
+                "icon.icns",
+                "src/macMain/resources/icon.icns",
+                "src/commonMain/resources/icon.svg",
+                "src/commonMain/resources/icon.png",
+                "src/commonMain/resources/favicon.ico",
+                "icon.svg",
+                "icon.png"
+            )
+        )
+        val macIconFile = if (rawMacCandidate != null && rawMacCandidate.extension.lowercase() in setOf("ico", "svg")) {
+            GenericUiDefaultIconProvider.ensurePngFromSourceOrDefault(rawMacCandidate, rootDir, defaultIconsDir)
+        } else {
+            rawMacCandidate ?: defaultPngIcon
+        }
+        val macIcnsFile = GenericUiDefaultIconProvider.ensureAppleIcnsFromSourceOrDefault(
+            rawMacCandidate ?: primaryFallbackCandidate,
+            rootDir,
+            defaultIconsDir,
+            if (rawMacCandidate?.extension?.equals("icns", ignoreCase = true) == true) rawMacCandidate.name else "icon.icns"
+        ).takeIf { it.exists() } ?: defaultIcnsIcon
+
+        val rawLinuxCandidate = resolveIconFile(
             rootDir,
             linuxIconPath.orNull,
             fallbackIconPath.orNull,
-            listOf("icon.png", "icon.svg", "src/linuxCommon/resources/icon.png", "src/linuxCommon/resources/icon.svg", "src/commonMain/resources/icon.png", "src/commonMain/resources/icon.svg")
-        ) ?: defaultPngIcon
+            listOf(
+                "icon.png",
+                "icon.svg",
+                "src/linuxCommon/resources/icon.png",
+                "src/linuxCommon/resources/icon.svg",
+                "src/commonMain/resources/icon.png",
+                "src/commonMain/resources/favicon.ico",
+                "src/commonMain/resources/icon.svg"
+            )
+        )
+        val linuxIconFile = if (rawLinuxCandidate != null && rawLinuxCandidate.extension.lowercase() == "ico") {
+            GenericUiDefaultIconProvider.ensurePngFromSourceOrDefault(rawLinuxCandidate, rootDir, defaultIconsDir)
+        } else {
+            rawLinuxCandidate ?: defaultPngIcon
+        }
 
         // Stage runtime assets into outDir/runtime-assets so they can be copied next to executables
         val runtimeAssetsDir = File(outDir, "runtime-assets").apply { mkdirs() }
@@ -190,12 +244,15 @@ abstract class GenericUiDesktopResourceTask : DefaultTask() {
 
         // 2. Generate Windows .rc and compile .res via windres.exe if available
         val winDir = File(outDir, "windows").apply { mkdirs() }
+        if (winIconFile.exists()) {
+            winIconFile.copyTo(File(winDir, "icon.ico"), overwrite = true)
+        }
         val rcFile = File(winDir, "app_resources.rc")
         val resFile = File(winDir, "app_resources.res")
         val versionParts = parseFourPartVersion(resolvedVersion)
         val rcContent = buildString {
             appendLine("#pragma code_page(65001)")
-            if (winIconFile != null && winIconFile.exists() && winIconFile.extension.equals("ico", ignoreCase = true)) {
+            if (winIconFile.exists() && winIconFile.extension.equals("ico", ignoreCase = true)) {
                 val escapedIconPath = winIconFile.absolutePath.replace("\\", "\\\\")
                 appendLine("1 ICON \"$escapedIconPath\"")
                 appendLine("IDI_APPICON ICON \"$escapedIconPath\"")
@@ -242,10 +299,16 @@ abstract class GenericUiDesktopResourceTask : DefaultTask() {
             compileWindowsRcToRes(rcFile, resFile)
         }
 
-        // 3. Generate macOS Info.plist
+        // 3. Generate macOS Info.plist and icon.icns
         val macDir = File(outDir, "macos").apply { mkdirs() }
+        if (macIcnsFile.exists()) {
+            macIcnsFile.copyTo(File(macDir, macIcnsFile.name), overwrite = true)
+            if (macIcnsFile.name != "icon.icns") {
+                macIcnsFile.copyTo(File(macDir, "icon.icns"), overwrite = true)
+            }
+        }
         val infoPlistFile = File(macDir, "Info.plist")
-        val macIconName = macIconFile?.name ?: "icon.icns"
+        val macIconName = if (macIcnsFile.exists()) macIcnsFile.name else (macIconFile?.name ?: "icon.icns")
         infoPlistFile.writeText(
             buildString {
                 appendLine("<?xml version=\"1.0\" encoding=\"UTF-8\"?>")

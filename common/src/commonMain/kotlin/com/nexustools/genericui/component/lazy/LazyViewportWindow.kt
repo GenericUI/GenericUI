@@ -12,7 +12,10 @@ data class LazyViewportWindow(
     val lastVisibleIndex: Int,
     val firstActiveIndex: Int,
     val lastActiveIndex: Int,
-    val totalItemCount: Int
+    val totalItemCount: Int,
+    val leadingSpacerPx: Float = 0f,
+    val trailingSpacerPx: Float = 0f,
+    val totalContentExtentPx: Float = 0f
 ) {
     val activeCount: Int
         get() = if (lastActiveIndex >= firstActiveIndex && firstActiveIndex >= 0) {
@@ -30,7 +33,10 @@ data class LazyViewportWindow(
             lastVisibleIndex = -1,
             firstActiveIndex = -1,
             lastActiveIndex = -1,
-            totalItemCount = 0
+            totalItemCount = 0,
+            leadingSpacerPx = 0f,
+            trailingSpacerPx = 0f,
+            totalContentExtentPx = 0f
         )
     }
 }

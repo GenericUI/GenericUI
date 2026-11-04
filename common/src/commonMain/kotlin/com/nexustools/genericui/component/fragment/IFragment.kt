@@ -2,8 +2,10 @@ package com.nexustools.genericui.component.fragment
 
 import com.nexustools.genericui.component.navigation.BottomNavigationBar
 import com.nexustools.genericui.component.navigation.Navbar
+import com.nexustools.genericui.component.shell.IApplication
 import com.nexustools.genericui.component.shell.MenuBar
 import com.nexustools.genericui.component.shell.Window
+import com.nexustools.genericui.component.system.PreferenceStore
 import com.nexustools.genericui.core.Disposable
 import com.nexustools.genericui.enums.fragment.FragmentLaunchMode
 import com.nexustools.genericui.enums.fragment.FragmentState
@@ -47,6 +49,12 @@ interface IFragment : Disposable {
      * Equal to [attachedWindow] when hosted in a top-level [Window].
      */
     val hostingWindow: IWindow?
+
+    /**
+     * The owning [IApplication] hosting this fragment, if attached to an application.
+     */
+    val application: IApplication?
+        get() = null
 
     /**
      * Launch arguments ([FragmentBundle]) supplied when this fragment was launched via [launchFragment]
@@ -100,10 +108,17 @@ interface IFragment : Disposable {
     // State Persistence & System Events
     fun onSaveInstanceState(outState: FragmentBundle)
     fun onRestoreInstanceState(savedState: FragmentBundle)
+    fun onResize(viewportWidth: Int, viewportHeight: Int) {}
     fun onConfigurationChanged(newConfig: WindowConfiguration)
     fun onBackPressed(): Boolean
     fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean)
     fun onWindowFocusChanged(hasFocus: Boolean)
+
+    // Customizable Transition Hooks
+    fun onBeginEnterTransition(durationMs: Int) {}
+    fun onActivateEnterTransition(durationMs: Int) {}
+    fun onBeginExitTransition(durationMs: Int) {}
+    fun onFinishExitTransition() {}
 
     // Fragment Launching & Navigation (Interacting with IWindow & FragmentHost)
     /**
@@ -174,6 +189,14 @@ interface IFragment : Disposable {
      * if this was its root fragment. Returns `true` if anything was popped or closed.
      */
     fun finishFragment(): Boolean = FragmentLaunchCoordinator.finish(this)
+
+    /**
+     * Returns the [PreferenceStore] associated with this fragment.
+     *
+     * Delegates to [application]'s [IApplication.getPreferenceStore] when attached to an application,
+     * or lazily creates and caches a fragment-scoped fallback [PreferenceStore] instance.
+     */
+    fun getPreferenceStore(): PreferenceStore
 
     // Lifecycle-scoped Timers (automatically cancelled on destroy / dispose)
     val activeTimerCount: Int

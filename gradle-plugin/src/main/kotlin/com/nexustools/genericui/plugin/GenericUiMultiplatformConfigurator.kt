@@ -11,11 +11,12 @@ import java.io.File
 
 /**
  * Configures Kotlin Multiplatform targets, the GenericUI hierarchical sourceSet tree, native/web
- * executable binaries, and platform Development/Production build target tasks (`windowsDevelopment`,
- * `windowsProduction`, `macDevelopment`, `macProduction`, `linuxDevelopmentGtk`, `linuxProductionGtk`,
- * `linuxDevelopmentQt`, `linuxProductionQt`, `swingDevelopment`, `swingProduction`,
- * `androidDevelopment`, `androidProduction`, `iosDevelopment`, `iosProduction`,
- * `webDevelopment`, `webProduction`) so projects using GenericUI can rely entirely on `genericui { ... }`.
+ * executable binaries, and platform Development/Production build target tasks (`developmentWindows`,
+ * `productionWindows`, `developmentMac`, `productionMac`, `developmentLinuxGtk`, `productionLinuxGtk`,
+ * `developmentLinuxQt`, `productionLinuxQt`, `developmentSwing`, `productionSwing`,
+ * `developmentAndroid`, `productionAndroid`, `developmentIos`, `productionIos`,
+ * `developmentWeb`, `productionWeb`, and their CPU architecture-specific variants) so projects
+ * using GenericUI can rely entirely on `genericui { ... }`.
  *
  * Uses Gradle's standard API interfaces (`NamedDomainObjectContainer`, `SourceDirectorySet`, `Action`)
  * and reflective invocation on the `"kotlin"` extension so it operates seamlessly across composite builds
@@ -84,12 +85,6 @@ object GenericUiMultiplatformConfigurator {
             targets.findByName("macosArm64") ?: invokeNoArg(kmp, "macosArm64")
         } else {
             targets.findByName("macosArm64")
-        }
-
-        val macX64Target: Any? = if (backends.macosEnabled) {
-            targets.findByName("macosX64") ?: invokeNoArg(kmp, "macosX64")
-        } else {
-            targets.findByName("macosX64")
         }
 
         val linuxX64Target: Any? = if (backends.gtkEnabled || backends.qtEnabled) {
@@ -357,9 +352,7 @@ object GenericUiMultiplatformConfigurator {
                 addKotlinSrcDir(it, "src/macosTest/kotlin")
             }
             ss.findByName("macosArm64Main")?.let { dependsOnIfNotConnected(it, macosMain) }
-            ss.findByName("macosX64Main")?.let { dependsOnIfNotConnected(it, macosMain) }
             ss.findByName("macosArm64Test")?.let { dependsOnIfNotConnected(it, macosTest) }
-            ss.findByName("macosX64Test")?.let { dependsOnIfNotConnected(it, macosTest) }
         }
 
         if ((backends.gtkEnabled || backends.qtEnabled) && nativeDesktopMain != null && nativeDesktopTest != null) {
@@ -522,12 +515,12 @@ object GenericUiMultiplatformConfigurator {
             }
         }
 
-        // 3. Configure native desktop executable binaries (mingwX64, macosArm64, macosX64, linuxX64, linuxArm64)
+        // 3. Configure native desktop executable binaries (mingwX64, macosArm64, linuxX64, linuxArm64)
         configureNativeDesktopBinaries(
             project = project,
             extension = extension,
             mingwTarget = mingwTarget,
-            macTargets = listOfNotNull(macArm64Target, macX64Target),
+            macTargets = listOfNotNull(macArm64Target),
             linuxTargets = listOfNotNull(linuxX64Target, linuxArm64Target),
             defaultEntryPoint = if (hasMainAppFragment) "$generatedLauncherPackage.main" else ""
         )
@@ -906,29 +899,42 @@ object GenericUiMultiplatformConfigurator {
     }
 
     /**
-     * Registers high-level GenericUI Development and Production build target tasks:
-     * - `windowsDevelopment`, `windowsProduction`
-     * - `macDevelopment`, `macProduction` (plus aliases `macosDevelopment`, `macosProduction`)
-     * - `linuxDevelopmentGtk`, `linuxProductionGtk`
-     * - `linuxDevelopmentQt`, `linuxProductionQt`
-     * - `swingDevelopment`, `swingProduction`
-     * - `androidDevelopment`, `androidProduction`
-     * - `iosDevelopment`, `iosProduction`
-     * - `webDevelopment`, `webProduction`
+     * Registers canonical GenericUI `development<Target>` and `production<Target>` build target tasks:
+     * - Windows (`X32`, `X64`, `Arm64` + Host Aggregate): `developmentWindows`, `productionWindows`,
+     *   `developmentWindowsX64`, `productionWindowsX64`, `developmentWindowsX32`, `productionWindowsX32`,
+     *   `developmentWindowsArm64`, `productionWindowsArm64`
+     * - macOS (Apple Silicon `Arm64` Only): `developmentMac`, `productionMac`, `developmentMacArm64`, `productionMacArm64`
+     * - Linux GTK (`X32`, `X64`, `Arm32`, `Arm64` + Aggregate): `developmentLinuxGtk`, `productionLinuxGtk`,
+     *   `developmentLinuxGtkX32`, `productionLinuxGtkX32`, `developmentLinuxGtkX64`, `productionLinuxGtkX64`,
+     *   `developmentLinuxGtkArm32`, `productionLinuxGtkArm32`, `developmentLinuxGtkArm64`, `productionLinuxGtkArm64`
+     * - Linux Qt (`X32`, `X64`, `Arm32`, `Arm64` + Aggregate): `developmentLinuxQt`, `productionLinuxQt`,
+     *   `developmentLinuxQtX32`, `productionLinuxQtX32`, `developmentLinuxQtX64`, `productionLinuxQtX64`,
+     *   `developmentLinuxQtArm32`, `productionLinuxQtArm32`, `developmentLinuxQtArm64`, `productionLinuxQtArm64`
+     * - Android (Pure Java/DEX Universal APK + CPU-Specific Kotlin/Native Targets `X32`, `X64`, `Arm32`, `Arm64`):
+     *   `developmentAndroid`, `productionAndroid`, `developmentAndroidX32`, `productionAndroidX32`,
+     *   `developmentAndroidX64`, `productionAndroidX64`, `developmentAndroidArm32`, `productionAndroidArm32`,
+     *   `developmentAndroidArm64`, `productionAndroidArm64`
+     * - iOS (`Arm64` Device & `SimulatorArm64` Apple Silicon Simulator + Aggregate): `developmentIos`, `productionIos`,
+     *   `developmentIosArm64`, `productionIosArm64`, `developmentIosSimulatorArm64`, `productionIosSimulatorArm64`
+     * - Swing & Web (Unified, No Sub-Targets): `developmentSwing`, `productionSwing`, `developmentWeb`, `productionWeb`
      */
     fun registerBuildTargetTasks(project: Project, extension: GenericUiExtension) {
         fun registerTargetTask(
             name: String,
             desc: String,
-            candidateTaskNames: List<String>
+            distRelativePath: String,
+            candidateTaskNames: List<String>,
+            candidateSourceDirs: List<String> = emptyList()
         ): TaskProvider<*> {
             val existing = project.tasks.findByName(name)
             if (existing != null) {
                 return project.tasks.named(name)
             }
+            val buildDirProvider = project.layout.buildDirectory.asFile
             return project.tasks.register(name) {
                 group = GenericUiGradlePlugin.TASK_GROUP
                 description = desc
+                extensions.extraProperties.set("genericUiDistRelativePath", distRelativePath)
                 dependsOn(project.provider {
                     val baseTasks = (
                         listOf(
@@ -940,56 +946,218 @@ object GenericUiMultiplatformConfigurator {
                     val depBuildTasks = resolveCompanionDependencyBuildTasks(project, extension)
                     baseTasks + depBuildTasks
                 })
+                doLast {
+                    val buildDir = buildDirProvider.get()
+                    val distDir = File(buildDir, distRelativePath)
+                    distDir.mkdirs()
+                    val excludedExtensions = setOf("svg", "png", "ico", "icns", "rc", "res", "desktop", "plist", "cur")
+                    val excludedNames = setOf("androidmanifest.xml", "info.plist")
+                    fun isExcludedNonWebDistFile(file: File): Boolean {
+                        val lowerName = file.name.lowercase()
+                        if (lowerName.contains(".exe.old") || lowerName in excludedNames) return true
+                        if (file.isFile && file.extension.lowercase() in excludedExtensions) return true
+                        return false
+                    }
+                    distDir.listFiles()?.forEach { existing ->
+                        if (isExcludedNonWebDistFile(existing)) {
+                            runCatching { existing.delete() }
+                        }
+                    }
+                    for (relSrc in candidateSourceDirs) {
+                        val srcDir = File(buildDir, relSrc)
+                        if (!srcDir.exists() || !srcDir.isDirectory) continue
+                        srcDir.listFiles()?.forEach { child ->
+                            if (isExcludedNonWebDistFile(child)) return@forEach
+                            val target = File(distDir, child.name)
+                            runCatching {
+                                if (child.isDirectory) {
+                                    child.copyRecursively(target, overwrite = true)
+                                } else if (child.canonicalFile != target.canonicalFile) {
+                                    target.parentFile?.mkdirs()
+                                    child.copyTo(target, overwrite = true)
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
 
+        // 1. Windows (X32, X64, Arm64 + Host Aggregate)
+        val winX64DevCandidates = listOf(
+            "prepareGenericUiDesktopResources",
+            "linkDebugExecutableMingwX64",
+            "compileKotlinMingwX64",
+            "bundleGenericUiAngle",
+            "bundleGenericUiVulkan"
+        )
+        val winX64ProdCandidates = listOf(
+            "prepareGenericUiDesktopResources",
+            "linkReleaseExecutableMingwX64",
+            "compileKotlinMingwX64",
+            "bundleGenericUiAngle",
+            "bundleGenericUiVulkan"
+        )
+        val winX64DevSources = listOf(
+            "bin/mingwX64/debugExecutable"
+        )
+        val winX64ProdSources = listOf(
+            "bin/mingwX64/releaseExecutable"
+        )
         registerTargetTask(
-            name = "windowsDevelopment",
-            desc = "Builds the Windows (Win32 / Direct2D / ANGLE / Vulkan) Development target.",
+            name = "developmentWindows",
+            desc = "Builds the Windows (Win32 / Direct2D / ANGLE / Vulkan) Development target into build/dist/windows/x64/development.",
+            distRelativePath = "dist/windows/x64/development",
+            candidateTaskNames = winX64DevCandidates,
+            candidateSourceDirs = winX64DevSources
+        )
+        registerTargetTask(
+            name = "productionWindows",
+            desc = "Builds the Windows (Win32 / Direct2D / ANGLE / Vulkan) Production target into build/dist/windows/x64/production.",
+            distRelativePath = "dist/windows/x64/production",
+            candidateTaskNames = winX64ProdCandidates,
+            candidateSourceDirs = winX64ProdSources
+        )
+        registerTargetTask(
+            name = "developmentWindowsX64",
+            desc = "Builds the Windows x64 (Win32 / Direct2D / ANGLE / Vulkan) Development target into build/dist/windows/x64/development.",
+            distRelativePath = "dist/windows/x64/development",
+            candidateTaskNames = winX64DevCandidates,
+            candidateSourceDirs = winX64DevSources
+        )
+        registerTargetTask(
+            name = "productionWindowsX64",
+            desc = "Builds the Windows x64 (Win32 / Direct2D / ANGLE / Vulkan) Production target into build/dist/windows/x64/production.",
+            distRelativePath = "dist/windows/x64/production",
+            candidateTaskNames = winX64ProdCandidates,
+            candidateSourceDirs = winX64ProdSources
+        )
+        registerTargetTask(
+            name = "developmentWindowsX32",
+            desc = "Builds the Windows x32 (Win32 / Direct2D / ANGLE / Vulkan) Development target into build/dist/windows/x32/development.",
+            distRelativePath = "dist/windows/x32/development",
             candidateTaskNames = listOf(
                 "prepareGenericUiDesktopResources",
-                "linkDebugExecutableMingwX64",
-                "compileKotlinMingwX64",
+                "linkDebugExecutableWindowsX32",
+                "linkDebugExecutableMingwX86",
+                "compileKotlinWindowsX32",
+                "compileKotlinMingwX86",
                 "bundleGenericUiAngle",
                 "bundleGenericUiVulkan"
+            ),
+            candidateSourceDirs = listOf(
+                "bin/windowsX32/debugExecutable",
+                "bin/mingwX86/debugExecutable"
             )
         )
         registerTargetTask(
-            name = "windowsProduction",
-            desc = "Builds the Windows (Win32 / Direct2D / ANGLE / Vulkan) Production target.",
+            name = "productionWindowsX32",
+            desc = "Builds the Windows x32 (Win32 / Direct2D / ANGLE / Vulkan) Production target into build/dist/windows/x32/production.",
+            distRelativePath = "dist/windows/x32/production",
             candidateTaskNames = listOf(
                 "prepareGenericUiDesktopResources",
-                "linkReleaseExecutableMingwX64",
-                "compileKotlinMingwX64",
+                "linkReleaseExecutableWindowsX32",
+                "linkReleaseExecutableMingwX86",
+                "compileKotlinWindowsX32",
+                "compileKotlinMingwX86",
                 "bundleGenericUiAngle",
                 "bundleGenericUiVulkan"
+            ),
+            candidateSourceDirs = listOf(
+                "bin/windowsX32/releaseExecutable",
+                "bin/mingwX86/releaseExecutable"
+            )
+        )
+        registerTargetTask(
+            name = "developmentWindowsArm64",
+            desc = "Builds the Windows Arm64 (Win32 / Direct2D / ANGLE / Vulkan) Development target into build/dist/windows/arm64/development.",
+            distRelativePath = "dist/windows/arm64/development",
+            candidateTaskNames = listOf(
+                "prepareGenericUiDesktopResources",
+                "linkDebugExecutableWindowsArm64",
+                "linkDebugExecutableMingwArm64",
+                "compileKotlinWindowsArm64",
+                "compileKotlinMingwArm64",
+                "bundleGenericUiAngle",
+                "bundleGenericUiVulkan"
+            ),
+            candidateSourceDirs = listOf(
+                "bin/windowsArm64/debugExecutable",
+                "bin/mingwArm64/debugExecutable"
+            )
+        )
+        registerTargetTask(
+            name = "productionWindowsArm64",
+            desc = "Builds the Windows Arm64 (Win32 / Direct2D / ANGLE / Vulkan) Production target into build/dist/windows/arm64/production.",
+            distRelativePath = "dist/windows/arm64/production",
+            candidateTaskNames = listOf(
+                "prepareGenericUiDesktopResources",
+                "linkReleaseExecutableWindowsArm64",
+                "linkReleaseExecutableMingwArm64",
+                "compileKotlinWindowsArm64",
+                "compileKotlinMingwArm64",
+                "bundleGenericUiAngle",
+                "bundleGenericUiVulkan"
+            ),
+            candidateSourceDirs = listOf(
+                "bin/windowsArm64/releaseExecutable",
+                "bin/mingwArm64/releaseExecutable"
             )
         )
 
-        val macDevCandidates = listOf(
+        // 2. macOS (Apple Silicon Arm64 Only — macosX64 Removed)
+        val macArm64DevCandidates = listOf(
             "prepareGenericUiDesktopResources",
             "linkDebugExecutableMacosArm64",
-            "linkDebugExecutableMacosX64",
             "compileKotlinMacosArm64",
-            "compileKotlinMacosX64",
             "bundleGenericUiVulkan"
         )
-        val macProdCandidates = listOf(
+        val macArm64ProdCandidates = listOf(
             "prepareGenericUiDesktopResources",
             "linkReleaseExecutableMacosArm64",
-            "linkReleaseExecutableMacosX64",
             "compileKotlinMacosArm64",
-            "compileKotlinMacosX64",
             "bundleGenericUiVulkan"
         )
-        registerTargetTask("macDevelopment", "Builds the macOS (AppKit / MoltenVK) Development target.", macDevCandidates)
-        registerTargetTask("macosDevelopment", "Builds the macOS (AppKit / MoltenVK) Development target.", macDevCandidates)
-        registerTargetTask("macProduction", "Builds the macOS (AppKit / MoltenVK) Production target.", macProdCandidates)
-        registerTargetTask("macosProduction", "Builds the macOS (AppKit / MoltenVK) Production target.", macProdCandidates)
-
+        val macDevSources = listOf(
+            "bin/macosArm64/debugExecutable"
+        )
+        val macProdSources = listOf(
+            "bin/macosArm64/releaseExecutable"
+        )
         registerTargetTask(
-            name = "linuxDevelopmentGtk",
-            desc = "Builds the Linux GTK (GTK4 / Cairo / EGL / Vulkan) Development target.",
+            name = "developmentMac",
+            desc = "Builds the macOS (AppKit / MoltenVK) Development target into build/dist/mac/development.",
+            distRelativePath = "dist/mac/development",
+            candidateTaskNames = macArm64DevCandidates,
+            candidateSourceDirs = macDevSources
+        )
+        registerTargetTask(
+            name = "productionMac",
+            desc = "Builds the macOS (AppKit / MoltenVK) Production target into build/dist/mac/production.",
+            distRelativePath = "dist/mac/production",
+            candidateTaskNames = macArm64ProdCandidates,
+            candidateSourceDirs = macProdSources
+        )
+        registerTargetTask(
+            name = "developmentMacArm64",
+            desc = "Builds the macOS Arm64 (AppKit / MoltenVK) Development target into build/dist/mac/development.",
+            distRelativePath = "dist/mac/development",
+            candidateTaskNames = macArm64DevCandidates,
+            candidateSourceDirs = macDevSources
+        )
+        registerTargetTask(
+            name = "productionMacArm64",
+            desc = "Builds the macOS Arm64 (AppKit / MoltenVK) Production target into build/dist/mac/production.",
+            distRelativePath = "dist/mac/production",
+            candidateTaskNames = macArm64ProdCandidates,
+            candidateSourceDirs = macProdSources
+        )
+
+        // 3. Linux GTK (X32, X64, Arm32, Arm64 + Aggregate)
+        registerTargetTask(
+            name = "developmentLinuxGtk",
+            desc = "Builds the Linux GTK (GTK4 / Cairo / EGL / Vulkan) Development target into build/dist/linux-gtk/x64/development.",
+            distRelativePath = "dist/linux-gtk/x64/development",
             candidateTaskNames = listOf(
                 "linkGtkDebugExecutableLinuxX64",
                 "linkGtkDebugExecutableLinuxArm64",
@@ -997,11 +1165,16 @@ object GenericUiMultiplatformConfigurator {
                 "compileGtkKotlinLinuxArm64",
                 "linkDebugExecutableLinuxX64",
                 "compileKotlinLinuxX64"
+            ),
+            candidateSourceDirs = listOf(
+                "bin/linuxX64/gtkDebugExecutable",
+                "bin/linuxX64/debugExecutable"
             )
         )
         registerTargetTask(
-            name = "linuxProductionGtk",
-            desc = "Builds the Linux GTK (GTK4 / Cairo / EGL / Vulkan) Production target.",
+            name = "productionLinuxGtk",
+            desc = "Builds the Linux GTK (GTK4 / Cairo / EGL / Vulkan) Production target into build/dist/linux-gtk/x64/production.",
+            distRelativePath = "dist/linux-gtk/x64/production",
             candidateTaskNames = listOf(
                 "linkGtkReleaseExecutableLinuxX64",
                 "linkGtkReleaseExecutableLinuxArm64",
@@ -1009,12 +1182,138 @@ object GenericUiMultiplatformConfigurator {
                 "compileGtkKotlinLinuxArm64",
                 "linkReleaseExecutableLinuxX64",
                 "compileKotlinLinuxX64"
+            ),
+            candidateSourceDirs = listOf(
+                "bin/linuxX64/gtkReleaseExecutable",
+                "bin/linuxX64/releaseExecutable"
+            )
+        )
+        registerTargetTask(
+            name = "developmentLinuxGtkX32",
+            desc = "Builds the Linux GTK x32 (GTK4 / Cairo / EGL / Vulkan) Development target into build/dist/linux-gtk/x32/development.",
+            distRelativePath = "dist/linux-gtk/x32/development",
+            candidateTaskNames = listOf(
+                "linkGtkDebugExecutableLinuxX32",
+                "compileGtkKotlinLinuxX32",
+                "linkDebugExecutableLinuxX32",
+                "compileKotlinLinuxX32"
+            ),
+            candidateSourceDirs = listOf(
+                "bin/linuxX32/gtkDebugExecutable",
+                "bin/linuxX32/debugExecutable"
+            )
+        )
+        registerTargetTask(
+            name = "productionLinuxGtkX32",
+            desc = "Builds the Linux GTK x32 (GTK4 / Cairo / EGL / Vulkan) Production target into build/dist/linux-gtk/x32/production.",
+            distRelativePath = "dist/linux-gtk/x32/production",
+            candidateTaskNames = listOf(
+                "linkGtkReleaseExecutableLinuxX32",
+                "compileGtkKotlinLinuxX32",
+                "linkReleaseExecutableLinuxX32",
+                "compileKotlinLinuxX32"
+            ),
+            candidateSourceDirs = listOf(
+                "bin/linuxX32/gtkReleaseExecutable",
+                "bin/linuxX32/releaseExecutable"
+            )
+        )
+        registerTargetTask(
+            name = "developmentLinuxGtkX64",
+            desc = "Builds the Linux GTK x64 (GTK4 / Cairo / EGL / Vulkan) Development target into build/dist/linux-gtk/x64/development.",
+            distRelativePath = "dist/linux-gtk/x64/development",
+            candidateTaskNames = listOf(
+                "linkGtkDebugExecutableLinuxX64",
+                "compileGtkKotlinLinuxX64",
+                "linkDebugExecutableLinuxX64",
+                "compileKotlinLinuxX64"
+            ),
+            candidateSourceDirs = listOf(
+                "bin/linuxX64/gtkDebugExecutable",
+                "bin/linuxX64/debugExecutable"
+            )
+        )
+        registerTargetTask(
+            name = "productionLinuxGtkX64",
+            desc = "Builds the Linux GTK x64 (GTK4 / Cairo / EGL / Vulkan) Production target into build/dist/linux-gtk/x64/production.",
+            distRelativePath = "dist/linux-gtk/x64/production",
+            candidateTaskNames = listOf(
+                "linkGtkReleaseExecutableLinuxX64",
+                "compileGtkKotlinLinuxX64",
+                "linkReleaseExecutableLinuxX64",
+                "compileKotlinLinuxX64"
+            ),
+            candidateSourceDirs = listOf(
+                "bin/linuxX64/gtkReleaseExecutable",
+                "bin/linuxX64/releaseExecutable"
+            )
+        )
+        registerTargetTask(
+            name = "developmentLinuxGtkArm32",
+            desc = "Builds the Linux GTK Arm32 (GTK4 / Cairo / EGL / Vulkan) Development target into build/dist/linux-gtk/arm32/development.",
+            distRelativePath = "dist/linux-gtk/arm32/development",
+            candidateTaskNames = listOf(
+                "linkGtkDebugExecutableLinuxArm32Hfp",
+                "compileGtkKotlinLinuxArm32Hfp",
+                "linkDebugExecutableLinuxArm32Hfp",
+                "compileKotlinLinuxArm32Hfp"
+            ),
+            candidateSourceDirs = listOf(
+                "bin/linuxArm32Hfp/gtkDebugExecutable",
+                "bin/linuxArm32Hfp/debugExecutable"
+            )
+        )
+        registerTargetTask(
+            name = "productionLinuxGtkArm32",
+            desc = "Builds the Linux GTK Arm32 (GTK4 / Cairo / EGL / Vulkan) Production target into build/dist/linux-gtk/arm32/production.",
+            distRelativePath = "dist/linux-gtk/arm32/production",
+            candidateTaskNames = listOf(
+                "linkGtkReleaseExecutableLinuxArm32Hfp",
+                "compileGtkKotlinLinuxArm32Hfp",
+                "linkReleaseExecutableLinuxArm32Hfp",
+                "compileKotlinLinuxArm32Hfp"
+            ),
+            candidateSourceDirs = listOf(
+                "bin/linuxArm32Hfp/gtkReleaseExecutable",
+                "bin/linuxArm32Hfp/releaseExecutable"
+            )
+        )
+        registerTargetTask(
+            name = "developmentLinuxGtkArm64",
+            desc = "Builds the Linux GTK Arm64 (GTK4 / Cairo / EGL / Vulkan) Development target into build/dist/linux-gtk/arm64/development.",
+            distRelativePath = "dist/linux-gtk/arm64/development",
+            candidateTaskNames = listOf(
+                "linkGtkDebugExecutableLinuxArm64",
+                "compileGtkKotlinLinuxArm64",
+                "linkDebugExecutableLinuxArm64",
+                "compileKotlinLinuxArm64"
+            ),
+            candidateSourceDirs = listOf(
+                "bin/linuxArm64/gtkDebugExecutable",
+                "bin/linuxArm64/debugExecutable"
+            )
+        )
+        registerTargetTask(
+            name = "productionLinuxGtkArm64",
+            desc = "Builds the Linux GTK Arm64 (GTK4 / Cairo / EGL / Vulkan) Production target into build/dist/linux-gtk/arm64/production.",
+            distRelativePath = "dist/linux-gtk/arm64/production",
+            candidateTaskNames = listOf(
+                "linkGtkReleaseExecutableLinuxArm64",
+                "compileGtkKotlinLinuxArm64",
+                "linkReleaseExecutableLinuxArm64",
+                "compileKotlinLinuxArm64"
+            ),
+            candidateSourceDirs = listOf(
+                "bin/linuxArm64/gtkReleaseExecutable",
+                "bin/linuxArm64/releaseExecutable"
             )
         )
 
+        // 4. Linux Qt (X32, X64, Arm32, Arm64 + Aggregate)
         registerTargetTask(
-            name = "linuxDevelopmentQt",
-            desc = "Builds the Linux Qt (Qt6 / QPainter / QVulkanWindow) Development target.",
+            name = "developmentLinuxQt",
+            desc = "Builds the Linux Qt (Qt6 / QPainter / QVulkanWindow) Development target into build/dist/linux-qt/x64/development.",
+            distRelativePath = "dist/linux-qt/x64/development",
             candidateTaskNames = listOf(
                 "linkQtDebugExecutableLinuxX64",
                 "linkQtDebugExecutableLinuxArm64",
@@ -1022,11 +1321,16 @@ object GenericUiMultiplatformConfigurator {
                 "compileQtKotlinLinuxArm64",
                 "linkDebugExecutableLinuxX64",
                 "compileKotlinLinuxX64"
+            ),
+            candidateSourceDirs = listOf(
+                "bin/linuxX64/qtDebugExecutable",
+                "bin/linuxX64/debugExecutable"
             )
         )
         registerTargetTask(
-            name = "linuxProductionQt",
-            desc = "Builds the Linux Qt (Qt6 / QPainter / QVulkanWindow) Production target.",
+            name = "productionLinuxQt",
+            desc = "Builds the Linux Qt (Qt6 / QPainter / QVulkanWindow) Production target into build/dist/linux-qt/x64/production.",
+            distRelativePath = "dist/linux-qt/x64/production",
             candidateTaskNames = listOf(
                 "linkQtReleaseExecutableLinuxX64",
                 "linkQtReleaseExecutableLinuxArm64",
@@ -1034,95 +1338,467 @@ object GenericUiMultiplatformConfigurator {
                 "compileQtKotlinLinuxArm64",
                 "linkReleaseExecutableLinuxX64",
                 "compileKotlinLinuxX64"
+            ),
+            candidateSourceDirs = listOf(
+                "bin/linuxX64/qtReleaseExecutable",
+                "bin/linuxX64/releaseExecutable"
+            )
+        )
+        registerTargetTask(
+            name = "developmentLinuxQtX32",
+            desc = "Builds the Linux Qt x32 (Qt6 / QPainter / QVulkanWindow) Development target into build/dist/linux-qt/x32/development.",
+            distRelativePath = "dist/linux-qt/x32/development",
+            candidateTaskNames = listOf(
+                "linkQtDebugExecutableLinuxX32",
+                "compileQtKotlinLinuxX32",
+                "linkDebugExecutableLinuxX32",
+                "compileKotlinLinuxX32"
+            ),
+            candidateSourceDirs = listOf(
+                "bin/linuxX32/qtDebugExecutable",
+                "bin/linuxX32/debugExecutable"
+            )
+        )
+        registerTargetTask(
+            name = "productionLinuxQtX32",
+            desc = "Builds the Linux Qt x32 (Qt6 / QPainter / QVulkanWindow) Production target into build/dist/linux-qt/x32/production.",
+            distRelativePath = "dist/linux-qt/x32/production",
+            candidateTaskNames = listOf(
+                "linkQtReleaseExecutableLinuxX32",
+                "compileQtKotlinLinuxX32",
+                "linkReleaseExecutableLinuxX32",
+                "compileKotlinLinuxX32"
+            ),
+            candidateSourceDirs = listOf(
+                "bin/linuxX32/qtReleaseExecutable",
+                "bin/linuxX32/releaseExecutable"
+            )
+        )
+        registerTargetTask(
+            name = "developmentLinuxQtX64",
+            desc = "Builds the Linux Qt x64 (Qt6 / QPainter / QVulkanWindow) Development target into build/dist/linux-qt/x64/development.",
+            distRelativePath = "dist/linux-qt/x64/development",
+            candidateTaskNames = listOf(
+                "linkQtDebugExecutableLinuxX64",
+                "compileQtKotlinLinuxX64",
+                "linkDebugExecutableLinuxX64",
+                "compileKotlinLinuxX64"
+            ),
+            candidateSourceDirs = listOf(
+                "bin/linuxX64/qtDebugExecutable",
+                "bin/linuxX64/debugExecutable"
+            )
+        )
+        registerTargetTask(
+            name = "productionLinuxQtX64",
+            desc = "Builds the Linux Qt x64 (Qt6 / QPainter / QVulkanWindow) Production target into build/dist/linux-qt/x64/production.",
+            distRelativePath = "dist/linux-qt/x64/production",
+            candidateTaskNames = listOf(
+                "linkQtReleaseExecutableLinuxX64",
+                "compileQtKotlinLinuxX64",
+                "linkReleaseExecutableLinuxX64",
+                "compileKotlinLinuxX64"
+            ),
+            candidateSourceDirs = listOf(
+                "bin/linuxX64/qtReleaseExecutable",
+                "bin/linuxX64/releaseExecutable"
+            )
+        )
+        registerTargetTask(
+            name = "developmentLinuxQtArm32",
+            desc = "Builds the Linux Qt Arm32 (Qt6 / QPainter / QVulkanWindow) Development target into build/dist/linux-qt/arm32/development.",
+            distRelativePath = "dist/linux-qt/arm32/development",
+            candidateTaskNames = listOf(
+                "linkQtDebugExecutableLinuxArm32Hfp",
+                "compileQtKotlinLinuxArm32Hfp",
+                "linkDebugExecutableLinuxArm32Hfp",
+                "compileKotlinLinuxArm32Hfp"
+            ),
+            candidateSourceDirs = listOf(
+                "bin/linuxArm32Hfp/qtDebugExecutable",
+                "bin/linuxArm32Hfp/debugExecutable"
+            )
+        )
+        registerTargetTask(
+            name = "productionLinuxQtArm32",
+            desc = "Builds the Linux Qt Arm32 (Qt6 / QPainter / QVulkanWindow) Production target into build/dist/linux-qt/arm32/production.",
+            distRelativePath = "dist/linux-qt/arm32/production",
+            candidateTaskNames = listOf(
+                "linkQtReleaseExecutableLinuxArm32Hfp",
+                "compileQtKotlinLinuxArm32Hfp",
+                "linkReleaseExecutableLinuxArm32Hfp",
+                "compileKotlinLinuxArm32Hfp"
+            ),
+            candidateSourceDirs = listOf(
+                "bin/linuxArm32Hfp/qtReleaseExecutable",
+                "bin/linuxArm32Hfp/releaseExecutable"
+            )
+        )
+        registerTargetTask(
+            name = "developmentLinuxQtArm64",
+            desc = "Builds the Linux Qt Arm64 (Qt6 / QPainter / QVulkanWindow) Development target into build/dist/linux-qt/arm64/development.",
+            distRelativePath = "dist/linux-qt/arm64/development",
+            candidateTaskNames = listOf(
+                "linkQtDebugExecutableLinuxArm64",
+                "compileQtKotlinLinuxArm64",
+                "linkDebugExecutableLinuxArm64",
+                "compileKotlinLinuxArm64"
+            ),
+            candidateSourceDirs = listOf(
+                "bin/linuxArm64/qtDebugExecutable",
+                "bin/linuxArm64/debugExecutable"
+            )
+        )
+        registerTargetTask(
+            name = "productionLinuxQtArm64",
+            desc = "Builds the Linux Qt Arm64 (Qt6 / QPainter / QVulkanWindow) Production target into build/dist/linux-qt/arm64/production.",
+            distRelativePath = "dist/linux-qt/arm64/production",
+            candidateTaskNames = listOf(
+                "linkQtReleaseExecutableLinuxArm64",
+                "compileQtKotlinLinuxArm64",
+                "linkReleaseExecutableLinuxArm64",
+                "compileKotlinLinuxArm64"
+            ),
+            candidateSourceDirs = listOf(
+                "bin/linuxArm64/qtReleaseExecutable",
+                "bin/linuxArm64/releaseExecutable"
             )
         )
 
+        // 5. Android (Pure Java/DEX Universal APK + CPU-Specific Kotlin/Native Targets X32, X64, Arm32, Arm64)
         registerTargetTask(
-            name = "swingDevelopment",
-            desc = "Builds the Java Swing (JVM / AWT / LWJGL) Development target.",
-            candidateTaskNames = listOf("compileKotlinJvm", "jvmProcessResources")
-        )
-        registerTargetTask(
-            name = "swingProduction",
-            desc = "Builds the Java Swing (JVM / AWT / LWJGL) Production JAR target.",
-            candidateTaskNames = listOf("jvmJar", "compileKotlinJvm")
-        )
-
-        registerTargetTask(
-            name = "androidDevelopment",
-            desc = "Builds the Android Development target.",
+            name = "developmentAndroid",
+            desc = "Builds the Android (Pure Java/Kotlin DEX universal APK) Development target into build/dist/android/development.",
+            distRelativePath = "dist/android/development",
             candidateTaskNames = listOf(
                 "generateGenericUiAndroidManifest",
                 "generateGenericUiAndroidActivities",
                 "compileAndroidMain",
                 "assembleDebug",
                 "compileDebugKotlinAndroid"
+            ),
+            candidateSourceDirs = listOf(
+                "outputs/apk/debug"
             )
         )
         registerTargetTask(
-            name = "androidProduction",
-            desc = "Builds the Android Production target.",
+            name = "productionAndroid",
+            desc = "Builds the Android (Pure Java/Kotlin DEX universal APK) Production target into build/dist/android/production.",
+            distRelativePath = "dist/android/production",
             candidateTaskNames = listOf(
                 "generateGenericUiAndroidManifest",
                 "generateGenericUiAndroidActivities",
                 "compileAndroidMain",
                 "assembleRelease",
                 "compileReleaseKotlinAndroid"
+            ),
+            candidateSourceDirs = listOf(
+                "outputs/apk/release"
+            )
+        )
+        registerTargetTask(
+            name = "developmentAndroidX32",
+            desc = "Builds the Android x32 (Kotlin/Native AndroidNativeX86 + APK) Development target into build/dist/android/x32/development.",
+            distRelativePath = "dist/android/x32/development",
+            candidateTaskNames = listOf(
+                "generateGenericUiAndroidManifest",
+                "generateGenericUiAndroidActivities",
+                "linkDebugSharedAndroidNativeX86",
+                "linkDebugExecutableAndroidNativeX86",
+                "compileKotlinAndroidNativeX86",
+                "compileAndroidMain",
+                "assembleDebug"
+            ),
+            candidateSourceDirs = listOf(
+                "bin/androidNativeX86/debugShared",
+                "bin/androidNativeX86/debugExecutable",
+                "outputs/apk/debug"
+            )
+        )
+        registerTargetTask(
+            name = "productionAndroidX32",
+            desc = "Builds the Android x32 (Kotlin/Native AndroidNativeX86 + APK) Production target into build/dist/android/x32/production.",
+            distRelativePath = "dist/android/x32/production",
+            candidateTaskNames = listOf(
+                "generateGenericUiAndroidManifest",
+                "generateGenericUiAndroidActivities",
+                "linkReleaseSharedAndroidNativeX86",
+                "linkReleaseExecutableAndroidNativeX86",
+                "compileKotlinAndroidNativeX86",
+                "compileAndroidMain",
+                "assembleRelease"
+            ),
+            candidateSourceDirs = listOf(
+                "bin/androidNativeX86/releaseShared",
+                "bin/androidNativeX86/releaseExecutable",
+                "outputs/apk/release"
+            )
+        )
+        registerTargetTask(
+            name = "developmentAndroidX64",
+            desc = "Builds the Android x64 (Kotlin/Native AndroidNativeX64 + APK) Development target into build/dist/android/x64/development.",
+            distRelativePath = "dist/android/x64/development",
+            candidateTaskNames = listOf(
+                "generateGenericUiAndroidManifest",
+                "generateGenericUiAndroidActivities",
+                "linkDebugSharedAndroidNativeX64",
+                "linkDebugExecutableAndroidNativeX64",
+                "compileKotlinAndroidNativeX64",
+                "compileAndroidMain",
+                "assembleDebug"
+            ),
+            candidateSourceDirs = listOf(
+                "bin/androidNativeX64/debugShared",
+                "bin/androidNativeX64/debugExecutable",
+                "outputs/apk/debug"
+            )
+        )
+        registerTargetTask(
+            name = "productionAndroidX64",
+            desc = "Builds the Android x64 (Kotlin/Native AndroidNativeX64 + APK) Production target into build/dist/android/x64/production.",
+            distRelativePath = "dist/android/x64/production",
+            candidateTaskNames = listOf(
+                "generateGenericUiAndroidManifest",
+                "generateGenericUiAndroidActivities",
+                "linkReleaseSharedAndroidNativeX64",
+                "linkReleaseExecutableAndroidNativeX64",
+                "compileKotlinAndroidNativeX64",
+                "compileAndroidMain",
+                "assembleRelease"
+            ),
+            candidateSourceDirs = listOf(
+                "bin/androidNativeX64/releaseShared",
+                "bin/androidNativeX64/releaseExecutable",
+                "outputs/apk/release"
+            )
+        )
+        registerTargetTask(
+            name = "developmentAndroidArm32",
+            desc = "Builds the Android Arm32 (Kotlin/Native AndroidNativeArm32 + APK) Development target into build/dist/android/arm32/development.",
+            distRelativePath = "dist/android/arm32/development",
+            candidateTaskNames = listOf(
+                "generateGenericUiAndroidManifest",
+                "generateGenericUiAndroidActivities",
+                "linkDebugSharedAndroidNativeArm32",
+                "linkDebugExecutableAndroidNativeArm32",
+                "compileKotlinAndroidNativeArm32",
+                "compileAndroidMain",
+                "assembleDebug"
+            ),
+            candidateSourceDirs = listOf(
+                "bin/androidNativeArm32/debugShared",
+                "bin/androidNativeArm32/debugExecutable",
+                "outputs/apk/debug"
+            )
+        )
+        registerTargetTask(
+            name = "productionAndroidArm32",
+            desc = "Builds the Android Arm32 (Kotlin/Native AndroidNativeArm32 + APK) Production target into build/dist/android/arm32/production.",
+            distRelativePath = "dist/android/arm32/production",
+            candidateTaskNames = listOf(
+                "generateGenericUiAndroidManifest",
+                "generateGenericUiAndroidActivities",
+                "linkReleaseSharedAndroidNativeArm32",
+                "linkReleaseExecutableAndroidNativeArm32",
+                "compileKotlinAndroidNativeArm32",
+                "compileAndroidMain",
+                "assembleRelease"
+            ),
+            candidateSourceDirs = listOf(
+                "bin/androidNativeArm32/releaseShared",
+                "bin/androidNativeArm32/releaseExecutable",
+                "outputs/apk/release"
+            )
+        )
+        registerTargetTask(
+            name = "developmentAndroidArm64",
+            desc = "Builds the Android Arm64 (Kotlin/Native AndroidNativeArm64 + APK) Development target into build/dist/android/arm64/development.",
+            distRelativePath = "dist/android/arm64/development",
+            candidateTaskNames = listOf(
+                "generateGenericUiAndroidManifest",
+                "generateGenericUiAndroidActivities",
+                "linkDebugSharedAndroidNativeArm64",
+                "linkDebugExecutableAndroidNativeArm64",
+                "compileKotlinAndroidNativeArm64",
+                "compileAndroidMain",
+                "assembleDebug"
+            ),
+            candidateSourceDirs = listOf(
+                "bin/androidNativeArm64/debugShared",
+                "bin/androidNativeArm64/debugExecutable",
+                "outputs/apk/debug"
+            )
+        )
+        registerTargetTask(
+            name = "productionAndroidArm64",
+            desc = "Builds the Android Arm64 (Kotlin/Native AndroidNativeArm64 + APK) Production target into build/dist/android/arm64/production.",
+            distRelativePath = "dist/android/arm64/production",
+            candidateTaskNames = listOf(
+                "generateGenericUiAndroidManifest",
+                "generateGenericUiAndroidActivities",
+                "linkReleaseSharedAndroidNativeArm64",
+                "linkReleaseExecutableAndroidNativeArm64",
+                "compileKotlinAndroidNativeArm64",
+                "compileAndroidMain",
+                "assembleRelease"
+            ),
+            candidateSourceDirs = listOf(
+                "bin/androidNativeArm64/releaseShared",
+                "bin/androidNativeArm64/releaseExecutable",
+                "outputs/apk/release"
             )
         )
 
+        // 6. iOS (Arm64 Device & SimulatorArm64 Apple Silicon Simulator + Aggregate — iosX64 Removed)
         registerTargetTask(
-            name = "iosDevelopment",
-            desc = "Builds the iOS (UIKit / MoltenVK) Development target.",
+            name = "developmentIos",
+            desc = "Builds the iOS (UIKit / MoltenVK) Development target into build/dist/ios/arm64/development.",
+            distRelativePath = "dist/ios/arm64/development",
             candidateTaskNames = listOf(
                 "generateGenericUiIosApp",
+                "linkDebugFrameworkIosSimulatorArm64",
+                "linkDebugFrameworkIosArm64",
                 "compileKotlinIosSimulatorArm64",
                 "compileKotlinIosArm64"
+            ),
+            candidateSourceDirs = listOf(
+                "bin/iosArm64/debugFramework",
+                "genericui/iosApp"
             )
         )
         registerTargetTask(
-            name = "iosProduction",
-            desc = "Builds the iOS (UIKit / MoltenVK) Production target.",
+            name = "productionIos",
+            desc = "Builds the iOS (UIKit / MoltenVK) Production target into build/dist/ios/arm64/production.",
+            distRelativePath = "dist/ios/arm64/production",
             candidateTaskNames = listOf(
                 "generateGenericUiIosApp",
+                "linkReleaseFrameworkIosArm64",
                 "compileKotlinIosArm64"
+            ),
+            candidateSourceDirs = listOf(
+                "bin/iosArm64/releaseFramework",
+                "genericui/iosApp"
+            )
+        )
+        registerTargetTask(
+            name = "developmentIosArm64",
+            desc = "Builds the iOS Arm64 Device (UIKit / MoltenVK) Development target into build/dist/ios/arm64/development.",
+            distRelativePath = "dist/ios/arm64/development",
+            candidateTaskNames = listOf(
+                "generateGenericUiIosApp",
+                "linkDebugFrameworkIosArm64",
+                "compileKotlinIosArm64"
+            ),
+            candidateSourceDirs = listOf(
+                "bin/iosArm64/debugFramework",
+                "genericui/iosApp"
+            )
+        )
+        registerTargetTask(
+            name = "productionIosArm64",
+            desc = "Builds the iOS Arm64 Device (UIKit / MoltenVK) Production target into build/dist/ios/arm64/production.",
+            distRelativePath = "dist/ios/arm64/production",
+            candidateTaskNames = listOf(
+                "generateGenericUiIosApp",
+                "linkReleaseFrameworkIosArm64",
+                "compileKotlinIosArm64"
+            ),
+            candidateSourceDirs = listOf(
+                "bin/iosArm64/releaseFramework",
+                "genericui/iosApp"
+            )
+        )
+        registerTargetTask(
+            name = "developmentIosSimulatorArm64",
+            desc = "Builds the iOS Simulator Arm64 (UIKit / MoltenVK) Development target into build/dist/ios/simulatorArm64/development.",
+            distRelativePath = "dist/ios/simulatorArm64/development",
+            candidateTaskNames = listOf(
+                "generateGenericUiIosApp",
+                "linkDebugFrameworkIosSimulatorArm64",
+                "compileKotlinIosSimulatorArm64"
+            ),
+            candidateSourceDirs = listOf(
+                "bin/iosSimulatorArm64/debugFramework",
+                "genericui/iosApp"
+            )
+        )
+        registerTargetTask(
+            name = "productionIosSimulatorArm64",
+            desc = "Builds the iOS Simulator Arm64 (UIKit / MoltenVK) Production target into build/dist/ios/simulatorArm64/production.",
+            distRelativePath = "dist/ios/simulatorArm64/production",
+            candidateTaskNames = listOf(
+                "generateGenericUiIosApp",
+                "linkReleaseFrameworkIosSimulatorArm64",
+                "compileKotlinIosSimulatorArm64"
+            ),
+            candidateSourceDirs = listOf(
+                "bin/iosSimulatorArm64/releaseFramework",
+                "genericui/iosApp"
             )
         )
 
+        // 7. Swing & Web (Unified, No Sub-Targets)
         registerTargetTask(
-            name = "webDevelopment",
-            desc = "Builds the Web (Wasm default + JS IR fallback, HTML5 DOM / Canvas2D / WebGL2 / WebGPU + compiled SASS CSS) Development target.",
+            name = "developmentSwing",
+            desc = "Builds the Java Swing (JVM / AWT / LWJGL) Development target into build/dist/swing/development.",
+            distRelativePath = "dist/swing/development",
+            candidateTaskNames = listOf("compileKotlinJvm", "jvmProcessResources"),
+            candidateSourceDirs = listOf(
+                "classes/kotlin/jvm/main",
+                "processedResources/jvm/main",
+                "generated/genericui/desktop-resources/runtime-assets"
+            )
+        )
+        registerTargetTask(
+            name = "productionSwing",
+            desc = "Builds the Java Swing (JVM / AWT / LWJGL) Production JAR target into build/dist/swing/production.",
+            distRelativePath = "dist/swing/production",
+            candidateTaskNames = listOf("jvmJar", "compileKotlinJvm"),
+            candidateSourceDirs = listOf(
+                "libs",
+                "generated/genericui/desktop-resources/runtime-assets"
+            )
+        )
+        registerTargetTask(
+            name = "developmentWeb",
+            desc = "Builds the Web (Wasm default + JS IR fallback, HTML5 DOM / Canvas2D / WebGL2 / WebGPU + compiled SASS CSS) Development target into build/dist/web/development.",
+            distRelativePath = "dist/web/development",
             candidateTaskNames = listOf(
                 "compileGenericUiSass",
                 "wasmJsProcessResources",
                 "jsProcessResources",
                 "compileDevelopmentExecutableKotlinWasmJs",
                 "wasmJsDevelopmentExecutableCompileSync",
+                "wasmJsBrowserDevelopmentWebpack",
                 "wasmJsBrowserDevelopmentExecutableDistribution",
                 "compileKotlinWasmJs",
                 "compileDevelopmentExecutableKotlinJs",
                 "jsDevelopmentExecutableCompileSync",
+                "jsBrowserDevelopmentWebpack",
                 "jsBrowserDevelopmentExecutableDistribution",
                 "compileKotlinJs",
-                "packageGenericUiWebDistribution"
+                "packageGenericUiWebDevelopmentDistribution"
             )
         )
         registerTargetTask(
-            name = "webProduction",
-            desc = "Builds the Web (Wasm default + JS IR fallback, HTML5 DOM / Canvas2D / WebGL2 / WebGPU + compiled SASS CSS) Production distribution target.",
+            name = "productionWeb",
+            desc = "Builds the Web (Wasm default + JS IR fallback, HTML5 DOM / Canvas2D / WebGL2 / WebGPU + compiled SASS CSS) Production distribution target into build/dist/web/production.",
+            distRelativePath = "dist/web/production",
             candidateTaskNames = listOf(
                 "compileGenericUiSass",
                 "wasmJsProcessResources",
                 "jsProcessResources",
                 "compileProductionExecutableKotlinWasmJs",
                 "wasmJsProductionExecutableCompileSync",
+                "wasmJsBrowserProductionWebpack",
                 "wasmJsBrowserDistribution",
                 "compileKotlinWasmJs",
                 "compileProductionExecutableKotlinJs",
                 "jsProductionExecutableCompileSync",
+                "jsBrowserProductionWebpack",
                 "jsBrowserDistribution",
                 "compileKotlinJs",
-                "packageGenericUiWebDistribution"
+                "packageGenericUiWebProductionDistribution"
             )
         )
     }

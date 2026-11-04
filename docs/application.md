@@ -43,7 +43,7 @@ class StudioApplication : FragmentApplication(
 ) {
     init {
         // Default is ThemeMode.AUTO; can be set to AUTO, DARK, or LIGHT:
-        setTheme(ThemeMode.AUTO)
+        setThemeMode(ThemeMode.AUTO)
         // Attach a precompiled .scss stylesheet (Resource.style.<name>):
         addStyleSheet(Resource.style.studio_theme)
     }
@@ -64,15 +64,16 @@ GenericUI's [`ThemeMode`](../common/src/commonMain/kotlin/com/nexustools/generic
 | **`ThemeMode.DARK`** | `"dark"` | Forces dark mode across native OS controls (e.g. Win32 `UxTheme` `DarkMode_Explorer`), `:web` Bootstrap (`data-bs-theme="dark"`), and `:extensions:alien`. |
 | **`ThemeMode.LIGHT`** | `"light"` | Forces light mode across native OS controls (e.g. Win32 `UxTheme` `Explorer`), `:web` Bootstrap (`data-bs-theme="light"`), and `:extensions:alien`. |
 
-### 2.1 Theme API on `IApplication`
+### 2.1 Theme & Preference API on `IApplication`
 
 | Method | Return Type | Description |
 | :--- | :--- | :--- |
-| `app.setTheme(theme: ThemeMode)`<br/>`app.setThemeMode(mode: ThemeMode)` | `Unit` | Sets the application theme mode (`ThemeMode.AUTO`, `ThemeMode.DARK`, or `ThemeMode.LIGHT`) and notifies all registered theme listeners and native windows. |
-| `app.getTheme(): ThemeMode`<br/>`app.getThemeMode(): ThemeMode` | `ThemeMode` | Returns the configured `ThemeMode` (`AUTO`, `DARK`, or `LIGHT`). |
+| `app.setThemeMode(mode: ThemeMode)` | `Unit` | Sets the application theme mode (`ThemeMode.AUTO`, `ThemeMode.DARK`, or `ThemeMode.LIGHT`) and notifies all registered theme listeners and native windows. |
+| `app.getThemeMode(): ThemeMode` | `ThemeMode` | Returns the configured `ThemeMode` (`AUTO`, `DARK`, or `LIGHT`). |
 | `app.getResolvedTheme(): ThemeMode` | `ThemeMode` | Resolves `ThemeMode.AUTO` to the currently active concrete system theme (`ThemeMode.DARK` or `ThemeMode.LIGHT`). |
 | `app.addThemeChangeListener(listener)`<br/>`app.removeThemeChangeListener(listener)` | `Unit` | Registers or unregisters a callback `(ThemeMode) -> Unit` invoked whenever the theme or underlying OS dark/light mode changes. |
 | `app.setThemeColor(colorHex: String?)`<br/>`app.getThemeColor(): String?` | `Unit` / `String?` | Configures or queries the application's primary accent chrome color. |
+| `app.getPreferenceStore()` | `PreferenceStore` | Returns the application's shared cross-platform [`PreferenceStore`](../common/src/commonMain/kotlin/com/nexustools/genericui/component/system/PreferenceStore.kt) (also accessible on any `IFragment` via `fragment.getPreferenceStore()`). |
 
 ### 2.2 8-Target OS Dark/Light Theme Detection & `:web` `data-bs-theme` Switching
 - **Windows (`:desktop:windows`)**: Reads `HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize\AppsUseLightTheme`, listens to `WM_SETTINGCHANGE` (`"ImmersiveColorSet"`), toggles `DWMWA_USE_IMMERSIVE_DARK_MODE`, and switches Win32 `UxTheme` control themes (`"DarkMode_Explorer::BUTTON"` vs. `"Explorer::BUTTON"`).
@@ -165,8 +166,34 @@ GenericUI's [`ThemeMode`](../common/src/commonMain/kotlin/com/nexustools/generic
 | `supportsSystemThemeDetection` | `Boolean` | `true` across all 8 backends (`ThemeMode.AUTO`). |
 | `supportsThemeAccentColor` | `Boolean` | `true` across all backends (`setThemeColor`). |
 | `supportsHardwareGpuAcceleration` | `Boolean` | `true` across all backends. |
+| `isOffline` | `Boolean` | `true` when the application currently has no network connectivity (`!isOnline`). |
+| `isOnline` | `Boolean` | `true` when the application currently has active network connectivity (`!isOffline`). |
 
-### 5.2 Example: Runtime Theme Switching, Global Stylesheets, & Fragment Launching
+### 5.2 Offline & Connectivity State Monitoring (`isOffline`, `isOnline`, & Listeners)
+
+[`IApplication`](../common/src/commonMain/kotlin/com/nexustools/genericui/component/shell/IApplication.kt) and [`Application`](../common/src/commonMain/kotlin/com/nexustools/genericui/component/shell/Application.kt) expose live network connectivity state and change listeners across all 8 backends:
+
+| Property / Method | Signature | Description |
+| :--- | :--- | :--- |
+| **`app.isOffline`** | `val isOffline: Boolean` | Returns `true` when the device or browser currently has no active network route (`!isOnline`). |
+| **`app.isOnline`** | `val isOnline: Boolean` | Returns `true` when the device or browser has active network connectivity (`!isOffline`). |
+| **`app.addOfflineListener`** | `fun addOfflineListener(listener: (isOffline: Boolean) -> Unit)` | Registers a listener invoked whenever the application transitions offline (`true`) or online (`false`). |
+| **`app.removeOfflineListener`** | `fun removeOfflineListener(listener: (isOffline: Boolean) -> Unit)` | Removes a previously registered offline state listener. |
+| **`app.setOnOfflineChanged`** | `fun setOnOfflineChanged(listener: ((isOffline: Boolean) -> Unit)?)` | Sets or clears a primary callback invoked when `isOffline` changes. |
+
+#### Per-Backend Native Offline Detection Mechanisms
+
+| Backend | Native Connectivity Monitor |
+| :--- | :--- |
+| **Windows (`:desktop:windows`)** | WinINet `InternetGetConnectedState` / `INetworkListManager` connectivity state polling & change notifications. |
+| **macOS (`:desktop:macos`) & iOS (`:mobile:ios`)** | Apple `Network.framework` `NWPathMonitor` (`nw_path_get_status(path) != nw_path_status_satisfied`). |
+| **Linux GTK4 (`:desktop:gtk`)** | GIO `GNetworkMonitor` (`g_network_monitor_get_network_available` + `"network-changed"` signal). |
+| **Linux Qt6 (`:desktop:qt`)** | Qt 6 `QNetworkInformation` (`QNetworkInformation::instance()->reachability()` + `reachabilityChanged` signal). |
+| **JVM Swing (`:desktop:swing`)** | `java.net.NetworkInterface` active non-loopback interface inspection. |
+| **Android (`:mobile:android`)** | `ConnectivityManager` (`NetworkCapabilities.NET_CAPABILITY_INTERNET` + `ConnectivityManager.NetworkCallback`). |
+| **Web (`:web`)** | Browser `!window.navigator.onLine` paired with `window.addEventListener("offline", ...)` and `window.addEventListener("online", ...)`. |
+
+### 5.3 Example: Runtime Theme Switching, Offline Listeners, Global Stylesheets, & Fragment Launching
 
 ```kotlin
 import com.example.studio.res.Resource
@@ -175,13 +202,16 @@ import com.nexustools.genericui.enums.system.BackendTarget
 import com.nexustools.genericui.enums.ui.ThemeMode
 import com.nexustools.genericui.window.TitleBar
 
-// 1. Inspect backend target and capabilities
+// 1. Inspect backend target, capabilities, and live offline/online state
 if (app.isDesktop && app.supportsMultipleWindows) {
     // Open an auxiliary inspector PanelWindow
 }
+app.addOfflineListener { offline ->
+    println(if (offline) "Application is now offline" else "Application reconnected online")
+}
 
 // 2. Theme mode defaults to ThemeMode.AUTO; switch dynamically between AUTO, DARK, and LIGHT
-app.setTheme(ThemeMode.AUTO)
+app.setThemeMode(ThemeMode.AUTO)
 val effectiveTheme: ThemeMode = app.getResolvedTheme() // ThemeMode.DARK or ThemeMode.LIGHT
 app.setThemeColor("#10B981")
 

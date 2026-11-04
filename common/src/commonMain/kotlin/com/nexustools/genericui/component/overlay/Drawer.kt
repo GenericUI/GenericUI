@@ -26,6 +26,6 @@ class Drawer(
         isVisible = false
     }
 
-    override fun createNativeImpl(factory: NativeFactory): ContainerNativeImpl<*> =
+    protected override fun createNativeImpl(factory: NativeFactory): ContainerNativeImpl<*> =
         factory.createContainer("offcanvas", htmlTag)
 }

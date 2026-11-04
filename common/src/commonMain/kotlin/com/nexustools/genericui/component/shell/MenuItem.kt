@@ -5,7 +5,7 @@ import com.nexustools.genericui.core.NativeFactory
 import com.nexustools.genericui.core.NativeImpl
 import com.nexustools.genericui.event.KeyShortcut
 import com.nexustools.genericui.nativeimpl.shell.MenuItemNativeImpl
-import com.nexustools.genericui.res.ResourceId
+import com.nexustools.genericui.resources.ResourceID
 
 open class MenuItem(
     label: String = "",
@@ -40,7 +40,7 @@ open class MenuItem(
 
     constructor(
         label: String,
-        iconRes: ResourceId,
+        iconRes: ResourceID,
         shortcut: KeyShortcut? = null,
         shortcutText: String? = null,
         checked: Boolean = false,
@@ -64,10 +64,10 @@ open class MenuItem(
         }
     }
 
-    override fun createNativeImpl(factory: NativeFactory): MenuItemNativeImpl<*> =
+    protected override fun createNativeImpl(factory: NativeFactory): MenuItemNativeImpl<*> =
         factory.createMenuItem(checkable = checkedState, radio = false)
 
-    override fun onAttachNative(impl: NativeImpl<*>) {
+    protected override fun onAttachNative(impl: NativeImpl<*>) {
         super.onAttachNative(impl)
         val menuImpl = impl as? MenuItemNativeImpl<*> ?: return
         menuImpl.setLabel(labelState)
@@ -88,7 +88,7 @@ open class MenuItem(
         typedNative<MenuItemNativeImpl<*>>()?.setIcon(icon)
     }
 
-    fun setIconResource(resId: ResourceId) {
+    fun setIconResource(resId: ResourceID) {
         setIcon(resId.toResourceUri())
     }
 

@@ -35,7 +35,7 @@ class DockArea(
         group.addPanel(panel)
     }
 
-    override fun createNativeImpl(factory: NativeFactory): DockAreaNativeImpl<*> =
+    protected override fun createNativeImpl(factory: NativeFactory): DockAreaNativeImpl<*> =
         factory.createDockArea()
 
     override fun syncStateToNative() {

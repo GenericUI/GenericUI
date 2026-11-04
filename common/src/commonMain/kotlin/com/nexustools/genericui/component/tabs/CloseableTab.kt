@@ -65,7 +65,7 @@ open class CloseableTab(
         return closedByOwner
     }
 
-    override fun createNativeImpl(factory: NativeFactory): TabNativeImpl<*> =
+    protected override fun createNativeImpl(factory: NativeFactory): TabNativeImpl<*> =
         factory.createTab(closable = isCloseable)
 
     override fun syncStateToNative() {

@@ -39,7 +39,7 @@ open class DropdownButton(
         typedNative<DropdownNativeImpl<*>>()?.setItems(_items)
     }
 
-    override fun createNativeImpl(factory: NativeFactory): DropdownNativeImpl<*> =
+    protected override fun createNativeImpl(factory: NativeFactory): DropdownNativeImpl<*> =
         factory.createDropdown()
 
     override fun syncStateToNative() {

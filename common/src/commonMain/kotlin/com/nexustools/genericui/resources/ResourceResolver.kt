@@ -3,6 +3,9 @@ package com.nexustools.genericui.resources
 import com.nexustools.genericui.core.GenericUI
 import com.nexustools.genericui.image.ImageBuffer
 import com.nexustools.genericui.image.ImageLoader
+import com.nexustools.genericui.io.ByteBuffer
+import com.nexustools.genericui.io.Readable
+import com.nexustools.genericui.io.ReadableByteBuffer
 import com.nexustools.genericui.res.DrawableResource
 import com.nexustools.genericui.res.Resources
 import com.nexustools.genericui.style.color.RgbaColor
@@ -15,7 +18,7 @@ object ResourceResolver {
     private val fallbackResolver: ResourceResolverNativeImpl = DefaultResourceResolverNativeImpl()
 
     /** Optional explicit override resolver for tests or custom host environments. */
-    var customResolver: ResourceResolverNativeImpl? = null
+    internal var customResolver: ResourceResolverNativeImpl? = null
 
     private fun currentResolver(): ResourceResolverNativeImpl =
         customResolver ?: GenericUI.activeFactory?.createResourceResolver() ?: fallbackResolver
@@ -51,6 +54,24 @@ object ResourceResolver {
 
     fun getBytes(resId: ResourceID): ByteArray? =
         currentResolver().resolveBytes(resId) ?: Resources.activeTable.getRawBytes(resId)
+
+    fun getBuffer(resId: ResourceID): ByteBuffer? =
+        getBytes(resId)?.let { ByteBuffer.wrap(it) }
+
+    /**
+     * Asynchronously opens a non-blocking [Readable] stream for [resId].
+     */
+    suspend fun openReadable(resId: ResourceID): Readable? {
+        currentResolver().openReadable(resId)?.let { return it }
+        fallbackResolver.openReadable(resId)?.let { return it }
+        return getBytes(resId)?.let { ReadableByteBuffer(ByteBuffer.wrap(it)) }
+    }
+
+    /**
+     * Asynchronously opens a non-blocking [Readable] stream for [resId].
+     */
+    suspend fun openStream(resId: ResourceID): Readable? =
+        openReadable(resId)
 
     fun getImageBuffer(resId: ResourceID): ImageBuffer? {
         val bytes = getBytes(resId) ?: return null

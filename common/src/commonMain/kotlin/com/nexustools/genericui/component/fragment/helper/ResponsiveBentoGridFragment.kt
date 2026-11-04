@@ -5,47 +5,57 @@ import com.nexustools.genericui.component.fragment.FragmentBundle
 import com.nexustools.genericui.component.fragment.FragmentContainer
 import com.nexustools.genericui.component.layout.BentoGridItemSpec
 import com.nexustools.genericui.component.layout.HybridBreakpointSpec
+import com.nexustools.genericui.component.layout.ResponsiveBentoGridContainer
 import com.nexustools.genericui.component.layout.ResponsiveBentoGridLayout
+import com.nexustools.genericui.component.layout.ResponsiveBentoGridLayoutImpl
 import com.nexustools.genericui.core.AbstractComponent
 import com.nexustools.genericui.window.WindowConfiguration
 
 /**
- * Helper [Fragment] hosting a [ResponsiveBentoGridLayout] that displays multi-column Bootstrap 12-grid
+ * Helper [LayoutFragment] hosting a [ResponsiveBentoGridLayout] that displays multi-column Bootstrap 12-grid
  * cards on tablets, wide web, and desktop, and automatically reflows into a single-column (`colXs = 12`)
  * vertical feed on small-screen mobile (`< 600dp`) and narrow web viewports.
  */
 open class ResponsiveBentoGridFragment(
-    breakpointSpec: HybridBreakpointSpec = HybridBreakpointSpec.DEFAULT
-) : Fragment() {
+    breakpointSpec: HybridBreakpointSpec = HybridBreakpointSpec.DEFAULT,
+    gapPx: Int = 16,
+    id: String? = null
+) : LayoutFragment<ResponsiveBentoGridLayoutImpl, ResponsiveBentoGridLayout>(id = id) {
 
-    val bentoGridLayout: ResponsiveBentoGridLayout = ResponsiveBentoGridLayout(
-        breakpointSpec = breakpointSpec
+    val bentoGridContainer: ResponsiveBentoGridContainer = ResponsiveBentoGridContainer(
+        breakpointSpec = breakpointSpec,
+        gapPx = gapPx
     )
+
+    override val layout: ResponsiveBentoGridLayout = bentoGridContainer.layout
+
+    val bentoGridLayout: ResponsiveBentoGridLayout
+        get() = layout
 
     private val cardFragments = linkedMapOf<String, Fragment>()
     private val cardFragmentContainers = linkedMapOf<String, FragmentContainer>()
 
     val isSingleColumnFeed: Boolean
-        get() = bentoGridLayout.isSingleColumnFeed
+        get() = layout.isSingleColumnFeed
 
     val cardIds: List<String>
-        get() = bentoGridLayout.cardIds
+        get() = layout.cardIds
 
     val cardCount: Int
-        get() = bentoGridLayout.cardCount
+        get() = layout.cardCount
 
     init {
-        addChild(bentoGridLayout)
+        addChild(bentoGridContainer)
     }
 
     override fun onCreate(savedState: FragmentBundle?) {
-        super.onCreate(savedState)
-        if (!children.contains(bentoGridLayout)) {
-            addChild(bentoGridLayout)
+        if (!children.contains(bentoGridContainer)) {
+            addChild(bentoGridContainer)
         }
+        super.onCreate(savedState)
         val winSize = hostingWindow?.getWindowSize() ?: attachedWindow?.getWindowSize()
         if (winSize != null && winSize.width > 0 && winSize.height > 0) {
-            bentoGridLayout.updateViewport(winSize.width, winSize.height)
+            layout.updateViewport(winSize.width, winSize.height)
         }
     }
 
@@ -58,7 +68,7 @@ open class ResponsiveBentoGridFragment(
     ): ResponsiveBentoGridFragment = apply {
         cardFragments.remove(spec.id)
         cardFragmentContainers.remove(spec.id)?.dispose()
-        bentoGridLayout.addCard(spec, component)
+        layout.addCard(spec, component)
     }
 
     /**
@@ -78,26 +88,25 @@ open class ResponsiveBentoGridFragment(
         }
         cardFragments[spec.id] = fragment
         cardFragmentContainers[spec.id] = host
-        bentoGridLayout.addCard(spec, host)
+        layout.addCard(spec, host)
     }
 
     fun removeCard(id: String): Boolean {
         cardFragments.remove(id)
         cardFragmentContainers.remove(id)?.dispose()
-        return bentoGridLayout.removeCard(id)
+        return layout.removeCard(id)
     }
 
-    fun getCardSpec(id: String): BentoGridItemSpec? = bentoGridLayout.getCardSpec(id)
+    fun getCardSpec(id: String): BentoGridItemSpec? = layout.getCardSpec(id)
 
-    fun getCardComponent(id: String): AbstractComponent? = bentoGridLayout.getCardComponent(id)
+    fun getCardComponent(id: String): AbstractComponent? = layout.getCardComponent(id)
 
     fun getCardFragment(id: String): Fragment? = cardFragments[id]
 
-    fun activeColumnsForItem(id: String): Int = bentoGridLayout.activeColumnsForItem(id)
+    fun activeColumnsForItem(id: String): Int = layout.activeColumnsForItem(id)
 
     override fun onResize(viewportWidth: Int, viewportHeight: Int) {
         super.onResize(viewportWidth, viewportHeight)
-        bentoGridLayout.updateViewport(viewportWidth, viewportHeight)
         for (fragment in cardFragments.values) {
             fragment.onResize(viewportWidth, viewportHeight)
         }
@@ -105,7 +114,6 @@ open class ResponsiveBentoGridFragment(
 
     override fun onConfigurationChanged(newConfig: WindowConfiguration) {
         super.onConfigurationChanged(newConfig)
-        bentoGridLayout.applyWindowConfiguration(newConfig)
         for (fragment in cardFragments.values) {
             fragment.onConfigurationChanged(newConfig)
         }

@@ -48,6 +48,9 @@ All 7 hybrid layout helpers share [`HybridBreakpointSpec`](../common/src/commonM
 | **6** | [`CollapsibleBottomDockLayout`](../common/src/commonMain/kotlin/com/nexustools/genericui/component/layout/CollapsibleBottomDockLayout.kt) | [`CollapsibleBottomDockFragment`](../common/src/commonMain/kotlin/com/nexustools/genericui/component/fragment/helper/CollapsibleBottomDockFragment.kt) | Main workspace content + persistent collapsible mini-player/bottom dock (`collapsedHeightPx` / `expandedHeightPx`). | Expands into a full bottom sheet on tap and auto-hides in fullscreen, PiP, or when the primary column is already visible. |
 | **7** | [`ResponsiveBentoGridLayout`](../common/src/commonMain/kotlin/com/nexustools/genericui/component/layout/ResponsiveBentoGridLayout.kt) | [`ResponsiveBentoGridFragment`](../common/src/commonMain/kotlin/com/nexustools/genericui/component/fragment/helper/ResponsiveBentoGridFragment.kt) | Multi-column Bootstrap 12-grid dashboard (`colMd = 6`, `colLg = 4`, `colXl = 3`). | Reflows all `BentoGridItemSpec` cards into a 1-column (`col-12`) vertical feed (`< 600dp`). |
 
+> [!TIP]
+> **Multi-Tab Document & Browser Chrome (`TabbedFragment`)**: For multi-tab editors and browsers (such as `genericui-paint`, `genericui-pad`, and `genericui-browser`), [`TabbedFragment`](../common/src/commonMain/kotlin/com/nexustools/genericui/component/fragment/helper/TabbedFragment.kt) (`TabbedChromeMode.AUTO`) renders horizontal desktop/tablet browser tabs (`DESKTOP_BROWSER_TABS`) at $\ge 600\text{dp}$ and automatically switches to a Chrome/Firefox-style compact mobile tab switcher pill (`MOBILE_SWITCHER_PILL`) with a `[N]` tab-count badge and full-screen card switcher overlay at $< 600\text{dp}$, backed by per-tab `FragmentHostSystem` navigation history (`maxHistoryPerTab = 50`). See [**`fragments-and-windows.md`**](./fragments-and-windows.md).
+
 ---
 
 ## 3. `HybridColumnLayout` & `HybridColumnFragment`

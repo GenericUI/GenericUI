@@ -39,6 +39,6 @@ class RadioGroup : AbstractContainer() {
         }
     }
 
-    override fun createNativeImpl(factory: NativeFactory): ContainerNativeImpl<*> =
+    protected override fun createNativeImpl(factory: NativeFactory): ContainerNativeImpl<*> =
         factory.createContainer("form-radio-group", htmlTag)
 }

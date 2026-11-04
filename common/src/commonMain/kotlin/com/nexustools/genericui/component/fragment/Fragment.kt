@@ -4,8 +4,11 @@ import com.nexustools.genericui.component.dialog.Dialogs
 import com.nexustools.genericui.component.layout.Container
 import com.nexustools.genericui.component.navigation.BottomNavigationBar
 import com.nexustools.genericui.component.navigation.Navbar
+import com.nexustools.genericui.component.shell.Application
+import com.nexustools.genericui.component.shell.IApplication
 import com.nexustools.genericui.component.shell.MenuBar
 import com.nexustools.genericui.component.shell.Window
+import com.nexustools.genericui.component.system.PreferenceStore
 import com.nexustools.genericui.core.UiTimerScheduler
 import com.nexustools.genericui.enums.fragment.FragmentState
 import com.nexustools.genericui.enums.window.DisplayCutoutMode
@@ -26,6 +29,10 @@ import com.nexustools.genericui.window.WindowConfiguration
  */
 open class Fragment : Container("fragment"), IFragment {
 
+    init {
+        htmlTag = "genericui:fragment"
+    }
+
     override var state: FragmentState = FragmentState.INITIALIZED
         internal set
 
@@ -40,6 +47,15 @@ open class Fragment : Container("fragment"), IFragment {
     @Suppress("USELESS_CAST")
     override val hostingWindow: IWindow?
         get() = attachedIWindow ?: (attachedWindow as? IWindow)
+
+    private var explicitApplication: IApplication? = null
+    private var fallbackPreferenceStore: PreferenceStore? = null
+
+    override var application: IApplication?
+        get() = explicitApplication ?: resolveAttachedApplication()
+        set(value) {
+            explicitApplication = value
+        }
 
     override var arguments: FragmentBundle? = null
 
@@ -87,17 +103,51 @@ open class Fragment : Container("fragment"), IFragment {
     override fun setFullscreen(fullscreen: Boolean, cutoutMode: DisplayCutoutMode) {
         this.fullscreenMode = fullscreen
         this.displayCutoutMode = cutoutMode
+        updateFullscreenElementState(fullscreen, cutoutMode)
         syncChromeToAttachedWindow()
     }
 
-    override fun isFullscreen(): Boolean = fullscreenMode
+    override fun isFullscreen(): Boolean = fullscreenMode || super.isFullscreen()
 
     override fun getDisplayCutoutMode(): DisplayCutoutMode = displayCutoutMode
+
+    override fun getPreferenceStore(): PreferenceStore {
+        val ownerApp = application
+        if (ownerApp != null) {
+            return ownerApp.getPreferenceStore()
+        }
+        val existing = fallbackPreferenceStore
+        if (existing != null) {
+            return existing
+        }
+        val created = PreferenceStore()
+        fallbackPreferenceStore = created
+        return created
+    }
+
+    private fun resolveAttachedApplication(): IApplication? {
+        Application.findApplicationForWindow(hostingWindow)?.let { return it }
+        Application.findApplicationForWindow(attachedWindow)?.let { return it }
+        (fragmentHost as? IApplication)?.let { return it }
+        (fragmentHost as? Fragment)?.application?.let { return it }
+        var current = parent
+        while (current != null) {
+            if (current is Fragment && current !== this) {
+                current.application?.let { return it }
+            }
+            current = current.parent
+        }
+        return null
+    }
 
     internal fun syncChromeToAttachedWindow() {
         val win = attachedWindow ?: (attachedIWindow as? Window)
         if (win != null) {
-            win.setFullscreen(fullscreenMode, displayCutoutMode)
+            if (fullscreenMode) {
+                win.setFullscreen(true, displayCutoutMode)
+            } else if (win.fullscreenElement == null || win.fullscreenElement === this || win.fullscreenElement === win.getContent() || win.fullscreenElement === win) {
+                win.setFullscreen(false, displayCutoutMode)
+            }
             win.setNavBar(if (fullscreenMode) null else navBar)
             win.setBottomNavigationBar(if (fullscreenMode) null else bottomNavigationBar)
             if (titleBar != null) {
@@ -121,7 +171,9 @@ open class Fragment : Container("fragment"), IFragment {
     override fun onResume() {}
     override fun onPause() {}
     override fun onStop() {}
-    override fun onDestroy() {}
+    override fun onDestroy() {
+        clearAllTimers()
+    }
     override fun onSaveInstanceState(outState: FragmentBundle) {}
     override fun onRestoreInstanceState(savedState: FragmentBundle) {}
     override fun onConfigurationChanged(newConfig: WindowConfiguration) {}
@@ -130,11 +182,11 @@ open class Fragment : Container("fragment"), IFragment {
     override fun onWindowFocusChanged(hasFocus: Boolean) {}
 
     // Customizable Transition & Viewport Lifecycle Hooks
-    open fun onBeginEnterTransition(durationMs: Int) {}
-    open fun onActivateEnterTransition(durationMs: Int) {}
-    open fun onBeginExitTransition(durationMs: Int) {}
-    open fun onFinishExitTransition() {}
-    open fun onResize(viewportWidth: Int, viewportHeight: Int) {}
+    override fun onBeginEnterTransition(durationMs: Int) {}
+    override fun onActivateEnterTransition(durationMs: Int) {}
+    override fun onBeginExitTransition(durationMs: Int) {}
+    override fun onFinishExitTransition() {}
+    override fun onResize(viewportWidth: Int, viewportHeight: Int) {}
 
     // Reference-counted asynchronous loading state (`loading++` / `loading--`)
     private var loadingCounter: Int = 0
@@ -406,6 +458,8 @@ open class Fragment : Container("fragment"), IFragment {
 
     internal fun performDestroy() {
         clearAllTimers()
+        fallbackPreferenceStore?.dispose()
+        fallbackPreferenceStore = null
         if (state == FragmentState.RESUMED || state == FragmentState.PAUSED || state == FragmentState.STARTED) {
             performStop()
         }
@@ -418,6 +472,8 @@ open class Fragment : Container("fragment"), IFragment {
 
     override fun dispose() {
         clearAllTimers()
+        fallbackPreferenceStore?.dispose()
+        fallbackPreferenceStore = null
         super.dispose()
     }
 }

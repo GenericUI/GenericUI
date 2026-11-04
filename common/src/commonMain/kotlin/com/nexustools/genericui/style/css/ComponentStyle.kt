@@ -33,8 +33,8 @@ import com.nexustools.genericui.enums.css.CssWhiteSpace
 import com.nexustools.genericui.enums.css.CssWordBreak
 import com.nexustools.genericui.enums.ui.ObjectFit
 import com.nexustools.genericui.geometry.EdgeInsets
-import com.nexustools.genericui.style.RgbaColor
-import com.nexustools.genericui.style.gradient.Gradient
+import com.nexustools.genericui.style.color.RgbaColor
+import com.nexustools.genericui.style.gradient.Gradient.Gradient
 import com.nexustools.genericui.style.transition.CssTransform2D
 import com.nexustools.genericui.style.transition.CssTransitionSpec
 import kotlin.jvm.JvmName
@@ -1169,6 +1169,108 @@ class ComponentStyle(
             rawCustomDeclarations.remove(propName)
             rawImportantCustomProps.remove(propName)
             CssProperty.fromCssName(propName)?.let { importantSet.remove(it) }
+            val prevCallback = onChange
+            onChange = null
+            try {
+                when (propName) {
+                    "background-color" -> setBackgroundColor(null)
+                    "background" -> {
+                        setBackgroundColor(null)
+                        setBackgroundImage(null)
+                    }
+                    "background-image" -> setBackgroundImage(null)
+                    "background-size" -> setBackgroundSize(null)
+                    "background-position" -> setBackgroundPosition(null)
+                    "background-repeat" -> setBackgroundRepeat(null)
+                    "background-attachment" -> setBackgroundAttachment(null)
+                    "background-clip" -> setBackgroundClip(null)
+                    "background-origin" -> setBackgroundOrigin(null)
+                    "color" -> setTextColor(null)
+                    "accent-color" -> setAccentColor(null)
+                    "opacity" -> setOpacity(null)
+                    "display" -> setDisplay(null)
+                    "visibility" -> setVisibility(null)
+                    "position" -> setPosition(null)
+                    "top" -> setTop(null)
+                    "right" -> setRight(null)
+                    "bottom" -> setBottom(null)
+                    "left" -> setLeft(null)
+                    "width" -> setWidth(null)
+                    "height" -> setHeight(null)
+                    "min-width" -> setMinWidth(null)
+                    "min-height" -> setMinHeight(null)
+                    "max-width" -> setMaxWidth(null)
+                    "max-height" -> setMaxHeight(null)
+                    "margin" -> setMargin(null)
+                    "margin-top" -> setMarginTop(null)
+                    "margin-right" -> setMarginRight(null)
+                    "margin-bottom" -> setMarginBottom(null)
+                    "margin-left" -> setMarginLeft(null)
+                    "padding" -> setPadding(null)
+                    "padding-top" -> setPaddingTop(null)
+                    "padding-right" -> setPaddingRight(null)
+                    "padding-bottom" -> setPaddingBottom(null)
+                    "padding-left" -> setPaddingLeft(null)
+                    "box-sizing" -> setBoxSizing(null)
+                    "float" -> setFloatSide(null)
+                    "clear" -> setClearSide(null)
+                    "border-width" -> setBorderWidth(null)
+                    "border-style" -> setBorderStyle(null)
+                    "border-color" -> setBorderColor(null)
+                    "border" -> {
+                        setBorderWidth(null)
+                        setBorderStyle(null)
+                        setBorderColor(null)
+                    }
+                    "border-radius" -> setBorderRadius(null)
+                    "box-shadow", "-webkit-box-shadow" -> setBoxShadow(null)
+                    "text-shadow" -> setTextShadow(null)
+                    "font-family" -> setFontFamily(null)
+                    "font-size" -> setFontSize(null)
+                    "font-weight" -> {
+                        _fontWeightNumericOverride = null
+                        _fontWeight = null
+                    }
+                    "font-style" -> setFontStyle(null)
+                    "line-height" -> setLineHeight(null)
+                    "letter-spacing" -> setLetterSpacing(null)
+                    "text-align" -> setTextAlign(null)
+                    "text-decoration" -> setTextDecoration(null)
+                    "text-transform" -> setTextTransform(null)
+                    "text-overflow" -> setTextOverflow(null)
+                    "white-space" -> setWhiteSpace(null)
+                    "word-break" -> setWordBreak(null)
+                    "vertical-align" -> setVerticalAlign(null)
+                    "flex-direction" -> setFlexDirection(null)
+                    "flex-wrap" -> setFlexWrap(null)
+                    "justify-content" -> setJustifyContent(null)
+                    "align-items" -> setAlignItems(null)
+                    "align-self" -> setAlignSelf(null)
+                    "align-content" -> setAlignContent(null)
+                    "flex-grow" -> setFlexGrow(null)
+                    "flex-shrink" -> setFlexShrink(null)
+                    "flex-basis" -> setFlexBasis(null)
+                    "gap" -> setGap(null)
+                    "row-gap" -> setRowGap(null)
+                    "column-gap" -> setColumnGap(null)
+                    "overflow" -> setOverflow(null)
+                    "overflow-x" -> setOverflowX(null)
+                    "overflow-y" -> setOverflowY(null)
+                    "cursor" -> setCursor(null)
+                    "pointer-events" -> setPointerEvents(null)
+                    "user-select" -> setUserSelect(null)
+                    "object-fit" -> setObjectFit(null)
+                    "aspect-ratio" -> setAspectRatio(null)
+                    "z-index" -> setZIndex(null)
+                    "transform" -> setTransform(null)
+                    "transform-origin" -> setTransformOrigin(null)
+                    "transition" -> setTransitions(null)
+                    "filter" -> setFilter(null)
+                    "backdrop-filter", "-webkit-backdrop-filter" -> setBackdropFilter(null)
+                }
+            } finally {
+                onChange = prevCallback
+            }
             notifyChanged()
             return
         }
@@ -1452,7 +1554,7 @@ class ComponentStyle(
             }
         }
 
-        putProp(CssProperty.BACKGROUND_COLOR, _backgroundColor?.toCssRgba())
+        putProp(CssProperty.BACKGROUND_COLOR, _backgroundColor?.toCssRgbaString())
         putProp(CssProperty.BACKGROUND_IMAGE, _backgroundImage?.toCssString())
         putProp(CssProperty.BACKGROUND_SIZE, _backgroundSize?.toCssString())
         putProp(CssProperty.BACKGROUND_POSITION, _backgroundPosition?.toCssString())
@@ -1460,8 +1562,8 @@ class ComponentStyle(
         putProp(CssProperty.BACKGROUND_ATTACHMENT, _backgroundAttachment?.toCssString())
         putProp(CssProperty.BACKGROUND_CLIP, _backgroundClip?.toCssString())
         putProp(CssProperty.BACKGROUND_ORIGIN, _backgroundOrigin?.toCssString())
-        putProp(CssProperty.COLOR, _textColor?.toCssRgba())
-        putProp(CssProperty.ACCENT_COLOR, _accentColor?.toCssRgba())
+        putProp(CssProperty.COLOR, _textColor?.toCssRgbaString())
+        putProp(CssProperty.ACCENT_COLOR, _accentColor?.toCssRgbaString())
         putProp(CssProperty.OPACITY, _opacity?.toString())
         putProp(CssProperty.DISPLAY, _display?.toCssString())
         putProp(CssProperty.VISIBILITY, _visibility?.toCssString())
@@ -1491,7 +1593,7 @@ class ComponentStyle(
         putProp(CssProperty.CLEAR, _clearSide?.toCssString())
         putProp(CssProperty.BORDER_WIDTH, _borderWidth?.toCssString())
         putProp(CssProperty.BORDER_STYLE, _borderStyle?.toCssString())
-        putProp(CssProperty.BORDER_COLOR, _borderColor?.toCssRgba())
+        putProp(CssProperty.BORDER_COLOR, _borderColor?.toCssRgbaString())
         putProp(CssProperty.BORDER_RADIUS, _borderRadius?.toCssString())
         putProp(CssProperty.BOX_SHADOW, _boxShadow?.toCssString())
         putProp(CssProperty.TEXT_SHADOW, _textShadow?.toCssString())
@@ -1916,6 +2018,7 @@ class ComponentStyle(
             minHeight = if (_minHeight != null && canOverride("min-height", CssProperty.MIN_HEIGHT)) _minHeight?.toCssString() else baseStyle.minHeight,
             maxWidth = if (_maxWidth != null && canOverride("max-width", CssProperty.MAX_WIDTH)) _maxWidth?.toCssString() else baseStyle.maxWidth,
             maxHeight = if (_maxHeight != null && canOverride("max-height", CssProperty.MAX_HEIGHT)) _maxHeight?.toCssString() else baseStyle.maxHeight,
+            filter = if (_filter != null && canOverride("filter", CssProperty.FILTER)) _filter else baseStyle.filter,
             rawDeclarations = mergedRaw,
             importantProperties = mergedImportant
         )

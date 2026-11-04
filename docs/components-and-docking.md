@@ -51,6 +51,10 @@ Full IDE and creative-suite docking workspace inspired by **GIMP** and **JetBrai
 ### C. `AdaptiveSplitTabFragment`
 Responsive multi-pane fragment that adapts across desktop/tablet multi-column split views, phone portrait tabbed views, and phone landscape fullscreen viewports.
 
+### D. `TabbedFragment` (`TabbedChromeMode`)
+Multi-tab document and browser host `Fragment` where every open tab (`TabbedDocumentTab`) owns its own independent `FragmentHostSystem` back/forward navigation stack (`maxHistoryPerTab = 50` by default):
+- **`TabbedChromeMode.AUTO` (Default)**: Automatically renders horizontal desktop/tablet browser tabs (`DESKTOP_BROWSER_TABS`) on viewports $\ge 600\text{dp}$ and switches to a Chrome/Firefox-style compact mobile tab switcher pill (`MOBILE_SWITCHER_PILL`) with a `[N]` tab-count badge and full-screen tab switcher overlay on viewports $< 600\text{dp}$.
+
 ---
 
 ## 3. Native Dialogs & File/Folder Browser (`com.nexustools.genericui.component.dialog`)

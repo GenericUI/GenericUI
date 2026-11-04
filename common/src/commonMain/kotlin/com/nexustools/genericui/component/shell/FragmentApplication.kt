@@ -9,7 +9,7 @@ import com.nexustools.genericui.component.fragment.FragmentHost
  *
  * Requires an initial [Fragment] upon construction and implements [FragmentHost] (`setFragment`,
  * `pushFragment`, `popFragment`, `replaceFragment`) so applications can navigate between fragments
- * or host specialized Helper Fragments such as `AdaptiveSplitTabFragment`
+ * or host specialized Helper Fragments such as `HybridColumnFragment`
  * or `DockWorkspaceFragment`.
  */
 open class FragmentApplication(

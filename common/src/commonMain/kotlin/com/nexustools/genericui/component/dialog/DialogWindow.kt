@@ -1,11 +1,21 @@
 package com.nexustools.genericui.component.dialog
 
+import com.nexustools.genericui.component.action.Button
 import com.nexustools.genericui.component.fragment.FragmentContainer
 import com.nexustools.genericui.component.layout.Container
+import com.nexustools.genericui.component.layout.HStack
+import com.nexustools.genericui.component.layout.Spacer
+import com.nexustools.genericui.component.shell.Application
 import com.nexustools.genericui.component.shell.Window
+import com.nexustools.genericui.core.AbstractComponent
 import com.nexustools.genericui.core.AbstractContainer
 import com.nexustools.genericui.core.GenericUI
 import com.nexustools.genericui.core.NativeFactory
+import com.nexustools.genericui.enums.bootstrap.AlignItems
+import com.nexustools.genericui.enums.bootstrap.BootstrapSize
+import com.nexustools.genericui.enums.bootstrap.BootstrapType
+import com.nexustools.genericui.enums.bootstrap.JustifyContent
+import com.nexustools.genericui.enums.bootstrap.SpacingScale
 import com.nexustools.genericui.enums.dialog.DialogPresentationStyle
 import com.nexustools.genericui.enums.window.DisplayCutoutMode
 import com.nexustools.genericui.enums.window.WindowState
@@ -106,13 +116,31 @@ open class DialogWindow(
 
     private var windowBoundsState: Rect = Rect(120, 120, 560, 400)
     private var windowStateVal: WindowState = WindowState.NORMAL
+    var fitToContent: Boolean = true
+    private var hasExplicitSize: Boolean = false
+
+    override fun setPreferredSize(size: Size?) {
+        if (size != null) {
+            hasExplicitSize = true
+            fitToContent = false
+            windowBoundsState = Rect(windowBoundsState.x, windowBoundsState.y, size.width, size.height)
+            super.setPreferredSize(size)
+        } else {
+            hasExplicitSize = false
+            fitToContent = true
+            super.setPreferredSize(null)
+        }
+    }
 
     override fun getWindowSize(): Size = Size(windowBoundsState.width, windowBoundsState.height)
 
     override fun setWindowSize(size: Size) {
+        hasExplicitSize = true
+        fitToContent = false
         windowBoundsState = Rect(windowBoundsState.x, windowBoundsState.y, size.width, size.height)
         widthPx = size.width
         heightPx = size.height
+        typedNative<DialogWindowNativeImpl<*>>()?.setBounds(windowBoundsState.x, windowBoundsState.y, size.width, size.height)
         onResizeListener?.invoke(
             WindowConfiguration(
                 widthPx = size.width,
@@ -126,10 +154,13 @@ open class DialogWindow(
     override var windowBounds: Rect
         get() = windowBoundsState
         set(value) {
+            hasExplicitSize = true
+            fitToContent = false
             val sizeChanged = value.width != windowBoundsState.width || value.height != windowBoundsState.height
             windowBoundsState = value
             widthPx = value.width
             heightPx = value.height
+            typedNative<DialogWindowNativeImpl<*>>()?.setBounds(value.x, value.y, value.width, value.height)
             if (sizeChanged) {
                 onResizeListener?.invoke(
                     WindowConfiguration(
@@ -181,6 +212,7 @@ open class DialogWindow(
         }
 
     @get:JvmName("isFullscreenProperty")
+    @set:JvmName("setFullscreenProperty")
     var isFullscreen: Boolean = false
         set(value) {
             field = value
@@ -195,12 +227,105 @@ open class DialogWindow(
 
     var onCloseHandler: (() -> Unit)? = null
 
+    val leftButtonBarGroup: HStack = HStack(SpacingScale.S2).apply {
+        alignItems = AlignItems.CENTER
+    }
+
+    val rightButtonBarGroup: HStack = HStack(SpacingScale.S2).apply {
+        alignItems = AlignItems.CENTER
+    }
+
+    val buttonBar: HStack = HStack(SpacingScale.S2).apply {
+        addClass("modal-footer")
+        alignItems = AlignItems.CENTER
+        justifyContent = JustifyContent.BETWEEN
+        isVisible = false
+        addChild(leftButtonBarGroup)
+        addChild(Spacer.fill())
+        addChild(rightButtonBarGroup)
+    }
+
     private var contentContainer: Container? = null
     private var _fragmentContainer: FragmentContainer? = null
 
     private var onResizeListener: ((WindowConfiguration) -> Unit)? = null
     private var onFocusListener: ((Boolean) -> Unit)? = null
     private var onCloseRequestedListener: (() -> Boolean)? = null
+
+    private fun ensureButtonBarMounted() {
+        if (buttonBar.parent !== this) {
+            super.addChild(buttonBar, -1)
+            if (isWindowShown && (resolveActiveFactory() ?: GenericUI.activeFactory)?.isStyleSheetEngineEnabled != false) {
+                Application.current?.getStyleSheets()?.forEach { sheet ->
+                    sheet.styleSheet.applyToTree(buttonBar)
+                }
+            }
+        }
+        buttonBar.isVisible = true
+    }
+
+    fun addLeftButton(component: AbstractComponent): AbstractComponent {
+        ensureButtonBarMounted()
+        if (leftButtonBarGroup.children.isNotEmpty()) {
+            leftButtonBarGroup.addChild(Spacer.horizontal(8))
+        }
+        leftButtonBarGroup.addChild(component)
+        return component
+    }
+
+    fun addLeftButton(
+        text: String,
+        type: BootstrapType = BootstrapType.SECONDARY,
+        size: BootstrapSize = BootstrapSize.SM,
+        outline: Boolean = false,
+        onClick: () -> Unit
+    ): Button {
+        val button = Button(text, type, size, outline = outline).apply {
+            this.onClick = onClick
+        }
+        addLeftButton(button)
+        return button
+    }
+
+    fun addRightButton(component: AbstractComponent): AbstractComponent {
+        ensureButtonBarMounted()
+        if (rightButtonBarGroup.children.isNotEmpty()) {
+            rightButtonBarGroup.addChild(Spacer.horizontal(8))
+        }
+        rightButtonBarGroup.addChild(component)
+        return component
+    }
+
+    fun addRightButton(
+        text: String,
+        type: BootstrapType = BootstrapType.SECONDARY,
+        size: BootstrapSize = BootstrapSize.SM,
+        outline: Boolean = false,
+        onClick: () -> Unit
+    ): Button {
+        val button = Button(text, type, size, outline = outline).apply {
+            this.onClick = onClick
+        }
+        addRightButton(button)
+        return button
+    }
+
+    fun addCloseButton(
+        text: String = "Close",
+        type: BootstrapType = BootstrapType.SECONDARY,
+        size: BootstrapSize = BootstrapSize.SM,
+        outline: Boolean = false,
+        onClose: (() -> Unit)? = null
+    ): Button = addRightButton(text, type, size, outline = outline) {
+        onClose?.invoke()
+        close()
+    }
+
+    fun clearButtons() {
+        leftButtonBarGroup.clearChildren()
+        rightButtonBarGroup.clearChildren()
+        buttonBar.isVisible = false
+    }
 
     override fun resolveActiveFactory(): NativeFactory? =
         super.resolveActiveFactory()
@@ -209,20 +334,56 @@ open class DialogWindow(
             ?: (if (isWindowShown && isVisible) GenericUI.activeFactory else null)
 
     fun open(ownerWindow: Window? = null) {
-        if (ownerWindow != null) {
-            currentOwnerWindow = ownerWindow
+        val existingParent = parent
+        if (existingParent != null && existingParent !is Window) {
+            (existingParent as? AbstractContainer)?.removeChild(this)
+        }
+        val resolvedOwner = ownerWindow ?: currentOwnerWindow ?: Application.current?.mainWindow
+        if (resolvedOwner != null) {
+            if (currentOwnerWindow != null && currentOwnerWindow !== resolvedOwner) {
+                currentOwnerWindow?.unregisterAttachedDialogWindow(this)
+            }
+            currentOwnerWindow = resolvedOwner
+            resolvedOwner.registerAttachedDialogWindow(this)
             if (parent == null) {
-                this.parent = ownerWindow
+                this.parent = resolvedOwner
             }
         }
         isVisible = true
         isWindowShown = true
         isWindowFocused = true
+        if ((resolveActiveFactory() ?: GenericUI.activeFactory)?.isStyleSheetEngineEnabled != false) {
+            Application.current?.getStyleSheets()?.forEach { sheet ->
+                sheet.styleSheet.applyToTree(this)
+            }
+        }
         ensureNativeImpl()
         syncTitleBarComponents()
-        val ownerNative = (ownerWindow ?: currentOwnerWindow)?.nativeImpl as? WindowNativeImpl<*>
-        typedNative<DialogWindowNativeImpl<*>>()?.showDialog(ownerNative)
+        val ownerNative = (ownerWindow ?: currentOwnerWindow)?.ensureNativeImpl() as? WindowNativeImpl<*>
+        typedNative<DialogWindowNativeImpl<*>>()?.let { impl ->
+            if (hasExplicitSize) {
+                impl.setBounds(windowBoundsState.x, windowBoundsState.y, windowBoundsState.width, windowBoundsState.height)
+                impl.setPreferredSize(Size(windowBoundsState.width, windowBoundsState.height))
+            } else {
+                impl.setPreferredSize(null)
+            }
+            impl.showDialog(ownerNative)
+        }
         onFocusListener?.invoke(true)
+    }
+
+    override fun addChild(child: AbstractComponent, index: Int) {
+        val resolvedIndex = if (child !== buttonBar && index < 0 && children.contains(buttonBar)) {
+            children.indexOf(buttonBar)
+        } else {
+            index
+        }
+        super.addChild(child, resolvedIndex)
+        if (isWindowShown && (resolveActiveFactory() ?: GenericUI.activeFactory)?.isStyleSheetEngineEnabled != false) {
+            Application.current?.getStyleSheets()?.forEach { sheet ->
+                sheet.styleSheet.applyToTree(child)
+            }
+        }
     }
 
     override fun show(factory: NativeFactory?) {
@@ -233,6 +394,8 @@ open class DialogWindow(
     }
 
     override fun hide() {
+        typedNative<DialogWindowNativeImpl<*>>()?.closeDialog()
+        currentOwnerWindow?.unregisterAttachedDialogWindow(this)
         isVisible = false
         isWindowShown = false
         if (isWindowFocused) {
@@ -244,6 +407,7 @@ open class DialogWindow(
     override fun close() {
         if (onCloseRequestedListener?.invoke() == false) return
         typedNative<DialogWindowNativeImpl<*>>()?.closeDialog()
+        currentOwnerWindow?.unregisterAttachedDialogWindow(this)
         isVisible = false
         isWindowShown = false
         if (isWindowFocused) {
@@ -287,7 +451,7 @@ open class DialogWindow(
     }
 
     override fun getContent(): Container? =
-        contentContainer ?: (children.firstOrNull() as? Container)
+        contentContainer ?: (children.firstOrNull { it !== buttonBar } as? Container)
 
     override val fragmentContainer: FragmentContainer?
         get() = (contentContainer as? FragmentContainer)
@@ -317,7 +481,7 @@ open class DialogWindow(
         onCloseRequestedListener = listener
     }
 
-    override fun createNativeImpl(factory: NativeFactory): DialogWindowNativeImpl<*> =
+    protected override fun createNativeImpl(factory: NativeFactory): DialogWindowNativeImpl<*> =
         factory.createDialogWindow()
 
     override fun syncStateToNative() {
@@ -327,7 +491,14 @@ open class DialogWindow(
         impl.setModal(isModal)
         impl.setPresentationStyle(presentationStyle)
         impl.setFullscreen(isFullscreen)
+        if (hasExplicitSize) {
+            impl.setBounds(windowBoundsState.x, windowBoundsState.y, windowBoundsState.width, windowBoundsState.height)
+            impl.setPreferredSize(Size(windowBoundsState.width, windowBoundsState.height))
+        } else {
+            impl.setPreferredSize(null)
+        }
         impl.setOnDialogClosed {
+            currentOwnerWindow?.unregisterAttachedDialogWindow(this)
             isVisible = false
             isWindowShown = false
             if (isWindowFocused) {

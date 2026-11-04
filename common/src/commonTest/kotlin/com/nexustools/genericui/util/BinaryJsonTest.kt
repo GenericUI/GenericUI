@@ -1,9 +1,16 @@
 package com.nexustools.genericui.util
 
-import com.nexustools.genericui.component.system.PreferenceElement
 import com.nexustools.genericui.component.system.PreferenceSerializable
+import com.nexustools.genericui.io.ByteOrder
+import com.nexustools.genericui.io.FileSystem
+import com.nexustools.genericui.io.ReadableByteBuffer
+import com.nexustools.genericui.io.WritableByteBuffer
+import kotlin.coroutines.Continuation
+import kotlin.coroutines.EmptyCoroutineContext
+import kotlin.coroutines.startCoroutine
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -23,6 +30,19 @@ class BinaryJsonTest {
             "rating" to rating,
             "tags" to tags
         )
+    }
+
+    private fun runSuspend(block: suspend () -> Unit) {
+        var failure: Throwable? = null
+        var completed = false
+        block.startCoroutine(
+            Continuation(EmptyCoroutineContext) { result ->
+                completed = true
+                failure = result.exceptionOrNull()
+            }
+        )
+        failure?.let { throw it }
+        assertTrue(completed, "Expected suspend test block to complete synchronously")
     }
 
     @Test
@@ -73,7 +93,7 @@ class BinaryJsonTest {
     }
 
     @Test
-    fun `encode and decode nested maps arrays and objects`() {
+    fun `encode and decode nested maps arrays and objects via Writable and Readable streams`() = runSuspend {
         val profile = SampleProfile(
             username = "alex",
             level = 99,
@@ -97,5 +117,28 @@ class BinaryJsonTest {
             SampleProfile(username = "", level = 0, premium = false, rating = 0.0, tags = emptyList())
         )
         assertEquals(profile, decoded)
+
+        // Direct WritableByteBuffer & ReadableByteBuffer (via Writable / Readable interfaces)
+        val writableBuf = WritableByteBuffer(initialCapacity = 64, byteOrder = ByteOrder.LITTLE_ENDIAN)
+        BinaryJson.encode(profile, writableBuf)
+        val readableBuf = ReadableByteBuffer(writableBuf.toByteBuffer())
+        val streamDecoded = BinaryJson.decodeAs(
+            readableBuf,
+            SampleProfile(username = "", level = 0, premium = false, rating = 0.0, tags = emptyList())
+        )
+        assertEquals(profile, streamDecoded)
+
+        // Direct FileSystem Writable & Readable stream roundtrip
+        FileSystem.resetFallback()
+        val fileOut = FileSystem.openWritable("/tmp/profile.bson", append = false)
+        BinaryJson.encode(profile, fileOut)
+        fileOut.end()
+        val fileIn = FileSystem.openReadable("/tmp/profile.bson")
+        assertNotNull(fileIn)
+        val fileDecoded = BinaryJson.decodeAs(
+            fileIn,
+            SampleProfile(username = "", level = 0, premium = false, rating = 0.0, tags = emptyList())
+        )
+        assertEquals(profile, fileDecoded)
     }
 }

@@ -1,6 +1,6 @@
 package com.nexustools.genericui.style.css
 
-import com.nexustools.genericui.style.RgbaColor
+import com.nexustools.genericui.style.color.RgbaColor
 
 /**
  * Strongly-typed single CSS shadow layer (`[inset] offsetX offsetY [blurRadius] [spreadRadius] color`)
@@ -24,7 +24,7 @@ data class CssShadow(
         if (spreadRadius != CssLength.ZERO) {
             parts.add(spreadRadius.toCssString())
         }
-        parts.add(color.toCssRgba())
+        parts.add(color.toCssRgbaString())
         return parts.joinToString(" ")
     }
 

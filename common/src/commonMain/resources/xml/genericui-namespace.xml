@@ -1,0 +1,174 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<namespaceSpec xmlns="https://nexustools.com/ns/genericui/spec" prefix="genericui" uri="https://nexustools.com/ns/genericui" version="1.0">
+    <commonAttributes>
+        <attribute name="id" type="string" description="Unique DOM element identifier."/>
+        <attribute name="class" type="string" description="Space-separated Bootstrap 5 and custom CSS class list."/>
+        <attribute name="style" type="string" description="Inline CSS property declarations."/>
+        <attribute name="title" type="string" description="Tooltip text displayed on hover."/>
+        <attribute name="role" type="string" description="WAI-ARIA semantic role."/>
+        <attribute name="data-bs-theme" type="string" description="Bootstrap color mode (dark or light)."/>
+    </commonAttributes>
+    <elements>
+        <!-- Core Base Component -->
+        <element name="app" tag="genericui:app" componentClass="GenericUiApplication" category="core" display="block" role="application" description="Root GenericUI application viewport container."/>
+        <element name="component" tag="genericui:component" componentClass="AbstractComponent" category="core" display="block" role="generic" description="Base GenericUI component element."/>
+        <element name="fragment" tag="genericui:fragment" componentClass="Fragment" category="core" display="block" role="region" description="Modular lifecycle-aware UI fragment container."/>
+        <element name="fragment-container" tag="genericui:fragment-container" componentClass="FragmentContainer" category="core" display="block" role="region" description="Host container mounting and transitioning Fragment instances."/>
+
+        <!-- Shell & Window Chrome -->
+        <element name="window" tag="genericui:window" componentClass="Window" category="shell" display="flex" role="region" description="Top-level GenericUI window container inside genericui:app."/>
+        <element name="menubar" tag="genericui:menubar" componentClass="MenuBar" category="shell" display="flex" role="menubar" description="Top-level horizontal application menu bar."/>
+        <element name="menu" tag="genericui:menu" componentClass="Menu" category="shell" display="inline-block" role="menu" description="Pull-down or cascading submenu container.">
+            <attribute name="data-menu-label" type="string" description="Menu header label."/>
+        </element>
+        <element name="menuitem" tag="genericui:menuitem" componentClass="MenuItem" category="shell" display="block" role="menuitem" description="Executable action item inside a menu or context menu.">
+            <attribute name="data-icon" type="string" description="Optional leading icon identifier."/>
+            <attribute name="data-shortcut" type="string" description="Keyboard shortcut accelerator label."/>
+        </element>
+        <element name="checkmenuitem" tag="genericui:checkmenuitem" componentClass="CheckMenuItem" category="shell" display="block" role="menuitemcheckbox" description="Checkable toggle menu item.">
+            <attribute name="aria-checked" type="boolean" description="Checked state of the menu item."/>
+        </element>
+        <element name="radiomenuitem" tag="genericui:radiomenuitem" componentClass="RadioMenuItem" category="shell" display="block" role="menuitemradio" description="Mutually exclusive radio menu item.">
+            <attribute name="aria-checked" type="boolean" description="Selected state of the radio menu item."/>
+        </element>
+        <element name="menuseparator" tag="genericui:menuseparator" componentClass="MenuSeparator" category="shell" display="block" role="separator" description="Visual horizontal divider between menu items."/>
+        <element name="contextmenu" tag="genericui:contextmenu" componentClass="ContextMenu" category="shell" display="block" role="menu" description="Floating popup context menu anchored at pointer coordinates."/>
+        <element name="splitpane" tag="genericui:splitpane" componentClass="SplitPane" category="shell" display="flex" role="group" description="Resizable two-panel horizontal or vertical split container.">
+            <attribute name="data-divider-ratio" type="number" description="Normalized split divider ratio between 0.05 and 0.95."/>
+        </element>
+        <element name="titlebar" tag="genericui:titlebar" componentClass="TitleBar" category="shell" display="flex" role="banner" description="Custom window title bar with window controls and title."/>
+        <element name="statusbar" tag="genericui:statusbar" componentClass="StatusBar" category="shell" display="flex" role="status" description="Bottom application status bar displaying status segments and indicators."/>
+        <element name="mdicontainer" tag="genericui:mdicontainer" componentClass="MdiContainer" category="shell" display="flex" role="region" description="Multi-Document Interface (MDI) workspace container."/>
+        <element name="mdidesktop" tag="genericui:mdidesktop" componentClass="MdiContainer.DesktopSurface" category="shell" display="block" role="group" description="MDI desktop surface hosting internal MDI child windows."/>
+        <element name="mdiwindow" tag="genericui:mdiwindow" componentClass="MdiWindow" category="shell" display="flex" role="dialog" description="Movable, resizable, minimizable, and maximizable internal MDI child window."/>
+
+        <!-- Dockable Studio Workspace (GIMP / Photoshop Style) -->
+        <element name="dockworkspace" tag="genericui:dockworkspace" componentClass="DockWorkspace" category="dock" display="flex" role="main" description="Root multi-area dockable studio workspace."/>
+        <element name="dockarea" tag="genericui:dockarea" componentClass="DockArea" category="dock" display="flex" role="region" description="Left, right, top, or bottom dockable panel area.">
+            <attribute name="data-dock-position" type="string" description="Dock position (left, right, top, bottom, center)."/>
+        </element>
+        <element name="dockgroup" tag="genericui:dockgroup" componentClass="DockGroup" category="dock" display="flex" role="tablist" description="Tabbed or split stack of dockable panels within a dock area.">
+            <attribute name="data-group-mode" type="string" description="Dock group mode (tabbed, vertical_stack, horizontal_split)."/>
+        </element>
+        <element name="dockpanel" tag="genericui:dockpanel" componentClass="DockPanel" category="dock" display="block" role="tabpanel" description="Individual dockable studio tool or inspector panel.">
+            <attribute name="data-panel-title" type="string" description="Display title of the dock panel."/>
+        </element>
+        <element name="panelwindow" tag="genericui:panelwindow" componentClass="PanelWindow" category="dock" display="block" role="dialog" description="Floating utility panel window detached from a dock area.">
+            <attribute name="data-dock-window-title" type="string" description="Title of the floating panel window."/>
+        </element>
+        <element name="toolpalette" tag="genericui:toolpalette" componentClass="ToolPalette" category="dock" display="grid" role="toolbar" description="Multi-column icon tool palette with foreground/background color swatches."/>
+        <element name="toolpaletteitem" tag="genericui:toolpaletteitem" componentClass="ToolPaletteItem" category="dock" display="inline-flex" role="button" description="Selectable tool button inside a tool palette."/>
+        <element name="categorizedtreeview" tag="genericui:categorizedtreeview" componentClass="CategorizedTreeView" category="dock" display="block" role="tree" description="Categorizedsearchable hierarchy tree view for studio presets and assets."/>
+        <element name="colorswatchbox" tag="genericui:colorswatchbox" componentClass="ColorSwatchBox" category="dock" display="inline-flex" role="group" description="Foreground and background color swatch selector box."/>
+
+        <!-- Layout Containers -->
+        <element name="container" tag="genericui:container" componentClass="Container" category="layout" display="block" role="region" description="Responsive layout container."/>
+        <element name="box" tag="genericui:box" componentClass="Box" category="layout" display="block" role="group" description="Single-purpose positioning and alignment box container."/>
+        <element name="row" tag="genericui:row" componentClass="Row" category="layout" display="flex" role="group" description="12-column responsive Bootstrap grid row."/>
+        <element name="col" tag="genericui:col" componentClass="Col" category="layout" display="block" role="group" description="Responsive grid column within a genericui:row."/>
+        <element name="flexbox" tag="genericui:flexbox" componentClass="FlexBox" category="layout" display="flex" role="group" description="Configurable CSS Flexbox layout container."/>
+        <element name="hstack" tag="genericui:hstack" componentClass="HStack" category="layout" display="flex" role="group" description="Horizontal flex stack layout container."/>
+        <element name="vstack" tag="genericui:vstack" componentClass="VStack" category="layout" display="flex" role="group" description="Vertical flex stack layout container."/>
+        <element name="scrollview" tag="genericui:scrollview" componentClass="ScrollView" category="layout" display="block" role="region" description="Scrollable viewport container."/>
+        <element name="stepscrollview" tag="genericui:stepscrollview" componentClass="StepScrollView" category="layout" display="block" role="region" description="Discrete step-by-step scrollable container."/>
+        <element name="aspectratiocontainer" tag="genericui:aspectratiocontainer" componentClass="AspectRatioContainer" category="layout" display="block" role="group" description="Bootstrap aspect-ratio layout container (.ratio)."/>
+        <element name="layered-container" tag="genericui:layered-container" componentClass="LayeredContainer" category="layout" display="grid" role="group" description="Z-ordered multi-layer stack container where child layers share the same bounds and stack in ascending zIndex order."/>
+
+        <!-- Lazy Virtualized Collections -->
+        <element name="lazylist" tag="genericui:lazylist" componentClass="LazyList" category="lazy" display="block" role="list" description="Virtualized scrolling list mounting only visible item DOM nodes."/>
+        <element name="lazycolumn" tag="genericui:lazycolumn" componentClass="LazyColumn" category="lazy" display="block" role="list" description="Vertical virtualized scrolling list."/>
+        <element name="lazyrow" tag="genericui:lazyrow" componentClass="LazyRow" category="lazy" display="flex" role="list" description="Horizontal virtualized scrolling list."/>
+        <element name="lazygrid" tag="genericui:lazygrid" componentClass="LazyGrid" category="lazy" display="block" role="grid" description="Multi-column virtualized scrolling grid."/>
+        <element name="lazygridtree" tag="genericui:lazygridtree" componentClass="LazyGridTree" category="lazy" display="block" role="treegrid" description="Virtualized multi-column collapsible tree-grid supporting text and component cells."/>
+        <element name="treeview" tag="genericui:treeview" componentClass="TreeView" category="lazy" display="block" role="tree" description="Virtualized hierarchical tree view with expandable nodes."/>
+
+        <!-- Surface & Grouping Containers -->
+        <element name="card" tag="genericui:card" componentClass="Card" category="surface" display="flex" role="region" description="Elevated surface card with optional header, body, and footer."/>
+        <element name="collapsiblepanel" tag="genericui:collapsiblepanel" componentClass="CollapsiblePanel" category="surface" display="block" role="region" description="Expandable and collapsible content panel.">
+            <attribute name="data-collapse-title" type="string" description="Header title of the collapsible panel."/>
+        </element>
+        <element name="accordion" tag="genericui:accordion" componentClass="Accordion" category="surface" display="block" role="region" description="Vertically stacked group of collapsible accordion items."/>
+        <element name="accordionitem" tag="genericui:accordionitem" componentClass="AccordionItem" category="surface" display="block" role="region" description="Individual collapsible section within an accordion."/>
+        <element name="jumbotron" tag="genericui:jumbotron" componentClass="Jumbotron" category="surface" display="block" role="region" description="Hero showcase surface container."/>
+        <element name="well" tag="genericui:well" componentClass="Well" category="surface" display="block" role="region" description="Inset bordered surface container."/>
+        <element name="listgroup" tag="genericui:listgroup" componentClass="ListGroup" category="surface" display="flex" role="list" description="Bordered vertical list group of interactive or static items."/>
+        <element name="listgroupitem" tag="genericui:listgroupitem" componentClass="ListGroupItem" category="surface" display="block" role="listitem" description="Individual item within a genericui:listgroup."/>
+        <element name="text-bubble" tag="genericui:text-bubble" componentClass="TextBubble" category="surface" display="inline-flex" role="note" description="Styled speech/callout/subtitle text bubble surface with optional directional triangular pointer."/>
+
+        <!-- Tabs -->
+        <element name="tabcontainer" tag="genericui:tabcontainer" componentClass="TabContainer" category="tabs" display="block" role="region" description="Multi-tab container with a navigation tab strip and tab content panes."/>
+        <element name="tab" tag="genericui:tab" componentClass="Tab" category="tabs" display="inline-block" role="presentation" description="Standard tab header item within a genericui:tabcontainer.">
+            <attribute name="data-tab-id" type="string" description="Unique identifier of the tab."/>
+        </element>
+        <element name="closeabletab" tag="genericui:closeabletab" componentClass="CloseableTab" category="tabs" display="inline-block" role="presentation" description="Tab header item with an interactive close button.">
+            <attribute name="data-tab-id" type="string" description="Unique identifier of the closeable tab."/>
+        </element>
+        <element name="pinnedtab" tag="genericui:pinnedtab" componentClass="PinnedTab" category="tabs" display="inline-block" role="presentation" description="Non-closeable pinned tab header item."/>
+        <element name="badgetab" tag="genericui:badgetab" componentClass="BadgeTab" category="tabs" display="inline-block" role="presentation" description="Tab header item with an attached status/counter badge."/>
+        <element name="editabletab" tag="genericui:editabletab" componentClass="EditableTab" category="tabs" display="inline-block" role="presentation" description="Tab header item supporting inline title renaming."/>
+
+        <!-- Navigation -->
+        <element name="navbar" tag="genericui:navbar" componentClass="Navbar" category="navigation" display="flex" role="navigation" description="Responsive top navigation bar with brand title and navigation links.">
+            <attribute name="data-brand-title" type="string" description="Application or page brand title."/>
+        </element>
+        <element name="nav" tag="genericui:nav" componentClass="Nav" category="navigation" display="flex" role="navigation" description="Horizontal or vertical navigation link group."/>
+        <element name="sidenav" tag="genericui:sidenav" componentClass="SideNav" category="navigation" display="flex" role="navigation" description="Vertical sidebar navigation panel."/>
+        <element name="bottomnavigationbar" tag="genericui:bottomnavigationbar" componentClass="BottomNavigationBar" category="navigation" display="flex" role="navigation" description="Mobile/compact bottom navigation bar with icon/label destinations."/>
+        <element name="breadcrumb" tag="genericui:breadcrumb" componentClass="Breadcrumb" category="navigation" display="flex" role="navigation" description="Hierarchical page location breadcrumb trail."/>
+        <element name="breadcrumbitem" tag="genericui:breadcrumbitem" componentClass="BreadcrumbItem" category="navigation" display="inline-flex" role="listitem" description="Individual step link inside a genericui:breadcrumb."/>
+        <element name="pagination" tag="genericui:pagination" componentClass="Pagination" category="navigation" display="flex" role="navigation" description="Page number navigation bar."/>
+        <element name="stepper" tag="genericui:stepper" componentClass="Stepper" category="navigation" display="flex" role="group" description="Multi-step wizard progress and navigation indicator."/>
+
+        <!-- Action Controls -->
+        <element name="dropdown" tag="genericui:dropdown" componentClass="DropdownButton" category="action" display="inline-block" role="group" description="Button that toggles a floating action selection menu.">
+            <attribute name="data-dropdown-label" type="string" description="Button label of the dropdown."/>
+            <attribute name="data-item-count" type="number" description="Number of selectable dropdown items."/>
+        </element>
+        <element name="buttongroup" tag="genericui:buttongroup" componentClass="ButtonGroup" category="action" display="inline-flex" role="group" description="Segmented horizontal or vertical group of buttons."/>
+        <element name="toolbar" tag="genericui:toolbar" componentClass="Toolbar" category="action" display="flex" role="toolbar" description="Action toolbar grouping multiple button groups and controls."/>
+
+        <!-- Form Groups & Composite Inputs -->
+        <element name="formgroup" tag="genericui:formgroup" componentClass="FormGroup" category="form" display="block" role="group" description="Labeled form field group with validation feedback and help text."/>
+        <element name="inputgroup" tag="genericui:inputgroup" componentClass="InputGroup" category="form" display="flex" role="group" description="Composite input control with attached prefix/suffix addons or buttons."/>
+        <element name="radiogroup" tag="genericui:radiogroup" componentClass="RadioGroup" category="form" display="block" role="radiogroup" description="Mutually exclusive group of radio button options."/>
+        <element name="compoundunitinput" tag="genericui:compoundunitinput" componentClass="CompoundUnitInput" category="form" display="flex" role="group" description="Numeric input paired with a unit selector (e.g., px, %, em, deg)."/>
+        <element name="filedropzone" tag="genericui:filedropzone" componentClass="FileDropZone" category="form" display="flex" role="region" description="Drag-and-drop file upload target zone."/>
+
+        <!-- Rich Typography & Content -->
+        <element name="markdownview" tag="genericui:markdownview" componentClass="MarkdownView" category="typography" display="block" role="document" description="Formatted Markdown document viewer."/>
+        <element name="avatar" tag="genericui:avatar" componentClass="Avatar" category="content" display="inline-flex" role="img" description="Circular or rounded user/entity avatar with image or initials fallback."/>
+        <element name="masterdetailstepselect" tag="genericui:masterdetailstepselect" componentClass="MasterDetailStepSelect" category="content" display="flex" role="region" description="Two-pane master category and detail item selector."/>
+        <element name="horizontalcarouselselector" tag="genericui:horizontalcarouselselector" componentClass="HorizontalCarouselSelector" category="content" display="flex" role="region" description="Horizontal card carousel with previous/next selection controls."/>
+
+        <!-- Feedback & Progress Indicators -->
+        <element name="alert" tag="genericui:alert" componentClass="Alert" category="feedback" display="block" role="alert" description="Contextual feedback alert banner."/>
+        <element name="banner" tag="genericui:banner" componentClass="Banner" category="feedback" display="flex" role="banner" description="Full-width top announcement or warning banner."/>
+        <element name="toast" tag="genericui:toast" componentClass="Toast" category="feedback" display="block" role="status" description="Transient non-modal notification toast."/>
+        <element name="toastcontainer" tag="genericui:toastcontainer" componentClass="ToastContainer" category="feedback" display="flex" role="region" description="Viewport-anchored stack container for transient toasts."/>
+        <element name="progressbar" tag="genericui:progressbar" componentClass="ProgressBar" category="feedback" display="flex" role="progressbar" description="Determinate or indeterminate horizontal progress bar.">
+            <attribute name="aria-valuenow" type="number" description="Current progress percentage (0 to 100)."/>
+        </element>
+        <element name="spinner" tag="genericui:spinner" componentClass="Spinner" category="feedback" display="inline-block" role="status" description="Animated border or grow loading spinner.">
+            <attribute name="aria-label" type="string" description="Accessible loading label."/>
+        </element>
+        <element name="skeletonplaceholder" tag="genericui:skeletonplaceholder" componentClass="SkeletonPlaceholder" category="feedback" display="block" role="status" description="Shimmering content placeholder shown while data is loading."/>
+
+        <!-- Overlays & Modals -->
+        <element name="modal" tag="genericui:modal" componentClass="Modal" category="overlay" display="block" role="dialog" description="Modal overlay container with header, body, and action footer."/>
+        <element name="drawer" tag="genericui:drawer" componentClass="Drawer" category="overlay" display="flex" role="dialog" description="Slide-out offcanvas edge drawer."/>
+        <element name="bottomsheet" tag="genericui:bottomsheet" componentClass="BottomSheet" category="overlay" display="flex" role="dialog" description="Bottom-anchored slide-up sheet overlay."/>
+        <element name="popover" tag="genericui:popover" componentClass="Popover" category="overlay" display="block" role="tooltip" description="Anchored floating popover card.">
+            <attribute name="data-popover-title" type="string" description="Optional popover header title."/>
+            <attribute name="data-bs-placement" type="string" description="Anchor placement (top, bottom, left, right)."/>
+        </element>
+        <element name="tooltip" tag="genericui:tooltip" componentClass="Tooltip" category="overlay" display="inline-block" role="tooltip" description="Floating text tooltip anchored to a target element."/>
+        <element name="backdrop" tag="genericui:backdrop" componentClass="Backdrop" category="overlay" display="block" role="presentation" description="Dimmed modal or drawer background scrim."/>
+
+        <!-- Dialog Windows -->
+        <element name="dialogwindow" tag="genericui:dialogwindow" componentClass="DialogWindow" category="dialog" display="block" role="dialog" description="Modal or non-modal dialog window.">
+            <attribute name="data-dialog-title" type="string" description="Dialog window title."/>
+            <attribute name="data-presentation-style" type="string" description="Dialog presentation style (window_modal, pull_down_sheet, fullscreen)."/>
+            <attribute name="aria-modal" type="boolean" description="Whether the dialog blocks interaction with background content."/>
+        </element>
+    </elements>
+</namespaceSpec>

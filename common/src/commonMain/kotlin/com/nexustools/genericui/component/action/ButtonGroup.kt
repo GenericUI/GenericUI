@@ -15,6 +15,6 @@ class ButtonGroup(
         htmlTag = "genericui:buttongroup"
     }
 
-    override fun createNativeImpl(factory: NativeFactory): ContainerNativeImpl<*> =
+    protected override fun createNativeImpl(factory: NativeFactory): ContainerNativeImpl<*> =
         factory.createContainer(if (orientation == Orientation.VERTICAL) "btn-group-vertical" else "btn-group", htmlTag)
 }

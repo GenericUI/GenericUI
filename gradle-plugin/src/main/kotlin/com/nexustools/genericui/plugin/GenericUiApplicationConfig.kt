@@ -51,7 +51,7 @@ open class GenericUiApplicationConfig(
     val extraWindowsLinkerOpts: MutableList<String> = mutableListOf()
 
     /**
-     * Additional linker flags appended to POSIX (`linuxX64`, `linuxArm64`, `macosArm64`, `macosX64`)
+     * Additional linker flags appended to POSIX (`linuxX64`, `linuxArm64`, `macosArm64`)
      * executable binaries.
      */
     val extraPosixLinkerOpts: MutableList<String> = mutableListOf()

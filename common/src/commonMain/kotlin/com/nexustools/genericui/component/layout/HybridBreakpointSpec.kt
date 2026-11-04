@@ -76,6 +76,9 @@ data class HybridBreakpointSpec(
         if (backendTarget != null && backendTarget.isMobile) {
             return isTablet(smallestScreenWidthDp) && isLandscape
         }
+        if (backendTarget == BackendTarget.Web) {
+            return viewportWidthDp >= 768
+        }
         if (viewportWidthDp >= columnBreakpointDp) {
             return true
         }

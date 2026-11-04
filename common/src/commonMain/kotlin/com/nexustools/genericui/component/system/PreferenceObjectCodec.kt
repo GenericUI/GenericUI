@@ -1,5 +1,7 @@
 package com.nexustools.genericui.component.system
 
+import com.nexustools.genericui.io.Readable
+import com.nexustools.genericui.io.Writable
 import kotlin.reflect.KClass
 
 /**
@@ -203,6 +205,13 @@ object PreferenceObjectCodec {
     fun toJson(value: Any?): String = elementToJson(toElement(value))
 
     /**
+     * Serializes any value or object as UTF-8 JSON directly into [writable].
+     */
+    fun toJson(value: Any?, writable: Writable) {
+        elementToJson(toElement(value), writable)
+    }
+
+    /**
      * Serializes a [PreferenceElement] tree into a standard JSON string.
      */
     fun elementToJson(element: PreferenceElement): String {
@@ -210,6 +219,39 @@ object PreferenceObjectCodec {
         writeJsonElement(sb, element)
         return sb.toString()
     }
+
+    /**
+     * Serializes a [PreferenceElement] tree as UTF-8 JSON directly into [writable].
+     */
+    fun elementToJson(element: PreferenceElement, writable: Writable) {
+        writable.writeText(elementToJson(element), "utf8")
+    }
+
+    /**
+     * Asynchronously parses a JSON [Readable] stream into a [PreferenceElement] tree.
+     */
+    suspend fun fromJsonElement(readable: Readable): PreferenceElement =
+        fromJsonElement(readable.readAllText("utf8"))
+
+    /**
+     * Asynchronously parses a JSON [Readable] stream into plain Kotlin primitives, [List]s, and [LinkedHashMap]s.
+     */
+    suspend fun fromJson(readable: Readable): Any? =
+        fromJsonElement(readable).toPlainValue()
+
+    /**
+     * Asynchronously parses a JSON [Readable] stream directly into an instance of [targetClass].
+     */
+    suspend fun <T : Any> fromJsonAs(
+        readable: Readable,
+        targetClass: KClass<T>,
+        defaultValue: T? = null
+    ): T? = fromJsonAs(readable.readAllText("utf8"), targetClass, defaultValue)
+
+    suspend inline fun <reified T : Any> fromJsonAs(
+        readable: Readable,
+        defaultValue: T? = null
+    ): T? = fromJsonAs(readable, T::class, defaultValue)
 
     /**
      * Parses a JSON string into a [PreferenceElement] tree.

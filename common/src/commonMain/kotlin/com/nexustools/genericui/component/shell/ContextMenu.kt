@@ -20,7 +20,7 @@ class ContextMenu : AbstractContainer("dropdown-menu") {
     var lastAnchor: AbstractComponent? = null
         private set
 
-    override fun createNativeImpl(factory: NativeFactory): ContextMenuNativeImpl<*> =
+    protected override fun createNativeImpl(factory: NativeFactory): ContextMenuNativeImpl<*> =
         factory.createContextMenu()
 
     fun addItem(item: MenuItem): ContextMenu {

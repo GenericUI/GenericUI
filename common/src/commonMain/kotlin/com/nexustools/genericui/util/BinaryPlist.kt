@@ -3,11 +3,19 @@ package com.nexustools.genericui.util
 import com.nexustools.genericui.component.system.PreferenceElement
 import com.nexustools.genericui.component.system.PreferenceElementKind
 import com.nexustools.genericui.component.system.PreferenceObjectCodec
+import com.nexustools.genericui.io.ByteBuffer
+import com.nexustools.genericui.io.ByteOrder
+import com.nexustools.genericui.io.Readable
+import com.nexustools.genericui.io.Writable
+import com.nexustools.genericui.io.WritableByteBuffer
 import kotlin.reflect.KClass
 
 /**
  * Cross-platform Apple Binary Property List (`bplist00`) encoder and decoder
  * (`com.nexustools.genericui.util.BinaryPlist`).
+ *
+ * Operates directly on [Writable] and [Readable] streams (automatically supporting [WritableByteBuffer],
+ * [com.nexustools.genericui.io.ReadableByteBuffer], file streams, network sockets, HTTP streams, and database streams).
  *
  * Strictly encodes and decodes Apple's binary property list format (`bplist00`):
  * 1. **8-Byte Header**: ASCII `"bplist00"` (`0x62 0x70 0x6C 0x69 0x73 0x74 0x30 0x30`).
@@ -47,9 +55,21 @@ object BinaryPlist {
     }
 
     /**
-     * Encodes a [PreferenceElement] tree into standard Apple `"bplist00"` binary property list bytes.
+     * Returns `true` if [buffer] begins with the 8-byte `"bplist00"` header and includes a 32-byte trailer.
      */
-    fun encodeElement(element: PreferenceElement): ByteArray {
+    fun isBinaryPlist(buffer: ByteBuffer): Boolean {
+        if (buffer.size < 40) return false
+        for (i in 0 until 8) {
+            if (buffer.readByte(i) != HEADER_BYTES[i]) return false
+        }
+        return true
+    }
+
+    /**
+     * Encodes a [PreferenceElement] tree in Apple `"bplist00"` format directly into any [Writable] stream
+     * (including [WritableByteBuffer]).
+     */
+    fun encodeElement(element: PreferenceElement, writable: Writable) {
         val objects = ArrayList<PlistNode>()
         flattenElement(element, objects)
 
@@ -60,16 +80,16 @@ object BinaryPlist {
             else -> 4
         }
 
-        val out = ByteWriter(128 + numObjects * 16)
-        out.writeBytes(HEADER_BYTES)
+        val baseOffset = writable.bytesWritten
+        writable.writeBytes(HEADER_BYTES)
 
         val offsets = IntArray(numObjects)
         for (i in 0 until numObjects) {
-            offsets[i] = out.size
-            writePlistNode(out, objects[i], objectRefSize)
+            offsets[i] = (writable.bytesWritten - baseOffset).toInt()
+            writePlistNode(writable, objects[i], objectRefSize)
         }
 
-        val offsetTableStart = out.size
+        val offsetTableStart = (writable.bytesWritten - baseOffset).toInt()
         val maxOffset = if (numObjects > 0) offsets.maxOrNull() ?: 0 else 0
         val offsetIntSize = when {
             maxOffset < 256 -> 1
@@ -78,19 +98,41 @@ object BinaryPlist {
         }
 
         for (offset in offsets) {
-            out.writeUnsignedInt(offset, offsetIntSize)
+            writable.writeUnsignedInt(offset, offsetIntSize, ByteOrder.BIG_ENDIAN)
         }
 
         // 32-byte trailer
-        repeat(6) { out.writeByte(0) }
-        out.writeByte(offsetIntSize.toByte())
-        out.writeByte(objectRefSize.toByte())
-        out.writeLong(numObjects.toLong())
-        out.writeLong(0L) // topObjectIndex = 0
-        out.writeLong(offsetTableStart.toLong())
-
-        return out.toByteArray()
+        repeat(6) { writable.writeByte(0) }
+        writable.writeByte(offsetIntSize.toByte())
+        writable.writeByte(objectRefSize.toByte())
+        writable.writeLong(numObjects.toLong(), ByteOrder.BIG_ENDIAN)
+        writable.writeLong(0L, ByteOrder.BIG_ENDIAN) // topObjectIndex = 0
+        writable.writeLong(offsetTableStart.toLong(), ByteOrder.BIG_ENDIAN)
     }
+
+    /**
+     * Encodes any object, [Map], [Collection], array, primitive, or `null` in `"bplist00"` format
+     * directly into any [Writable] stream.
+     */
+    fun encode(value: Any?, writable: Writable) {
+        encodeElement(PreferenceObjectCodec.toElement(value), writable)
+    }
+
+    /**
+     * Encodes a [PreferenceElement] tree into a big-endian [ByteBuffer] in Apple `"bplist00"` format.
+     */
+    fun encodeElementToBuffer(element: PreferenceElement): ByteBuffer =
+        WritableByteBuffer(initialCapacity = 128, byteOrder = ByteOrder.BIG_ENDIAN)
+            .also { encodeElement(element, it) }
+            .toByteBuffer()
+
+    /**
+     * Encodes a [PreferenceElement] tree into standard Apple `"bplist00"` binary property list bytes.
+     */
+    fun encodeElement(element: PreferenceElement): ByteArray =
+        WritableByteBuffer(initialCapacity = 128, byteOrder = ByteOrder.BIG_ENDIAN)
+            .also { encodeElement(element, it) }
+            .toByteArray()
 
     /**
      * Encodes any object, [Map], [Collection], array, primitive, or `null` into `"bplist00"` binary bytes.
@@ -99,17 +141,63 @@ object BinaryPlist {
         encodeElement(PreferenceObjectCodec.toElement(value))
 
     /**
+     * Encodes any object, [Map], [Collection], array, primitive, or `null` into a `"bplist00"` [ByteBuffer].
+     */
+    fun encodeToBuffer(value: Any?): ByteBuffer =
+        encodeElementToBuffer(PreferenceObjectCodec.toElement(value))
+
+    /**
+     * Asynchronously decodes a `"bplist00"` binary property list from any [Readable] stream
+     * (including [com.nexustools.genericui.io.ReadableByteBuffer]) into a [PreferenceElement] tree.
+     */
+    suspend fun decodeElement(readable: Readable): PreferenceElement =
+        decodeElement(readable.readAllBuffer())
+
+    /**
+     * Asynchronously decodes a `"bplist00"` binary property list from any [Readable] stream into
+     * standard Kotlin primitives, [List]s, and [LinkedHashMap]s.
+     */
+    suspend fun decode(readable: Readable): Any? =
+        decodeElement(readable).toPlainValue()
+
+    /**
+     * Asynchronously decodes a `"bplist00"` binary property list from any [Readable] stream
+     * directly into an instance of [targetClass].
+     */
+    suspend fun <T : Any> decodeAs(
+        readable: Readable,
+        targetClass: KClass<T>,
+        defaultValue: T? = null
+    ): T? {
+        val buf = runCatching { readable.readAllBuffer() }.getOrNull() ?: return defaultValue
+        return decodeAs(buf, targetClass, defaultValue)
+    }
+
+    suspend inline fun <reified T : Any> decodeAs(
+        readable: Readable,
+        defaultValue: T? = null
+    ): T? = decodeAs(readable, T::class, defaultValue)
+
+    /**
      * Decodes a `"bplist00"` binary property list [ByteArray] into a [PreferenceElement] tree.
      */
     fun decodeElement(bytes: ByteArray): PreferenceElement {
         if (!isBinaryPlist(bytes)) return PreferenceElement.Null
+        return decodeElement(ByteBuffer.wrap(bytes, byteOrder = ByteOrder.BIG_ENDIAN))
+    }
 
-        val trailerPos = bytes.size - 32
-        val offsetIntSize = bytes[trailerPos + 6].toInt() and 0xFF
-        val objectRefSize = bytes[trailerPos + 7].toInt() and 0xFF
-        val numObjects = readLongBE(bytes, trailerPos + 8).toInt()
-        val topObjectIndex = readLongBE(bytes, trailerPos + 16).toInt()
-        val offsetTableStart = readLongBE(bytes, trailerPos + 24).toInt()
+    /**
+     * Decodes a `"bplist00"` binary property list [ByteBuffer] into a [PreferenceElement] tree.
+     */
+    fun decodeElement(buffer: ByteBuffer): PreferenceElement {
+        if (!isBinaryPlist(buffer)) return PreferenceElement.Null
+
+        val trailerPos = buffer.size - 32
+        val offsetIntSize = buffer.readUByte(trailerPos + 6).toInt()
+        val objectRefSize = buffer.readUByte(trailerPos + 7).toInt()
+        val numObjects = buffer.readLong(trailerPos + 8, ByteOrder.BIG_ENDIAN).toInt()
+        val topObjectIndex = buffer.readLong(trailerPos + 16, ByteOrder.BIG_ENDIAN).toInt()
+        val offsetTableStart = buffer.readLong(trailerPos + 24, ByteOrder.BIG_ENDIAN).toInt()
 
         if (numObjects <= 0 || offsetIntSize !in setOf(1, 2, 4, 8) || objectRefSize !in setOf(1, 2, 4, 8)) {
             return PreferenceElement.Null
@@ -120,7 +208,12 @@ object BinaryPlist {
 
         val offsets = IntArray(numObjects)
         for (i in 0 until numObjects) {
-            offsets[i] = readUnsignedIntBE(bytes, offsetTableStart + i * offsetIntSize, offsetIntSize)
+            val pos = offsetTableStart + i * offsetIntSize
+            offsets[i] = if (offsetIntSize == 8) {
+                buffer.readLong(pos, ByteOrder.BIG_ENDIAN).toInt()
+            } else {
+                buffer.readUnsignedInt(pos, offsetIntSize, ByteOrder.BIG_ENDIAN)
+            }
         }
 
         if (topObjectIndex !in 0 until numObjects) {
@@ -128,7 +221,7 @@ object BinaryPlist {
         }
 
         return decodeObjectAtIndex(
-            bytes = bytes,
+            buffer = buffer,
             offsets = offsets,
             objectRefSize = objectRefSize,
             index = topObjectIndex,
@@ -143,6 +236,12 @@ object BinaryPlist {
         decodeElement(bytes).toPlainValue()
 
     /**
+     * Decodes a `"bplist00"` [ByteBuffer] into standard Kotlin primitives, [List]s, and [LinkedHashMap]s.
+     */
+    fun decode(buffer: ByteBuffer): Any? =
+        decodeElement(buffer).toPlainValue()
+
+    /**
      * Decodes a `"bplist00"` binary property list directly into an instance of [targetClass].
      */
     fun <T : Any> decodeAs(
@@ -155,10 +254,28 @@ object BinaryPlist {
         return PreferenceObjectCodec.fromElement(element, targetClass, defaultValue)
     }
 
+    /**
+     * Decodes a `"bplist00"` [ByteBuffer] directly into an instance of [targetClass].
+     */
+    fun <T : Any> decodeAs(
+        buffer: ByteBuffer,
+        targetClass: KClass<T>,
+        defaultValue: T? = null
+    ): T? {
+        if (!isBinaryPlist(buffer)) return defaultValue
+        val element = runCatching { decodeElement(buffer) }.getOrNull() ?: return defaultValue
+        return PreferenceObjectCodec.fromElement(element, targetClass, defaultValue)
+    }
+
     inline fun <reified T : Any> decodeAs(
         bytes: ByteArray,
         defaultValue: T? = null
     ): T? = decodeAs(bytes, T::class, defaultValue)
+
+    inline fun <reified T : Any> decodeAs(
+        buffer: ByteBuffer,
+        defaultValue: T? = null
+    ): T? = decodeAs(buffer, T::class, defaultValue)
 
     private sealed class PlistNode {
         data object NullNode : PlistNode()
@@ -219,7 +336,7 @@ object BinaryPlist {
         return myIndex
     }
 
-    private fun writePlistNode(out: ByteWriter, node: PlistNode, objectRefSize: Int) {
+    private fun writePlistNode(out: Writable, node: PlistNode, objectRefSize: Int) {
         when (node) {
             is PlistNode.NullNode -> out.writeByte(0x00)
             is PlistNode.BoolNode -> out.writeByte(if (node.value) 0x09 else 0x08)
@@ -231,60 +348,56 @@ object BinaryPlist {
                     }
                     2 -> {
                         out.writeByte(0x11)
-                        out.writeShort(node.value.toShort())
+                        out.writeShort(node.value.toShort(), ByteOrder.BIG_ENDIAN)
                     }
                     4 -> {
                         out.writeByte(0x12)
-                        out.writeInt(node.value.toInt())
+                        out.writeInt(node.value.toInt(), ByteOrder.BIG_ENDIAN)
                     }
                     else -> {
                         out.writeByte(0x13)
-                        out.writeLong(node.value)
+                        out.writeLong(node.value, ByteOrder.BIG_ENDIAN)
                     }
                 }
             }
             is PlistNode.FloatNode -> {
                 out.writeByte(0x22)
-                out.writeInt(node.value.toRawBits())
+                out.writeFloat(node.value, ByteOrder.BIG_ENDIAN)
             }
             is PlistNode.DoubleNode -> {
                 out.writeByte(0x23)
-                out.writeLong(node.value.toRawBits())
+                out.writeDouble(node.value, ByteOrder.BIG_ENDIAN)
             }
             is PlistNode.StringNode -> {
                 val s = node.value
                 val isAscii = s.all { it.code in 0..0x7F }
                 if (isAscii) {
                     writeMarkerAndLength(out, 0x50, s.length)
-                    for (ch in s) {
-                        out.writeByte(ch.code.toByte())
-                    }
+                    out.writeString(s, "ascii")
                 } else {
                     writeMarkerAndLength(out, 0x60, s.length)
-                    for (ch in s) {
-                        out.writeShort(ch.code.toShort())
-                    }
+                    out.writeString(s, "utf16be")
                 }
             }
             is PlistNode.ArrayNode -> {
                 writeMarkerAndLength(out, 0xA0, node.elementRefs.size)
                 for (ref in node.elementRefs) {
-                    out.writeUnsignedInt(ref, objectRefSize)
+                    out.writeUnsignedInt(ref, objectRefSize, ByteOrder.BIG_ENDIAN)
                 }
             }
             is PlistNode.DictNode -> {
                 writeMarkerAndLength(out, 0xD0, node.keyRefs.size)
                 for (kRef in node.keyRefs) {
-                    out.writeUnsignedInt(kRef, objectRefSize)
+                    out.writeUnsignedInt(kRef, objectRefSize, ByteOrder.BIG_ENDIAN)
                 }
                 for (vRef in node.valueRefs) {
-                    out.writeUnsignedInt(vRef, objectRefSize)
+                    out.writeUnsignedInt(vRef, objectRefSize, ByteOrder.BIG_ENDIAN)
                 }
             }
         }
     }
 
-    private fun writeMarkerAndLength(out: ByteWriter, highNibble: Int, count: Int) {
+    private fun writeMarkerAndLength(out: Writable, highNibble: Int, count: Int) {
         if (count < 15) {
             out.writeByte((highNibble or count).toByte())
         } else {
@@ -296,18 +409,18 @@ object BinaryPlist {
                 }
                 count < 65536 -> {
                     out.writeByte(0x11)
-                    out.writeShort(count.toShort())
+                    out.writeShort(count.toShort(), ByteOrder.BIG_ENDIAN)
                 }
                 else -> {
                     out.writeByte(0x12)
-                    out.writeInt(count)
+                    out.writeInt(count, ByteOrder.BIG_ENDIAN)
                 }
             }
         }
     }
 
     private fun decodeObjectAtIndex(
-        bytes: ByteArray,
+        buffer: ByteBuffer,
         offsets: IntArray,
         objectRefSize: Int,
         index: Int,
@@ -318,9 +431,9 @@ object BinaryPlist {
 
         try {
             val pos = offsets[index]
-            if (pos < 8 || pos >= bytes.size - 32) return PreferenceElement.Null
+            if (pos < 8 || pos >= buffer.size - 32) return PreferenceElement.Null
 
-            val marker = bytes[pos].toInt() and 0xFF
+            val marker = buffer.readUByte(pos).toInt()
             val high = marker and 0xF0
             val low = marker and 0x0F
 
@@ -334,72 +447,60 @@ object BinaryPlist {
                     val byteCount = 1 shl low
                     val payloadPos = pos + 1
                     when (byteCount) {
-                        1 -> PreferenceElement.ofByte(bytes[payloadPos])
-                        2 -> PreferenceElement.ofShort(readShortBE(bytes, payloadPos))
-                        4 -> PreferenceElement.ofInt(readIntBE(bytes, payloadPos))
-                        8 -> PreferenceElement.ofLong(readLongBE(bytes, payloadPos))
-                        else -> PreferenceElement.ofLong(readLongBE(bytes, payloadPos))
+                        1 -> PreferenceElement.ofByte(buffer.readByte(payloadPos))
+                        2 -> PreferenceElement.ofShort(buffer.readShort(payloadPos, ByteOrder.BIG_ENDIAN))
+                        4 -> PreferenceElement.ofInt(buffer.readInt(payloadPos, ByteOrder.BIG_ENDIAN))
+                        8 -> PreferenceElement.ofLong(buffer.readLong(payloadPos, ByteOrder.BIG_ENDIAN))
+                        else -> PreferenceElement.ofLong(buffer.readLong(payloadPos, ByteOrder.BIG_ENDIAN))
                     }
                 }
                 0x20 -> {
                     val payloadPos = pos + 1
                     when (low) {
-                        2 -> PreferenceElement.ofFloat(Float.fromBits(readIntBE(bytes, payloadPos)))
-                        3 -> PreferenceElement.ofDouble(Double.fromBits(readLongBE(bytes, payloadPos)))
+                        2 -> PreferenceElement.ofFloat(buffer.readFloat(payloadPos, ByteOrder.BIG_ENDIAN))
+                        3 -> PreferenceElement.ofDouble(buffer.readDouble(payloadPos, ByteOrder.BIG_ENDIAN))
                         else -> PreferenceElement.ofDouble(0.0)
                     }
                 }
                 0x40 -> {
-                    val (count, dataStart) = readLengthAndPayloadOffset(bytes, pos, low)
+                    val (count, dataStart) = readLengthAndPayloadOffset(buffer, pos, low)
                     val list = ArrayList<PreferenceElement>(count)
                     for (i in 0 until count) {
-                        if (dataStart + i < bytes.size) {
-                            list.add(PreferenceElement.ofByte(bytes[dataStart + i]))
+                        if (dataStart + i < buffer.size) {
+                            list.add(PreferenceElement.ofByte(buffer.readByte(dataStart + i)))
                         }
                     }
                     PreferenceElement.ofArray(list)
                 }
                 0x50 -> {
-                    val (count, strStart) = readLengthAndPayloadOffset(bytes, pos, low)
-                    val sb = StringBuilder(count)
-                    for (i in 0 until count) {
-                        if (strStart + i < bytes.size) {
-                            sb.append((bytes[strStart + i].toInt() and 0xFF).toChar())
-                        }
-                    }
-                    PreferenceElement.ofString(sb.toString())
+                    val (count, strStart) = readLengthAndPayloadOffset(buffer, pos, low)
+                    val end = (strStart + count).coerceAtMost(buffer.size)
+                    PreferenceElement.ofString(buffer.toString("ascii", strStart, end))
                 }
                 0x60 -> {
-                    val (charCount, strStart) = readLengthAndPayloadOffset(bytes, pos, low)
-                    val sb = StringBuilder(charCount)
-                    for (i in 0 until charCount) {
-                        val charPos = strStart + i * 2
-                        if (charPos + 1 < bytes.size) {
-                            val codeUnit = readShortBE(bytes, charPos).toInt() and 0xFFFF
-                            sb.append(codeUnit.toChar())
-                        }
-                    }
-                    PreferenceElement.ofString(sb.toString())
+                    val (charCount, strStart) = readLengthAndPayloadOffset(buffer, pos, low)
+                    val end = (strStart + charCount * 2).coerceAtMost(buffer.size)
+                    PreferenceElement.ofString(buffer.toString("utf16be", strStart, end))
                 }
                 0xA0 -> {
-                    val (count, refsStart) = readLengthAndPayloadOffset(bytes, pos, low)
+                    val (count, refsStart) = readLengthAndPayloadOffset(buffer, pos, low)
                     val list = ArrayList<PreferenceElement>(count)
                     for (i in 0 until count) {
                         val refPos = refsStart + i * objectRefSize
-                        val childIdx = readUnsignedIntBE(bytes, refPos, objectRefSize)
-                        list.add(decodeObjectAtIndex(bytes, offsets, objectRefSize, childIdx, visiting))
+                        val childIdx = readObjectRef(buffer, refPos, objectRefSize)
+                        list.add(decodeObjectAtIndex(buffer, offsets, objectRefSize, childIdx, visiting))
                     }
                     PreferenceElement.ofArray(list)
                 }
                 0xD0 -> {
-                    val (count, refsStart) = readLengthAndPayloadOffset(bytes, pos, low)
+                    val (count, refsStart) = readLengthAndPayloadOffset(buffer, pos, low)
                     val valRefsStart = refsStart + count * objectRefSize
                     val entries = LinkedHashMap<String, PreferenceElement>(count)
                     for (i in 0 until count) {
-                        val kIdx = readUnsignedIntBE(bytes, refsStart + i * objectRefSize, objectRefSize)
-                        val vIdx = readUnsignedIntBE(bytes, valRefsStart + i * objectRefSize, objectRefSize)
-                        val keyElem = decodeObjectAtIndex(bytes, offsets, objectRefSize, kIdx, visiting)
-                        val valElem = decodeObjectAtIndex(bytes, offsets, objectRefSize, vIdx, visiting)
+                        val kIdx = readObjectRef(buffer, refsStart + i * objectRefSize, objectRefSize)
+                        val vIdx = readObjectRef(buffer, valRefsStart + i * objectRefSize, objectRefSize)
+                        val keyElem = decodeObjectAtIndex(buffer, offsets, objectRefSize, kIdx, visiting)
+                        val valElem = decodeObjectAtIndex(buffer, offsets, objectRefSize, vIdx, visiting)
                         val keyStr = keyElem.asString("") ?: ""
                         entries[keyStr] = valElem
                     }
@@ -412,106 +513,27 @@ object BinaryPlist {
         }
     }
 
-    private fun readLengthAndPayloadOffset(bytes: ByteArray, markerPos: Int, lowNibble: Int): Pair<Int, Int> {
+    private fun readObjectRef(buffer: ByteBuffer, offset: Int, objectRefSize: Int): Int =
+        if (objectRefSize == 8) {
+            buffer.readLong(offset, ByteOrder.BIG_ENDIAN).toInt()
+        } else {
+            buffer.readUnsignedInt(offset, objectRefSize, ByteOrder.BIG_ENDIAN)
+        }
+
+    private fun readLengthAndPayloadOffset(buffer: ByteBuffer, markerPos: Int, lowNibble: Int): Pair<Int, Int> {
         if (lowNibble < 0x0F) {
             return lowNibble to (markerPos + 1)
         }
         val intMarkerPos = markerPos + 1
-        if (intMarkerPos >= bytes.size) return 0 to intMarkerPos
-        val intMarker = bytes[intMarkerPos].toInt() and 0xFF
+        if (intMarkerPos >= buffer.size) return 0 to intMarkerPos
+        val intMarker = buffer.readUByte(intMarkerPos).toInt()
         val byteCount = 1 shl (intMarker and 0x0F)
         val countPos = intMarkerPos + 1
-        val count = readUnsignedIntBE(bytes, countPos, byteCount)
+        val count = if (byteCount == 8) {
+            buffer.readLong(countPos, ByteOrder.BIG_ENDIAN).toInt()
+        } else {
+            buffer.readUnsignedInt(countPos, byteCount.coerceIn(1, 4), ByteOrder.BIG_ENDIAN)
+        }
         return count to (countPos + byteCount)
-    }
-
-    private fun readUnsignedIntBE(bytes: ByteArray, offset: Int, byteCount: Int): Int {
-        var result = 0
-        for (i in 0 until byteCount) {
-            val b = if (offset + i in bytes.indices) (bytes[offset + i].toInt() and 0xFF) else 0
-            result = (result shl 8) or b
-        }
-        return result
-    }
-
-    private fun readShortBE(bytes: ByteArray, offset: Int): Short {
-        val b0 = bytes.getOrElse(offset) { 0 }.toInt() and 0xFF
-        val b1 = bytes.getOrElse(offset + 1) { 0 }.toInt() and 0xFF
-        return ((b0 shl 8) or b1).toShort()
-    }
-
-    private fun readIntBE(bytes: ByteArray, offset: Int): Int {
-        val b0 = bytes.getOrElse(offset) { 0 }.toInt() and 0xFF
-        val b1 = bytes.getOrElse(offset + 1) { 0 }.toInt() and 0xFF
-        val b2 = bytes.getOrElse(offset + 2) { 0 }.toInt() and 0xFF
-        val b3 = bytes.getOrElse(offset + 3) { 0 }.toInt() and 0xFF
-        return (b0 shl 24) or (b1 shl 16) or (b2 shl 8) or b3
-    }
-
-    private fun readLongBE(bytes: ByteArray, offset: Int): Long {
-        val hi = readIntBE(bytes, offset).toLong() and 0xFFFFFFFFL
-        val lo = readIntBE(bytes, offset + 4).toLong() and 0xFFFFFFFFL
-        return (hi shl 32) or lo
-    }
-
-    private class ByteWriter(initialCapacity: Int = 128) {
-        private var buf = ByteArray(initialCapacity)
-        var size: Int = 0
-            private set
-
-        private fun ensureCapacity(extra: Int) {
-            val needed = size + extra
-            if (needed <= buf.size) return
-            var newCap = buf.size * 2
-            while (newCap < needed) newCap *= 2
-            buf = buf.copyOf(newCap)
-        }
-
-        fun writeByte(value: Byte) {
-            ensureCapacity(1)
-            buf[size++] = value
-        }
-
-        fun writeBytes(bytes: ByteArray) {
-            ensureCapacity(bytes.size)
-            bytes.copyInto(buf, destinationOffset = size)
-            size += bytes.size
-        }
-
-        fun writeShort(value: Short) {
-            ensureCapacity(2)
-            val v = value.toInt()
-            buf[size++] = ((v ushr 8) and 0xFF).toByte()
-            buf[size++] = (v and 0xFF).toByte()
-        }
-
-        fun writeInt(value: Int) {
-            ensureCapacity(4)
-            buf[size++] = ((value ushr 24) and 0xFF).toByte()
-            buf[size++] = ((value ushr 16) and 0xFF).toByte()
-            buf[size++] = ((value ushr 8) and 0xFF).toByte()
-            buf[size++] = (value and 0xFF).toByte()
-        }
-
-        fun writeLong(value: Long) {
-            ensureCapacity(8)
-            buf[size++] = ((value ushr 56) and 0xFF).toByte()
-            buf[size++] = ((value ushr 48) and 0xFF).toByte()
-            buf[size++] = ((value ushr 40) and 0xFF).toByte()
-            buf[size++] = ((value ushr 32) and 0xFF).toByte()
-            buf[size++] = ((value ushr 24) and 0xFF).toByte()
-            buf[size++] = ((value ushr 16) and 0xFF).toByte()
-            buf[size++] = ((value ushr 8) and 0xFF).toByte()
-            buf[size++] = (value and 0xFF).toByte()
-        }
-
-        fun writeUnsignedInt(value: Int, byteCount: Int) {
-            ensureCapacity(byteCount)
-            for (shift in (byteCount - 1) downTo 0) {
-                buf[size++] = ((value ushr (shift * 8)) and 0xFF).toByte()
-            }
-        }
-
-        fun toByteArray(): ByteArray = buf.copyOf(size)
     }
 }

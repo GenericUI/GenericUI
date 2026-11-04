@@ -36,6 +36,6 @@ class CategorizedTreeView : AbstractContainer() {
         _categories.clear()
     }
 
-    override fun createNativeImpl(factory: NativeFactory): ContainerNativeImpl<*> =
+    protected override fun createNativeImpl(factory: NativeFactory): ContainerNativeImpl<*> =
         factory.createContainer("categorized-tree-view", htmlTag)
 }

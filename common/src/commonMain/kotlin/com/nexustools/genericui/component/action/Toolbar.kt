@@ -12,6 +12,6 @@ class Toolbar : AbstractContainer() {
         htmlTag = "genericui:toolbar"
     }
 
-    override fun createNativeImpl(factory: NativeFactory): ContainerNativeImpl<*> =
+    protected override fun createNativeImpl(factory: NativeFactory): ContainerNativeImpl<*> =
         factory.createContainer("btn-toolbar", htmlTag)
 }

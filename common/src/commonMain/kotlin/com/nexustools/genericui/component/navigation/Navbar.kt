@@ -22,7 +22,7 @@ class Navbar(
             typedNative<NavbarNativeImpl<*>>()?.setBrandTitle(value)
         }
 
-    override fun createNativeImpl(factory: NativeFactory): NavbarNativeImpl<*> =
+    protected override fun createNativeImpl(factory: NativeFactory): NavbarNativeImpl<*> =
         factory.createNavbar()
 
     override fun syncStateToNative() {

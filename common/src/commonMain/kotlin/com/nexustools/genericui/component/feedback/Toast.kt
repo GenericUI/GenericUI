@@ -19,6 +19,6 @@ class Toast(
         this.type = type
     }
 
-    override fun createNativeImpl(factory: NativeFactory): ContainerNativeImpl<*> =
+    protected override fun createNativeImpl(factory: NativeFactory): ContainerNativeImpl<*> =
         factory.createContainer("toast", htmlTag)
 }

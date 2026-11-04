@@ -23,12 +23,9 @@ open class FragmentTabContainer(
     var fadeTransition: Boolean = true,
     tabPosition: TabPosition = TabPosition.TOP,
     tabBarStyle: TabBarStyle = TabBarStyle.TABS,
+    var adaptiveTabPosition: Boolean = false,
     internal var hostWindow: Window? = null
 ) : AbstractContainer() {
-    init {
-        htmlTag = "genericui:fragmenttabcontainer"
-    }
-
     private val _entries = mutableListOf<FragmentTabEntry>()
     val entries: List<FragmentTabEntry> get() = _entries
     val tabs: List<FragmentTabEntry> get() = _entries
@@ -36,8 +33,41 @@ open class FragmentTabContainer(
     var tabPosition: TabPosition = tabPosition
         set(value) {
             field = value
+            syncTabPositionClass(value)
             typedNative<TabContainerNativeImpl<*>>()?.setTabPositionNative(value)
         }
+
+    val isTabsOnTop: Boolean
+        get() = tabPosition == TabPosition.TOP
+
+    val isTabsOnBottom: Boolean
+        get() = tabPosition == TabPosition.BOTTOM
+
+    fun setTabsOnTop(): FragmentTabContainer = apply {
+        tabPosition = TabPosition.TOP
+    }
+
+    fun setTabsOnBottom(): FragmentTabContainer = apply {
+        tabPosition = TabPosition.BOTTOM
+    }
+
+    fun updateAdaptiveTabPosition(inColumnMode: Boolean): FragmentTabContainer = apply {
+        tabPosition = if (inColumnMode) TabPosition.TOP else TabPosition.BOTTOM
+    }
+
+    private fun syncTabPositionClass(position: TabPosition) {
+        for (pos in TabPosition.entries) {
+            if (pos != position) {
+                removeClass(pos.cssClass)
+            }
+        }
+        addClass(position.cssClass)
+    }
+
+    init {
+        htmlTag = "genericui:fragmenttabcontainer"
+        syncTabPositionClass(this.tabPosition)
+    }
 
     var tabBarStyle: TabBarStyle = tabBarStyle
         set(value) {
@@ -117,13 +147,15 @@ open class FragmentTabContainer(
         tab.isSelected = (insertIdx == selectedIndex)
 
         val impl = typedNative<TabContainerNativeImpl<*>>()
-        val tabImpl = tab.nativeImpl as? TabNativeImpl<*>
-        val contentImpl = hostContainer.nativeImpl
-        if (impl != null && contentImpl != null) {
-            if (tabImpl != null) {
-                impl.addTabNative(tabImpl, contentImpl, insertIdx)
-            } else {
-                impl.addTabNative(tab.displayTitle, contentImpl, insertIdx)
+        if (impl != null && isVisible) {
+            val tabImpl = (tab.nativeImpl ?: tab.ensureNativeImpl()) as? TabNativeImpl<*>
+            val contentImpl = hostContainer.nativeImpl ?: hostContainer.ensureNativeImpl()
+            if (contentImpl != null) {
+                if (tabImpl != null) {
+                    impl.addTabNative(tabImpl, contentImpl, insertIdx)
+                } else {
+                    impl.addTabNative(tab.displayTitle, contentImpl, insertIdx)
+                }
             }
         }
     }
@@ -271,8 +303,18 @@ open class FragmentTabContainer(
         }
     }
 
-    override fun createNativeImpl(factory: NativeFactory): TabContainerNativeImpl<*> =
+    protected override fun createNativeImpl(factory: NativeFactory): TabContainerNativeImpl<*> =
         factory.createTabContainer()
+
+    override var isVisible: Boolean
+        get() = super.isVisible
+        set(value) {
+            val wasVisible = super.isVisible
+            super.isVisible = value
+            if (value && !wasVisible && typedNative<TabContainerNativeImpl<*>>() != null) {
+                syncStateToNative()
+            }
+        }
 
     override fun syncStateToNative() {
         super.syncStateToNative()
@@ -280,8 +322,8 @@ open class FragmentTabContainer(
         impl.setTabPositionNative(tabPosition)
         impl.setTabBarStyleNative(tabBarStyle)
         _entries.forEachIndexed { idx, entry ->
-            val contentImpl = entry.hostContainer.nativeImpl ?: return@forEachIndexed
-            val tabImpl = entry.tab.nativeImpl as? TabNativeImpl<*>
+            val contentImpl = entry.hostContainer.nativeImpl ?: entry.hostContainer.ensureNativeImpl() ?: return@forEachIndexed
+            val tabImpl = (entry.tab.nativeImpl ?: entry.tab.ensureNativeImpl()) as? TabNativeImpl<*>
             if (tabImpl != null) {
                 impl.addTabNative(tabImpl, contentImpl, idx)
             } else {

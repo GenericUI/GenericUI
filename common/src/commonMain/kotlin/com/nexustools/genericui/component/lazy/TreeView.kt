@@ -19,6 +19,7 @@ class TreeView<T>(
 
     private val flattenedVisibleNodes = mutableListOf<Pair<Int, TreeNode<T>>>()
     private val activeRowNodes = linkedMapOf<Int, TreeNode<T>>()
+    private var isRefreshingViewport: Boolean = false
 
     var selectedNodeId: String? = null
         set(value) {
@@ -30,6 +31,9 @@ class TreeView<T>(
         private set
 
     var viewportHeightPx: Float = 500f
+        private set
+
+    var activeViewportWindow: LazyViewportWindow = LazyViewportWindow.EMPTY
         private set
 
     var onNodeSelected: ((TreeNode<T>) -> Unit)? = null
@@ -76,26 +80,55 @@ class TreeView<T>(
         refreshLazyViewport()
     }
 
-    private fun refreshLazyViewport(): LazyViewportWindow =
-        viewportTracker.updateViewport(
-            scrollOffsetPx = scrollOffsetPx,
-            viewportExtentPx = viewportHeightPx,
-            estimatedItemExtentPx = estimatedRowHeightPx,
-            totalItems = flattenedVisibleNodes.size,
-            columns = 1,
-            onUnloadIndex = { idx -> activeRowNodes.remove(idx) },
-            onLoadIndex = { idx ->
-                flattenedVisibleNodes.getOrNull(idx)?.second?.let { activeRowNodes[idx] = it }
-            }
-        )
+    fun refreshLazyViewport(): LazyViewportWindow {
+        if (isRefreshingViewport) return activeViewportWindow
+        isRefreshingViewport = true
+        try {
+            val window = viewportTracker.updateViewport(
+                scrollOffsetPx = scrollOffsetPx,
+                viewportExtentPx = viewportHeightPx,
+                estimatedItemExtentPx = estimatedRowHeightPx,
+                totalItems = flattenedVisibleNodes.size,
+                columns = 1,
+                onUnloadIndex = { idx -> activeRowNodes.remove(idx) },
+                onLoadIndex = { idx ->
+                    flattenedVisibleNodes.getOrNull(idx)?.second?.let { activeRowNodes[idx] = it }
+                }
+            )
+            activeViewportWindow = window
 
-    override fun createNativeImpl(factory: NativeFactory): TreeViewNativeImpl<*> =
+            val impl = typedNative<TreeViewNativeImpl<*>>()
+            if (impl != null) {
+                impl.setEstimatedRowHeight(estimatedRowHeightPx, viewportTracker.overscanItems)
+                impl.updateViewportMetrics(
+                    scrollOffsetPx = scrollOffsetPx,
+                    viewportHeightPx = viewportHeightPx,
+                    firstActiveIndex = window.firstActiveIndex,
+                    lastActiveIndex = window.lastActiveIndex,
+                    leadingSpacerPx = window.leadingSpacerPx,
+                    trailingSpacerPx = window.trailingSpacerPx,
+                    totalContentExtentPx = window.totalContentExtentPx
+                )
+            }
+            return window
+        } finally {
+            isRefreshingViewport = false
+        }
+    }
+
+    protected override fun createNativeImpl(factory: NativeFactory): TreeViewNativeImpl<*> =
         factory.createTreeView()
 
     @Suppress("UNCHECKED_CAST")
     override fun syncStateToNative() {
         super.syncStateToNative()
         val impl = typedNative<TreeViewNativeImpl<*>>() ?: return
+        impl.setEstimatedRowHeight(estimatedRowHeightPx, viewportTracker.overscanItems)
+        impl.setOnViewportScrollChanged { scrollPx, heightPx ->
+            if (!isRefreshingViewport) {
+                onViewportChanged(scrollPx, heightPx)
+            }
+        }
         impl.setRootNodes(_rootNodes)
         impl.setSelectedNodeId(selectedNodeId)
         impl.setOnNodeSelected { raw ->
@@ -110,5 +143,6 @@ class TreeView<T>(
         impl.setOnNodeContextMenu { raw, x, y ->
             (raw as? TreeNode<T>)?.let { onNodeContextMenu?.invoke(it, x, y) }
         }
+        refreshLazyViewport()
     }
 }

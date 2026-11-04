@@ -124,7 +124,7 @@ class PanelWindow(
         )
     }
 
-    override fun onAttachNative(impl: NativeImpl<*>) {
+    protected override fun onAttachNative(impl: NativeImpl<*>) {
         super.onAttachNative(impl)
         syncToolModalAttachmentToNative()
     }

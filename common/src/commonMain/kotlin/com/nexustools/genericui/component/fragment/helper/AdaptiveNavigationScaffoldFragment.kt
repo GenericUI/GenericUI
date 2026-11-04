@@ -4,39 +4,44 @@ import com.nexustools.genericui.component.fragment.Fragment
 import com.nexustools.genericui.component.fragment.FragmentBundle
 import com.nexustools.genericui.component.fragment.FragmentContainer
 import com.nexustools.genericui.component.layout.AdaptiveNavigationScaffold
+import com.nexustools.genericui.component.layout.AdaptiveNavigationScaffoldLayout
+import com.nexustools.genericui.component.layout.AdaptiveNavigationScaffoldLayoutImpl
 import com.nexustools.genericui.component.layout.HybridBreakpointSpec
 import com.nexustools.genericui.core.AbstractComponent
 import com.nexustools.genericui.window.WindowConfiguration
 
 /**
- * Helper [Fragment] hosting an [AdaptiveNavigationScaffold] that automatically morphs navigation chrome
+ * Helper [LayoutFragment] hosting an [AdaptiveNavigationScaffold] that automatically morphs navigation chrome
  * between `"BOTTOM_NAV"` (`< 600dp`), `"NAVIGATION_RAIL"` (`600..839dp`), and `"SIDEBAR"` (`>= 840dp`)
  * while preserving child destination [Fragment] and [AbstractComponent] state.
  */
 open class AdaptiveNavigationScaffoldFragment(
-    breakpointSpec: HybridBreakpointSpec = HybridBreakpointSpec.DEFAULT
-) : Fragment() {
+    breakpointSpec: HybridBreakpointSpec = HybridBreakpointSpec.DEFAULT,
+    id: String? = null
+) : LayoutFragment<AdaptiveNavigationScaffoldLayoutImpl, AdaptiveNavigationScaffoldLayout>(id = id) {
 
     val scaffold: AdaptiveNavigationScaffold = AdaptiveNavigationScaffold(
         breakpointSpec = breakpointSpec
     )
 
+    override val layout: AdaptiveNavigationScaffoldLayout = scaffold.layout
+
     private val destinationFragments = linkedMapOf<String, Fragment>()
     private val destinationFragmentContainers = linkedMapOf<String, FragmentContainer>()
 
     val activeNavigationKind: String
-        get() = scaffold.activeNavigationKind
+        get() = layout.activeNavigationKind
 
     val selectedDestinationId: String?
-        get() = scaffold.selectedDestinationId
+        get() = layout.selectedDestinationId
 
     val destinationIds: List<String>
-        get() = scaffold.destinationIds
+        get() = layout.destinationIds
 
     var onDestinationSelected: ((String) -> Unit)?
-        get() = scaffold.onDestinationSelected
+        get() = layout.onDestinationSelected
         set(value) {
-            scaffold.onDestinationSelected = value
+            layout.onDestinationSelected = value
         }
 
     init {
@@ -44,13 +49,13 @@ open class AdaptiveNavigationScaffoldFragment(
     }
 
     override fun onCreate(savedState: FragmentBundle?) {
-        super.onCreate(savedState)
         if (!children.contains(scaffold)) {
             addChild(scaffold)
         }
+        super.onCreate(savedState)
         val winSize = hostingWindow?.getWindowSize() ?: attachedWindow?.getWindowSize()
         if (winSize != null && winSize.width > 0 && winSize.height > 0) {
-            scaffold.updateViewport(winSize.width, winSize.height)
+            layout.updateViewport(winSize.width, winSize.height)
         }
     }
 
@@ -66,7 +71,7 @@ open class AdaptiveNavigationScaffoldFragment(
     ): AdaptiveNavigationScaffoldFragment = apply {
         destinationFragments.remove(id)
         destinationFragmentContainers.remove(id)?.dispose()
-        scaffold.addDestination(
+        layout.addDestination(
             id = id,
             label = label,
             icon = icon,
@@ -95,7 +100,7 @@ open class AdaptiveNavigationScaffoldFragment(
         }
         destinationFragments[id] = fragment
         destinationFragmentContainers[id] = host
-        scaffold.addDestination(
+        layout.addDestination(
             id = id,
             label = label,
             icon = icon,
@@ -107,19 +112,18 @@ open class AdaptiveNavigationScaffoldFragment(
     fun removeDestination(id: String): Boolean {
         destinationFragments.remove(id)
         destinationFragmentContainers.remove(id)?.dispose()
-        return scaffold.removeDestination(id)
+        return layout.removeDestination(id)
     }
 
-    fun selectDestination(id: String): Boolean = scaffold.selectDestination(id)
+    fun selectDestination(id: String): Boolean = layout.selectDestination(id)
 
     fun getDestinationComponent(id: String): AbstractComponent? =
-        scaffold.getDestinationComponent(id)
+        layout.getDestinationComponent(id)
 
     fun getDestinationFragment(id: String): Fragment? = destinationFragments[id]
 
     override fun onResize(viewportWidth: Int, viewportHeight: Int) {
         super.onResize(viewportWidth, viewportHeight)
-        scaffold.updateViewport(viewportWidth, viewportHeight)
         for (fragment in destinationFragments.values) {
             fragment.onResize(viewportWidth, viewportHeight)
         }
@@ -127,7 +131,6 @@ open class AdaptiveNavigationScaffoldFragment(
 
     override fun onConfigurationChanged(newConfig: WindowConfiguration) {
         super.onConfigurationChanged(newConfig)
-        scaffold.applyWindowConfiguration(newConfig)
         for (fragment in destinationFragments.values) {
             fragment.onConfigurationChanged(newConfig)
         }

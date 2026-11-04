@@ -83,7 +83,7 @@ class GenericUiStarterSourceGenerator {
             }
             GenericUiProjectTemplateType.ADAPTIVE_SPLIT_TAB -> {
                 appendLine("/**")
-                appendLine(" * Responsive Desktop/Mobile AdaptiveSplitTabFragment for ${config.projectName}.")
+                appendLine(" * Responsive Desktop/Mobile HybridColumnFragment for ${config.projectName}.")
                 appendLine(" * Uses split master-detail layout on Desktop/Tablet and bottom-tab navigation on Mobile.")
                 appendLine(" */")
                 appendLine("@MainAppFragment")
@@ -93,7 +93,7 @@ class GenericUiStarterSourceGenerator {
                 appendLine("    override fun onCreate(savedState: FragmentBundle?) {")
                 appendLine("        super.onCreate(savedState)")
                 appendStylingSnippet(useDsl)
-                appendLine("        // Configure AdaptiveSplitTabFragment sections and VideoPlayer / AudioPlayer media views")
+                appendLine("        // Configure HybridColumnFragment sections and VideoPlayer / AudioPlayer media views")
                 appendLine("    }")
                 appendLine("}")
             }

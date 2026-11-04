@@ -1,4 +1,4 @@
-package com.nexustools.genericui.style.gradient
+package com.nexustools.genericui.style.gradient.Gradient
 
 import com.nexustools.genericui.style.color.RgbaColor
 import kotlin.math.roundToInt

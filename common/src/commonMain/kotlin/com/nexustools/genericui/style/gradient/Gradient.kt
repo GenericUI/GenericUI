@@ -1,4 +1,4 @@
-package com.nexustools.genericui.style.gradient
+package com.nexustools.genericui.style.gradient.Gradient
 
 import com.nexustools.genericui.style.color.RgbaColor
 import kotlin.math.floor
@@ -62,7 +62,7 @@ abstract class Gradient(
                     r = (c0.r + (c1.r - c0.r) * local).roundToInt().coerceIn(0, 255),
                     g = (c0.g + (c1.g - c0.g) * local).roundToInt().coerceIn(0, 255),
                     b = (c0.b + (c1.b - c0.b) * local).roundToInt().coerceIn(0, 255),
-                    a = (c0.a + (c1.a - c0.a) * local).coerceIn(0f, 1f)
+                    a = (c0.a + (c1.a - c0.a) * local).roundToInt().coerceIn(0, 255)
                 )
             }
         }

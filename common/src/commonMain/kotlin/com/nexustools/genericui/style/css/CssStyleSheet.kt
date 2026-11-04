@@ -1,8 +1,10 @@
 package com.nexustools.genericui.style.css
 
+import com.nexustools.genericui.component.shell.Application
 import com.nexustools.genericui.core.AbstractComponent
-import com.nexustools.genericui.style.RgbaColor
-import com.nexustools.genericui.style.gradient.Gradient
+import com.nexustools.genericui.enums.ui.ThemeMode
+import com.nexustools.genericui.style.color.RgbaColor
+import com.nexustools.genericui.style.gradient.Gradient.Gradient
 
 /**
  * Cross-platform CSS parser and cascade engine for resolving custom classes, compound/descendant selectors,
@@ -31,7 +33,11 @@ class CssStyleSheet(
         ancestorChain: List<Set<String>> = emptyList(),
         viewportWidthPx: Int = 1280
     ): ComputedStyle {
+        val isDarkTheme = Application.current?.getResolvedTheme() == ThemeMode.DARK ||
+            "bs-theme-dark" in classes ||
+            ancestorChain.any { "bs-theme-dark" in it }
         val cacheKey = buildString {
+            append(if (isDarkTheme) "dark|" else "light|")
             append(tagName).append('|').append(id ?: "").append('|').append(viewportWidthPx).append('|')
             append(classes.joinToString(",")).append('|')
             for (anc in ancestorChain) {
@@ -55,27 +61,52 @@ class CssStyleSheet(
         val baseDecls = mergeRuleDeclarations(baseRules)
         val baseImportantProps = collectImportantProperties(baseRules)
         val hoverStyle = if (hoverRules.isNotEmpty()) {
-            buildComputedStyleFromDeclarations(mergeRuleDeclarations(baseRules + hoverRules), importantProperties = collectImportantProperties(baseRules + hoverRules))
+            buildComputedStyleFromDeclarations(
+                mergeRuleDeclarations(baseRules + hoverRules),
+                importantProperties = collectImportantProperties(baseRules + hoverRules),
+                isDarkTheme = isDarkTheme,
+                classes = classes
+            )
         } else {
             null
         }
         val focusStyle = if (focusRules.isNotEmpty()) {
-            buildComputedStyleFromDeclarations(mergeRuleDeclarations(baseRules + focusRules), importantProperties = collectImportantProperties(baseRules + focusRules))
+            buildComputedStyleFromDeclarations(
+                mergeRuleDeclarations(baseRules + focusRules),
+                importantProperties = collectImportantProperties(baseRules + focusRules),
+                isDarkTheme = isDarkTheme,
+                classes = classes
+            )
         } else {
             null
         }
         val activeStyle = if (activeRules.isNotEmpty()) {
-            buildComputedStyleFromDeclarations(mergeRuleDeclarations(baseRules + activeRules), importantProperties = collectImportantProperties(baseRules + activeRules))
+            buildComputedStyleFromDeclarations(
+                mergeRuleDeclarations(baseRules + activeRules),
+                importantProperties = collectImportantProperties(baseRules + activeRules),
+                isDarkTheme = isDarkTheme,
+                classes = classes
+            )
         } else {
             null
         }
         val disabledStyle = if (disabledRules.isNotEmpty()) {
-            buildComputedStyleFromDeclarations(mergeRuleDeclarations(baseRules + disabledRules), importantProperties = collectImportantProperties(baseRules + disabledRules))
+            buildComputedStyleFromDeclarations(
+                mergeRuleDeclarations(baseRules + disabledRules),
+                importantProperties = collectImportantProperties(baseRules + disabledRules),
+                isDarkTheme = isDarkTheme,
+                classes = classes
+            )
         } else {
             null
         }
         val checkedStyle = if (checkedRules.isNotEmpty()) {
-            buildComputedStyleFromDeclarations(mergeRuleDeclarations(baseRules + checkedRules), importantProperties = collectImportantProperties(baseRules + checkedRules))
+            buildComputedStyleFromDeclarations(
+                mergeRuleDeclarations(baseRules + checkedRules),
+                importantProperties = collectImportantProperties(baseRules + checkedRules),
+                isDarkTheme = isDarkTheme,
+                classes = classes
+            )
         } else {
             null
         }
@@ -87,7 +118,9 @@ class CssStyleSheet(
             activeStyle = activeStyle,
             disabledStyle = disabledStyle,
             checkedStyle = checkedStyle,
-            importantProperties = baseImportantProps
+            importantProperties = baseImportantProps,
+            isDarkTheme = isDarkTheme,
+            classes = classes
         )
         if (styleLookupCache.size < 2048) {
             styleLookupCache[cacheKey] = computed
@@ -100,6 +133,7 @@ class CssStyleSheet(
      * including each ancestor's CSS classes, `htmlTag`, and `#id`.
      */
     fun buildAncestorChain(component: AbstractComponent): List<Set<String>> {
+        val isDarkTheme = Application.current?.getResolvedTheme() == ThemeMode.DARK
         val ancestors = mutableListOf<Set<String>>()
         var p = component.parent
         while (p != null) {
@@ -114,17 +148,40 @@ class CssStyleSheet(
             val pTag = normalizeTagName(p.htmlTag.ifEmpty { "genericui:component" })
             pTokens.add(pTag)
             pTokens.add("tag:$pTag")
-            if (pTag == "root" || pTag == "genericui:root") {
-                pTokens.add("root")
-                pTokens.add("genericui:root")
-                pTokens.add("tag:root")
-                pTokens.add("tag:genericui:root")
+            if (pTag == "app" || pTag == "genericui:app") {
+                pTokens.add("app")
+                pTokens.add("genericui:app")
+                pTokens.add("tag:app")
+                pTokens.add("tag:genericui:app")
+                if (isDarkTheme) {
+                    pTokens.add("bs-theme-dark")
+                }
+            } else if (pTag == "fragment" || pTag == "genericui:fragment") {
+                pTokens.add("fragment")
+                pTokens.add("genericui:fragment")
+                pTokens.add("tag:fragment")
+                pTokens.add("tag:genericui:fragment")
             }
             p.id?.takeIf { it.isNotEmpty() }?.let { pTokens.add("#$it") }
             ancestors.add(pTokens)
             p = p.parent
         }
-        return ancestors.reversed()
+        val ordered = ancestors.reversed().toMutableList()
+        val selfTag = normalizeTagName(component.htmlTag.ifEmpty { "genericui:component" })
+        val hasAppAncestor = ordered.any { "genericui:app" in it }
+        if (selfTag != "genericui:app" &&
+            !hasAppAncestor &&
+            (component is com.nexustools.genericui.component.fragment.Fragment || ordered.isNotEmpty())
+        ) {
+            val appRootSet = linkedSetOf("app", "genericui:app", "tag:app", "tag:genericui:app")
+            if (isDarkTheme) {
+                appRootSet.add("bs-theme-dark")
+            }
+            ordered.add(0, appRootSet)
+        } else if (isDarkTheme && ordered.isNotEmpty() && "bs-theme-dark" !in ordered[0]) {
+            ordered[0] = ordered[0] + "bs-theme-dark"
+        }
+        return ordered
     }
 
     /**
@@ -295,7 +352,8 @@ class CssStyleSheet(
     internal fun normalizeCustomGenericUiTagSelector(rawTag: String): String {
         val cleaned = rawTag.trim().replace("\\:", ":").lowercase()
         return when (cleaned) {
-            "root", "genericui:root" -> "genericui:root"
+            "app", "genericui:app" -> "genericui:app"
+            "fragment", "genericui:fragment" -> "genericui:fragment"
             else -> cleaned
         }
     }
@@ -380,12 +438,15 @@ class CssStyleSheet(
         val leadingTag = extractTagFromToken(clean)
         val normalizedTargetTag = normalizeTagName(tagName)
         if (leadingTag.isNotEmpty()) {
-            val isRootSelector = leadingTag == "root" || leadingTag == "genericui:root"
-            val isRootTarget = normalizedTargetTag == "root" || normalizedTargetTag == "genericui:root"
-            if (isRootSelector) {
-                if (!isRootTarget) return false
-            } else if (leadingTag != normalizedTargetTag) {
-                return false
+            val normalizedLeadingTag = normalizeCustomGenericUiTagSelector(leadingTag)
+            val isAppSelector = normalizedLeadingTag == "app" || normalizedLeadingTag == "genericui:app"
+            val isAppTarget = normalizedTargetTag == "app" || normalizedTargetTag == "genericui:app"
+            val isFragmentSelector = normalizedLeadingTag == "fragment" || normalizedLeadingTag == "genericui:fragment"
+            val isFragmentTarget = normalizedTargetTag == "fragment" || normalizedTargetTag == "genericui:fragment"
+            when {
+                isAppSelector -> if (!isAppTarget) return false
+                isFragmentSelector -> if (!isFragmentTarget) return false
+                normalizedLeadingTag != normalizedTargetTag -> return false
             }
         }
 
@@ -433,17 +494,29 @@ class CssStyleSheet(
             activeStyle: ComputedStyle? = null,
             disabledStyle: ComputedStyle? = null,
             checkedStyle: ComputedStyle? = null,
-            importantProperties: Set<String> = emptySet()
+            importantProperties: Set<String> = emptySet(),
+            isDarkTheme: Boolean = Application.current?.getResolvedTheme() == ThemeMode.DARK,
+            classes: Set<String> = emptySet()
         ): ComputedStyle {
-            val accentColor = merged["accent-color"]?.let { RgbaColor.fromCss(it) }
+            val accentColor = merged["accent-color"]?.let { resolveCssColorValue(it, isDarkTheme) }
             val bgProp = merged["background-color"] ?: merged["background"]
-            val bgColor = bgProp?.let { extractColorFromBackgroundShorthand(it) }
+            val bgColor = bgProp?.let { extractColorFromBackgroundShorthand(it, isDarkTheme) }
             val bgImageRaw = merged["background-image"] ?: merged["background"]
             val bgGradient = bgImageRaw?.let { Gradient.fromCss(it) }
             val bgImage = bgImageRaw?.let { extractUrlFromCssValue(it) }
-            val fgColor = merged["color"]?.let { RgbaColor.fromCss(it) }
+            var fgColor = merged["color"]?.let { resolveCssColorValue(it, isDarkTheme) }
+            if (isDarkTheme && fgColor != null &&
+                fgColor.r == 33 && fgColor.g == 37 && fgColor.b == 41 &&
+                "text-dark" !in classes && "text-black" !in classes
+            ) {
+                val hasLightBg = bgColor != null && bgColor.alphaFloat > 0.2f &&
+                    ((bgColor.r * 77 + bgColor.g * 150 + bgColor.b * 29) shr 8) > 140
+                if (!hasLightBg) {
+                    fgColor = RgbaColor(222, 226, 230, fgColor.a)
+                }
+            }
 
-            var borderColor = merged["border-color"]?.let { RgbaColor.fromCss(it) }
+            var borderColor = merged["border-color"]?.let { resolveCssColorValue(it, isDarkTheme) }
             var borderWidthPx = merged["border-width"]?.removeSuffix("px")?.trim()?.toFloatOrNull()
             var borderStyle = merged["border-style"]
             merged["border"]?.let { borderShorthand ->
@@ -457,7 +530,7 @@ class CssStyleSheet(
                         when {
                             lower in setOf("solid", "dashed", "dotted", "double", "none") -> borderStyle = lower
                             lower.endsWith("px") -> borderWidthPx = lower.removeSuffix("px").toFloatOrNull()
-                            else -> RgbaColor.fromCss(tok)?.let { borderColor = it }
+                            else -> resolveCssColorValue(tok, isDarkTheme)?.let { borderColor = it }
                         }
                     }
                 }
@@ -496,6 +569,7 @@ class CssStyleSheet(
             val zIndex = merged["z-index"]?.toIntOrNull()
             val aspectRatio = merged["aspect-ratio"]?.let { parseAspectRatio(it) }
             val pointerEvents = merged["pointer-events"]?.let { !it.equals("none", ignoreCase = true) } ?: true
+            val filter = merged["filter"]?.let { CssFilter.parse(it) }
 
             return ComputedStyle(
                 backgroundColor = bgColor,
@@ -544,6 +618,7 @@ class CssStyleSheet(
                 minHeight = merged["min-height"],
                 maxWidth = merged["max-width"],
                 maxHeight = merged["max-height"],
+                filter = filter,
                 hoverStyle = hoverStyle,
                 focusStyle = focusStyle,
                 activeStyle = activeStyle,
@@ -554,19 +629,85 @@ class CssStyleSheet(
             )
         }
 
-        private fun extractColorFromBackgroundShorthand(value: String): RgbaColor? {
-            if (Gradient.fromCss(value) != null && RgbaColor.fromCss(value) == null) {
+        private fun resolveCssColorValue(rawValue: String, isDarkTheme: Boolean): RgbaColor? {
+            val trimmed = rawValue.trim()
+            if (trimmed.isEmpty()) return null
+            if (trimmed.startsWith("var(", ignoreCase = true) && trimmed.endsWith(")")) {
+                val inner = trimmed.substring(4, trimmed.length - 1).trim()
+                val commaIdx = inner.indexOf(',')
+                val varName = (if (commaIdx >= 0) inner.substring(0, commaIdx) else inner).trim().lowercase()
+                val fallback = if (commaIdx >= 0) inner.substring(commaIdx + 1).trim() else null
+                when (varName) {
+                    "--bs-body-color",
+                    "--bs-card-color",
+                    "--bs-list-group-color",
+                    "--bs-dropdown-color",
+                    "--bs-nav-link-color",
+                    "--bs-heading-color" -> return if (isDarkTheme) {
+                        RgbaColor(222, 226, 230, 1.0f) // #dee2e6
+                    } else {
+                        RgbaColor(33, 37, 41, 1.0f) // #212529
+                    }
+                    "--bs-emphasis-color" -> return if (isDarkTheme) {
+                        RgbaColor(255, 255, 255, 1.0f) // #ffffff
+                    } else {
+                        RgbaColor(0, 0, 0, 1.0f) // #000000
+                    }
+                    "--bs-secondary-color" -> return if (isDarkTheme) {
+                        RgbaColor(222, 226, 230, 0.75f)
+                    } else {
+                        RgbaColor(33, 37, 41, 0.75f)
+                    }
+                    "--bs-tertiary-color" -> return if (isDarkTheme) {
+                        RgbaColor(222, 226, 230, 0.5f)
+                    } else {
+                        RgbaColor(33, 37, 41, 0.5f)
+                    }
+                    "--bs-body-bg",
+                    "--bs-card-bg",
+                    "--bs-list-group-bg",
+                    "--bs-dropdown-bg" -> return if (isDarkTheme) {
+                        RgbaColor(33, 37, 41, 1.0f) // #212529
+                    } else {
+                        RgbaColor(255, 255, 255, 1.0f) // #ffffff
+                    }
+                    "--bs-secondary-bg" -> return if (isDarkTheme) {
+                        RgbaColor(52, 58, 64, 1.0f) // #343a40
+                    } else {
+                        RgbaColor(233, 236, 239, 1.0f) // #e9ecef
+                    }
+                    "--bs-tertiary-bg" -> return if (isDarkTheme) {
+                        RgbaColor(43, 48, 53, 1.0f) // #2b3035
+                    } else {
+                        RgbaColor(248, 249, 250, 1.0f) // #f8f9fa
+                    }
+                    "--bs-border-color" -> return if (isDarkTheme) {
+                        RgbaColor(73, 80, 87, 1.0f) // #495057
+                    } else {
+                        RgbaColor(222, 226, 230, 1.0f) // #dee2e6
+                    }
+                }
+                if (!fallback.isNullOrEmpty()) {
+                    return resolveCssColorValue(fallback, isDarkTheme)
+                }
+                return null
+            }
+            return RgbaColor.fromCss(trimmed)
+        }
+
+        private fun extractColorFromBackgroundShorthand(value: String, isDarkTheme: Boolean = false): RgbaColor? {
+            if (Gradient.fromCss(value) != null && resolveCssColorValue(value, isDarkTheme) == null) {
                 for (token in splitPreservingParens(value)) {
                     if (!token.lowercase().contains("gradient(")) {
-                        RgbaColor.fromCss(token)?.let { return it }
+                        resolveCssColorValue(token, isDarkTheme)?.let { return it }
                     }
                 }
                 return null
             }
-            RgbaColor.fromCss(value)?.let { return it }
+            resolveCssColorValue(value, isDarkTheme)?.let { return it }
             for (token in splitPreservingParens(value)) {
                 if (!token.lowercase().contains("gradient(")) {
-                    RgbaColor.fromCss(token)?.let { return it }
+                    resolveCssColorValue(token, isDarkTheme)?.let { return it }
                 }
             }
             return null

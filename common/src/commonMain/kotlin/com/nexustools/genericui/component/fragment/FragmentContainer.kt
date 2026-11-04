@@ -4,6 +4,7 @@ import com.nexustools.genericui.component.layout.Container
 import com.nexustools.genericui.component.shell.Window
 import com.nexustools.genericui.enums.fragment.FragmentState
 import com.nexustools.genericui.window.IWindow
+import com.nexustools.genericui.window.WindowConfiguration
 
 /**
  * Container component implementing [FragmentHost] that hosts an active [Fragment],
@@ -42,15 +43,14 @@ open class FragmentContainer(
         get() = forwardStack.isNotEmpty()
 
     init {
-        hostWindow?.setOnWindowResize { config ->
-            currentFragment?.onConfigurationChanged(config)
-        }
+        htmlTag = "genericui:fragment-container"
         hostWindow?.setOnWindowFocusChanged { focused ->
             currentFragment?.onWindowFocusChanged(focused)
         }
         if (hostWindow == null && hostingIWindow != null) {
             hostingIWindow?.setOnWindowResize { config ->
-                currentFragment?.onConfigurationChanged(config)
+                onResize(config.widthPx, config.heightPx)
+                onConfigurationChanged(config)
             }
             hostingIWindow?.setOnWindowFocusChanged { focused ->
                 currentFragment?.onWindowFocusChanged(focused)
@@ -59,6 +59,14 @@ open class FragmentContainer(
         if (initialFragment != null) {
             setFragment(initialFragment)
         }
+    }
+
+    override fun onResize(viewportWidth: Int, viewportHeight: Int) {
+        currentFragment?.onResize(viewportWidth, viewportHeight)
+    }
+
+    override fun onConfigurationChanged(newConfig: WindowConfiguration) {
+        currentFragment?.onConfigurationChanged(newConfig)
     }
 
     override fun setFragment(fragment: Fragment) {
@@ -166,9 +174,9 @@ open class FragmentContainer(
         incoming.attachedWindow = resolvedWindow
         incoming.attachedIWindow = resolvedIWindow
         if (resolvedWindow != null || resolvedIWindow != null) {
-            htmlTag = "genericui:root"
-            incoming.htmlTag = "genericui:root"
+            htmlTag = "genericui:app"
         }
+        incoming.htmlTag = "genericui:fragment"
 
         if (incoming.state == FragmentState.INITIALIZED || incoming.state == FragmentState.DESTROYED) {
             incoming.performCreate(restoredState)
@@ -176,9 +184,9 @@ open class FragmentContainer(
             incoming.onRestoreInstanceState(restoredState)
         }
         if (resolvedWindow != null || resolvedIWindow != null) {
-            htmlTag = "genericui:root"
-            incoming.htmlTag = "genericui:root"
+            htmlTag = "genericui:app"
         }
+        incoming.htmlTag = "genericui:fragment"
         if (!children.contains(incoming)) {
             addChild(incoming)
         }
@@ -186,6 +194,10 @@ open class FragmentContainer(
         if (resolveActiveFactory() != null) {
             incoming.performStart()
             incoming.performResume()
+            val winSize = resolvedIWindow?.getWindowSize() ?: resolvedWindow?.getWindowSize()
+            if (winSize != null && winSize.width > 0 && winSize.height > 0) {
+                incoming.onResize(winSize.width, winSize.height)
+            }
         }
     }
 

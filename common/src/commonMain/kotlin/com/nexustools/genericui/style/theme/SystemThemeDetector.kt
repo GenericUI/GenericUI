@@ -17,6 +17,7 @@ object SystemThemeDetector {
     var onStyleSheetChangedHook: ((IApplication) -> Unit)? = null
     var fallbackSystemTheme: ThemeMode = ThemeMode.DARK
     private val systemThemeListeners = mutableListOf<(ThemeMode) -> Unit>()
+    private var isNotifying: Boolean = false
 
     fun addSystemThemeListener(listener: (ThemeMode) -> Unit) {
         if (listener !in systemThemeListeners) {
@@ -29,8 +30,14 @@ object SystemThemeDetector {
     }
 
     fun notifySystemThemeChanged(detected: ThemeMode = detectSystemTheme()) {
-        for (listener in systemThemeListeners.toList()) {
-            listener(detected)
+        if (isNotifying) return
+        isNotifying = true
+        try {
+            for (listener in systemThemeListeners.toList()) {
+                listener(detected)
+            }
+        } finally {
+            isNotifying = false
         }
     }
 

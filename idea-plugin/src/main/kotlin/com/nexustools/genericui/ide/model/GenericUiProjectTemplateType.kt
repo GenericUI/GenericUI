@@ -38,7 +38,7 @@ enum class GenericUiProjectTemplateType(
     ),
     ADAPTIVE_SPLIT_TAB(
         id = "adaptive_split_tab",
-        displayName = "AdaptiveSplitTabFragment (Desktop/Mobile Responsive Media App)",
+        displayName = "HybridColumnFragment (Desktop/Mobile Responsive Media App)",
         description = "Adaptive master-detail split view on Desktop/Tablet that automatically transitions to tabbed navigation on Mobile.",
         defaultExtensions = linkedSetOf(
             GenericUiExtensionModule.GPU,

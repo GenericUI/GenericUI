@@ -312,6 +312,9 @@ open class LazyGridTree<T>(
             count = totalCells,
             onLoadItem = { cellIndex ->
                 buildGridCellComponent(cellIndex, colCount, headerRowOffset)
+            },
+            onUnloadItem = { _, component ->
+                (component as? AbstractContainer)?.clearChildren()
             }
         )
     }
@@ -375,7 +378,6 @@ open class LazyGridTree<T>(
                     outline = true
                 ).apply {
                     addClass("lazy-grid-tree-toggle-btn")
-                    tooltipText = if (node.isExpanded) "Collapse '${node.keyText}'" else "Expand '${node.keyText}'"
                     setOnClick {
                         toggleExpanded(node.id)
                     }

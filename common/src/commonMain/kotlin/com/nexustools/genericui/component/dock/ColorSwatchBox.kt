@@ -3,7 +3,7 @@ package com.nexustools.genericui.component.dock
 import com.nexustools.genericui.core.AbstractContainer
 import com.nexustools.genericui.core.NativeFactory
 import com.nexustools.genericui.nativeimpl.layout.ContainerNativeImpl
-import com.nexustools.genericui.style.RgbaColor
+import com.nexustools.genericui.style.color.RgbaColor
 
 /**
  * Dual foreground/background color swatch widget with swap (`X`) and reset (`D`) controls
@@ -57,6 +57,6 @@ class ColorSwatchBox(
         _paletteSwatches.addAll(colors)
     }
 
-    override fun createNativeImpl(factory: NativeFactory): ContainerNativeImpl<*> =
+    protected override fun createNativeImpl(factory: NativeFactory): ContainerNativeImpl<*> =
         factory.createContainer("color-swatch-box", htmlTag)
 }

@@ -1,6 +1,6 @@
 package com.nexustools.genericui.image
 
-import com.nexustools.genericui.style.RgbaColor
+import com.nexustools.genericui.style.color.RgbaColor
 
 /**
  * In-memory pixel buffer used throughout GenericUI (`ImageView`, [ImageLoader], and

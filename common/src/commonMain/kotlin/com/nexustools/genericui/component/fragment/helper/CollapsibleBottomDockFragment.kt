@@ -3,13 +3,15 @@ package com.nexustools.genericui.component.fragment.helper
 import com.nexustools.genericui.component.fragment.Fragment
 import com.nexustools.genericui.component.fragment.FragmentBundle
 import com.nexustools.genericui.component.fragment.FragmentContainer
+import com.nexustools.genericui.component.layout.CollapsibleBottomDockContainer
 import com.nexustools.genericui.component.layout.CollapsibleBottomDockLayout
+import com.nexustools.genericui.component.layout.CollapsibleBottomDockLayoutImpl
 import com.nexustools.genericui.component.layout.HybridBreakpointSpec
 import com.nexustools.genericui.core.AbstractComponent
 import com.nexustools.genericui.window.WindowConfiguration
 
 /**
- * Helper [Fragment] hosting a [CollapsibleBottomDockLayout] with a primary content area and a persistent
+ * Helper [LayoutFragment] hosting a [CollapsibleBottomDockLayout] with a primary content area and a persistent
  * collapsible bottom dock / mini-player bar.
  *
  * - Supports mounting either [AbstractComponent]s or child [Fragment]s for the main workspace and bottom dock.
@@ -19,12 +21,18 @@ import com.nexustools.genericui.window.WindowConfiguration
  *   to [bottomDockLayout] and hosted child fragments.
  */
 open class CollapsibleBottomDockFragment(
-    breakpointSpec: HybridBreakpointSpec = HybridBreakpointSpec.DEFAULT
-) : Fragment() {
+    breakpointSpec: HybridBreakpointSpec = HybridBreakpointSpec.DEFAULT,
+    id: String? = null
+) : LayoutFragment<CollapsibleBottomDockLayoutImpl, CollapsibleBottomDockLayout>(id = id) {
 
-    val bottomDockLayout: CollapsibleBottomDockLayout = CollapsibleBottomDockLayout(
+    val bottomDockContainer: CollapsibleBottomDockContainer = CollapsibleBottomDockContainer(
         breakpointSpec = breakpointSpec
     )
+
+    override val layout: CollapsibleBottomDockLayout = bottomDockContainer.layout
+
+    val bottomDockLayout: CollapsibleBottomDockLayout
+        get() = layout
 
     var mainFragment: Fragment? = null
         private set
@@ -38,17 +46,17 @@ open class CollapsibleBottomDockFragment(
     private var expandedSheetFragmentContainer: FragmentContainer? = null
 
     init {
-        addChild(bottomDockLayout)
+        addChild(bottomDockContainer)
     }
 
     override fun onCreate(savedState: FragmentBundle?) {
-        super.onCreate(savedState)
-        if (!children.contains(bottomDockLayout)) {
-            addChild(bottomDockLayout)
+        if (!children.contains(bottomDockContainer)) {
+            addChild(bottomDockContainer)
         }
+        super.onCreate(savedState)
         val winSize = hostingWindow?.getWindowSize() ?: attachedWindow?.getWindowSize()
         if (winSize != null && winSize.width > 0 && winSize.height > 0) {
-            bottomDockLayout.updateViewport(winSize.width, winSize.height)
+            layout.updateViewport(winSize.width, winSize.height)
         }
     }
 
@@ -59,7 +67,7 @@ open class CollapsibleBottomDockFragment(
         mainFragment = null
         mainFragmentContainer?.dispose()
         mainFragmentContainer = null
-        bottomDockLayout.setMainContent(component)
+        layout.setMainContent(component)
     }
 
     /**
@@ -75,7 +83,7 @@ open class CollapsibleBottomDockFragment(
         }
         mainFragment = fragment
         mainFragmentContainer = host
-        bottomDockLayout.setMainContent(host)
+        layout.setMainContent(host)
     }
 
     /**
@@ -91,7 +99,7 @@ open class CollapsibleBottomDockFragment(
         expandedSheetFragmentContainer?.dispose()
         dockFragmentContainer = null
         expandedSheetFragmentContainer = null
-        bottomDockLayout.setDockContent(component, expandedSheetContent)
+        layout.setDockContent(component, expandedSheetContent)
     }
 
     /**
@@ -130,22 +138,21 @@ open class CollapsibleBottomDockFragment(
         expandedSheetFragment = expandedSheet
         dockFragmentContainer = dockHost
         expandedSheetFragmentContainer = sheetHost
-        bottomDockLayout.setDockContent(dockHost, sheetHost)
+        layout.setDockContent(dockHost, sheetHost)
     }
 
     fun expandDock() {
-        bottomDockLayout.expandDock()
+        layout.expandDock()
     }
 
     fun collapseDock() {
-        bottomDockLayout.collapseDock()
+        layout.collapseDock()
     }
 
-    fun toggleDockExpanded(): Boolean = bottomDockLayout.toggleDockExpanded()
+    fun toggleDockExpanded(): Boolean = layout.toggleDockExpanded()
 
     override fun onResize(viewportWidth: Int, viewportHeight: Int) {
         super.onResize(viewportWidth, viewportHeight)
-        bottomDockLayout.updateViewport(viewportWidth, viewportHeight)
         mainFragment?.onResize(viewportWidth, viewportHeight)
         dockFragment?.onResize(viewportWidth, viewportHeight)
         expandedSheetFragment?.onResize(viewportWidth, viewportHeight)
@@ -153,7 +160,6 @@ open class CollapsibleBottomDockFragment(
 
     override fun onConfigurationChanged(newConfig: WindowConfiguration) {
         super.onConfigurationChanged(newConfig)
-        bottomDockLayout.applyWindowConfiguration(newConfig)
         mainFragment?.onConfigurationChanged(newConfig)
         dockFragment?.onConfigurationChanged(newConfig)
         expandedSheetFragment?.onConfigurationChanged(newConfig)
@@ -161,15 +167,15 @@ open class CollapsibleBottomDockFragment(
 
     override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean) {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode)
-        bottomDockLayout.isInPictureInPictureMode = isInPictureInPictureMode
+        layout.isInPictureInPictureMode = isInPictureInPictureMode
         mainFragment?.onPictureInPictureModeChanged(isInPictureInPictureMode)
         dockFragment?.onPictureInPictureModeChanged(isInPictureInPictureMode)
         expandedSheetFragment?.onPictureInPictureModeChanged(isInPictureInPictureMode)
     }
 
     override fun onBackPressed(): Boolean {
-        if (bottomDockLayout.isDockCurrentlyVisible && !bottomDockLayout.isDockCollapsed) {
-            bottomDockLayout.collapseDock()
+        if (layout.isDockCurrentlyVisible && !layout.isDockCollapsed) {
+            layout.collapseDock()
             return true
         }
         if (mainFragment?.onBackPressed() == true) {

@@ -1,7 +1,9 @@
 package com.nexustools.genericui.res
 
+import com.nexustools.genericui.resources.ResourceID
+
 /**
- * Cross-platform compiled drawable resource (SVG vector icon or raster image) registered in [ResourceTable].
+ * Cross-platform compiled drawable resource (SVG vector icon or raster image) registered in [com.nexustools.genericui.resources.ResourceTable].
  *
  * Translated automatically by the GenericUI Gradle plugin for each backend:
  * - **Windows (`:desktop:windows`)**: Win32 `.rc` resource + GDI vector path / DIBits renderer
@@ -11,7 +13,7 @@ package com.nexustools.genericui.res
  * - **Web (`:web`) & Swing (`:desktop:swing`)**: Inline `<svg>` / data URI or classpath resource
  */
 data class DrawableResource(
-    val resId: ResourceId,
+    val resId: ResourceID,
     val format: String = "svg",
     val svgSource: String? = null,
     val svgPathDataList: List<String> = emptyList(),

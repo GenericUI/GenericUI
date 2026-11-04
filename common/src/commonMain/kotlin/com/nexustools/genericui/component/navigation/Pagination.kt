@@ -22,6 +22,6 @@ class Pagination(
         onPageChanged?.invoke(currentPage)
     }
 
-    override fun createNativeImpl(factory: NativeFactory): ContainerNativeImpl<*> =
+    protected override fun createNativeImpl(factory: NativeFactory): ContainerNativeImpl<*> =
         factory.createContainer("pagination", htmlTag)
 }

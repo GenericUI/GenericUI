@@ -32,12 +32,22 @@ object GenericUiDefaultIconProvider {
     const val DEFAULT_ICON_SVG_FILE_NAME: String = "icon.svg"
     const val DEFAULT_ICON_PNG_FILE_NAME: String = "icon.png"
     const val DEFAULT_ICON_ICO_FILE_NAME: String = "icon.ico"
+    const val DEFAULT_ICON_ICNS_FILE_NAME: String = "icon.icns"
 
     private const val CLASSPATH_ICON_SVG_RESOURCE = "/com/nexustools/genericui/plugin/icon.svg"
     private const val CLASSPATH_ICON_PNG_RESOURCE = "/com/nexustools/genericui/plugin/icon.png"
     private const val CLASSPATH_ICON_ICO_RESOURCE = "/com/nexustools/genericui/plugin/icon.ico"
 
     private val ICO_SIZES = intArrayOf(16, 24, 32, 48, 64, 128, 256)
+    private val ICNS_ENTRIES = listOf(
+        "icp4" to 16,
+        "icp5" to 32,
+        "icp6" to 64,
+        "ic07" to 128,
+        "ic08" to 256,
+        "ic09" to 512,
+        "ic10" to 1024
+    )
 
     /**
      * Loads the default GenericUI `icon.svg` XML text, checking the GenericUI repository root first
@@ -140,10 +150,11 @@ object GenericUiDefaultIconProvider {
     }
 
     /**
-     * Ensures a valid `.ico` file for Windows `.exe` resource compilation and runtime icon loading:
-     * - If [sourceIconFile] is already an `.ico` file, returns it directly.
-     * - If [sourceIconFile] is a `.png` file, converts it into a multi-resolution `.ico` in [outputDir].
-     * - If [sourceIconFile] is an `.svg` file, checks for a sibling `icon.ico` or converts/falls back to the default `icon.ico`.
+     * Ensures a valid multi-resolution `.ico` file (`16×16..256×256`) for Windows `.exe` resource
+     * compilation and runtime icon loading:
+     * - If [sourceIconFile] is already a multi-resolution `.ico` file (`>= 5` entries), copies it into [outputDir].
+     * - If [sourceIconFile] is a `.svg`, `.png`, or single-resolution `.ico` file, decodes/rasterizes it directly
+     *   and builds a full 7-resolution `.ico` (`16, 24, 32, 48, 64, 128, 256`) in [outputDir].
      * - Otherwise materializes the default `icon.ico` into [outputDir].
      */
     fun ensureWindowsIcoFromSourceOrDefault(
@@ -152,48 +163,80 @@ object GenericUiDefaultIconProvider {
         outputDir: File,
         fileName: String = DEFAULT_ICON_ICO_FILE_NAME
     ): File {
+        outputDir.mkdirs()
+        val outFile = File(outputDir, fileName)
         if (sourceIconFile != null && sourceIconFile.exists() && sourceIconFile.isFile) {
-            when (sourceIconFile.extension.lowercase()) {
-                "ico" -> return sourceIconFile
-                "png" -> {
-                    val siblingIco = File(sourceIconFile.parentFile, "${sourceIconFile.nameWithoutExtension}.ico")
-                    if (siblingIco.exists() && siblingIco.isFile) {
-                        return siblingIco
-                    }
-                    val img = runCatching { ImageIO.read(sourceIconFile) }.getOrNull()
-                    if (img != null) {
-                        outputDir.mkdirs()
-                        val outFile = File(outputDir, fileName)
-                        outFile.writeBytes(buildMultiResolutionIcoBytes(img, ICO_SIZES))
-                        return outFile
-                    }
+            val ext = sourceIconFile.extension.lowercase()
+            if (ext == "ico" && hasMultiResolutionIcoEntries(sourceIconFile, minEntries = 5)) {
+                if (sourceIconFile.canonicalFile != outFile.canonicalFile) {
+                    sourceIconFile.copyTo(outFile, overwrite = true)
                 }
-                "svg" -> {
-                    val siblingIco = File(sourceIconFile.parentFile, "${sourceIconFile.nameWithoutExtension}.ico")
-                    if (siblingIco.exists() && siblingIco.isFile) {
-                        return siblingIco
-                    }
-                    val svgText = runCatching { sourceIconFile.readText(Charsets.UTF_8) }.getOrNull()
-                    val defaultSvgText = loadDefaultIconSvgText(projectRootDir)
-                    if (svgText != null && svgText.trim() != defaultSvgText.trim()) {
-                        val rendered = runCatching {
-                            downscaleStepwise(renderSvgTextToImage(svgText, 1024), 512)
-                        }.getOrNull()
-                        if (rendered != null) {
-                            outputDir.mkdirs()
-                            val outFile = File(outputDir, fileName)
-                            outFile.writeBytes(buildMultiResolutionIcoBytes(rendered, ICO_SIZES))
-                            return outFile
-                        }
-                    }
-                }
+                return outFile
+            }
+            val decoded = decodeImageFromFile(sourceIconFile)
+            if (decoded != null) {
+                outFile.writeBytes(buildMultiResolutionIcoBytes(decoded, ICO_SIZES))
+                return outFile
             }
         }
         return ensureDefaultIcoIcon(projectRootDir, outputDir, fileName)
     }
 
     /**
-     * Ensures a valid `.png` icon file from [sourceIconFile] or the default `icon.png`.
+     * Materializes the default Apple `.icns` icon bundle (`16×16..1024×1024`) into [outputDir].
+     */
+    fun ensureDefaultIcnsIcon(
+        projectRootDir: File?,
+        outputDir: File,
+        fileName: String = DEFAULT_ICON_ICNS_FILE_NAME
+    ): File {
+        outputDir.mkdirs()
+        val icnsFile = File(outputDir, fileName)
+        val master = renderSvgTextToImage(loadDefaultIconSvgText(projectRootDir), 1024)
+        icnsFile.writeBytes(buildAppleIcnsBytes(master))
+        return icnsFile
+    }
+
+    /**
+     * Ensures a valid multi-resolution Apple `.icns` icon container (`icp4` 16×16 through `ic10` 1024×1024)
+     * in [outputDir] generated from [sourceIconFile] (`.svg`, `.png`, `.ico`, or `.icns`) or the default GenericUI icon.
+     */
+    fun ensureAppleIcnsFromSourceOrDefault(
+        sourceIconFile: File?,
+        projectRootDir: File?,
+        outputDir: File,
+        fileName: String = DEFAULT_ICON_ICNS_FILE_NAME
+    ): File {
+        outputDir.mkdirs()
+        val outFile = File(outputDir, fileName)
+        if (sourceIconFile != null && sourceIconFile.exists() && sourceIconFile.isFile) {
+            val ext = sourceIconFile.extension.lowercase()
+            if (ext == "icns") {
+                val bytes = runCatching { sourceIconFile.readBytes() }.getOrNull()
+                if (bytes != null && isIcnsMagic(bytes)) {
+                    if (sourceIconFile.canonicalFile != outFile.canonicalFile) {
+                        sourceIconFile.copyTo(outFile, overwrite = true)
+                    }
+                    return outFile
+                }
+            }
+            val decoded = if (ext == "svg") {
+                val svgText = runCatching { sourceIconFile.readText(Charsets.UTF_8) }.getOrNull()
+                svgText?.let { runCatching { renderSvgTextToImage(it, 1024) }.getOrNull() }
+            } else {
+                decodeImageFromFile(sourceIconFile)
+            }
+            if (decoded != null) {
+                outFile.writeBytes(buildAppleIcnsBytes(decoded))
+                return outFile
+            }
+        }
+        return ensureDefaultIcnsIcon(projectRootDir, outputDir, fileName)
+    }
+
+    /**
+     * Ensures a valid `.png` icon file in [outputDir] from [sourceIconFile] (supporting `.png`, `.ico`, and `.svg`
+     * source icons) or the default `icon.png`.
      */
     fun ensurePngFromSourceOrDefault(
         sourceIconFile: File?,
@@ -201,29 +244,148 @@ object GenericUiDefaultIconProvider {
         outputDir: File,
         fileName: String = DEFAULT_ICON_PNG_FILE_NAME
     ): File {
+        outputDir.mkdirs()
+        val outFile = File(outputDir, fileName)
+        val requestedSize = when {
+            fileName.contains("192") -> 192
+            fileName.contains("512") -> 512
+            else -> 512
+        }
         if (sourceIconFile != null && sourceIconFile.exists() && sourceIconFile.isFile) {
-            when (sourceIconFile.extension.lowercase()) {
-                "png" -> return sourceIconFile
-                "svg" -> {
-                    val siblingPng = File(sourceIconFile.parentFile, "${sourceIconFile.nameWithoutExtension}.png")
-                    if (siblingPng.exists() && siblingPng.isFile) {
-                        return siblingPng
-                    }
-                    val svgText = runCatching { sourceIconFile.readText(Charsets.UTF_8) }.getOrNull()
-                    val defaultSvgText = loadDefaultIconSvgText(projectRootDir)
-                    if (svgText != null && svgText.trim() != defaultSvgText.trim()) {
-                        val pngBytes = runCatching { renderSvgTextToPngBytes(svgText, 512) }.getOrNull()
-                        if (pngBytes != null && pngBytes.isNotEmpty()) {
-                            outputDir.mkdirs()
-                            val outFile = File(outputDir, fileName)
-                            outFile.writeBytes(pngBytes)
-                            return outFile
-                        }
-                    }
+            val ext = sourceIconFile.extension.lowercase()
+            if (ext == "png" && fileName == DEFAULT_ICON_PNG_FILE_NAME) {
+                if (sourceIconFile.canonicalFile != outFile.canonicalFile) {
+                    sourceIconFile.copyTo(outFile, overwrite = true)
                 }
+                return outFile
+            }
+            val decoded = decodeImageFromFile(sourceIconFile)
+            if (decoded != null) {
+                val finalImg = if (decoded.width != requestedSize || decoded.height != requestedSize) {
+                    scaleImageBicubic(decoded, requestedSize)
+                } else {
+                    decoded
+                }
+                val baos = ByteArrayOutputStream()
+                ImageIO.write(finalImg, "PNG", baos)
+                outFile.writeBytes(baos.toByteArray())
+                return outFile
             }
         }
         return ensureDefaultPngIcon(projectRootDir, outputDir, fileName)
+    }
+
+    /**
+     * Decodes any `.png`, `.ico`, `.svg`, `.jpg`, `.bmp`, or `.gif` icon file into an ARGB [BufferedImage].
+     */
+    fun decodeImageFromFile(file: File): BufferedImage? {
+        if (!file.exists() || !file.isFile) return null
+        return when (file.extension.lowercase()) {
+            "svg" -> {
+                val svgText = runCatching { file.readText(Charsets.UTF_8) }.getOrNull() ?: return null
+                runCatching { downscaleStepwise(renderSvgTextToImage(svgText, 1024), 512) }.getOrNull()
+            }
+            "ico" -> decodeLargestIcoEntry(file)
+            else -> runCatching { ImageIO.read(file) }.getOrNull()
+        }
+    }
+
+    private fun hasMultiResolutionIcoEntries(icoFile: File, minEntries: Int): Boolean {
+        val bytes = runCatching { icoFile.readBytes() }.getOrNull() ?: return false
+        if (!isIcoMagic(bytes) || bytes.size < 6) return false
+        val count = ((bytes[4].toInt() and 0xFF) or ((bytes[5].toInt() and 0xFF) shl 8))
+        return count >= minEntries
+    }
+
+    private fun decodeLargestIcoEntry(icoFile: File): BufferedImage? {
+        val bytes = runCatching { icoFile.readBytes() }.getOrNull() ?: return null
+        if (!isIcoMagic(bytes) || bytes.size < 22) {
+            return runCatching { ImageIO.read(ByteArrayInputStream(bytes)) }.getOrNull()
+        }
+        val count = ((bytes[4].toInt() and 0xFF) or ((bytes[5].toInt() and 0xFF) shl 8))
+        if (count <= 0) return null
+
+        var bestImg: BufferedImage? = null
+        var bestArea = -1
+        for (i in 0 until count) {
+            val entryOff = 6 + i * 16
+            if (entryOff + 16 > bytes.size) break
+            val w = (bytes[entryOff].toInt() and 0xFF).let { if (it == 0) 256 else it }
+            val h = (bytes[entryOff + 1].toInt() and 0xFF).let { if (it == 0) 256 else it }
+            val size = ByteBuffer.wrap(bytes, entryOff + 8, 4).order(ByteOrder.LITTLE_ENDIAN).int
+            val dataOff = ByteBuffer.wrap(bytes, entryOff + 12, 4).order(ByteOrder.LITTLE_ENDIAN).int
+            if (size <= 0 || dataOff < 0 || dataOff + size > bytes.size) continue
+            val area = w * h
+            if (area <= bestArea) continue
+
+            val payload = bytes.copyOfRange(dataOff, dataOff + size)
+            val decoded = if (isPngMagic(payload)) {
+                runCatching { ImageIO.read(ByteArrayInputStream(payload)) }.getOrNull()
+            } else {
+                decodeBmpDibFromIcoPayload(payload, w, h)
+            }
+            if (decoded != null) {
+                bestImg = decoded
+                bestArea = decoded.width * decoded.height
+            }
+        }
+        return bestImg
+    }
+
+    private fun decodeBmpDibFromIcoPayload(payload: ByteArray, fallbackW: Int, fallbackH: Int): BufferedImage? = runCatching {
+        if (payload.size < 40) return null
+        val buf = ByteBuffer.wrap(payload).order(ByteOrder.LITTLE_ENDIAN)
+        val headerSize = buf.getInt(0)
+        val w = buf.getInt(4).takeIf { it > 0 } ?: fallbackW
+        val rawH = buf.getInt(8)
+        val h = (if (rawH > 0) rawH / 2 else fallbackH).takeIf { it > 0 } ?: fallbackH
+        val bpp = buf.getShort(14).toInt() and 0xFFFF
+        if (bpp != 32 && bpp != 24) return null
+
+        val img = BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB)
+        val bytesPerPixel = bpp / 8
+        val xorRowStride = ((w * bytesPerPixel + 3) / 4) * 4
+        val xorStart = headerSize
+        val andStart = xorStart + xorRowStride * h
+        val andRowStride = ((w + 31) / 32) * 4
+
+        for (row in 0 until h) {
+            val y = h - 1 - row
+            val rowOff = xorStart + row * xorRowStride
+            val andRowOff = andStart + row * andRowStride
+            for (x in 0 until w) {
+                val pxOff = rowOff + x * bytesPerPixel
+                if (pxOff + bytesPerPixel > payload.size) continue
+                val b = payload[pxOff].toInt() and 0xFF
+                val g = payload[pxOff + 1].toInt() and 0xFF
+                val r = payload[pxOff + 2].toInt() and 0xFF
+                val a = if (bpp == 32) {
+                    payload[pxOff + 3].toInt() and 0xFF
+                } else {
+                    val byteIdx = x / 8
+                    val bitIdx = 7 - (x % 8)
+                    val maskByte = if (andRowOff + byteIdx < payload.size) payload[andRowOff + byteIdx].toInt() and 0xFF else 0
+                    if (((maskByte ushr bitIdx) and 1) != 0) 0 else 255
+                }
+                val argb = (a shl 24) or (r shl 16) or (g shl 8) or b
+                img.setRGB(x, y, argb)
+            }
+        }
+        img
+    }.getOrNull()
+
+    private fun scaleImageBicubic(source: BufferedImage, targetSize: Int): BufferedImage {
+        if (source.width >= targetSize * 2) {
+            return downscaleStepwise(source, targetSize)
+        }
+        val out = BufferedImage(targetSize, targetSize, BufferedImage.TYPE_INT_ARGB)
+        val g2 = out.createGraphics()
+        g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC)
+        g2.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY)
+        g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+        g2.drawImage(source, 0, 0, targetSize, targetSize, null)
+        g2.dispose()
+        return out
     }
 
     private fun findRepositoryIconFile(projectRootDir: File?, fileName: String): File? {
@@ -252,7 +414,38 @@ object GenericUiDefaultIconProvider {
             bytes[2] == 1.toByte() &&
             bytes[3] == 0.toByte()
 
-    private fun renderSvgTextToPngBytes(svgText: String, targetSize: Int): ByteArray {
+    private fun isIcnsMagic(bytes: ByteArray): Boolean =
+        bytes.size >= 8 &&
+            bytes[0] == 'i'.code.toByte() &&
+            bytes[1] == 'c'.code.toByte() &&
+            bytes[2] == 'n'.code.toByte() &&
+            bytes[3] == 's'.code.toByte()
+
+    internal fun buildAppleIcnsBytes(baseImage: BufferedImage): ByteArray {
+        val chunks = ICNS_ENTRIES.map { (osType, size) ->
+            val scaled = scaleImageBicubic(baseImage, size)
+            val baos = ByteArrayOutputStream()
+            ImageIO.write(scaled, "PNG", baos)
+            val pngBytes = baos.toByteArray()
+            osType to pngBytes
+        }
+        val totalSize = 8 + chunks.sumOf { 8 + it.second.size }
+        val buf = ByteBuffer.allocate(totalSize).order(ByteOrder.BIG_ENDIAN)
+        buf.put('i'.code.toByte())
+        buf.put('c'.code.toByte())
+        buf.put('n'.code.toByte())
+        buf.put('s'.code.toByte())
+        buf.putInt(totalSize)
+        for ((osType, pngBytes) in chunks) {
+            val tagBytes = osType.toByteArray(Charsets.US_ASCII)
+            buf.put(tagBytes, 0, 4)
+            buf.putInt(8 + pngBytes.size)
+            buf.put(pngBytes)
+        }
+        return buf.array()
+    }
+
+    internal fun renderSvgTextToPngBytes(svgText: String, targetSize: Int): ByteArray {
         val supersampled = renderSvgTextToImage(svgText, (targetSize * 2).coerceAtLeast(512))
         val finalImg = downscaleStepwise(supersampled, targetSize)
         val out = ByteArrayOutputStream()
@@ -429,8 +622,17 @@ object GenericUiDefaultIconProvider {
                 }
             }
 
-            val scale = size / 512.0
-            g2.scale(scale, scale)
+            val (minX, minY, vbW, vbH) = parseSvgViewBox(root)
+            val scaleX = size.toDouble() / vbW.coerceAtLeast(1.0)
+            val scaleY = size.toDouble() / vbH.coerceAtLeast(1.0)
+            val uniformScale = minOf(scaleX, scaleY)
+            val offsetX = (size.toDouble() - vbW * uniformScale) / 2.0
+            val offsetY = (size.toDouble() - vbH * uniformScale) / 2.0
+            g2.translate(offsetX, offsetY)
+            g2.scale(uniformScale, uniformScale)
+            if (minX != 0.0 || minY != 0.0) {
+                g2.translate(-minX, -minY)
+            }
             renderSvgElements(g2, root, clipPaths, gradients)
         }.onFailure {
             g2.color = Color(0x18, 0x19, 0x20)
@@ -439,6 +641,21 @@ object GenericUiDefaultIconProvider {
 
         g2.dispose()
         return img
+    }
+
+    private fun parseSvgViewBox(root: Element): DoubleArray {
+        val vbAttr = root.getAttribute("viewBox")?.trim().orEmpty()
+        if (vbAttr.isNotEmpty()) {
+            val parts = vbAttr.split(Regex("[\\s,]+")).mapNotNull { it.toDoubleOrNull() }
+            if (parts.size >= 4 && parts[2] > 0.0 && parts[3] > 0.0) {
+                return doubleArrayOf(parts[0], parts[1], parts[2], parts[3])
+            }
+        }
+        val wAttr = root.getAttribute("width")?.replace("px", "")?.replace("pt", "")?.trim()?.toDoubleOrNull()
+        val hAttr = root.getAttribute("height")?.replace("px", "")?.replace("pt", "")?.trim()?.toDoubleOrNull()
+        val w = if (wAttr != null && wAttr > 0.0) wAttr else 512.0
+        val h = if (hAttr != null && hAttr > 0.0) hAttr else w
+        return doubleArrayOf(0.0, 0.0, w, h)
     }
 
     private fun renderSvgElements(
@@ -494,6 +711,14 @@ object GenericUiDefaultIconProvider {
                 val s = Ellipse2D.Float(cx - r, cy - r, r * 2f, r * 2f)
                 s to s.bounds2D
             }
+            "ellipse" -> {
+                val cx = parseFloat(el.getAttribute("cx"), 0f)
+                val cy = parseFloat(el.getAttribute("cy"), 0f)
+                val rx = parseFloat(el.getAttribute("rx"), 0f)
+                val ry = parseFloat(el.getAttribute("ry"), 0f)
+                val s = Ellipse2D.Float(cx - rx, cy - ry, rx * 2f, ry * 2f)
+                s to s.bounds2D
+            }
             "line" -> {
                 val x1 = parseFloat(el.getAttribute("x1"), 0f)
                 val y1 = parseFloat(el.getAttribute("y1"), 0f)
@@ -507,7 +732,11 @@ object GenericUiDefaultIconProvider {
                 s to s.bounds2D
             }
             "polygon" -> {
-                val s = parsePolygon(el.getAttribute("points"))
+                val s = parsePolygon(el.getAttribute("points"), close = true)
+                s to s.bounds2D
+            }
+            "polyline" -> {
+                val s = parsePolygon(el.getAttribute("points"), close = false)
                 s to s.bounds2D
             }
             else -> null
@@ -515,10 +744,26 @@ object GenericUiDefaultIconProvider {
         val (shape, bounds) = shapeAndBounds ?: return
 
         val opacity = parseFloat(el.getAttribute("opacity"), 1f)
-        val fill = el.getAttribute("fill")
-        if (fill.isNotEmpty() && !fill.equals("none", ignoreCase = true)) {
+        val rawFill = el.getAttribute("fill")
+        val inheritedFill = if (rawFill.isNotEmpty()) {
+            rawFill
+        } else {
+            var p = el.parentNode
+            var found = ""
+            while (p is Element) {
+                val pf = p.getAttribute("fill")
+                if (pf.isNotEmpty()) {
+                    found = pf
+                    break
+                }
+                p = p.parentNode
+            }
+            found
+        }
+        if (!inheritedFill.equals("none", ignoreCase = true) && (inheritedFill.isNotEmpty() || el.getAttribute("stroke").isEmpty())) {
+            val effectiveFill = inheritedFill.ifEmpty { "#000000" }
             val fillOpacity = opacity * parseFloat(el.getAttribute("fill-opacity"), 1f)
-            resolvePaint(fill, bounds, gradients, fillOpacity)?.let {
+            resolvePaint(effectiveFill, bounds, gradients, fillOpacity)?.let {
                 g2.paint = it
                 g2.fill(shape)
             }
@@ -569,7 +814,15 @@ object GenericUiDefaultIconProvider {
     private fun parseColor(hex: String?, opacity: Float): Color? {
         if (hex.isNullOrBlank() || hex.equals("none", ignoreCase = true)) return null
         val clean = hex.trim().removePrefix("#")
-        val rgb = clean.toIntOrNull(16) ?: return null
+        val rgb = when (clean.length) {
+            3 -> {
+                val r = clean[0].digitToIntOrNull(16) ?: return null
+                val g = clean[1].digitToIntOrNull(16) ?: return null
+                val b = clean[2].digitToIntOrNull(16) ?: return null
+                ((r * 17) shl 16) or ((g * 17) shl 8) or (b * 17)
+            }
+            else -> clean.take(6).toIntOrNull(16) ?: return null
+        }
         val r = (rgb ushr 16) and 0xFF
         val g = (rgb ushr 8) and 0xFF
         val b = rgb and 0xFF
@@ -577,42 +830,356 @@ object GenericUiDefaultIconProvider {
         return Color(r, g, b, a)
     }
 
-    private fun parsePolygon(pointsAttr: String): Shape {
+    private fun parsePolygon(pointsAttr: String, close: Boolean = true): Shape {
         val path = GeneralPath()
-        val pairs = pointsAttr.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
-        for ((idx, pair) in pairs.withIndex()) {
-            val xy = pair.split(",")
-            if (xy.size >= 2) {
-                val x = xy[0].toFloatOrNull() ?: 0f
-                val y = xy[1].toFloatOrNull() ?: 0f
-                if (idx == 0) path.moveTo(x, y) else path.lineTo(x, y)
+        val nums = pointsAttr.trim().split(Regex("[\\s,]+")).mapNotNull { it.toFloatOrNull() }
+        var idx = 0
+        var first = true
+        while (idx + 1 < nums.size) {
+            val x = nums[idx]
+            val y = nums[idx + 1]
+            if (first) {
+                path.moveTo(x, y)
+                first = false
+            } else {
+                path.lineTo(x, y)
             }
+            idx += 2
         }
-        path.closePath()
+        if (close && !first) {
+            path.closePath()
+        }
         return path
     }
 
     private fun parseSvgPath(d: String): Shape {
         val path = GeneralPath()
-        val spaced = d.replace(Regex("([MLZmlz])"), " $1 ").replace(",", " ").trim()
-        val tokens = spaced.split(Regex("\\s+")).filter { it.isNotEmpty() }
+        val tokens = Regex("([MmLlHhVvCcSsQqTtAaZz])|([-+]?(?:\\d+\\.?\\d*|\\.\\d+)(?:[eE][-+]?\\d+)?)")
+            .findAll(d)
+            .map { it.value }
+            .toList()
         var i = 0
+        var cmd = 'M'
+        var curX = 0f
+        var curY = 0f
+        var startX = 0f
+        var startY = 0f
+        var lastCtrlX = 0f
+        var lastCtrlY = 0f
+        var lastCmd = ' '
+
+        fun nextFloat(): Float = if (i < tokens.size) tokens[i++].toFloatOrNull() ?: 0f else 0f
+        fun hasNextNumber(): Boolean = i < tokens.size && tokens[i][0].let { it.isDigit() || it == '-' || it == '+' || it == '.' }
+
         while (i < tokens.size) {
-            when (val cmd = tokens[i++]) {
-                "M" -> if (i + 1 < tokens.size) {
-                    val x = tokens[i++].toFloatOrNull() ?: 0f
-                    val y = tokens[i++].toFloatOrNull() ?: 0f
-                    path.moveTo(x, y)
+            val tok = tokens[i]
+            if (tok.length == 1 && tok[0].isLetter()) {
+                cmd = tok[0]
+                i++
+                if (cmd == 'Z' || cmd == 'z') {
+                    path.closePath()
+                    curX = startX
+                    curY = startY
+                    lastCtrlX = curX
+                    lastCtrlY = curY
+                    lastCmd = cmd
+                    continue
                 }
-                "L" -> if (i + 1 < tokens.size) {
-                    val x = tokens[i++].toFloatOrNull() ?: 0f
-                    val y = tokens[i++].toFloatOrNull() ?: 0f
-                    path.lineTo(x, y)
-                }
-                "Z", "z" -> path.closePath()
+            }
+            when (cmd) {
+                'M' -> if (hasNextNumber()) {
+                    curX = nextFloat()
+                    curY = nextFloat()
+                    startX = curX
+                    startY = curY
+                    path.moveTo(curX, curY)
+                    lastCtrlX = curX
+                    lastCtrlY = curY
+                    lastCmd = 'M'
+                    cmd = 'L'
+                } else i++
+                'm' -> if (hasNextNumber()) {
+                    curX += nextFloat()
+                    curY += nextFloat()
+                    startX = curX
+                    startY = curY
+                    path.moveTo(curX, curY)
+                    lastCtrlX = curX
+                    lastCtrlY = curY
+                    lastCmd = 'm'
+                    cmd = 'l'
+                } else i++
+                'L' -> if (hasNextNumber()) {
+                    curX = nextFloat()
+                    curY = nextFloat()
+                    path.lineTo(curX, curY)
+                    lastCtrlX = curX
+                    lastCtrlY = curY
+                    lastCmd = 'L'
+                } else i++
+                'l' -> if (hasNextNumber()) {
+                    curX += nextFloat()
+                    curY += nextFloat()
+                    path.lineTo(curX, curY)
+                    lastCtrlX = curX
+                    lastCtrlY = curY
+                    lastCmd = 'l'
+                } else i++
+                'H' -> if (hasNextNumber()) {
+                    curX = nextFloat()
+                    path.lineTo(curX, curY)
+                    lastCtrlX = curX
+                    lastCtrlY = curY
+                    lastCmd = 'H'
+                } else i++
+                'h' -> if (hasNextNumber()) {
+                    curX += nextFloat()
+                    path.lineTo(curX, curY)
+                    lastCtrlX = curX
+                    lastCtrlY = curY
+                    lastCmd = 'h'
+                } else i++
+                'V' -> if (hasNextNumber()) {
+                    curY = nextFloat()
+                    path.lineTo(curX, curY)
+                    lastCtrlX = curX
+                    lastCtrlY = curY
+                    lastCmd = 'V'
+                } else i++
+                'v' -> if (hasNextNumber()) {
+                    curY += nextFloat()
+                    path.lineTo(curX, curY)
+                    lastCtrlX = curX
+                    lastCtrlY = curY
+                    lastCmd = 'v'
+                } else i++
+                'Q' -> if (hasNextNumber()) {
+                    val x1 = nextFloat()
+                    val y1 = nextFloat()
+                    curX = nextFloat()
+                    curY = nextFloat()
+                    path.quadTo(x1, y1, curX, curY)
+                    lastCtrlX = x1
+                    lastCtrlY = y1
+                    lastCmd = 'Q'
+                } else i++
+                'q' -> if (hasNextNumber()) {
+                    val x1 = curX + nextFloat()
+                    val y1 = curY + nextFloat()
+                    curX += nextFloat()
+                    curY += nextFloat()
+                    path.quadTo(x1, y1, curX, curY)
+                    lastCtrlX = x1
+                    lastCtrlY = y1
+                    lastCmd = 'q'
+                } else i++
+                'T' -> if (hasNextNumber()) {
+                    val x1 = if (lastCmd in "QqTt") 2f * curX - lastCtrlX else curX
+                    val y1 = if (lastCmd in "QqTt") 2f * curY - lastCtrlY else curY
+                    curX = nextFloat()
+                    curY = nextFloat()
+                    path.quadTo(x1, y1, curX, curY)
+                    lastCtrlX = x1
+                    lastCtrlY = y1
+                    lastCmd = 'T'
+                } else i++
+                't' -> if (hasNextNumber()) {
+                    val x1 = if (lastCmd in "QqTt") 2f * curX - lastCtrlX else curX
+                    val y1 = if (lastCmd in "QqTt") 2f * curY - lastCtrlY else curY
+                    curX += nextFloat()
+                    curY += nextFloat()
+                    path.quadTo(x1, y1, curX, curY)
+                    lastCtrlX = x1
+                    lastCtrlY = y1
+                    lastCmd = 't'
+                } else i++
+                'C' -> if (hasNextNumber()) {
+                    val x1 = nextFloat()
+                    val y1 = nextFloat()
+                    val x2 = nextFloat()
+                    val y2 = nextFloat()
+                    curX = nextFloat()
+                    curY = nextFloat()
+                    path.curveTo(x1, y1, x2, y2, curX, curY)
+                    lastCtrlX = x2
+                    lastCtrlY = y2
+                    lastCmd = 'C'
+                } else i++
+                'c' -> if (hasNextNumber()) {
+                    val x1 = curX + nextFloat()
+                    val y1 = curY + nextFloat()
+                    val x2 = curX + nextFloat()
+                    val y2 = curY + nextFloat()
+                    curX += nextFloat()
+                    curY += nextFloat()
+                    path.curveTo(x1, y1, x2, y2, curX, curY)
+                    lastCtrlX = x2
+                    lastCtrlY = y2
+                    lastCmd = 'c'
+                } else i++
+                'S' -> if (hasNextNumber()) {
+                    val x1 = if (lastCmd in "CcSs") 2f * curX - lastCtrlX else curX
+                    val y1 = if (lastCmd in "CcSs") 2f * curY - lastCtrlY else curY
+                    val x2 = nextFloat()
+                    val y2 = nextFloat()
+                    curX = nextFloat()
+                    curY = nextFloat()
+                    path.curveTo(x1, y1, x2, y2, curX, curY)
+                    lastCtrlX = x2
+                    lastCtrlY = y2
+                    lastCmd = 'S'
+                } else i++
+                's' -> if (hasNextNumber()) {
+                    val x1 = if (lastCmd in "CcSs") 2f * curX - lastCtrlX else curX
+                    val y1 = if (lastCmd in "CcSs") 2f * curY - lastCtrlY else curY
+                    val x2 = curX + nextFloat()
+                    val y2 = curY + nextFloat()
+                    curX += nextFloat()
+                    curY += nextFloat()
+                    path.curveTo(x1, y1, x2, y2, curX, curY)
+                    lastCtrlX = x2
+                    lastCtrlY = y2
+                    lastCmd = 's'
+                } else i++
+                'A' -> if (hasNextNumber()) {
+                    val rx = nextFloat()
+                    val ry = nextFloat()
+                    val xAxisRotation = nextFloat()
+                    val largeArcFlag = nextFloat() != 0f
+                    val sweepFlag = nextFloat() != 0f
+                    val nextX = nextFloat()
+                    val nextY = nextFloat()
+                    appendSvgArcToPath(path, curX, curY, rx, ry, xAxisRotation, largeArcFlag, sweepFlag, nextX, nextY)
+                    curX = nextX
+                    curY = nextY
+                    lastCtrlX = curX
+                    lastCtrlY = curY
+                    lastCmd = 'A'
+                } else i++
+                'a' -> if (hasNextNumber()) {
+                    val rx = nextFloat()
+                    val ry = nextFloat()
+                    val xAxisRotation = nextFloat()
+                    val largeArcFlag = nextFloat() != 0f
+                    val sweepFlag = nextFloat() != 0f
+                    val nextX = curX + nextFloat()
+                    val nextY = curY + nextFloat()
+                    appendSvgArcToPath(path, curX, curY, rx, ry, xAxisRotation, largeArcFlag, sweepFlag, nextX, nextY)
+                    curX = nextX
+                    curY = nextY
+                    lastCtrlX = curX
+                    lastCtrlY = curY
+                    lastCmd = 'a'
+                } else i++
+                else -> i++
             }
         }
         return path
+    }
+
+    private fun appendSvgArcToPath(
+        path: GeneralPath,
+        x1: Float,
+        y1: Float,
+        rxIn: Float,
+        ryIn: Float,
+        xAxisRotationDeg: Float,
+        largeArcFlag: Boolean,
+        sweepFlag: Boolean,
+        x2: Float,
+        y2: Float
+    ) {
+        if (x1 == x2 && y1 == y2) return
+        if (rxIn == 0f || ryIn == 0f) {
+            path.lineTo(x2, y2)
+            return
+        }
+        var rx = kotlin.math.abs(rxIn.toDouble())
+        var ry = kotlin.math.abs(ryIn.toDouble())
+        val phi = Math.toRadians(xAxisRotationDeg.toDouble() % 360.0)
+        val cosPhi = kotlin.math.cos(phi)
+        val sinPhi = kotlin.math.sin(phi)
+
+        val dx2 = (x1 - x2) / 2.0
+        val dy2 = (y1 - y2) / 2.0
+        val x1Prime = cosPhi * dx2 + sinPhi * dy2
+        val y1Prime = -sinPhi * dx2 + cosPhi * dy2
+
+        var rxSq = rx * rx
+        var rySq = ry * ry
+        val x1PrimeSq = x1Prime * x1Prime
+        val y1PrimeSq = y1Prime * y1Prime
+        val radiiCheck = x1PrimeSq / rxSq + y1PrimeSq / rySq
+        if (radiiCheck > 1.0) {
+            val scale = kotlin.math.sqrt(radiiCheck)
+            rx *= scale
+            ry *= scale
+            rxSq = rx * rx
+            rySq = ry * ry
+        }
+
+        val sign = if (largeArcFlag == sweepFlag) -1.0 else 1.0
+        val num = (rxSq * rySq - rxSq * y1PrimeSq - rySq * x1PrimeSq).coerceAtLeast(0.0)
+        val den = (rxSq * y1PrimeSq + rySq * x1PrimeSq).coerceAtLeast(1e-12)
+        val coef = sign * kotlin.math.sqrt(num / den)
+        val cxPrime = coef * ((rx * y1Prime) / ry)
+        val cyPrime = coef * -((ry * x1Prime) / rx)
+
+        val cx = cosPhi * cxPrime - sinPhi * cyPrime + (x1 + x2) / 2.0
+        val cy = sinPhi * cxPrime + cosPhi * cyPrime + (y1 + y2) / 2.0
+
+        fun vectorAngle(ux: Double, uy: Double, vx: Double, vy: Double): Double {
+            val dot = ux * vx + uy * vy
+            val len = (kotlin.math.hypot(ux, uy) * kotlin.math.hypot(vx, vy)).coerceAtLeast(1e-12)
+            val cosVal = (dot / len).coerceIn(-1.0, 1.0)
+            val angle = kotlin.math.acos(cosVal)
+            return if (ux * vy - uy * vx < 0.0) -angle else angle
+        }
+
+        val ux = (x1Prime - cxPrime) / rx
+        val uy = (y1Prime - cyPrime) / ry
+        val vx = (-x1Prime - cxPrime) / rx
+        val vy = (-y1Prime - cyPrime) / ry
+        val theta1 = vectorAngle(1.0, 0.0, ux, uy)
+        var dTheta = vectorAngle(ux, uy, vx, vy)
+        if (!sweepFlag && dTheta > 0.0) {
+            dTheta -= 2.0 * Math.PI
+        } else if (sweepFlag && dTheta < 0.0) {
+            dTheta += 2.0 * Math.PI
+        }
+
+        val segments = kotlin.math.ceil(kotlin.math.abs(dTheta) / (Math.PI / 2.0)).toInt().coerceAtLeast(1)
+        val delta = dTheta / segments
+        val alpha = (4.0 / 3.0) * kotlin.math.tan(delta / 4.0)
+        for (seg in 0 until segments) {
+            val t1 = theta1 + seg * delta
+            val t2 = t1 + delta
+            val cosT1 = kotlin.math.cos(t1)
+            val sinT1 = kotlin.math.sin(t1)
+            val cosT2 = kotlin.math.cos(t2)
+            val sinT2 = kotlin.math.sin(t2)
+
+            val e1x = cosT1 - alpha * sinT1
+            val e1y = sinT1 + alpha * cosT1
+            val e2x = cosT2 + alpha * sinT2
+            val e2y = sinT2 - alpha * cosT2
+
+            val cp1x = cx + rx * cosPhi * e1x - ry * sinPhi * e1y
+            val cp1y = cy + rx * sinPhi * e1x + ry * cosPhi * e1y
+            val cp2x = cx + rx * cosPhi * e2x - ry * sinPhi * e2y
+            val cp2y = cy + rx * sinPhi * e2x + ry * cosPhi * e2y
+            val endX = cx + rx * cosPhi * cosT2 - ry * sinPhi * sinT2
+            val endY = cy + rx * sinPhi * cosT2 + ry * cosPhi * sinT2
+
+            path.curveTo(
+                cp1x.toFloat(),
+                cp1y.toFloat(),
+                cp2x.toFloat(),
+                cp2y.toFloat(),
+                endX.toFloat(),
+                endY.toFloat()
+            )
+        }
     }
 
     private fun parseFloat(value: String?, defaultVal: Float): Float =

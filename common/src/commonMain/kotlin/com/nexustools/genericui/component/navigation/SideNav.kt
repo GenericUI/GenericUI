@@ -12,6 +12,6 @@ class SideNav : AbstractContainer() {
         htmlTag = "genericui:sidenav"
     }
 
-    override fun createNativeImpl(factory: NativeFactory): ContainerNativeImpl<*> =
+    protected override fun createNativeImpl(factory: NativeFactory): ContainerNativeImpl<*> =
         factory.createContainer("side-nav", htmlTag)
 }

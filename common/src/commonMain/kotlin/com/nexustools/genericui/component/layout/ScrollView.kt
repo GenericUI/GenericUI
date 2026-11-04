@@ -10,7 +10,7 @@ open class ScrollView : AbstractContainer("overflow-auto") {
         htmlTag = "genericui:scrollview"
     }
 
-    override fun createNativeImpl(factory: NativeFactory): ScrollViewNativeImpl<*> =
+    protected override fun createNativeImpl(factory: NativeFactory): ScrollViewNativeImpl<*> =
         factory.createScrollView()
 
     fun scrollTo(x: Int, y: Int) {

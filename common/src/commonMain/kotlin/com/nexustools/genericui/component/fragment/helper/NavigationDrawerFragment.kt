@@ -3,8 +3,8 @@ package com.nexustools.genericui.component.fragment.helper
 import com.nexustools.genericui.component.fragment.Fragment
 import com.nexustools.genericui.component.fragment.FragmentBundle
 import com.nexustools.genericui.component.fragment.FragmentContainer
+import com.nexustools.genericui.component.layout.ColumnContainer
 import com.nexustools.genericui.component.layout.Container
-import com.nexustools.genericui.component.layout.Row
 
 /**
  * Helper [Fragment] providing an adaptive navigation drawer sidebar (`drawerContent`) alongside
@@ -15,7 +15,7 @@ open class NavigationDrawerFragment(
 ) : Fragment() {
 
     val bodyFragmentContainer: FragmentContainer = FragmentContainer()
-    private val rootRow = Row()
+    private val rootRow = ColumnContainer()
     var isDrawerOpen: Boolean = true
         private set
 

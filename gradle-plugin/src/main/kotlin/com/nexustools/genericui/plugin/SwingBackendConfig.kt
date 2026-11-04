@@ -34,11 +34,11 @@ open class SwingBackendConfig {
     val targetClassifiers: MutableSet<OsArchClassifier> = linkedSetOf(OsArchClassifier.detectHost())
 
     /**
-     * Adds all 6 desktop OS/Architecture classifiers (`windows-x64`, `windows-arm64`,
-     * `linux-x64`, `linux-arm64`, `macos-x64`, `macos-arm64`) for cross-platform fat-JAR packaging.
+     * Adds all desktop OS/Architecture classifiers (`windows-x64`, `windows-x32`, `windows-arm64`,
+     * `macos-arm64`, `linux-x64`, `linux-x32`, `linux-arm64`, `linux-arm32`) for cross-platform fat-JAR packaging.
      */
     fun targetAllDesktopClassifiers() {
-        targetClassifiers.addAll(OsArchClassifier.entries)
+        targetClassifiers.addAll(OsArchClassifier.entries.filter { it.isDesktop })
     }
 
     /**

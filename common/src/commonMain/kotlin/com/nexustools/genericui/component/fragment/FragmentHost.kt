@@ -1,5 +1,7 @@
 package com.nexustools.genericui.component.fragment
 
+import com.nexustools.genericui.window.WindowConfiguration
+
 /**
  * Interface implemented by containers, fragments, and applications that host and switch [Fragment]s
  * ([FragmentContainer], [com.nexustools.genericui.component.fragment.helper.FragmentHostSystem],
@@ -25,4 +27,23 @@ interface FragmentHost {
     fun replaceFragment(fragment: Fragment)
 
     fun goForward(): Boolean = false
+
+    fun onResize(viewportWidth: Int, viewportHeight: Int) {
+        currentFragment?.onResize(viewportWidth, viewportHeight)
+    }
+
+    fun onConfigurationChanged(newConfig: WindowConfiguration) {
+        currentFragment?.onConfigurationChanged(newConfig)
+    }
+
+    fun onWindowFocusChanged(hasFocus: Boolean) {
+        currentFragment?.onWindowFocusChanged(hasFocus)
+    }
+
+    fun onBackPressed(): Boolean =
+        currentFragment?.onBackPressed() ?: false
+
+    fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean) {
+        currentFragment?.onPictureInPictureModeChanged(isInPictureInPictureMode)
+    }
 }

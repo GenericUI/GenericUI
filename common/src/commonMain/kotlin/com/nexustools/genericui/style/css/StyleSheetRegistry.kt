@@ -80,6 +80,7 @@ object StyleSheetRegistry {
         byName.clear()
         byPath.clear()
         byResourceId.clear()
+        Resources.ensureBuiltInResourcesRegistered()
     }
 
     fun normalizePath(raw: String): String =

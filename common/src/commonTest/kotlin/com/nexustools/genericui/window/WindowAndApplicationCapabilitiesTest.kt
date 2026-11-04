@@ -71,14 +71,14 @@ class WindowAndApplicationCapabilitiesTest {
         assertFalse(BackendTarget.Web.isSystem)
         assertTrue(BackendTarget.Web.isBrowser)
 
-        assertEquals(BackendTarget.Windows, BackendTarget.fromBackendName("Windows (Win32 / Direct2D / ANGLE / Vulkan / VLC)"))
-        assertEquals(BackendTarget.MacOS, BackendTarget.fromBackendName("macOS (AppKit / CoreGraphics / MoltenVK / VLC)"))
-        assertEquals(BackendTarget.Gtk, BackendTarget.fromBackendName("GTK4 (Libadwaita / Cairo / GtkGLArea / Vulkan / VLC)"))
-        assertEquals(BackendTarget.Qt, BackendTarget.fromBackendName("Qt6 (QWidgets / QPainter / QOpenGLWidget / QVulkanWindow / VLC)"))
-        assertEquals(BackendTarget.Swing, BackendTarget.fromBackendName("swing"))
-        assertEquals(BackendTarget.Android, BackendTarget.fromBackendName("android"))
-        assertEquals(BackendTarget.IOS, BackendTarget.fromBackendName("ios"))
-        assertEquals(BackendTarget.Web, BackendTarget.fromBackendName("web"))
+        assertEquals("windows", BackendTarget.Windows.id)
+        assertEquals("macos", BackendTarget.MacOS.id)
+        assertEquals("gtk", BackendTarget.Gtk.id)
+        assertEquals("qt", BackendTarget.Qt.id)
+        assertEquals("swing", BackendTarget.Swing.id)
+        assertEquals("android", BackendTarget.Android.id)
+        assertEquals("ios", BackendTarget.IOS.id)
+        assertEquals("web", BackendTarget.Web.id)
     }
 
     @Test

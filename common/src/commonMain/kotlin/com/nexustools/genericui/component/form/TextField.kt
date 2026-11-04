@@ -35,7 +35,7 @@ open class TextField(
     var onValueChanged: ((String) -> Unit)? = null
     var onSubmit: ((String) -> Unit)? = null
 
-    override fun createNativeImpl(factory: NativeFactory): TextInputNativeImpl<*> =
+    protected override fun createNativeImpl(factory: NativeFactory): TextInputNativeImpl<*> =
         factory.createTextInput(multilineMode)
 
     override fun syncStateToNative() {

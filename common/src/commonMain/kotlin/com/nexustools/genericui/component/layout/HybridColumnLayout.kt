@@ -2,8 +2,10 @@ package com.nexustools.genericui.component.layout
 
 import com.nexustools.genericui.component.navigation.BottomNavigationBar
 import com.nexustools.genericui.component.tabs.TabContainer
+import com.nexustools.genericui.component.tabs.TabPosition
 import com.nexustools.genericui.core.AbstractComponent
 import com.nexustools.genericui.core.AbstractContainer
+import com.nexustools.genericui.enums.bootstrap.AlignItems
 import com.nexustools.genericui.enums.bootstrap.DisplayMode
 import com.nexustools.genericui.enums.bootstrap.FlexDirection
 import com.nexustools.genericui.window.IWindow
@@ -11,24 +13,38 @@ import com.nexustools.genericui.window.WindowConfiguration
 import kotlin.math.min
 import kotlin.math.roundToInt
 
-typealias TabLayout = TabContainer
-
 /**
- * Bootstrap-style responsive multi-column layout container (`HybridColumnLayout`) that displays columns
+ * Bootstrap-style responsive multi-column layout helper (`HybridColumnLayout`) that displays columns
  * side-by-side in [HybridLayoutMode.COLUMNS] on tablets in landscape, wide web viewports, and desktops,
  * and folds into a single interface ([HybridLayoutMode.SINGLE]) on small-screen mobile phones, tablet portrait,
- * and narrow desktop/web viewports according to [foldMode] and [tabPlacement].
+ * and narrow viewports according to [foldMode] and [tabPlacement].
  *
  * Fullscreen and rotation-driven fullscreen are **disabled by default** ([HybridFullscreenPolicy.DISABLED])
  * and can be opted into via [fullscreenPolicy] or [enableDynamicFullscreen].
  */
 open class HybridColumnLayout(
+    host: AbstractContainer = Container("genericui:hybridcolumnlayout", "hybrid-column-layout"),
     foldMode: HybridFoldMode = HybridFoldMode.PIN_FIRST_COLUMN_TOP,
-    tabPlacement: HybridTabPlacement = HybridTabPlacement.TOP_TABS,
+    tabPlacement: HybridTabPlacement = HybridTabPlacement.ADAPTIVE_TOP_IN_COLUMNS_BOTTOM_IN_SINGLE,
     breakpointSpec: HybridBreakpointSpec = HybridBreakpointSpec.DEFAULT,
     fullscreenPolicy: HybridFullscreenPolicy = HybridFullscreenPolicy.DISABLED,
     var fullscreenTargetColumnIndex: Int = 0
-) : Container("hybrid-column-layout") {
+) : Layout<HybridColumnLayoutImpl>(host, breakpointSpec) {
+
+    constructor(
+        foldMode: HybridFoldMode,
+        tabPlacement: HybridTabPlacement = HybridTabPlacement.ADAPTIVE_TOP_IN_COLUMNS_BOTTOM_IN_SINGLE,
+        breakpointSpec: HybridBreakpointSpec = HybridBreakpointSpec.DEFAULT,
+        fullscreenPolicy: HybridFullscreenPolicy = HybridFullscreenPolicy.DISABLED,
+        fullscreenTargetColumnIndex: Int = 0
+    ) : this(
+        host = Container("genericui:hybridcolumnlayout", "hybrid-column-layout"),
+        foldMode = foldMode,
+        tabPlacement = tabPlacement,
+        breakpointSpec = breakpointSpec,
+        fullscreenPolicy = fullscreenPolicy,
+        fullscreenTargetColumnIndex = fullscreenTargetColumnIndex
+    )
 
     private class ColumnRegistration(
         var spec: HybridColumnSpec,
@@ -41,6 +57,8 @@ open class HybridColumnLayout(
 
     private val registrations = mutableListOf<ColumnRegistration>()
     private var isRebuildingLayout: Boolean = false
+    private var structureDirty: Boolean = true
+    private var lastAppliedMode: HybridLayoutMode? = null
     private var internalFullscreenState: Boolean = false
     private var internalPipState: Boolean = false
 
@@ -48,6 +66,7 @@ open class HybridColumnLayout(
         set(value) {
             if (field != value) {
                 field = value
+                structureDirty = true
                 rebuildLayout()
             }
         }
@@ -56,11 +75,12 @@ open class HybridColumnLayout(
         set(value) {
             if (field != value) {
                 field = value
+                structureDirty = true
                 rebuildLayout()
             }
         }
 
-    var breakpointSpec: HybridBreakpointSpec = breakpointSpec
+    override var breakpointSpec: HybridBreakpointSpec = breakpointSpec
         set(value) {
             if (field != value) {
                 field = value
@@ -132,7 +152,7 @@ open class HybridColumnLayout(
                 viewportWidthDp = viewportWidthDp,
                 viewportHeightDp = viewportHeightDp,
                 smallestScreenWidthDp = smallestScreenWidthDp,
-                backendTarget = resolveActiveFactory()?.backendTarget
+                backendTarget = host.resolveActiveFactory()?.backendTarget
             )
         }
 
@@ -179,10 +199,27 @@ open class HybridColumnLayout(
     var onActiveTabChanged: ((String) -> Unit)? = null
 
     val headerSlot: Container = Container("div", "gui-hybrid-header-slot").apply { isVisible = false }
-    val columnsRow: HStack = HStack().apply { addClass("row gui-hybrid-columns-row") }
-    val singleStack: VStack = VStack().apply { addClass("gui-hybrid-single-stack") }
-    val rightTabbedColumn: VStack = VStack().apply { addClass("col gui-hybrid-tabbed-column") }
-    val topTabBar: TabLayout = TabLayout().apply { addClass("gui-hybrid-top-tabs") }
+    val columnsRow: HStack = HStack().apply {
+        addClass("gui-hybrid-columns-row")
+        alignItems = AlignItems.STRETCH
+        setStyleProperty("width", "100%")
+        setStyleProperty("height", "100%")
+        setStyleProperty("flex-wrap", "nowrap")
+        setStyleProperty("min-height", "0")
+        setStyleProperty("overflow", "hidden")
+    }
+    val singleStack: VStack = VStack(gapPx = 0).apply {
+        addClass("gui-hybrid-single-stack")
+        setStyleProperty("width", "100%")
+        setStyleProperty("height", "100%")
+        setStyleProperty("min-height", "0")
+        setStyleProperty("overflow", "hidden")
+    }
+    val rightTabbedColumn: VStack = VStack().apply {
+        addClass("col gui-hybrid-tabbed-column")
+        setStyleProperty("min-width", "0")
+    }
+    val topTabBar: TabContainer = TabContainer().apply { addClass("gui-hybrid-top-tabs") }
     val bottomNavBar: BottomNavigationBar = BottomNavigationBar().apply { addClass("gui-hybrid-bottom-nav") }
     val bottomDockSlot: Container = Container("div", "gui-hybrid-bottom-dock-slot").apply { isVisible = false }
 
@@ -193,9 +230,21 @@ open class HybridColumnLayout(
         get() = registrations.filter { it.spec.visible }.map { it.spec }
 
     init {
-        htmlTag = "genericui:hybridcolumnlayout"
-        setDisplay(DisplayMode.FLEX)
-        setFlexDirection(FlexDirection.COLUMN)
+        ensureMounted()
+    }
+
+    override fun createImpl(factory: LayoutFactory): HybridColumnLayoutImpl =
+        factory.createHybridColumnLayout(this)
+
+    override fun onMount() {
+        host.addClass("hybrid-column-layout")
+        host.setDisplay(DisplayMode.FLEX)
+        host.setFlexDirection(FlexDirection.COLUMN)
+        host.setStyleProperty("width", "100%")
+        host.setStyleProperty("height", "100%")
+        host.setStyleProperty("min-height", "0")
+        host.setStyleProperty("flex-grow", "1")
+        host.setStyleProperty("overflow", "hidden")
         fullscreenController?.let { wireFullscreenController(it) }
 
         topTabBar.setOnTabSelected { tabId ->
@@ -251,7 +300,7 @@ open class HybridColumnLayout(
             viewportWidthDp = viewportWidthDp,
             viewportHeightDp = viewportHeightDp,
             smallestScreenWidthDp = smallestScreenWidthDp,
-            isMobileTarget = resolveActiveFactory()?.backendTarget?.isMobile ?: true
+            isMobileTarget = host.resolveActiveFactory()?.backendTarget?.isMobile ?: true
         )
         rebuildLayout()
         return controller
@@ -292,6 +341,7 @@ open class HybridColumnLayout(
         } else {
             registrations.add(entry)
         }
+        structureDirty = true
         rebuildLayout()
     }
 
@@ -336,6 +386,7 @@ open class HybridColumnLayout(
         if (activeTabColumnId == id) {
             activeTabColumnId = null
         }
+        structureDirty = true
         rebuildLayout()
         return true
     }
@@ -350,6 +401,7 @@ open class HybridColumnLayout(
         }
         registrations.clear()
         activeTabColumnId = null
+        structureDirty = true
         rebuildLayout()
     }
 
@@ -360,6 +412,7 @@ open class HybridColumnLayout(
         val reg = registrations.firstOrNull { it.spec.id == id } ?: return
         if (reg.spec.visible != visible) {
             reg.spec = reg.spec.copy(visible = visible)
+            structureDirty = true
             rebuildLayout()
         }
     }
@@ -377,6 +430,9 @@ open class HybridColumnLayout(
         val reg = registrations.firstOrNull { it.spec.id == columnId && it.spec.visible } ?: return false
         val changed = activeTabColumnId != reg.spec.id
         activeTabColumnId = reg.spec.id
+        if (changed) {
+            structureDirty = true
+        }
         rebuildLayout()
         if (changed) {
             onActiveTabChanged?.invoke(reg.spec.id)
@@ -392,6 +448,7 @@ open class HybridColumnLayout(
         if (component != null) {
             headerSlot.addChild(component)
         }
+        structureDirty = true
         rebuildLayout()
     }
 
@@ -403,6 +460,7 @@ open class HybridColumnLayout(
         if (component != null) {
             bottomDockSlot.addChild(component)
         }
+        structureDirty = true
         rebuildLayout()
     }
 
@@ -421,7 +479,7 @@ open class HybridColumnLayout(
 
         val controller = fullscreenController
         if (controller != null && controller.isEnabled) {
-            val mobileFlag = isMobileTarget ?: (resolveActiveFactory()?.backendTarget?.isMobile ?: true)
+            val mobileFlag = isMobileTarget ?: (host.resolveActiveFactory()?.backendTarget?.isMobile ?: true)
             controller.onViewportOrOrientationChanged(
                 viewportWidthDp = this.viewportWidthDp,
                 viewportHeightDp = this.viewportHeightDp,
@@ -448,8 +506,8 @@ open class HybridColumnLayout(
         if (config.isInPictureInPicture != isInPictureInPictureMode) {
             isInPictureInPictureMode = config.isInPictureInPicture
         }
-        if (config.isFullscreen && !isFullscreen) {
-            isFullscreen = true
+        if (fullscreenPolicy != HybridFullscreenPolicy.DISABLED && config.isFullscreen != isFullscreen) {
+            isFullscreen = config.isFullscreen
         }
         updateViewport(
             viewportWidthDp = widthDp,
@@ -458,22 +516,44 @@ open class HybridColumnLayout(
         )
     }
 
+    override fun onConfigurationChanged(config: WindowConfiguration) {
+        super.onConfigurationChanged(config)
+        applyWindowConfiguration(config)
+    }
+
+    override fun onResize(viewportWidth: Int, viewportHeight: Int) {
+        super.onResize(viewportWidth, viewportHeight)
+        updateViewport(viewportWidth, viewportHeight)
+    }
+
     /**
      * Reconstructs the active hierarchy ([HybridLayoutMode.COLUMNS], [HybridLayoutMode.SINGLE],
      * [HybridLayoutMode.FULLSCREEN], or [HybridLayoutMode.PIP]) based on current viewport, fold mode, and tab state.
      */
     fun rebuildLayout() {
         if (isRebuildingLayout) return
+        impl.syncLayout(
+            viewportWidthDp = viewportWidthDp.toFloat(),
+            viewportHeightDp = viewportHeightDp.toFloat(),
+            smallestScreenWidthDp = smallestScreenWidthDp
+        )
+    }
+
+    /**
+     * Applies the [nextMode] evaluated by [impl] and assembles the component hierarchy inside [host].
+     */
+    fun applyEvaluatedMode(nextMode: HybridLayoutMode) {
+        if (isRebuildingLayout) return
+        if (!structureDirty && lastAppliedMode == nextMode) {
+            updateInPlaceViewportFormatting(nextMode)
+            return
+        }
         isRebuildingLayout = true
         try {
             val previousMode = layoutMode
-            val nextMode = when {
-                isInPictureInPictureMode -> HybridLayoutMode.PIP
-                isFullscreen -> HybridLayoutMode.FULLSCREEN
-                isWideColumnMode -> HybridLayoutMode.COLUMNS
-                else -> HybridLayoutMode.SINGLE
-            }
             layoutMode = nextMode
+            lastAppliedMode = nextMode
+            structureDirty = false
 
             // Detach all structural containers and column components before reassembling
             columnsRow.clearChildren()
@@ -508,14 +588,14 @@ open class HybridColumnLayout(
                     targetReg.component.setStyleProperty("width", "100%")
                     targetReg.component.setStyleProperty("height", "100%")
                     targetReg.component.setFlexGrow(1f)
-                    addChild(targetReg.component)
+                    host.addChild(targetReg.component)
                 }
             } else if (nextMode == HybridLayoutMode.COLUMNS) {
                 mountHeaderIfPresent()
                 singleStack.isVisible = false
                 columnsRow.isVisible = true
                 columnsRow.setFlexGrow(1f)
-                addChild(columnsRow)
+                host.addChild(columnsRow)
 
                 val shouldCollapseSecondaryInColumns =
                     visibleRegs.size > 2 &&
@@ -526,22 +606,34 @@ open class HybridColumnLayout(
                     val primaryReg = visibleRegs.first()
                     val secondaryRegs = visibleRegs.drop(1)
 
-                    applyColumnModeFormatting(primaryReg)
                     primaryReg.component.isVisible = true
-                    columnsRow.addChild(primaryReg.component)
+                    columnsRow.addChild(
+                        primaryReg.component,
+                        StackConstraint(
+                            weight = primaryReg.spec.weight,
+                            flexShrink = 1f,
+                            flexBasis = "0%",
+                            minWidthPx = primaryReg.spec.minWidthPx ?: 0,
+                            maxWidthPx = primaryReg.spec.maxWidthPx,
+                            fillCrossAxis = true
+                        )
+                    )
+                    applyColumnModeFormatting(primaryReg)
 
                     // Promote Column 0 out of tabs and ensure activeTabColumnId selects a secondary column (1..N)
                     if (activeTabColumnId == null || secondaryRegs.none { it.spec.id == activeTabColumnId }) {
                         activeTabColumnId = secondaryRegs.first().spec.id
                     }
 
-                    val useTopTabs = tabPlacement != HybridTabPlacement.BOTTOM_NAV
-                    populateTabBars(secondaryRegs.map { it.spec }, useTopTabs = useTopTabs)
+                    val useBottomNavComponent = tabPlacement == HybridTabPlacement.BOTTOM_NAV
+                    topTabBar.tabPosition = TabPosition.TOP
+                    populateTabBars(secondaryRegs.map { it.spec }, useBottomNavComponent = useBottomNavComponent)
 
                     rightTabbedColumn.isVisible = true
                     rightTabbedColumn.setFlexGrow(1f)
-                    if (useTopTabs) {
-                        rightTabbedColumn.addChild(topTabBar)
+                    columnsRow.addChild(rightTabbedColumn, StackConstraint.EXPAND)
+                    if (!useBottomNavComponent) {
+                        rightTabbedColumn.addChild(topTabBar, StackConstraint.FIXED)
                     }
                     val activeSecReg = secondaryRegs.firstOrNull { it.spec.id == activeTabColumnId } ?: secondaryRegs.first()
                     activeSecReg.component.isVisible = true
@@ -550,18 +642,28 @@ open class HybridColumnLayout(
                         activeSecReg.component.addClass("overflow-auto")
                         activeSecReg.appliedGridClasses.add("overflow-auto")
                     }
-                    rightTabbedColumn.addChild(activeSecReg.component)
-                    if (!useTopTabs) {
-                        rightTabbedColumn.addChild(bottomNavBar)
+                    rightTabbedColumn.addChild(activeSecReg.component, StackConstraint.EXPAND)
+                    if (useBottomNavComponent) {
+                        rightTabbedColumn.addChild(bottomNavBar, StackConstraint.FIXED)
                     }
-                    columnsRow.addChild(rightTabbedColumn)
                 } else {
+                    topTabBar.tabPosition = TabPosition.TOP
                     topTabBar.isVisible = false
                     bottomNavBar.isVisible = false
                     for (reg in visibleRegs) {
-                        applyColumnModeFormatting(reg)
                         reg.component.isVisible = true
-                        columnsRow.addChild(reg.component)
+                        columnsRow.addChild(
+                            reg.component,
+                            StackConstraint(
+                                weight = reg.spec.weight,
+                                flexShrink = 1f,
+                                flexBasis = "0%",
+                                minWidthPx = reg.spec.minWidthPx ?: 0,
+                                maxWidthPx = reg.spec.maxWidthPx,
+                                fillCrossAxis = true
+                            )
+                        )
+                        applyColumnModeFormatting(reg)
                     }
                 }
 
@@ -572,9 +674,16 @@ open class HybridColumnLayout(
                 columnsRow.isVisible = false
                 singleStack.isVisible = true
                 singleStack.setFlexGrow(1f)
-                addChild(singleStack)
+                singleStack.setStyleProperty("flex", "1 1 0%")
+                singleStack.setStyleProperty("width", "100%")
+                singleStack.setStyleProperty("height", "100%")
+                singleStack.setStyleProperty("min-height", "0")
+                singleStack.setStyleProperty("overflow", "hidden")
+                host.addChild(singleStack)
 
-                val useTopTabs = tabPlacement == HybridTabPlacement.TOP_TABS
+                val tabsOnTop = tabPlacement == HybridTabPlacement.TOP_TABS
+                val useBottomNavComponent = tabPlacement == HybridTabPlacement.BOTTOM_NAV
+                topTabBar.tabPosition = if (tabsOnTop) TabPosition.TOP else TabPosition.BOTTOM
 
                 when (foldMode) {
                     HybridFoldMode.PIN_FIRST_COLUMN_TOP -> {
@@ -582,37 +691,41 @@ open class HybridColumnLayout(
                             topTabBar.isVisible = false
                             bottomNavBar.isVisible = false
                             visibleRegs.firstOrNull()?.let { firstReg ->
+                                val constraint = buildPinnedTopStackConstraint(firstReg)
                                 applyCompactPinnedFormatting(firstReg)
                                 firstReg.component.isVisible = true
-                                singleStack.addChild(firstReg.component)
+                                singleStack.addChild(firstReg.component, constraint)
                             }
                             if (visibleRegs.size == 2) {
                                 val secondReg = visibleRegs[1]
+                                val constraint = buildExpandingBodyStackConstraint(secondReg)
                                 applySingleModeBodyFormatting(secondReg)
                                 secondReg.component.isVisible = true
-                                singleStack.addChild(secondReg.component)
+                                singleStack.addChild(secondReg.component, constraint)
                             }
                         } else {
                             val firstReg = visibleRegs.first()
                             val secondaryRegs = visibleRegs.drop(1)
+                            val pinnedConstraint = buildPinnedTopStackConstraint(firstReg)
                             applyCompactPinnedFormatting(firstReg)
                             firstReg.component.isVisible = true
-                            singleStack.addChild(firstReg.component)
+                            singleStack.addChild(firstReg.component, pinnedConstraint)
 
                             if (activeTabColumnId == null || secondaryRegs.none { it.spec.id == activeTabColumnId }) {
                                 activeTabColumnId = secondaryRegs.first().spec.id
                             }
-                            populateTabBars(secondaryRegs.map { it.spec }, useTopTabs = useTopTabs)
+                            populateTabBars(secondaryRegs.map { it.spec }, useBottomNavComponent = useBottomNavComponent)
 
-                            if (useTopTabs) {
-                                singleStack.addChild(topTabBar)
+                            if (tabsOnTop) {
+                                singleStack.addChild(topTabBar, StackConstraint.FIXED)
                             }
                             val activeSecReg = secondaryRegs.firstOrNull { it.spec.id == activeTabColumnId } ?: secondaryRegs.first()
+                            val bodyConstraint = buildExpandingBodyStackConstraint(activeSecReg)
                             applySingleModeBodyFormatting(activeSecReg)
                             activeSecReg.component.isVisible = true
-                            singleStack.addChild(activeSecReg.component)
-                            if (!useTopTabs) {
-                                singleStack.addChild(bottomNavBar)
+                            singleStack.addChild(activeSecReg.component, bodyConstraint)
+                            if (!tabsOnTop) {
+                                singleStack.addChild(if (useBottomNavComponent) bottomNavBar else topTabBar, StackConstraint.FIXED)
                             }
                         }
                     }
@@ -622,31 +735,34 @@ open class HybridColumnLayout(
                             topTabBar.isVisible = false
                             bottomNavBar.isVisible = false
                             visibleRegs.firstOrNull()?.let { firstReg ->
+                                val bodyConstraint = buildExpandingBodyStackConstraint(firstReg)
                                 applySingleModeBodyFormatting(firstReg)
                                 firstReg.component.isVisible = true
-                                singleStack.addChild(firstReg.component)
+                                singleStack.addChild(firstReg.component, bodyConstraint)
                             }
                         } else {
                             val firstReg = visibleRegs.first()
                             val secondaryRegs = visibleRegs.drop(1)
+                            val pinnedConstraint = buildPinnedTopStackConstraint(firstReg)
                             applyCompactPinnedFormatting(firstReg)
                             firstReg.component.isVisible = true
-                            singleStack.addChild(firstReg.component)
+                            singleStack.addChild(firstReg.component, pinnedConstraint)
 
                             if (activeTabColumnId == null || secondaryRegs.none { it.spec.id == activeTabColumnId }) {
                                 activeTabColumnId = secondaryRegs.first().spec.id
                             }
-                            populateTabBars(secondaryRegs.map { it.spec }, useTopTabs = useTopTabs)
+                            populateTabBars(secondaryRegs.map { it.spec }, useBottomNavComponent = useBottomNavComponent)
 
-                            if (useTopTabs) {
-                                singleStack.addChild(topTabBar)
+                            if (tabsOnTop) {
+                                singleStack.addChild(topTabBar, StackConstraint.FIXED)
                             }
                             val activeSecReg = secondaryRegs.firstOrNull { it.spec.id == activeTabColumnId } ?: secondaryRegs.first()
+                            val bodyConstraint = buildExpandingBodyStackConstraint(activeSecReg)
                             applySingleModeBodyFormatting(activeSecReg)
                             activeSecReg.component.isVisible = true
-                            singleStack.addChild(activeSecReg.component)
-                            if (!useTopTabs) {
-                                singleStack.addChild(bottomNavBar)
+                            singleStack.addChild(activeSecReg.component, bodyConstraint)
+                            if (!tabsOnTop) {
+                                singleStack.addChild(if (useBottomNavComponent) bottomNavBar else topTabBar, StackConstraint.FIXED)
                             }
                         }
                     }
@@ -659,17 +775,18 @@ open class HybridColumnLayout(
                             if (activeTabColumnId == null || visibleRegs.none { it.spec.id == activeTabColumnId }) {
                                 activeTabColumnId = visibleRegs.first().spec.id
                             }
-                            populateTabBars(visibleRegs.map { it.spec }, useTopTabs = useTopTabs)
+                            populateTabBars(visibleRegs.map { it.spec }, useBottomNavComponent = useBottomNavComponent)
 
-                            if (useTopTabs) {
-                                singleStack.addChild(topTabBar)
+                            if (tabsOnTop) {
+                                singleStack.addChild(topTabBar, StackConstraint.FIXED)
                             }
                             val activeReg = visibleRegs.firstOrNull { it.spec.id == activeTabColumnId } ?: visibleRegs.first()
+                            val bodyConstraint = buildExpandingBodyStackConstraint(activeReg)
                             applySingleModeBodyFormatting(activeReg)
                             activeReg.component.isVisible = true
-                            singleStack.addChild(activeReg.component)
-                            if (!useTopTabs) {
-                                singleStack.addChild(bottomNavBar)
+                            singleStack.addChild(activeReg.component, bodyConstraint)
+                            if (!tabsOnTop) {
+                                singleStack.addChild(if (useBottomNavComponent) bottomNavBar else topTabBar, StackConstraint.FIXED)
                             }
                         }
                     }
@@ -678,13 +795,15 @@ open class HybridColumnLayout(
                         topTabBar.isVisible = false
                         bottomNavBar.isVisible = false
                         for ((idx, reg) in visibleRegs.withIndex()) {
-                            if (idx == 0 && (reg.spec.compactHeightPx != null || reg.spec.compactAspectRatio != null)) {
+                            val constraint = if (idx == 0 && (reg.spec.compactHeightPx != null || reg.spec.compactAspectRatio != null)) {
                                 applyCompactPinnedFormatting(reg)
+                                buildPinnedTopStackConstraint(reg)
                             } else {
                                 applySingleModeBodyFormatting(reg)
+                                buildExpandingBodyStackConstraint(reg)
                             }
                             reg.component.isVisible = true
-                            singleStack.addChild(reg.component)
+                            singleStack.addChild(reg.component, constraint)
                         }
                     }
                 }
@@ -703,7 +822,7 @@ open class HybridColumnLayout(
     private fun mountHeaderIfPresent() {
         if (headerSlot.children.isNotEmpty()) {
             headerSlot.isVisible = true
-            addChild(headerSlot)
+            host.addChild(headerSlot)
         } else {
             headerSlot.isVisible = false
         }
@@ -712,13 +831,13 @@ open class HybridColumnLayout(
     private fun mountBottomDockIfPresent() {
         if (bottomDockSlot.children.isNotEmpty()) {
             bottomDockSlot.isVisible = true
-            addChild(bottomDockSlot)
+            host.addChild(bottomDockSlot)
         } else {
             bottomDockSlot.isVisible = false
         }
     }
 
-    private fun populateTabBars(specs: List<HybridColumnSpec>, useTopTabs: Boolean) {
+    private fun populateTabBars(specs: List<HybridColumnSpec>, useBottomNavComponent: Boolean) {
         while (topTabBar.entries.isNotEmpty()) {
             topTabBar.removeTabAt(0)
         }
@@ -741,8 +860,8 @@ open class HybridColumnLayout(
             bottomNavBar.selectedItemId = activeTabColumnId
         }
 
-        topTabBar.isVisible = useTopTabs && specs.isNotEmpty()
-        bottomNavBar.isVisible = !useTopTabs && specs.isNotEmpty()
+        topTabBar.isVisible = !useBottomNavComponent && specs.isNotEmpty()
+        bottomNavBar.isVisible = useBottomNavComponent && specs.isNotEmpty()
     }
 
     private fun applyColumnModeFormatting(reg: ColumnRegistration) {
@@ -771,20 +890,99 @@ open class HybridColumnLayout(
             reg.appliedGridClasses.add(cls)
         }
 
+        // Ensure .w-100 (width: 100% !important) is removed when entering side-by-side column mode
+        if (comp.getBootstrap().width == com.nexustools.genericui.enums.bootstrap.BootstrapWidth.W_100) {
+            comp.getBootstrap().width = null
+        }
+        comp.removeClass("w-100")
+        comp.removeStyleProperty("width")
+
         comp.setFlexGrow(spec.weight)
+        comp.setStyleProperty("flex-shrink", "1")
+        comp.setStyleProperty("flex-basis", "0%")
+        comp.setStyleProperty("min-width", "0")
+        comp.setStyleProperty("min-height", "0")
         spec.minWidthPx?.let { comp.minWidthPx = it }
         spec.maxWidthPx?.let { comp.maxWidthPx = it }
+    }
+
+    private fun updateInPlaceViewportFormatting(mode: HybridLayoutMode) {
+        val visibleRegs = registrations.filter { it.spec.visible }
+        if (mode == HybridLayoutMode.COLUMNS) {
+            val shouldCollapseSecondaryInColumns =
+                visibleRegs.size > 2 &&
+                    (foldMode == HybridFoldMode.COLLAPSE_ALL_COLUMNS_TO_TABS ||
+                        foldMode == HybridFoldMode.COLLAPSE_SECONDARY_COLUMNS_TO_TABS)
+            val columnRegs = if (shouldCollapseSecondaryInColumns) listOfNotNull(visibleRegs.firstOrNull()) else visibleRegs
+            for (reg in columnRegs) {
+                val comp = reg.component
+                val oldSpanClasses = reg.appliedGridClasses.filter { it.startsWith("col-") && it.count { c -> c == '-' } == 1 }
+                val resolvedSpan = reg.spec.resolveBootstrapColSpan(viewportWidthDp)
+                val targetSpanClass = if (resolvedSpan != null) "col-$resolvedSpan" else "col"
+                if (oldSpanClasses.size != 1 || oldSpanClasses.first() != targetSpanClass) {
+                    for (oldCls in oldSpanClasses) {
+                        comp.removeClass(oldCls)
+                        reg.appliedGridClasses.remove(oldCls)
+                    }
+                    comp.addClass(targetSpanClass)
+                    reg.appliedGridClasses.add(targetSpanClass)
+                }
+            }
+        } else if (mode == HybridLayoutMode.SINGLE) {
+            visibleRegs.firstOrNull()?.let { firstReg ->
+                if (firstReg.compactSizingApplied && firstReg.spec.compactHeightPx == null) {
+                    val ratio = firstReg.spec.compactAspectRatio ?: (16f / 9f)
+                    if (ratio > 0f) {
+                        val computedHeight = (viewportWidthDp / ratio).roundToInt()
+                        firstReg.component.heightPx = computedHeight
+                        singleStack.setChildConstraint(
+                            firstReg.component,
+                            buildPinnedTopStackConstraint(firstReg)
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    private fun buildPinnedTopStackConstraint(reg: ColumnRegistration): StackConstraint {
+        val spec = reg.spec
+        val ratio = spec.compactAspectRatio ?: if (spec.compactHeightPx == null) (16f / 9f) else null
+        val height = spec.compactHeightPx ?: ratio?.takeIf { it > 0f }?.let { (viewportWidthDp / it).roundToInt() }
+        return StackConstraint(
+            weight = 0f,
+            flexShrink = 0f,
+            flexBasis = "auto",
+            aspectRatio = ratio,
+            heightPx = height,
+            fillCrossAxis = true
+        )
+    }
+
+    private fun buildExpandingBodyStackConstraint(reg: ColumnRegistration): StackConstraint {
+        return StackConstraint(
+            weight = reg.spec.weight.coerceAtLeast(1f),
+            flexShrink = 1f,
+            flexBasis = "0%",
+            minHeightPx = 0,
+            fillCrossAxis = true
+        )
     }
 
     private fun applyCompactPinnedFormatting(reg: ColumnRegistration) {
         val spec = reg.spec
         val comp = reg.component
+        val effectiveRatio = spec.compactAspectRatio ?: if (spec.compactHeightPx == null) (16f / 9f) else null
+        comp.setStyleProperty("width", "100%")
+        comp.setStyleProperty("flex-grow", "0")
+        comp.setStyleProperty("flex-shrink", "0")
+        comp.setStyleProperty("flex-basis", "auto")
         if (spec.compactHeightPx != null) {
             comp.heightPx = spec.compactHeightPx
             reg.compactSizingApplied = true
-        } else if (spec.compactAspectRatio != null && spec.compactAspectRatio > 0f) {
-            comp.aspectRatio = spec.compactAspectRatio
-            comp.heightPx = (viewportWidthDp / spec.compactAspectRatio).roundToInt()
+        } else if (effectiveRatio != null && effectiveRatio > 0f) {
+            comp.aspectRatio = effectiveRatio
+            comp.heightPx = (viewportWidthDp / effectiveRatio).roundToInt()
             reg.compactSizingApplied = true
         }
     }
@@ -792,7 +990,12 @@ open class HybridColumnLayout(
     private fun applySingleModeBodyFormatting(reg: ColumnRegistration) {
         val spec = reg.spec
         val comp = reg.component
-        comp.setFlexGrow(spec.weight.coerceAtLeast(1f))
+        val weight = spec.weight.coerceAtLeast(1f)
+        comp.setFlexGrow(weight)
+        comp.setStyleProperty("flex-shrink", "1")
+        comp.setStyleProperty("flex-basis", "0%")
+        comp.setStyleProperty("width", "100%")
+        comp.setStyleProperty("min-height", "0")
         if (spec.scrollableInSingleMode) {
             comp.addClass("overflow-auto")
             reg.appliedGridClasses.add("overflow-auto")
@@ -810,9 +1013,17 @@ open class HybridColumnLayout(
             comp.aspectRatio = reg.originalAspectRatio
             reg.compactSizingApplied = false
         }
+        singleStack.clearChildConstraint(comp)
+        columnsRow.clearChildConstraint(comp)
         comp.setStyleProperty("width", "")
         comp.setStyleProperty("height", "")
+        comp.setStyleProperty("flex", "")
         comp.setStyleProperty("flex-grow", "")
+        comp.setStyleProperty("flex-shrink", "")
+        comp.setStyleProperty("flex-basis", "")
+        comp.setStyleProperty("aspect-ratio", "")
+        comp.setStyleProperty("min-width", "")
+        comp.setStyleProperty("min-height", "")
     }
 
     private fun detachFromParent(component: AbstractComponent) {

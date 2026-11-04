@@ -1,5 +1,6 @@
 package com.nexustools.genericui.component.lazy
 
+import com.nexustools.genericui.component.shell.Application
 import com.nexustools.genericui.core.AbstractComponent
 import com.nexustools.genericui.core.AbstractContainer
 import com.nexustools.genericui.core.NativeFactory
@@ -34,6 +35,7 @@ open class LazyList(
     val viewportTracker: LazyViewportTracker = LazyViewportTracker(overscanItems)
 
     private val activeHolders = linkedMapOf<Int, ViewHolder>()
+    private var isRefreshingViewport: Boolean = false
 
     var adapter: LazyAdapter<ViewHolder>? = null
         set(value) {
@@ -44,7 +46,8 @@ open class LazyList(
             refreshLazyViewport()
         }
 
-    private var itemCount: Int = 0
+    var totalItemCount: Int = 0
+        private set
     private var itemBuilder: ((index: Int) -> AbstractComponent)? = null
     private var itemUnloader: ((index: Int, component: AbstractComponent) -> Unit)? = null
 
@@ -52,6 +55,9 @@ open class LazyList(
         private set
 
     var viewportExtentPx: Float = 600f
+        private set
+
+    var activeViewportWindow: LazyViewportWindow = LazyViewportWindow.EMPTY
         private set
 
     val loadedItemIndices: Set<Int>
@@ -73,7 +79,7 @@ open class LazyList(
         onUnloadItem: ((index: Int, component: AbstractComponent) -> Unit)? = null
     ): LazyList = apply {
         unloadAllVisibleItems()
-        this.itemCount = count.coerceAtLeast(0)
+        this.totalItemCount = count.coerceAtLeast(0)
         this.itemBuilder = onLoadItem
         this.itemUnloader = onUnloadItem
         refreshLazyViewport()
@@ -84,8 +90,10 @@ open class LazyList(
      * out of view and loading items that entered the visible viewport window.
      */
     fun onViewportChanged(scrollOffsetPx: Float, viewportExtentPx: Float): LazyViewportWindow {
-        this.scrollOffsetPx = scrollOffsetPx.coerceAtLeast(0f)
-        this.viewportExtentPx = viewportExtentPx.coerceAtLeast(1f)
+        val clampedScroll = scrollOffsetPx.coerceAtLeast(0f)
+        val clampedExtent = viewportExtentPx.coerceAtLeast(1f)
+        this.scrollOffsetPx = clampedScroll
+        this.viewportExtentPx = clampedExtent
         return refreshLazyViewport()
     }
 
@@ -96,25 +104,65 @@ open class LazyList(
     }
 
     fun refreshLazyViewport(): LazyViewportWindow {
-        val total = adapter?.getItemCount() ?: itemCount
-        val window = viewportTracker.updateViewport(
-            scrollOffsetPx = scrollOffsetPx,
-            viewportExtentPx = viewportExtentPx,
-            estimatedItemExtentPx = estimatedItemExtentPx,
-            totalItems = total,
-            columns = 1,
-            onUnloadIndex = { idx -> unloadItemAtIndex(idx) },
-            onLoadIndex = { idx -> loadItemAtIndex(idx) }
-        )
+        if (isRefreshingViewport) return activeViewportWindow
+        isRefreshingViewport = true
+        try {
+            val total = adapter?.getItemCount() ?: totalItemCount
+            val window = viewportTracker.updateViewport(
+                scrollOffsetPx = scrollOffsetPx,
+                viewportExtentPx = viewportExtentPx,
+                estimatedItemExtentPx = estimatedItemExtentPx,
+                totalItems = total,
+                columns = 1,
+                onUnloadIndex = { idx -> unloadItemAtIndex(idx) },
+                onLoadIndex = { idx -> loadItemAtIndex(idx) }
+            )
+            activeViewportWindow = window
 
-        val impl = typedNative<LazyListNativeImpl<*>>()
-        if (impl != null) {
-            impl.setItemCount(total) { index ->
-                val holder = activeHolders[index] ?: bindHolderForIndex(index)
-                holder.itemView.ensureNativeImpl() ?: resolveActiveFactory()!!.createContainer("lazy-item")
+            // Ensure activeHolders remain ordered by ascending item index without detaching/re-attaching
+            // already-mounted child views (which would cause DOM churn and scroll jumps on :web).
+            if (activeHolders.size > 1) {
+                val sortedEntries = activeHolders.entries.sortedBy { it.key }.map { it.key to it.value }
+                var orderChanged = false
+                var idx = 0
+                for (key in activeHolders.keys) {
+                    if (key != sortedEntries[idx].first) {
+                        orderChanged = true
+                        break
+                    }
+                    idx++
+                }
+                if (orderChanged) {
+                    activeHolders.clear()
+                    for ((k, v) in sortedEntries) {
+                        activeHolders[k] = v
+                    }
+                    reorderChildrenInMemory(sortedEntries.map { it.second.itemView })
+                }
             }
+
+            val impl = typedNative<LazyListNativeImpl<*>>()
+            if (impl != null) {
+                impl.setEstimatedItemExtent(estimatedItemExtentPx, viewportTracker.overscanItems)
+                impl.updateViewportMetrics(
+                    scrollOffsetPx = scrollOffsetPx,
+                    viewportExtentPx = viewportExtentPx,
+                    firstActiveIndex = window.firstActiveIndex,
+                    lastActiveIndex = window.lastActiveIndex,
+                    leadingSpacerPx = window.leadingSpacerPx,
+                    trailingSpacerPx = window.trailingSpacerPx,
+                    totalContentExtentPx = window.totalContentExtentPx
+                )
+                impl.setItemCount(total) { index ->
+                    val holder = activeHolders[index] ?: bindHolderForIndex(index)
+                    holder.itemView.ensureNativeImpl()
+                        ?: (resolveActiveFactory() ?: com.nexustools.genericui.core.GenericUI.activeFactory)!!.createContainer("lazy-item")
+                }
+            }
+            return window
+        } finally {
+            isRefreshingViewport = false
         }
-        return window
     }
 
     private fun loadItemAtIndex(index: Int) {
@@ -138,8 +186,15 @@ open class LazyList(
                 it.isBound = true
             }
         }
+        holder.itemView.setAttribute("data-lazy-index", index.toString())
+        val insertPos = activeHolders.keys.count { it < index }
         activeHolders[index] = holder
-        addChild(holder.itemView)
+        addChild(holder.itemView, insertPos)
+        if ((resolveActiveFactory() ?: com.nexustools.genericui.core.GenericUI.activeFactory)?.isStyleSheetEngineEnabled != false) {
+            Application.current?.getStyleSheets()?.forEach { sheet ->
+                sheet.styleSheet.applyToTree(holder.itemView)
+            }
+        }
         return holder
     }
 
@@ -148,7 +203,11 @@ open class LazyList(
         adapter?.onUnbindViewHolder(holder, index)
         itemUnloader?.invoke(index, holder.itemView)
         removeChild(holder.itemView)
-        viewHolderPool.release(holder)
+        if (adapter != null) {
+            viewHolderPool.release(holder)
+        } else {
+            holder.itemView.dispose()
+        }
     }
 
     fun unloadAllVisibleItems() {
@@ -159,13 +218,34 @@ open class LazyList(
         }
     }
 
-    override fun createNativeImpl(factory: NativeFactory): LazyListNativeImpl<*> =
+    protected override fun createNativeImpl(factory: NativeFactory): LazyListNativeImpl<*> =
         factory.createLazyList()
+
+    override fun resolveActiveFactory(): NativeFactory? {
+        if (!isVisible) return null
+        return super.resolveActiveFactory()
+            ?: if (nativeImpl != null) com.nexustools.genericui.core.GenericUI.activeFactory else null
+    }
+
+    internal override fun ensureNativeImpl(): com.nexustools.genericui.core.NativeImpl<*>? {
+        val wasAlreadyCreated = (nativeImpl != null)
+        val impl = super.ensureNativeImpl() ?: return null
+        if (wasAlreadyCreated) {
+            refreshLazyViewport()
+        }
+        return impl
+    }
 
     override fun syncStateToNative() {
         super.syncStateToNative()
         val impl = typedNative<LazyListNativeImpl<*>>() ?: return
         impl.setOrientation(orientation)
+        impl.setEstimatedItemExtent(estimatedItemExtentPx, viewportTracker.overscanItems)
+        impl.setOnViewportScrollChanged { scrollPx, extentPx ->
+            if (!isRefreshingViewport) {
+                onViewportChanged(scrollPx, extentPx)
+            }
+        }
         refreshLazyViewport()
     }
 

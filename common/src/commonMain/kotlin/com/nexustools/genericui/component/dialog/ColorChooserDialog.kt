@@ -1,7 +1,7 @@
 package com.nexustools.genericui.component.dialog
 
 import com.nexustools.genericui.component.shell.Window
-import com.nexustools.genericui.style.RgbaColor
+import com.nexustools.genericui.style.color.RgbaColor
 
 /**
  * Declarative wrapper for displaying a native color chooser dialog.

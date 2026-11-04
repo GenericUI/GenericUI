@@ -40,7 +40,7 @@ open class Popover(
         isVisible = false
     }
 
-    override fun createNativeImpl(factory: NativeFactory): PopoverNativeImpl<*> =
+    protected override fun createNativeImpl(factory: NativeFactory): PopoverNativeImpl<*> =
         factory.createPopover()
 
     override fun syncStateToNative() {

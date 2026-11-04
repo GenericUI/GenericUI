@@ -20,12 +20,9 @@ import com.nexustools.genericui.nativeimpl.tabs.TabNativeImpl
 open class TabContainer(
     var fadeTransition: Boolean = true,
     tabPosition: TabPosition = TabPosition.TOP,
-    tabBarStyle: TabBarStyle = TabBarStyle.TABS
+    tabBarStyle: TabBarStyle = TabBarStyle.TABS,
+    var adaptiveTabPosition: Boolean = false
 ) : AbstractContainer() {
-    init {
-        htmlTag = "genericui:tabcontainer"
-    }
-
     private val _entries = mutableListOf<TabEntry>()
     val entries: List<TabEntry> get() = _entries
     val tabs: List<TabEntry> get() = _entries
@@ -33,8 +30,41 @@ open class TabContainer(
     var tabPosition: TabPosition = tabPosition
         set(value) {
             field = value
+            syncTabPositionClass(value)
             typedNative<TabContainerNativeImpl<*>>()?.setTabPositionNative(value)
         }
+
+    val isTabsOnTop: Boolean
+        get() = tabPosition == TabPosition.TOP
+
+    val isTabsOnBottom: Boolean
+        get() = tabPosition == TabPosition.BOTTOM
+
+    fun setTabsOnTop(): TabContainer = apply {
+        tabPosition = TabPosition.TOP
+    }
+
+    fun setTabsOnBottom(): TabContainer = apply {
+        tabPosition = TabPosition.BOTTOM
+    }
+
+    fun updateAdaptiveTabPosition(inColumnMode: Boolean): TabContainer = apply {
+        tabPosition = if (inColumnMode) TabPosition.TOP else TabPosition.BOTTOM
+    }
+
+    private fun syncTabPositionClass(position: TabPosition) {
+        for (pos in TabPosition.entries) {
+            if (pos != position) {
+                removeClass(pos.cssClass)
+            }
+        }
+        addClass(position.cssClass)
+    }
+
+    init {
+        htmlTag = "genericui:tabcontainer"
+        syncTabPositionClass(this.tabPosition)
+    }
 
     var tabBarStyle: TabBarStyle = tabBarStyle
         set(value) {
@@ -42,14 +72,30 @@ open class TabContainer(
             typedNative<TabContainerNativeImpl<*>>()?.setTabBarStyleNative(value)
         }
 
+    private var isUpdatingSelectionFromNative: Boolean = false
+    private var isSettingSelectionProgrammatically: Boolean = false
+
     var selectedIndex: Int = 0
         set(value) {
             val clamped = value.coerceIn(0, (_entries.size - 1).coerceAtLeast(0))
+            if (field == clamped &&
+                _entries.getOrNull(clamped)?.tab?.isSelected == true &&
+                (isUpdatingSelectionFromNative || isSettingSelectionProgrammatically)
+            ) {
+                return
+            }
             field = clamped
             _entries.forEachIndexed { idx, entry ->
                 entry.tab.isSelected = (idx == clamped)
             }
-            typedNative<TabContainerNativeImpl<*>>()?.setSelectedTabIndex(clamped, fadeTransition)
+            if (!isUpdatingSelectionFromNative && !isSettingSelectionProgrammatically) {
+                isSettingSelectionProgrammatically = true
+                try {
+                    typedNative<TabContainerNativeImpl<*>>()?.setSelectedTabIndex(clamped, fadeTransition)
+                } finally {
+                    isSettingSelectionProgrammatically = false
+                }
+            }
             val selectedEntry = _entries.getOrNull(clamped)
             selectedEntry?.tab?.onSelected?.invoke()
             onTabSelected?.invoke(clamped)
@@ -99,13 +145,15 @@ open class TabContainer(
         tab.isSelected = (insertIdx == selectedIndex)
 
         val impl = typedNative<TabContainerNativeImpl<*>>()
-        val tabImpl = tab.nativeImpl as? TabNativeImpl<*>
-        val contentImpl = content.nativeImpl
-        if (impl != null && contentImpl != null) {
-            if (tabImpl != null) {
-                impl.addTabNative(tabImpl, contentImpl, insertIdx)
-            } else {
-                impl.addTabNative(tab.displayTitle, contentImpl, insertIdx)
+        if (impl != null && isVisible) {
+            val tabImpl = (tab.nativeImpl ?: tab.ensureNativeImpl()) as? TabNativeImpl<*>
+            val contentImpl = content.nativeImpl ?: content.ensureNativeImpl()
+            if (contentImpl != null) {
+                if (tabImpl != null) {
+                    impl.addTabNative(tabImpl, contentImpl, insertIdx)
+                } else {
+                    impl.addTabNative(tab.displayTitle, contentImpl, insertIdx)
+                }
             }
         }
     }
@@ -261,8 +309,18 @@ open class TabContainer(
         }
     }
 
-    override fun createNativeImpl(factory: NativeFactory): TabContainerNativeImpl<*> =
+    protected override fun createNativeImpl(factory: NativeFactory): TabContainerNativeImpl<*> =
         factory.createTabContainer()
+
+    override var isVisible: Boolean
+        get() = super.isVisible
+        set(value) {
+            val wasVisible = super.isVisible
+            super.isVisible = value
+            if (value && !wasVisible && typedNative<TabContainerNativeImpl<*>>() != null) {
+                syncStateToNative()
+            }
+        }
 
     override fun syncStateToNative() {
         super.syncStateToNative()
@@ -270,17 +328,29 @@ open class TabContainer(
         impl.setTabPositionNative(tabPosition)
         impl.setTabBarStyleNative(tabBarStyle)
         _entries.forEachIndexed { idx, entry ->
-            val contentImpl = entry.content.nativeImpl ?: return@forEachIndexed
-            val tabImpl = entry.tab.nativeImpl as? TabNativeImpl<*>
+            val contentImpl = entry.content.nativeImpl ?: entry.content.ensureNativeImpl() ?: return@forEachIndexed
+            val tabImpl = (entry.tab.nativeImpl ?: entry.tab.ensureNativeImpl()) as? TabNativeImpl<*>
             if (tabImpl != null) {
                 impl.addTabNative(tabImpl, contentImpl, idx)
             } else {
                 impl.addTabNative(entry.tab.displayTitle, contentImpl, idx)
             }
         }
-        impl.setSelectedTabIndex(selectedIndex, fadeTransition)
+        isSettingSelectionProgrammatically = true
+        try {
+            impl.setSelectedTabIndex(selectedIndex, fadeTransition)
+        } finally {
+            isSettingSelectionProgrammatically = false
+        }
         impl.setOnTabSelected { idx ->
-            selectedIndex = idx
+            if (!isSettingSelectionProgrammatically && !isUpdatingSelectionFromNative && selectedIndex != idx) {
+                isUpdatingSelectionFromNative = true
+                try {
+                    selectedIndex = idx
+                } finally {
+                    isUpdatingSelectionFromNative = false
+                }
+            }
         }
         impl.setOnTabCloseRequested { idx ->
             val entry = _entries.getOrNull(idx) ?: return@setOnTabCloseRequested false

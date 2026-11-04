@@ -10,18 +10,18 @@ import com.nexustools.genericui.nativeimpl.system.UiTimerNativeImpl
  */
 object UiTimerScheduler {
 
-    val fallbackScheduler: DefaultUiTimerNativeImpl = DefaultUiTimerNativeImpl()
+    internal val fallbackScheduler: DefaultUiTimerNativeImpl = DefaultUiTimerNativeImpl()
 
     private var cachedFactory: NativeFactory? = null
     private var cachedFactoryScheduler: UiTimerNativeImpl? = null
 
     /** Optional override scheduler for tests. */
-    var customScheduler: UiTimerNativeImpl? = null
+    internal var customScheduler: UiTimerNativeImpl? = null
 
     /**
      * Resolves the active [UiTimerNativeImpl] for the current [GenericUI.activeFactory].
      */
-    val activeScheduler: UiTimerNativeImpl
+    internal val activeScheduler: UiTimerNativeImpl
         get() {
             customScheduler?.let { return it }
             val factory = GenericUI.activeFactory ?: return fallbackScheduler

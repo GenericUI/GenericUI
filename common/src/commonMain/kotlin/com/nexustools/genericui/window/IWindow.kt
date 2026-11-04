@@ -77,6 +77,8 @@ interface IWindow : Disposable {
     // Geometry & Bounds
     fun getWindowSize(): Size
     fun setWindowSize(size: Size)
+    fun getMinWindowSize(): Size? = null
+    fun setMinWindowSize(minSize: Size?) {}
 
     /** Window bounds (position + size) in screen pixels (or viewport pixels for `MdiWindow`). */
     var windowBounds: Rect

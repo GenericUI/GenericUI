@@ -6,6 +6,8 @@ import com.nexustools.genericui.component.fragment.Fragment
 import com.nexustools.genericui.component.fragment.FragmentBundle
 import com.nexustools.genericui.component.fragment.FragmentHost
 import com.nexustools.genericui.component.layout.Container
+import com.nexustools.genericui.component.layout.LayeredContainer
+import com.nexustools.genericui.component.layout.LayeredLayout
 import com.nexustools.genericui.component.navigation.Navbar
 import com.nexustools.genericui.component.typography.Label
 import com.nexustools.genericui.enums.bootstrap.BootstrapSize
@@ -26,7 +28,9 @@ import kotlin.reflect.KClass
  * - Optional Back/Forward and custom navigation chrome ([FragmentNavigationChromeConfig]) that embeds
  *   into the custom [TitleBar] when `titleCapabilities.canEmbedComponentsInTitleBar && navigationChrome.preferTitleBarNavigation`
  *   is `true`, falls back to a top [Navbar] ([fallbackNavbar]) when not embedded in the titlebar, and adds
- *   **neither** titlebar buttons nor a fallback navbar when no navigation chrome items are enabled (e.g. `DCGame`).
+ *   **neither** titlebar buttons nor a fallback navbar when no navigation chrome items are enabled (e.g. `DCGame`)
+ *   or when the host already provides title + Back/Forward chrome (`NativeFactory.providesNativeNavigationChrome`,
+ *   e.g. the browser on `:web`).
  * - Route registration, back/forward history stack, and `:web` `#hash` + browser `History.state` integration
  *   via [FragmentHistoryBridge].
  * - Global `.loader` [Spinner] overlay synchronized with the active child fragment's `isLoading` state.
@@ -56,8 +60,11 @@ open class FragmentHostFragment(
             hostSystem.transitionSpec = value
         }
 
-    val stageContainer: Container
+    val stageContainer: LayeredContainer
         get() = hostSystem.stageContainer
+
+    val stageLayout: LayeredLayout
+        get() = hostSystem.stageLayout
 
     val loaderContainer: Container
         get() = hostSystem.loaderContainer
@@ -202,7 +209,7 @@ open class FragmentHostFragment(
      * Re-evaluates and synchronizes the Back/Forward buttons, custom navigation components,
      * [TitleBar] embedding (`mountedInTitleBar = true`), [fallbackNavbar] visibility, and window title.
      */
-    fun refreshNavigationChrome() {
+    open fun refreshNavigationChrome() {
         backButton.text = navigationChrome.backButtonText
         forwardButton.text = navigationChrome.forwardButtonText
         backButton.isEnabled = hostSystem.canGoBack
@@ -217,8 +224,13 @@ open class FragmentHostFragment(
             hostingWindow?.setTitle(winTitle) ?: attachedWindow?.setTitle(winTitle)
         }
 
+        // When the host already provides title + Back/Forward chrome (e.g. the browser on :web), the window title
+        // above still updates (document.title), but no TitleBar is configured and no fallback Navbar is created.
+        val hostProvidesNavigationChrome =
+            (activeFactory ?: com.nexustools.genericui.core.GenericUI.activeFactory)?.providesNativeNavigationChrome == true
+
         val hasItems = navigationChrome.hasNavigationItems
-        if (!hasItems) {
+        if (!hasItems || hostProvidesNavigationChrome) {
             unmarkTitleBarComponents()
             managedTitleBar?.clearComponents()
             detachFallbackNavbar()
@@ -339,6 +351,12 @@ open class FragmentHostFragment(
         }
     }
 
+    override fun onCreate(savedState: FragmentBundle?) {
+        super.onCreate(savedState)
+        stageLayout.ensureMounted()
+        hostingWindow?.let { stageLayout.onAttachWindow(it) }
+    }
+
     override fun onStart() {
         super.onStart()
         refreshNavigationChrome()
@@ -373,22 +391,22 @@ open class FragmentHostFragment(
     }
 
     override fun onResize(viewportWidth: Int, viewportHeight: Int) {
-        super.onResize(viewportWidth, viewportHeight)
+        super<Fragment>.onResize(viewportWidth, viewportHeight)
         hostSystem.updateViewportSize(viewportWidth, viewportHeight)
     }
 
     override fun onConfigurationChanged(newConfig: WindowConfiguration) {
-        super.onConfigurationChanged(newConfig)
+        super<Fragment>.onConfigurationChanged(newConfig)
         hostSystem.onConfigurationChanged(newConfig)
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
-        super.onWindowFocusChanged(hasFocus)
+        super<Fragment>.onWindowFocusChanged(hasFocus)
         currentFragment?.onWindowFocusChanged(hasFocus)
     }
 
     override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean) {
-        super.onPictureInPictureModeChanged(isInPictureInPictureMode)
+        super<Fragment>.onPictureInPictureModeChanged(isInPictureInPictureMode)
         currentFragment?.onPictureInPictureModeChanged(isInPictureInPictureMode)
     }
 
@@ -399,7 +417,7 @@ open class FragmentHostFragment(
         if (hostSystem.popBackStack()) {
             return true
         }
-        return super.onBackPressed()
+        return super<Fragment>.onBackPressed()
     }
 
     override fun onSaveInstanceState(outState: FragmentBundle) {

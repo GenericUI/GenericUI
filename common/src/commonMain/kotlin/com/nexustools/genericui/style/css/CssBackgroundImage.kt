@@ -2,11 +2,11 @@ package com.nexustools.genericui.style.css
 
 import com.nexustools.genericui.image.ImageBuffer
 import com.nexustools.genericui.res.DrawableResource
-import com.nexustools.genericui.res.ResourceType
+import com.nexustools.genericui.resources.ResourceType
 import com.nexustools.genericui.res.Resources
 import com.nexustools.genericui.resources.ResourceID
 import com.nexustools.genericui.resources.ResourceResolver
-import com.nexustools.genericui.style.gradient.Gradient
+import com.nexustools.genericui.style.gradient.Gradient.Gradient
 
 /**
  * Strongly-typed CSS `background-image` value supporting [Gradient]s (`LinearGradient`, `RadialGradient`),

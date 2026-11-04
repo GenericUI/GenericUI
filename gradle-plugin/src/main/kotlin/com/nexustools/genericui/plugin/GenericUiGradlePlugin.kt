@@ -19,6 +19,10 @@ class GenericUiGradlePlugin : Plugin<Project> {
             GenericUiMultiplatformConfigurator.configureMultiplatform(project, extension)
         }
         GenericUiMultiplatformConfigurator.registerBuildTargetTasks(project, extension)
+        project.tasks.withType(org.gradle.api.tasks.testing.AbstractTestTask::class.java).configureEach {
+            val secs = extension.testing.testTimeoutSeconds.coerceAtLeast(10L)
+            timeout.set(java.time.Duration.ofSeconds(secs))
+        }
 
         val angleTask = project.tasks.register("bundleGenericUiAngle", AngleNativeBundleTask::class.java) {
             group = TASK_GROUP
@@ -95,9 +99,19 @@ class GenericUiGradlePlugin : Plugin<Project> {
             })
             translateForAllBackends.set(project.provider { extension.resources.translateForAllBackends })
             themeColor.set(project.provider { extension.application.desktop.themeColor })
+            themeMode.set(project.provider {
+                extension.themeConfig.mode.trim().ifEmpty { "auto" }
+            })
             appName.set(project.provider {
                 extension.application.desktop.appName.trim().ifEmpty {
                     extension.application.baseName.trim().ifEmpty { project.name }
+                }
+            })
+            configuredIconPath.set(project.provider {
+                extension.application.desktop.icon.trim().ifEmpty {
+                    extension.windowConfig.icon?.trim().orEmpty().ifEmpty {
+                        GenericUiVariantResolver.resolve(extension, GenericUiVariantScope.COMMON).iconPath.orEmpty()
+                    }
                 }
             })
             kotlinOutputDirectory.set(project.layout.buildDirectory.dir("generated/genericui/resources/kotlin/commonMain"))
@@ -363,10 +377,28 @@ class GenericUiGradlePlugin : Plugin<Project> {
             homepageUrl.set(project.provider { extension.application.desktop.homepageUrl })
             issuesUrl.set(project.provider { extension.application.desktop.issuesUrl })
             themeColor.set(project.provider { extension.application.desktop.themeColor })
-            windowsIconPath.set(project.provider { extension.application.desktop.windowsIcon })
-            macIconPath.set(project.provider { extension.application.desktop.macIcon })
-            linuxIconPath.set(project.provider { extension.application.desktop.linuxIcon })
-            fallbackIconPath.set(project.provider { extension.application.desktop.icon })
+            windowsIconPath.set(project.provider {
+                extension.application.desktop.windowsIcon.trim().ifEmpty {
+                    GenericUiVariantResolver.resolve(extension, GenericUiVariantScope.WINDOWS).iconPath.orEmpty()
+                }
+            })
+            macIconPath.set(project.provider {
+                extension.application.desktop.macIcon.trim().ifEmpty {
+                    GenericUiVariantResolver.resolve(extension, GenericUiVariantScope.MACOS).iconPath.orEmpty()
+                }
+            })
+            linuxIconPath.set(project.provider {
+                extension.application.desktop.linuxIcon.trim().ifEmpty {
+                    GenericUiVariantResolver.resolve(extension, GenericUiVariantScope.GTK).iconPath.orEmpty()
+                }
+            })
+            fallbackIconPath.set(project.provider {
+                extension.application.desktop.icon.trim().ifEmpty {
+                    extension.windowConfig.icon?.trim().orEmpty().ifEmpty {
+                        GenericUiVariantResolver.resolve(extension, GenericUiVariantScope.COMMON).iconPath.orEmpty()
+                    }
+                }
+            })
             embedWindowsResources.set(project.provider { extension.application.desktop.embedWindowsResources })
             macMinimumSystemVersion.set(project.provider { extension.application.desktop.macMinimumSystemVersion })
             macCategory.set(project.provider { extension.application.desktop.macCategory })
@@ -379,52 +411,82 @@ class GenericUiGradlePlugin : Plugin<Project> {
             outputDirectory.set(project.layout.buildDirectory.dir("generated/genericui/desktop-resources"))
         }
 
-        val webDistTask = project.tasks.register(
-            "packageGenericUiWebDistribution",
-            GenericUiWebDistributionTask::class.java
+        fun configureWebDistTask(
+            task: GenericUiWebDistributionTask,
+            variant: String,
+            outputRelPath: String
         ) {
-            group = TASK_GROUP
-            description = "Packages the unified GenericUI Web distribution with Wasm primary + JS IR fallback, splash screen icon, favicon, optional PWA manifest.webmanifest & installable WebApp tags, genericui-loader.js, and SHA-1 cache-busting hashes."
-            projectRootPath.set(project.projectDir.absolutePath)
-            projectBuildPath.set(project.layout.buildDirectory.asFile.map { it.absolutePath })
-            baseName.set(project.provider {
+            task.group = TASK_GROUP
+            task.description = "Packages the unified GenericUI Web ($variant) distribution with Wasm primary + JS IR fallback, splash screen icon, favicon, optional PWA manifest.webmanifest & installable WebApp tags, loader.js, and SHA-1 cache-busting hashes into build/$outputRelPath."
+            task.projectRootPath.set(project.projectDir.absolutePath)
+            task.projectBuildPath.set(project.layout.buildDirectory.asFile.map { it.absolutePath })
+            task.baseName.set(project.provider {
                 extension.application.baseName.trim().ifEmpty { project.name }
             })
-            appName.set(project.provider {
+            task.appName.set(project.provider {
                 extension.application.desktop.appName.trim().ifEmpty {
                     extension.application.baseName.trim().ifEmpty { project.name }
                 }
             })
-            appDescription.set(project.provider { extension.application.desktop.description })
-            themeColor.set(project.provider { extension.application.desktop.themeColor })
-            webIconPath.set(project.provider { extension.application.desktop.webIcon })
-            fallbackIconPath.set(project.provider { extension.application.desktop.icon })
-            linuxIconPath.set(project.provider { extension.application.desktop.linuxIcon })
-            macIconPath.set(project.provider { extension.application.desktop.macIcon })
-            windowsIconPath.set(project.provider { extension.application.desktop.windowsIcon })
-            webCssBundleFileName.set(project.provider { extension.styles.webCssBundleFileName })
-            manifestEnabled.set(project.provider { extension.application.desktop.webManifest.enabled })
-            allowInstallAsWebApp.set(project.provider { extension.application.desktop.webManifest.allowInstallAsWebApp })
-            manifestFileName.set(project.provider { extension.application.desktop.webManifest.fileName })
-            manifestId.set(project.provider { extension.application.desktop.webManifest.id })
-            manifestName.set(project.provider { extension.application.desktop.webManifest.name })
-            manifestShortName.set(project.provider { extension.application.desktop.webManifest.shortName })
-            manifestDescription.set(project.provider { extension.application.desktop.webManifest.description })
-            manifestStartUrl.set(project.provider { extension.application.desktop.webManifest.startUrl })
-            manifestScope.set(project.provider { extension.application.desktop.webManifest.scope })
-            manifestDisplay.set(project.provider { extension.application.desktop.webManifest.display })
-            manifestDisplayOverride.set(project.provider { extension.application.desktop.webManifest.displayOverride.toList() })
-            manifestOrientation.set(project.provider { extension.application.desktop.webManifest.orientation })
-            manifestThemeColor.set(project.provider { extension.application.desktop.webManifest.themeColor })
-            manifestBackgroundColor.set(project.provider { extension.application.desktop.webManifest.backgroundColor })
-            manifestLang.set(project.provider { extension.application.desktop.webManifest.lang })
-            manifestDir.set(project.provider { extension.application.desktop.webManifest.dir })
-            manifestCategories.set(project.provider { extension.application.desktop.webManifest.categories.toList() })
-            manifestPreferRelatedApplications.set(project.provider { extension.application.desktop.webManifest.preferRelatedApplications })
-            manifestAppleStatusBarStyle.set(project.provider { extension.application.desktop.webManifest.appleStatusBarStyle })
-            manifestIcons.set(project.provider { extension.application.desktop.webManifest.icons.toList() })
-            manifestShortcuts.set(project.provider { extension.application.desktop.webManifest.shortcuts.toList() })
-            outputDirectory.set(project.layout.buildDirectory.dir("dist/web"))
+            task.appDescription.set(project.provider { extension.application.desktop.description })
+            task.themeColor.set(project.provider { extension.application.desktop.themeColor })
+            task.themeMode.set(project.provider { resolveWebVariant(project, extension).themeMode })
+            task.webIconPath.set(project.provider { extension.application.desktop.webIcon })
+            task.fallbackIconPath.set(project.provider { extension.application.desktop.icon })
+            task.linuxIconPath.set(project.provider { extension.application.desktop.linuxIcon })
+            task.macIconPath.set(project.provider { extension.application.desktop.macIcon })
+            task.windowsIconPath.set(project.provider { extension.application.desktop.windowsIcon })
+            task.webCssBundleFileName.set(project.provider { extension.styles.webCssBundleFileName })
+            task.globalStyleSheet.set(project.provider {
+                extension.styles.globalStyleSheet?.trim()?.takeIf { it.isNotEmpty() }
+                    ?: resolveWebVariant(project, extension).globalStyleSheet
+                    ?: ""
+            })
+            task.manifestEnabled.set(project.provider { extension.application.desktop.webManifest.enabled })
+            task.allowInstallAsWebApp.set(project.provider { extension.application.desktop.webManifest.allowInstallAsWebApp })
+            task.manifestFileName.set(project.provider { extension.application.desktop.webManifest.fileName })
+            task.manifestId.set(project.provider { extension.application.desktop.webManifest.id })
+            task.manifestName.set(project.provider { extension.application.desktop.webManifest.name })
+            task.manifestShortName.set(project.provider { extension.application.desktop.webManifest.shortName })
+            task.manifestDescription.set(project.provider { extension.application.desktop.webManifest.description })
+            task.manifestStartUrl.set(project.provider { extension.application.desktop.webManifest.startUrl })
+            task.manifestScope.set(project.provider { extension.application.desktop.webManifest.scope })
+            task.manifestDisplay.set(project.provider { extension.application.desktop.webManifest.display })
+            task.manifestDisplayOverride.set(project.provider { extension.application.desktop.webManifest.displayOverride.toList() })
+            task.manifestOrientation.set(project.provider { extension.application.desktop.webManifest.orientation })
+            task.manifestThemeColor.set(project.provider { extension.application.desktop.webManifest.themeColor })
+            task.manifestBackgroundColor.set(project.provider { extension.application.desktop.webManifest.backgroundColor })
+            task.manifestLang.set(project.provider { extension.application.desktop.webManifest.lang })
+            task.manifestDir.set(project.provider { extension.application.desktop.webManifest.dir })
+            task.manifestCategories.set(project.provider { extension.application.desktop.webManifest.categories.toList() })
+            task.manifestPreferRelatedApplications.set(project.provider { extension.application.desktop.webManifest.preferRelatedApplications })
+            task.manifestAppleStatusBarStyle.set(project.provider { extension.application.desktop.webManifest.appleStatusBarStyle })
+            task.manifestIcons.set(project.provider { extension.application.desktop.webManifest.icons.toList() })
+            task.manifestShortcuts.set(project.provider { extension.application.desktop.webManifest.shortcuts.toList() })
+            task.buildVariant.set(variant)
+            task.outputDirectory.set(project.layout.buildDirectory.dir(outputRelPath))
+            task.outputs.upToDateWhen { false }
+        }
+
+        val webDistTask = project.tasks.register(
+            "packageGenericUiWebDistribution",
+            GenericUiWebDistributionTask::class.java
+        ) {
+            configureWebDistTask(this, variant = "development", outputRelPath = "dist/web/development")
+        }
+
+        val webDevDistTask = project.tasks.register(
+            "packageGenericUiWebDevelopmentDistribution",
+            GenericUiWebDistributionTask::class.java
+        ) {
+            configureWebDistTask(this, variant = "development", outputRelPath = "dist/web/development")
+        }
+
+        val webProdDistTask = project.tasks.register(
+            "packageGenericUiWebProductionDistribution",
+            GenericUiWebDistributionTask::class.java
+        ) {
+            configureWebDistTask(this, variant = "production", outputRelPath = "dist/web/production")
         }
 
         val projectPath = project.path
@@ -482,16 +544,24 @@ class GenericUiGradlePlugin : Plugin<Project> {
             wireDesktopResourceTasks(project, desktopResourcesTask.name)
             wireCompanionDependencyBuildTasks(project, extension, desktopResourcesTask.name)
             wireBuildLifecycleTasks(project, angleTask.name, vulkanTask.name, sassTask.name, resourcesTask.name, desktopResourcesTask.name)
-            webDistTask.configure {
-                mustRunAfter(
-                    project.tasks.matching { t ->
-                        t.name == "compileGenericUiSass" ||
-                            t.name.endsWith("ProcessResources") ||
-                            (t.name.startsWith("compile") && (t.name.contains("KotlinWasmJs") || t.name.contains("KotlinJs"))) ||
-                            t.name.endsWith("CompileSync") ||
-                            (t.name.endsWith("Distribution") && t.name != "packageGenericUiWebDistribution")
-                    }
-                )
+            val webDistTaskNames = setOf(
+                "packageGenericUiWebDistribution",
+                "packageGenericUiWebDevelopmentDistribution",
+                "packageGenericUiWebProductionDistribution"
+            )
+            for (distProvider in listOf(webDistTask, webDevDistTask, webProdDistTask)) {
+                distProvider.configure {
+                    mustRunAfter(
+                        project.tasks.matching { t ->
+                            t.name == "compileGenericUiSass" ||
+                                t.name.endsWith("ProcessResources") ||
+                                (t.name.startsWith("compile") && (t.name.contains("KotlinWasmJs") || t.name.contains("KotlinJs"))) ||
+                                t.name.endsWith("CompileSync") ||
+                                t.name.endsWith("Webpack") ||
+                                (t.name.endsWith("Distribution") && t.name !in webDistTaskNames)
+                        }
+                    )
+                }
             }
         }
     }
@@ -546,6 +616,12 @@ class GenericUiGradlePlugin : Plugin<Project> {
         extension: GenericUiExtension
     ): GenericUiResolvedVariantConfig =
         resolveVariantWithProjectFallbacks(project, extension, GenericUiVariantScope.IOS)
+
+    private fun resolveWebVariant(
+        project: Project,
+        extension: GenericUiExtension
+    ): GenericUiResolvedVariantConfig =
+        resolveVariantWithProjectFallbacks(project, extension, GenericUiVariantScope.WEB)
 
     private fun resolveVariantWithProjectFallbacks(
         project: Project,
@@ -785,7 +861,6 @@ class GenericUiGradlePlugin : Plugin<Project> {
                 "mingwX64TestImplementation",
                 "linuxX64TestImplementation",
                 "linuxArm64TestImplementation",
-                "macosX64TestImplementation",
                 "macosArm64TestImplementation"
             )
         }
@@ -793,7 +868,7 @@ class GenericUiGradlePlugin : Plugin<Project> {
             addTestDepIfConfigExists(":tests:desktop:windows", "windowsTestImplementation", "mingwX64TestImplementation")
         }
         if (backends.macosEnabled) {
-            addTestDepIfConfigExists(":tests:desktop:macos", "macTestImplementation", "macosX64TestImplementation", "macosArm64TestImplementation")
+            addTestDepIfConfigExists(":tests:desktop:macos", "macTestImplementation", "macosArm64TestImplementation")
         }
         if (backends.gtkEnabled) {
             addTestDepIfConfigExists(":tests:desktop:gtk", "gtkTestImplementation", "linuxX64TestImplementation", "linuxArm64TestImplementation")
@@ -1059,39 +1134,10 @@ class GenericUiGradlePlugin : Plugin<Project> {
         project: Project,
         desktopResourcesTaskName: String
     ) {
-        val runtimeAssetsDirProvider = project.layout.buildDirectory.dir("generated/genericui/desktop-resources/runtime-assets")
         project.tasks.matching {
             it.name.startsWith("link") && it.name.contains("Executable")
         }.configureEach {
             dependsOn(desktopResourcesTaskName)
-            doLast {
-                val assetsDir = runtimeAssetsDirProvider.get().asFile
-                if (!assetsDir.exists()) return@doLast
-                val getDestDir = this.javaClass.methods.firstOrNull {
-                    (it.name == "getDestinationDirectory" || it.name == "getOutputDirectory") && it.parameterCount == 0
-                }
-                val destObj = getDestDir?.invoke(this)
-                val destFile: File? = when (destObj) {
-                    is File -> destObj
-                    is org.gradle.api.file.DirectoryProperty -> destObj.orNull?.asFile
-                    else -> {
-                        val getOutputFile = this.javaClass.methods.firstOrNull {
-                            it.name == "getOutputFile" && it.parameterCount == 0
-                        }
-                        (getOutputFile?.invoke(this) as? org.gradle.api.provider.Provider<*>)?.orNull?.let { it as? File }?.parentFile
-                    }
-                }
-                if (destFile != null && destFile.exists()) {
-                    assetsDir.listFiles()?.forEach { asset ->
-                        val target = File(destFile, asset.name)
-                        if (asset.isDirectory) {
-                            asset.copyRecursively(target, overwrite = true)
-                        } else {
-                            asset.copyTo(target, overwrite = true)
-                        }
-                    }
-                }
-            }
         }
     }
 
@@ -1153,7 +1199,6 @@ class GenericUiGradlePlugin : Plugin<Project> {
                 allExisting(
                     "macMainImplementation",
                     "macosMainImplementation",
-                    "macosX64MainImplementation",
                     "macosArm64MainImplementation"
                 )
             ":desktop:gtk" ->
@@ -1167,6 +1212,7 @@ class GenericUiGradlePlugin : Plugin<Project> {
                     "nativeDesktopCommonImplementation",
                     "linuxX64MainImplementation",
                     "linuxArm64MainImplementation",
+                    "linuxArm32HfpMainImplementation",
                     "linuxX64GtkImplementation",
                     "linuxArm64GtkImplementation"
                 )
@@ -1181,6 +1227,7 @@ class GenericUiGradlePlugin : Plugin<Project> {
                     "nativeDesktopCommonImplementation",
                     "linuxX64MainImplementation",
                     "linuxArm64MainImplementation",
+                    "linuxArm32HfpMainImplementation",
                     "linuxX64QtImplementation",
                     "linuxArm64QtImplementation"
                 )
@@ -1201,15 +1248,18 @@ class GenericUiGradlePlugin : Plugin<Project> {
                     "jvmMainImplementation",
                     "androidImplementation",
                     "androidMainImplementation",
+                    "androidNativeX86MainImplementation",
+                    "androidNativeX64MainImplementation",
+                    "androidNativeArm32MainImplementation",
+                    "androidNativeArm64MainImplementation",
                     "mingwX64MainImplementation",
                     "linuxX64MainImplementation",
                     "linuxArm64MainImplementation",
-                    "macosX64MainImplementation",
+                    "linuxArm32HfpMainImplementation",
                     "macosArm64MainImplementation",
                     "iosMainImplementation",
                     "iosArm64MainImplementation",
-                    "iosSimulatorArm64MainImplementation",
-                    "iosX64MainImplementation"
+                    "iosSimulatorArm64MainImplementation"
                 )
             ":desktop:common" ->
                 allExisting(
@@ -1225,7 +1275,7 @@ class GenericUiGradlePlugin : Plugin<Project> {
                     "mingwX64MainImplementation",
                     "linuxX64MainImplementation",
                     "linuxArm64MainImplementation",
-                    "macosX64MainImplementation",
+                    "linuxArm32HfpMainImplementation",
                     "macosArm64MainImplementation"
                 )
             ":desktop:nativeCommon", ":desktop:shared" ->
@@ -1237,7 +1287,7 @@ class GenericUiGradlePlugin : Plugin<Project> {
                     "mingwX64MainImplementation",
                     "linuxX64MainImplementation",
                     "linuxArm64MainImplementation",
-                    "macosX64MainImplementation",
+                    "linuxArm32HfpMainImplementation",
                     "macosArm64MainImplementation"
                 )
             ":desktop:linuxCommon" ->
@@ -1245,29 +1295,39 @@ class GenericUiGradlePlugin : Plugin<Project> {
                     "linuxCommonImplementation",
                     "linuxMainImplementation",
                     "linuxX64MainImplementation",
-                    "linuxArm64MainImplementation"
+                    "linuxArm64MainImplementation",
+                    "linuxArm32HfpMainImplementation"
                 )
             ":desktop:swing" ->
                 allExisting("swingImplementation", "swingMainImplementation", "jvmMainImplementation")
             ":mobile:android" ->
-                allExisting("androidImplementation", "androidMainImplementation")
+                allExisting(
+                    "androidImplementation",
+                    "androidMainImplementation",
+                    "androidNativeX86MainImplementation",
+                    "androidNativeX64MainImplementation",
+                    "androidNativeArm32MainImplementation",
+                    "androidNativeArm64MainImplementation"
+                )
             ":mobile:ios" ->
                 allExisting(
                     "iosImplementation",
                     "iosMainImplementation",
                     "iosArm64MainImplementation",
-                    "iosSimulatorArm64MainImplementation",
-                    "iosX64MainImplementation"
+                    "iosSimulatorArm64MainImplementation"
                 )
             ":mobile:common", ":mobile:shared" ->
                 allExisting(
                     "mobileCommonImplementation",
                     "mobileMainImplementation",
                     "androidMainImplementation",
+                    "androidNativeX86MainImplementation",
+                    "androidNativeX64MainImplementation",
+                    "androidNativeArm32MainImplementation",
+                    "androidNativeArm64MainImplementation",
                     "iosMainImplementation",
                     "iosArm64MainImplementation",
-                    "iosSimulatorArm64MainImplementation",
-                    "iosX64MainImplementation"
+                    "iosSimulatorArm64MainImplementation"
                 )
             ":web" ->
                 allExisting("webImplementation", "webMainImplementation", "jsMainImplementation", "wasmJsMainImplementation")

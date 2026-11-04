@@ -33,12 +33,19 @@ interface WindowNativeImpl<out W> : AbstractContainerNativeImpl<W> {
 
     fun setWindowSize(size: Size)
     fun getWindowSize(): Size
+    fun getMinWindowSize(): Size? = null
+    fun setMinWindowSize(minSize: Size?) {}
 
     fun setWindowState(state: WindowState)
     fun getWindowState(): WindowState
 
     fun setFullscreen(fullscreen: Boolean, cutoutMode: DisplayCutoutMode = DisplayCutoutMode.SHORT_EDGES)
     fun isFullscreen(): Boolean
+
+    fun setFullscreenElement(elementImpl: NativeImpl<*>?, cutoutMode: DisplayCutoutMode = DisplayCutoutMode.SHORT_EDGES) {
+        setFullscreen(elementImpl != null, cutoutMode)
+    }
+    fun getFullscreenElement(): NativeImpl<*>? = null
 
     fun applyTitleBarInstructions(titleBar: TitleBar?)
     fun setMenuBarNative(menuBarImpl: MenuBarNativeImpl<*>?)

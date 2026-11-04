@@ -3,7 +3,7 @@ package com.nexustools.genericui.nativeimpl.dialog
 import com.nexustools.genericui.core.Disposable
 import com.nexustools.genericui.enums.bootstrap.BootstrapType
 import com.nexustools.genericui.nativeimpl.shell.WindowNativeImpl
-import com.nexustools.genericui.style.RgbaColor
+import com.nexustools.genericui.style.color.RgbaColor
 
 /**
  * Native implementation contract for standard OS/platform dialogs (Alert, Confirm, Prompt, Choice, ColorChooser, FontChooser).

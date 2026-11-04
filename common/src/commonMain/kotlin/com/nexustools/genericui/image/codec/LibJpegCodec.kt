@@ -5,7 +5,7 @@ import com.nexustools.genericui.image.ImageColorSpace
 import com.nexustools.genericui.image.ImageFormat
 import com.nexustools.genericui.image.ImageMetadata
 import com.nexustools.genericui.image.PixelFormat
-import com.nexustools.genericui.style.RgbaColor
+import com.nexustools.genericui.style.color.RgbaColor
 import kotlin.math.cos
 import kotlin.math.roundToInt
 import kotlin.math.sqrt

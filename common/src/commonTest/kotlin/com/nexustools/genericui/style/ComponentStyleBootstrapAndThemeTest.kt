@@ -372,7 +372,6 @@ class ComponentStyleBootstrapAndThemeTest {
         val app = Application(initialContent = root, title = "Styled App")
 
         // Default theme mode is AUTO
-        assertEquals(ThemeMode.AUTO, app.getTheme())
         assertEquals(ThemeMode.AUTO, app.getThemeMode())
 
         // Simulate OS theme detection for AUTO mode
@@ -389,12 +388,12 @@ class ComponentStyleBootstrapAndThemeTest {
                 observedResolvedTheme = resolved
             }
 
-            app.setTheme(ThemeMode.LIGHT)
-            assertEquals(ThemeMode.LIGHT, app.getTheme())
+            app.setThemeMode(ThemeMode.LIGHT)
+            assertEquals(ThemeMode.LIGHT, app.getThemeMode())
             assertEquals(ThemeMode.LIGHT, app.getResolvedTheme())
             assertEquals(ThemeMode.LIGHT, observedResolvedTheme)
 
-            app.setTheme(ThemeMode.AUTO)
+            app.setThemeMode(ThemeMode.AUTO)
             SystemThemeDetector.notifySystemThemeChanged(ThemeMode.LIGHT)
             assertEquals(ThemeMode.LIGHT, observedResolvedTheme)
         } finally {

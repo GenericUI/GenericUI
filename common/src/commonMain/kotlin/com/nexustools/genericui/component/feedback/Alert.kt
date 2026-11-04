@@ -22,6 +22,6 @@ class Alert(
         addChild(messageText)
     }
 
-    override fun createNativeImpl(factory: NativeFactory): ContainerNativeImpl<*> =
+    protected override fun createNativeImpl(factory: NativeFactory): ContainerNativeImpl<*> =
         factory.createContainer(if (dismissible) "alert alert-dismissible" else "alert", htmlTag)
 }

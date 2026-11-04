@@ -1,0 +1,519 @@
+/* GenericUI Default Namespace & Layout Stylesheet (genericui.css) */
+html,
+body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+}
+
+genericui\:app {
+    display: block;
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    box-sizing: border-box;
+}
+
+.genericui-window,
+genericui\:window {
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    box-sizing: border-box;
+}
+
+.genericui-window-content-slot {
+    position: relative;
+    flex: 1 1 auto;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    box-sizing: border-box;
+}
+
+genericui\:fragment,
+genericui\:fragment-container {
+    display: block;
+    position: relative;
+    width: 100%;
+    height: 100%;
+    box-sizing: border-box;
+}
+
+/* Scrolling in a GenericUI web app requires an explicit ScrollView for cross-target uniformity */
+genericui\:scrollview,
+genericui\:stepscrollview,
+genericui\:fragment.scroll-fragment,
+genericui\:app.scroll-fragment {
+    display: block;
+    overflow: auto;
+    box-sizing: border-box;
+}
+
+/* Top-level MenuBar & Bootstrap Dropdown Menus inside genericui:app */
+genericui\:app > genericui\:menubar,
+genericui\:menubar {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    flex-wrap: nowrap;
+    position: relative;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 2.25rem;
+    min-height: 2.25rem;
+    padding: 0 0.35rem;
+    margin: 0;
+    z-index: 1050;
+    overflow: visible;
+    background-color: var(--bs-tertiary-bg, #212529);
+    border-bottom: 1px solid var(--bs-border-color, rgba(255, 255, 255, 0.15));
+    user-select: none;
+    box-sizing: border-box;
+}
+
+genericui\:menubar ~ .genericui-window,
+genericui\:menubar ~ genericui\:window {
+    height: calc(100% - 2.25rem) !important;
+}
+
+genericui\:menu {
+    display: inline-block;
+    position: relative;
+    box-sizing: border-box;
+}
+
+genericui\:menu > .genericui-menu-toggle {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.25rem 0.65rem;
+    font-size: 0.875rem;
+    line-height: 1.25;
+    border-radius: 0.25rem;
+    color: var(--bs-body-color, inherit);
+    background: transparent;
+    border: none;
+    text-decoration: none;
+}
+
+genericui\:menu:not(.disabled):not([aria-disabled="true"]) > .genericui-menu-toggle:not(.disabled):not([aria-disabled="true"]):hover,
+genericui\:menu.show > .genericui-menu-toggle,
+genericui\:menu > .genericui-menu-toggle.show {
+    background-color: var(--bs-secondary-bg, rgba(255, 255, 255, 0.1));
+}
+
+genericui\:menu > .dropdown-menu {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    z-index: 1060;
+    min-width: 11rem;
+    padding: 0.35rem 0;
+    margin: 0;
+}
+
+genericui\:menu.dropend > .dropdown-menu,
+genericui\:menu.genericui-submenu > .dropdown-menu {
+    top: 0;
+    left: 100%;
+}
+
+genericui\:menuitem,
+genericui\:checkmenuitem,
+genericui\:radiomenuitem {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1.25rem;
+    padding: 0.35rem 0.85rem;
+    font-size: 0.875rem;
+    cursor: pointer;
+    user-select: none;
+    white-space: nowrap;
+    box-sizing: border-box;
+}
+
+genericui\:checkmenuitem::before,
+genericui\:radiomenuitem::before {
+    content: "";
+    display: inline-block;
+    width: 1rem;
+    margin-right: 0.35rem;
+    text-align: center;
+    font-weight: 700;
+}
+
+genericui\:checkmenuitem[aria-checked="true"]::before {
+    content: "\2713";
+}
+
+genericui\:radiomenuitem[aria-checked="true"]::before {
+    content: "\25CF";
+}
+
+genericui\:menuitem[data-shortcut]::after,
+genericui\:checkmenuitem[data-shortcut]::after,
+genericui\:radiomenuitem[data-shortcut]::after {
+    content: attr(data-shortcut);
+    margin-left: auto;
+    padding-left: 1.5rem;
+    font-size: 0.78em;
+    opacity: 0.65;
+}
+
+hr.dropdown-divider,
+genericui\:menuseparator {
+    display: block;
+    height: 0;
+    margin: 0.35rem 0;
+    overflow: hidden;
+    border-top: 1px solid var(--bs-border-color, rgba(255, 255, 255, 0.15));
+    opacity: 1;
+}
+
+genericui\:contextmenu.dropdown-menu {
+    min-width: 11rem;
+    padding: 0.35rem 0;
+    margin: 0;
+    z-index: 2050;
+}
+
+[data-has-context-menu="true"] {
+    -webkit-touch-callout: none;
+}
+
+/* Block GenericUI Custom Elements */
+genericui\:component,
+genericui\:container,
+genericui\:box,
+genericui\:col,
+genericui\:aspectratiocontainer,
+genericui\:collapsiblepanel,
+genericui\:accordion,
+genericui\:accordionitem,
+genericui\:jumbotron,
+genericui\:well,
+genericui\:listgroupitem,
+genericui\:tabcontainer,
+genericui\:formgroup,
+genericui\:radiogroup,
+genericui\:markdownview,
+genericui\:alert,
+genericui\:toast,
+genericui\:skeletonplaceholder,
+genericui\:modal,
+genericui\:popover,
+genericui\:backdrop,
+genericui\:dialogwindow,
+genericui\:dockpanel,
+genericui\:panelwindow,
+genericui\:categorizedtreeview,
+genericui\:menuseparator,
+genericui\:contextmenu,
+genericui\:mdidesktop {
+    display: block;
+    box-sizing: border-box;
+}
+
+/* Lazy Virtualized Collections (LazyList, LazyColumn, LazyGrid, LazyGridTree, TreeView) */
+genericui\:lazylist,
+genericui\:lazycolumn,
+genericui\:lazygrid,
+genericui\:lazygridtree,
+genericui\:treeview {
+    display: block;
+    flex: 1 1 0%;
+    min-width: 0;
+    min-height: 0;
+    width: 100%;
+    max-width: 100%;
+    max-height: 100%;
+    overflow-y: auto;
+    overflow-x: hidden;
+    box-sizing: border-box;
+}
+
+.lazy-list-viewport,
+.lazy-grid-viewport,
+.tree-view-viewport {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: hidden;
+    box-sizing: border-box;
+}
+
+/* LayeredContainer (genericui:layered-container) */
+genericui\:layered-container,
+.gui-layered-container {
+    display: grid;
+    grid-template-areas: "layer-stack";
+    position: relative;
+    overflow: hidden;
+    box-sizing: border-box;
+}
+
+genericui\:layered-container > *,
+.gui-layered-container > *,
+.gui-layer-item {
+    grid-area: layer-stack;
+    position: relative;
+    min-width: 0;
+    min-height: 0;
+    box-sizing: border-box;
+}
+
+.gui-layer-fill {
+    width: 100%;
+    height: 100%;
+    align-self: stretch;
+    justify-self: stretch;
+}
+
+.gui-layer-float {
+    width: auto;
+    height: auto;
+}
+
+.gui-layer-pass-through {
+    pointer-events: none;
+}
+
+.gui-layer-pass-through a,
+.gui-layer-pass-through button,
+.gui-layer-pass-through input,
+.gui-layer-pass-through select,
+.gui-layer-pass-through textarea,
+.gui-layer-pass-through [role="button"],
+.gui-layer-pass-through .gui-text-bubble {
+    pointer-events: auto;
+}
+
+/* TextBubble (genericui:text-bubble) */
+genericui\:text-bubble,
+.gui-text-bubble {
+    display: inline-flex;
+    flex-direction: column;
+    position: relative;
+    box-sizing: border-box;
+    max-width: 100%;
+}
+
+.gui-text-bubble-label {
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+}
+
+.gui-text-bubble-pointer-bottom::after,
+.gui-text-bubble-pointer-top::after,
+.gui-text-bubble-pointer-left::after,
+.gui-text-bubble-pointer-right::after {
+    content: "";
+    position: absolute;
+    width: 0;
+    height: 0;
+    pointer-events: none;
+}
+
+.gui-text-bubble-pointer-bottom::after {
+    top: 100%;
+    left: var(--gui-bubble-pointer-offset, 50%);
+    transform: translateX(-50%);
+    border-left: var(--gui-bubble-pointer-half-base, 7px) solid transparent;
+    border-right: var(--gui-bubble-pointer-half-base, 7px) solid transparent;
+    border-top: var(--gui-bubble-pointer-length, 8px) solid var(--gui-bubble-bg, #212529);
+}
+
+.gui-text-bubble-pointer-top::after {
+    bottom: 100%;
+    left: var(--gui-bubble-pointer-offset, 50%);
+    transform: translateX(-50%);
+    border-left: var(--gui-bubble-pointer-half-base, 7px) solid transparent;
+    border-right: var(--gui-bubble-pointer-half-base, 7px) solid transparent;
+    border-bottom: var(--gui-bubble-pointer-length, 8px) solid var(--gui-bubble-bg, #212529);
+}
+
+.gui-text-bubble-pointer-left::after {
+    right: 100%;
+    top: var(--gui-bubble-pointer-offset, 50%);
+    transform: translateY(-50%);
+    border-top: var(--gui-bubble-pointer-half-base, 7px) solid transparent;
+    border-bottom: var(--gui-bubble-pointer-half-base, 7px) solid transparent;
+    border-right: var(--gui-bubble-pointer-length, 8px) solid var(--gui-bubble-bg, #212529);
+}
+
+.gui-text-bubble-pointer-right::after {
+    left: 100%;
+    top: var(--gui-bubble-pointer-offset, 50%);
+    transform: translateY(-50%);
+    border-top: var(--gui-bubble-pointer-half-base, 7px) solid transparent;
+    border-bottom: var(--gui-bubble-pointer-half-base, 7px) solid transparent;
+    border-left: var(--gui-bubble-pointer-length, 8px) solid var(--gui-bubble-bg, #212529);
+}
+
+.gui-text-bubble-pointer-none::after {
+    display: none;
+}
+
+/* Flex GenericUI Custom Elements */
+genericui\:splitpane,
+genericui\:titlebar,
+genericui\:statusbar,
+genericui\:mdicontainer,
+genericui\:mdiwindow,
+genericui\:dockworkspace,
+genericui\:dockarea,
+genericui\:dockgroup,
+genericui\:row,
+genericui\:flexbox,
+genericui\:hstack,
+genericui\:vstack,
+genericui\:lazyrow,
+genericui\:card,
+genericui\:listgroup,
+genericui\:navbar,
+genericui\:nav,
+genericui\:sidenav,
+genericui\:bottomnavigationbar,
+genericui\:breadcrumb,
+genericui\:pagination,
+genericui\:stepper,
+genericui\:toolbar,
+genericui\:inputgroup,
+genericui\:compoundunitinput,
+genericui\:filedropzone,
+genericui\:masterdetailstepselect,
+genericui\:horizontalcarouselselector,
+genericui\:banner,
+genericui\:toastcontainer,
+genericui\:progressbar,
+genericui\:drawer,
+genericui\:bottomsheet {
+    display: flex;
+    box-sizing: border-box;
+}
+
+/* Inline-Flex GenericUI Custom Elements */
+genericui\:toolpaletteitem,
+genericui\:colorswatchbox,
+genericui\:breadcrumbitem,
+genericui\:buttongroup,
+genericui\:avatar {
+    display: inline-flex;
+    box-sizing: border-box;
+}
+
+/* Inline-Block GenericUI Custom Elements */
+genericui\:tab,
+genericui\:closeabletab,
+genericui\:pinnedtab,
+genericui\:badgetab,
+genericui\:editabletab,
+genericui\:dropdown,
+genericui\:spinner,
+genericui\:tooltip {
+    display: inline-block;
+    box-sizing: border-box;
+}
+
+/* Grid GenericUI Custom Elements */
+genericui\:toolpalette {
+    display: grid;
+    box-sizing: border-box;
+}
+
+/* Splash Screen (#genericui-splash) */
+#genericui-splash,
+.genericui-splash {
+    z-index: 2000;
+    transition: opacity 0.35s ease, visibility 0.35s ease;
+}
+
+#genericui-splash.genericui-splash-hidden,
+.genericui-splash.genericui-splash-hidden {
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+}
+
+.genericui-splash-content {
+    max-width: 420px;
+}
+
+.genericui-splash-icon {
+    object-fit: contain;
+}
+
+#genericui-splash-status,
+.genericui-splash-status {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+}
+
+.genericui-splash-status-icon {
+    flex: 0 0 auto;
+}
+
+.genericui-splash-status-icon.bi {
+    font-size: 1rem;
+    line-height: 1;
+}
+
+#genericui-splash-progress,
+.genericui-splash-progress {
+    height: 8px;
+}
+
+#genericui-splash-progress-bar {
+    width: 0%;
+}
+
+#genericui-splash-error-stack,
+.genericui-splash-error-stack {
+    max-height: 240px;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+/* Splash Error Alert & Stacktrace <pre> Text Selection */
+#genericui-splash-error,
+#genericui-splash-error *,
+.genericui-splash-error,
+.genericui-splash-error * {
+    -webkit-user-select: text !important;
+    -moz-user-select: text !important;
+    user-select: text !important;
+    cursor: text;
+}
+
+/* Fit-to-content DialogWindow default sizing */
+genericui\:dialogwindow > .modal-dialog {
+    width: fit-content;
+    max-width: calc(100vw - 2rem);
+}
+
+genericui\:dialogwindow > .modal-dialog > .modal-content {
+    width: fit-content;
+    min-width: 100%;
+    max-width: calc(100vw - 2rem);
+    height: auto;
+    max-height: calc(100dvh - 2rem);
+}
+
+/* Disabled component interaction lock */
+.disabled,
+[disabled],
+[aria-disabled="true"] {
+    pointer-events: none;
+    cursor: default;
+}

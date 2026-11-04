@@ -22,7 +22,7 @@ open class Container(
         this.htmlTag = tagName
     }
 
-    override fun createNativeImpl(factory: NativeFactory): ContainerNativeImpl<*> =
+    protected override fun createNativeImpl(factory: NativeFactory): ContainerNativeImpl<*> =
         factory.createContainer(componentClassPrefix, htmlTag)
 
     companion object {

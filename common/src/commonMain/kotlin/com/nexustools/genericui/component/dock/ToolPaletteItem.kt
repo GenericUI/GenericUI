@@ -1,19 +1,19 @@
 package com.nexustools.genericui.component.dock
 
 import com.nexustools.genericui.event.KeyShortcut
-import com.nexustools.genericui.res.ResourceId
+import com.nexustools.genericui.resources.ResourceID
 
 /**
  * Descriptor for a selectable tool inside a [ToolPalette] (e.g. Brush, Bezier Pen, Move, Eraser).
  *
  * Supports both string/SVG icon identifiers ([iconSvgOrPath]) and typed `R.drawable.*` / `RC.drawable.*`
- * [ResourceId]s via the secondary constructor.
+ * [ResourceID]s via the secondary constructor.
  */
 data class ToolPaletteItem(
     val id: String,
     val name: String,
     val iconSvgOrPath: String,
-    val tooltip: String = name,
+    val tooltip: String? = null,
     val shortcut: KeyShortcut? = null,
     val category: String = "Default"
 ) {
@@ -22,8 +22,8 @@ data class ToolPaletteItem(
     constructor(
         id: String,
         name: String,
-        iconRes: ResourceId,
-        tooltip: String = name,
+        iconRes: ResourceID,
+        tooltip: String? = null,
         shortcut: KeyShortcut? = null,
         category: String = "Default"
     ) : this(

@@ -57,12 +57,12 @@ import com.nexustools.genericui.component.form.TextField
 import com.nexustools.genericui.component.form.TimePicker
 import com.nexustools.genericui.component.fragment.Fragment
 import com.nexustools.genericui.component.layout.Box
-import com.nexustools.genericui.component.layout.Col
+import com.nexustools.genericui.component.layout.Column
+import com.nexustools.genericui.component.layout.ColumnContainer
 import com.nexustools.genericui.component.layout.Container
 import com.nexustools.genericui.component.layout.Divider
 import com.nexustools.genericui.component.layout.FlexBox
 import com.nexustools.genericui.component.layout.HStack
-import com.nexustools.genericui.component.layout.Row
 import com.nexustools.genericui.component.layout.ScrollView
 import com.nexustools.genericui.component.layout.Spacer
 import com.nexustools.genericui.component.layout.VStack
@@ -210,7 +210,7 @@ class HtmlTagAndCompatTest {
         assertEquals("hr", Hr().htmlTag)
         assertEquals("br", Br().htmlTag)
         assertEquals("hr", Divider().htmlTag)
-        assertEquals("br", Spacer().htmlTag)
+        assertEquals("genericui:spacer", Spacer().htmlTag)
         assertEquals("img", ImageView().htmlTag)
         assertEquals("i", Icon("bi-check").htmlTag)
         assertEquals("svg", VectorGraphicView().htmlTag)
@@ -240,8 +240,8 @@ class HtmlTagAndCompatTest {
     fun testCustomGenericUiNamespacedTags() {
         assertEquals("genericui:container", Container().htmlTag)
         assertEquals("genericui:box", Box().htmlTag)
-        assertEquals("genericui:row", Row().htmlTag)
-        assertEquals("genericui:col", Col().htmlTag)
+        assertEquals("genericui:row", ColumnContainer().htmlTag)
+        assertEquals("genericui:col", Column().htmlTag)
         assertEquals("genericui:flexbox", FlexBox().htmlTag)
         assertEquals("genericui:hstack", HStack().htmlTag)
         assertEquals("genericui:vstack", VStack().htmlTag)

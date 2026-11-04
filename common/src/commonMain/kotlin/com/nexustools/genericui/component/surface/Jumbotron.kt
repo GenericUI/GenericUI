@@ -12,6 +12,6 @@ class Jumbotron : AbstractContainer() {
         htmlTag = "genericui:jumbotron"
     }
 
-    override fun createNativeImpl(factory: NativeFactory): ContainerNativeImpl<*> =
+    protected override fun createNativeImpl(factory: NativeFactory): ContainerNativeImpl<*> =
         factory.createContainer("jumbotron p-5 mb-4 rounded-3", htmlTag)
 }

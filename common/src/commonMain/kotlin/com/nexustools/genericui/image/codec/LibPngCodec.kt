@@ -5,7 +5,7 @@ import com.nexustools.genericui.image.ImageColorSpace
 import com.nexustools.genericui.image.ImageFormat
 import com.nexustools.genericui.image.ImageMetadata
 import com.nexustools.genericui.image.PixelFormat
-import com.nexustools.genericui.style.RgbaColor
+import com.nexustools.genericui.style.color.RgbaColor
 
 /**
  * Pure-Kotlin Multiplatform PNG (`IHDR`, `PLTE`, `tRNS`, `pHYs`, `acTL`, `IDAT`, `IEND`) decoder and encoder

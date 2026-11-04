@@ -1,6 +1,7 @@
 package com.nexustools.genericui.component.layout
 
 import com.nexustools.genericui.core.AbstractComponent
+import com.nexustools.genericui.core.AbstractContainer
 import com.nexustools.genericui.enums.bootstrap.DisplayMode
 import com.nexustools.genericui.enums.bootstrap.FlexDirection
 import com.nexustools.genericui.window.WindowConfiguration
@@ -13,13 +14,21 @@ import kotlin.math.min
  * and folds into a single-pane drill-down stack on small-screen mobile / narrow web (`< 600dp`).
  */
 open class ResponsiveMasterDetailLayout(
-    var breakpointSpec: HybridBreakpointSpec = HybridBreakpointSpec.DEFAULT
-) : Container("genericui:responsivemasterdetaillayout", "gui-responsive-master-detail") {
+    host: AbstractContainer = Container("genericui:responsivemasterdetaillayout", "gui-responsive-master-detail"),
+    breakpointSpec: HybridBreakpointSpec = HybridBreakpointSpec.DEFAULT
+) : Layout<ResponsiveMasterDetailLayoutImpl>(host, breakpointSpec) {
 
-    val paneRow: Row = Row()
-    val masterHost: Col = Col(span = 4, weight = 1.0f)
-    val detailHost: Col = Col(span = 8, weight = 2.0f)
-    val inspectorHost: Col = Col(span = 3, weight = 1.0f)
+    constructor(
+        breakpointSpec: HybridBreakpointSpec
+    ) : this(
+        host = Container("genericui:responsivemasterdetaillayout", "gui-responsive-master-detail"),
+        breakpointSpec = breakpointSpec
+    )
+
+    val paneRow: ColumnContainer = ColumnContainer()
+    val masterHost: Column = Column(span = 4)
+    val detailHost: Column = Column(span = 8)
+    val inspectorHost: Column = Column(span = 3)
 
     private var masterComponent: AbstractComponent? = null
     private var detailComponent: AbstractComponent? = null
@@ -50,25 +59,40 @@ open class ResponsiveMasterDetailLayout(
     var isInspectorOpen: Boolean = false
         set(value) {
             field = value
-            syncPaneLayout()
+            impl.syncPanes(lastViewportWidthDp.toFloat(), lastViewportHeightDp.toFloat())
         }
 
     init {
-        htmlTag = "genericui:responsivemasterdetaillayout"
-        setDisplay(DisplayMode.FLEX)
-        setFlexDirection(FlexDirection.COLUMN)
+        ensureMounted()
+    }
+
+    override fun createImpl(factory: LayoutFactory): ResponsiveMasterDetailLayoutImpl =
+        factory.createResponsiveMasterDetailLayout(this)
+
+    override fun onMount() {
+        host.addClass("gui-responsive-master-detail")
+        host.setDisplay(DisplayMode.FLEX)
+        host.setFlexDirection(FlexDirection.COLUMN)
 
         masterHost.addClass("gui-master-pane")
         detailHost.addClass("gui-detail-pane")
         inspectorHost.addClass("gui-inspector-pane")
         inspectorHost.isVisible = false
 
-        paneRow.addChild(masterHost)
-        paneRow.addChild(detailHost)
-        paneRow.addChild(inspectorHost)
-        addChild(paneRow)
+        if (!paneRow.children.contains(masterHost)) {
+            paneRow.addChild(masterHost)
+        }
+        if (!paneRow.children.contains(detailHost)) {
+            paneRow.addChild(detailHost)
+        }
+        if (!paneRow.children.contains(inspectorHost)) {
+            paneRow.addChild(inspectorHost)
+        }
+        if (!host.children.contains(paneRow)) {
+            host.addChild(paneRow)
+        }
 
-        syncPaneLayout()
+        impl.syncPanes(lastViewportWidthDp.toFloat(), lastViewportHeightDp.toFloat())
     }
 
     /**
@@ -85,7 +109,7 @@ open class ResponsiveMasterDetailLayout(
         masterHost.widthPx = widthPx
         masterHost.clearChildren()
         masterHost.addChild(component)
-        syncPaneLayout()
+        impl.syncPanes(lastViewportWidthDp.toFloat(), lastViewportHeightDp.toFloat())
     }
 
     /**
@@ -99,7 +123,7 @@ open class ResponsiveMasterDetailLayout(
         detailColMd = colMd.coerceIn(1, 12)
         detailHost.clearChildren()
         detailHost.addChild(component)
-        syncPaneLayout()
+        impl.syncPanes(lastViewportWidthDp.toFloat(), lastViewportHeightDp.toFloat())
     }
 
     /**
@@ -122,7 +146,7 @@ open class ResponsiveMasterDetailLayout(
         } else {
             isInspectorOpen = false
         }
-        syncPaneLayout()
+        impl.syncPanes(lastViewportWidthDp.toFloat(), lastViewportHeightDp.toFloat())
     }
 
     fun getMasterPane(): AbstractComponent? = masterComponent
@@ -138,7 +162,7 @@ open class ResponsiveMasterDetailLayout(
     fun openDetailInCompact(): Boolean {
         if (detailComponent == null) return false
         isDetailShowingInCompact = true
-        syncPaneLayout()
+        impl.syncPanes(lastViewportWidthDp.toFloat(), lastViewportHeightDp.toFloat())
         return true
     }
 
@@ -149,7 +173,7 @@ open class ResponsiveMasterDetailLayout(
     fun navigateBackToMaster(): Boolean {
         if (!isSideBySideMode && isDetailShowingInCompact) {
             isDetailShowingInCompact = false
-            syncPaneLayout()
+            impl.syncPanes(lastViewportWidthDp.toFloat(), lastViewportHeightDp.toFloat())
             return true
         }
         return false
@@ -167,16 +191,7 @@ open class ResponsiveMasterDetailLayout(
         lastViewportHeightDp = viewportHeightDp
         lastSmallestScreenWidthDp = smallestScreenWidthDp
 
-        val backend = resolveActiveFactory()?.backendTarget
-        val smallMobilePhone = smallestScreenWidthDp < breakpointSpec.tabletSmallestWidthDp &&
-            viewportHeightDp < breakpointSpec.tabletSmallestWidthDp
-        isSideBySideMode = if (backend != null && backend.isMobile) {
-            breakpointSpec.isTablet(smallestScreenWidthDp)
-        } else {
-            viewportWidthDp >= breakpointSpec.mediumBreakpointDp && !smallMobilePhone
-        }
-
-        syncPaneLayout()
+        impl.syncPanes(viewportWidthDp.toFloat(), viewportHeightDp.toFloat())
     }
 
     /**
@@ -192,35 +207,70 @@ open class ResponsiveMasterDetailLayout(
         )
     }
 
-    private fun syncPaneLayout() {
+    override fun onConfigurationChanged(config: WindowConfiguration) {
+        super.onConfigurationChanged(config)
+        applyWindowConfiguration(config)
+    }
+
+    override fun onResize(viewportWidth: Int, viewportHeight: Int) {
+        super.onResize(viewportWidth, viewportHeight)
+        updateViewport(viewportWidth, viewportHeight)
+    }
+
+    /**
+     * Applies the evaluated pane visibility and Bootstrap column classes to [masterHost], [detailHost], and [inspectorHost].
+     */
+    fun applyPaneLayout(
+        viewportWidthDp: Int = lastViewportWidthDp,
+        viewportHeightDp: Int = lastViewportHeightDp
+    ) {
+        lastViewportWidthDp = viewportWidthDp
+        lastViewportHeightDp = viewportHeightDp
+
+        val backend = host.resolveActiveFactory()?.backendTarget
+        val smallMobilePhone = impl.supportsDynamicViewportSwitching &&
+            lastSmallestScreenWidthDp < breakpointSpec.tabletSmallestWidthDp &&
+            viewportHeightDp < breakpointSpec.tabletSmallestWidthDp
+        isSideBySideMode = if (backend != null && backend.isMobile) {
+            breakpointSpec.isTablet(lastSmallestScreenWidthDp)
+        } else {
+            viewportWidthDp >= breakpointSpec.mediumBreakpointDp && !smallMobilePhone
+        }
+
         if (isSideBySideMode) {
-            addClass("gui-master-detail-side-by-side")
-            removeClass("gui-master-detail-compact")
+            host.addClass("gui-master-detail-side-by-side")
+            host.removeClass("gui-master-detail-compact")
 
             masterHost.isVisible = true
             detailHost.isVisible = true
             val showInlineInspector = isInspectorSideBySide
             inspectorHost.isVisible = showInlineInspector
 
+            masterHost.span = masterColMd
             masterHost.setClass("col-$masterColMd gui-master-pane")
             val effectiveDetailSpan = if (showInlineInspector) {
                 (12 - masterColMd - inspectorColXl).coerceAtLeast(1)
             } else {
                 detailColMd
             }
+            detailHost.span = effectiveDetailSpan
             detailHost.setClass("col-$effectiveDetailSpan gui-detail-pane")
+            inspectorHost.span = inspectorColXl
             inspectorHost.setClass("col-$inspectorColXl gui-inspector-pane")
         } else {
-            addClass("gui-master-detail-compact")
-            removeClass("gui-master-detail-side-by-side")
+            host.addClass("gui-master-detail-compact")
+            host.removeClass("gui-master-detail-side-by-side")
 
             val showDetail = isDetailShowingInCompact && detailComponent != null
             masterHost.isVisible = !showDetail
             detailHost.isVisible = showDetail
             inspectorHost.isVisible = false
 
+            masterHost.span = 12
             masterHost.setClass("col-12 gui-master-pane")
+            detailHost.span = 12
             detailHost.setClass("col-12 gui-detail-pane")
+            inspectorHost.span = 12
             inspectorHost.setClass("col-12 gui-inspector-pane")
         }
     }

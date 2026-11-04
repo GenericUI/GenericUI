@@ -1,7 +1,7 @@
 package com.nexustools.genericui.style.css
 
-import com.nexustools.genericui.style.RgbaColor
-import com.nexustools.genericui.style.gradient.Gradient
+import com.nexustools.genericui.style.color.RgbaColor
+import com.nexustools.genericui.style.gradient.Gradient.Gradient
 
 /**
  * Resolved style properties computed from Bootstrap Enums, custom CSS classes, SASS stylesheets,
@@ -55,6 +55,7 @@ data class ComputedStyle(
     val minHeight: String? = null,
     val maxWidth: String? = null,
     val maxHeight: String? = null,
+    val filter: CssFilter? = null,
     val hoverStyle: ComputedStyle? = null,
     val focusStyle: ComputedStyle? = null,
     val activeStyle: ComputedStyle? = null,
@@ -77,14 +78,16 @@ data class ComputedStyle(
         if (checked && checkedStyle != null) {
             resolved = resolved.mergeWith(checkedStyle)
         }
-        if (focused && focusStyle != null) {
-            resolved = resolved.mergeWith(focusStyle)
-        }
-        if (hovered && hoverStyle != null) {
-            resolved = resolved.mergeWith(hoverStyle)
-        }
-        if (active && activeStyle != null) {
-            resolved = resolved.mergeWith(activeStyle)
+        if (enabled) {
+            if (focused && focusStyle != null) {
+                resolved = resolved.mergeWith(focusStyle)
+            }
+            if (hovered && hoverStyle != null) {
+                resolved = resolved.mergeWith(hoverStyle)
+            }
+            if (active && activeStyle != null) {
+                resolved = resolved.mergeWith(activeStyle)
+            }
         }
         if (!enabled && disabledStyle != null) {
             resolved = resolved.mergeWith(disabledStyle)
@@ -150,6 +153,7 @@ data class ComputedStyle(
             minHeight = other.minHeight ?: minHeight,
             maxWidth = other.maxWidth ?: maxWidth,
             maxHeight = other.maxHeight ?: maxHeight,
+            filter = other.filter ?: filter,
             hoverStyle = other.hoverStyle ?: hoverStyle,
             focusStyle = other.focusStyle ?: focusStyle,
             activeStyle = other.activeStyle ?: activeStyle,

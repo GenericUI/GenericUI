@@ -13,6 +13,6 @@ class InputGroup : AbstractContainer() {
         htmlTag = "genericui:inputgroup"
     }
 
-    override fun createNativeImpl(factory: NativeFactory): ContainerNativeImpl<*> =
+    protected override fun createNativeImpl(factory: NativeFactory): ContainerNativeImpl<*> =
         factory.createContainer("input-group", htmlTag)
 }

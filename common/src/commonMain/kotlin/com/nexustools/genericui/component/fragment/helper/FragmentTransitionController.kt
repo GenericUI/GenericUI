@@ -2,17 +2,23 @@ package com.nexustools.genericui.component.fragment.helper
 
 import com.nexustools.genericui.component.fragment.Fragment
 import com.nexustools.genericui.component.layout.Container
+import com.nexustools.genericui.component.layout.LayerConstraint
+import com.nexustools.genericui.component.layout.LayeredContainer
+import com.nexustools.genericui.component.layout.LayeredLayout
 import com.nexustools.genericui.core.Disposable
 import com.nexustools.genericui.enums.fragment.FragmentState
 
 /**
  * Coordinates enter and exit transitions between outgoing and incoming [Fragment]s
- * inside [FragmentHostSystem] using `:common`'s lifecycle-scoped `setTimeout` / `clearTimeout`,
+ * inside [FragmentHostSystem] using [LayeredLayout] (so outgoing and incoming fragments
+ * overlap properly in the stage container) and `:common`'s lifecycle-scoped `setTimeout` / `clearTimeout`,
  * re-applying CSS stylesheets at each transition phase (`.created`, active, `.destroyed`)
  * and cleaning up outgoing fragments when their exit timer completes or is superseded.
  */
 class FragmentTransitionController(
-    val stageContainer: Container
+    val stageContainer: Container,
+    val stageLayout: LayeredLayout = (stageContainer as? LayeredContainer)?.layout
+        ?: LayeredLayout(stageContainer).also { it.ensureMounted() }
 ) : Disposable {
 
     private class ExitingEntry(
@@ -80,6 +86,10 @@ class FragmentTransitionController(
                 spec.onExitComplete?.invoke(outgoing) ?: outgoing.onFinishExitTransition()
                 finalizeOutgoing(outgoing, destroyOutgoing)
             } else {
+                stageLayout.setLayerConstraint(
+                    outgoing,
+                    LayerConstraint.fill(zIndex = 0, passThroughPointerEvents = true)
+                )
                 val exitBeginHook = spec.onExitBegin
                 if (exitBeginHook != null) {
                     exitBeginHook(outgoing, spec.durationMs)
@@ -133,6 +143,10 @@ class FragmentTransitionController(
             incoming.removeClass("destroyed")
             incoming.pointerEventsEnabled = true
             mountIncoming(incoming)
+            stageLayout.setLayerConstraint(
+                incoming,
+                LayerConstraint.fill(zIndex = 5, passThroughPointerEvents = false)
+            )
             applyStylesTo(incoming)
             onIncomingActivated(incoming)
         } else {
@@ -148,6 +162,10 @@ class FragmentTransitionController(
             }
 
             mountIncoming(incoming)
+            stageLayout.setLayerConstraint(
+                incoming,
+                LayerConstraint.fill(zIndex = 0, passThroughPointerEvents = true)
+            )
             applyStylesTo(incoming)
 
             if (incoming.hasClass("created")) {
@@ -163,6 +181,10 @@ class FragmentTransitionController(
                 pendingEnterFragment = null
                 pendingEnterAction = null
                 if (!incoming.hasClass("destroyed") && incoming.state != FragmentState.DESTROYED) {
+                    stageLayout.setLayerConstraint(
+                        incoming,
+                        LayerConstraint.fill(zIndex = 5, passThroughPointerEvents = false)
+                    )
                     val activateHook = spec.onEnterActivate
                     if (activateHook != null) {
                         activateHook(incoming, spec.durationMs)

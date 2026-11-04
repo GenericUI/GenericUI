@@ -1,5 +1,6 @@
 package com.nexustools.genericui.component.lazy
 
+import com.nexustools.genericui.component.shell.Application
 import com.nexustools.genericui.core.AbstractComponent
 import com.nexustools.genericui.core.AbstractContainer
 import com.nexustools.genericui.core.NativeFactory
@@ -32,6 +33,7 @@ open class LazyGrid(
     val viewportTracker: LazyViewportTracker = LazyViewportTracker(overscanRows)
 
     private val activeHolders = linkedMapOf<Int, ViewHolder>()
+    private var isRefreshingViewport: Boolean = false
 
     var adapter: LazyAdapter<ViewHolder>? = null
         set(value) {
@@ -50,6 +52,9 @@ open class LazyGrid(
         private set
 
     var viewportHeightPx: Float = 600f
+        private set
+
+    var activeViewportWindow: LazyViewportWindow = LazyViewportWindow.EMPTY
         private set
 
     val loadedItemIndices: Set<Int>
@@ -87,25 +92,63 @@ open class LazyGrid(
     }
 
     fun refreshLazyViewport(): LazyViewportWindow {
-        val total = adapter?.getItemCount() ?: itemCount
-        val window = viewportTracker.updateViewport(
-            scrollOffsetPx = scrollOffsetPx,
-            viewportExtentPx = viewportHeightPx,
-            estimatedItemExtentPx = estimatedRowHeightPx,
-            totalItems = total,
-            columns = columns,
-            onUnloadIndex = { idx -> unloadItemAtIndex(idx) },
-            onLoadIndex = { idx -> loadItemAtIndex(idx) }
-        )
+        if (isRefreshingViewport) return activeViewportWindow
+        isRefreshingViewport = true
+        try {
+            val total = adapter?.getItemCount() ?: itemCount
+            val window = viewportTracker.updateViewport(
+                scrollOffsetPx = scrollOffsetPx,
+                viewportExtentPx = viewportHeightPx,
+                estimatedItemExtentPx = estimatedRowHeightPx,
+                totalItems = total,
+                columns = columns,
+                onUnloadIndex = { idx -> unloadItemAtIndex(idx) },
+                onLoadIndex = { idx -> loadItemAtIndex(idx) }
+            )
+            activeViewportWindow = window
 
-        val impl = typedNative<LazyGridNativeImpl<*>>()
-        if (impl != null) {
-            impl.setItemCount(total) { index ->
-                val holder = activeHolders[index] ?: bindHolderForIndex(index)
-                holder.itemView.ensureNativeImpl() ?: resolveActiveFactory()!!.createContainer("lazy-item")
+            if (activeHolders.size > 1) {
+                val sortedEntries = activeHolders.entries.sortedBy { it.key }.map { it.key to it.value }
+                var orderChanged = false
+                var idx = 0
+                for (key in activeHolders.keys) {
+                    if (key != sortedEntries[idx].first) {
+                        orderChanged = true
+                        break
+                    }
+                    idx++
+                }
+                if (orderChanged) {
+                    activeHolders.clear()
+                    for ((k, v) in sortedEntries) {
+                        activeHolders[k] = v
+                    }
+                    reorderChildrenInMemory(sortedEntries.map { it.second.itemView })
+                }
             }
+
+            val impl = typedNative<LazyGridNativeImpl<*>>()
+            if (impl != null) {
+                impl.setEstimatedRowExtent(estimatedRowHeightPx, viewportTracker.overscanItems)
+                impl.updateViewportMetrics(
+                    scrollOffsetPx = scrollOffsetPx,
+                    viewportExtentPx = viewportHeightPx,
+                    firstActiveIndex = window.firstActiveIndex,
+                    lastActiveIndex = window.lastActiveIndex,
+                    leadingSpacerPx = window.leadingSpacerPx,
+                    trailingSpacerPx = window.trailingSpacerPx,
+                    totalContentExtentPx = window.totalContentExtentPx
+                )
+                impl.setItemCount(total) { index ->
+                    val holder = activeHolders[index] ?: bindHolderForIndex(index)
+                    holder.itemView.ensureNativeImpl()
+                        ?: (resolveActiveFactory() ?: com.nexustools.genericui.core.GenericUI.activeFactory)!!.createContainer("lazy-item")
+                }
+            }
+            return window
+        } finally {
+            isRefreshingViewport = false
         }
-        return window
     }
 
     private fun loadItemAtIndex(index: Int) {
@@ -129,8 +172,15 @@ open class LazyGrid(
                 it.isBound = true
             }
         }
+        holder.itemView.setAttribute("data-lazy-index", index.toString())
+        val insertPos = activeHolders.keys.count { it < index }
         activeHolders[index] = holder
-        addChild(holder.itemView)
+        addChild(holder.itemView, insertPos)
+        if ((resolveActiveFactory() ?: com.nexustools.genericui.core.GenericUI.activeFactory)?.isStyleSheetEngineEnabled != false) {
+            Application.current?.getStyleSheets()?.forEach { sheet ->
+                sheet.styleSheet.applyToTree(holder.itemView)
+            }
+        }
         return holder
     }
 
@@ -139,7 +189,11 @@ open class LazyGrid(
         adapter?.onUnbindViewHolder(holder, index)
         itemUnloader?.invoke(index, holder.itemView)
         removeChild(holder.itemView)
-        viewHolderPool.release(holder)
+        if (adapter != null) {
+            viewHolderPool.release(holder)
+        } else {
+            holder.itemView.dispose()
+        }
     }
 
     fun unloadAllVisibleItems() {
@@ -150,13 +204,34 @@ open class LazyGrid(
         }
     }
 
-    override fun createNativeImpl(factory: NativeFactory): LazyGridNativeImpl<*> =
+    protected override fun createNativeImpl(factory: NativeFactory): LazyGridNativeImpl<*> =
         factory.createLazyGrid()
+
+    override fun resolveActiveFactory(): NativeFactory? {
+        if (!isVisible) return null
+        return super.resolveActiveFactory()
+            ?: if (nativeImpl != null) com.nexustools.genericui.core.GenericUI.activeFactory else null
+    }
+
+    internal override fun ensureNativeImpl(): com.nexustools.genericui.core.NativeImpl<*>? {
+        val wasAlreadyCreated = (nativeImpl != null)
+        val impl = super.ensureNativeImpl() ?: return null
+        if (wasAlreadyCreated) {
+            refreshLazyViewport()
+        }
+        return impl
+    }
 
     override fun syncStateToNative() {
         super.syncStateToNative()
         val impl = typedNative<LazyGridNativeImpl<*>>() ?: return
         impl.setColumns(columns)
+        impl.setEstimatedRowExtent(estimatedRowHeightPx, viewportTracker.overscanItems)
+        impl.setOnViewportScrollChanged { scrollPx, extentPx ->
+            if (!isRefreshingViewport) {
+                onViewportChanged(scrollPx, extentPx)
+            }
+        }
         refreshLazyViewport()
     }
 

@@ -3,6 +3,9 @@ package com.nexustools.genericui.util
 import com.nexustools.genericui.core.GenericUI
 import com.nexustools.genericui.core.NativeFactory
 import com.nexustools.genericui.image.ImageFormat
+import com.nexustools.genericui.io.ByteBuffer
+import com.nexustools.genericui.io.Readable
+import com.nexustools.genericui.io.Writable
 import com.nexustools.genericui.nativeimpl.system.UserDirectoryNativeImpl
 
 /**
@@ -17,18 +20,24 @@ import com.nexustools.genericui.nativeimpl.system.UserDirectoryNativeImpl
  * - **Swing (`:desktop:swing`)**: Host OS user cache directory (`%LOCALAPPDATA%\<appName>\Cache`, `~/Library/Caches/<appName>`, or `~/.cache/<appName>`)
  * - **Android (`:mobile:android`)**: `<context.cacheDir>/<appName>`
  * - **iOS (`:mobile:ios`)**: `<Home>/Library/Caches/<appName>`
- * - **Web (`:web`)**: `window.localStorage` namespace `genericui:cache:<appName>`
+ * - **Web (`:web`)**: Browser `window.indexedDB` store `"cache"`
  */
-class CacheDirectory(
-    appName: String = GenericUI.applicationName,
-    subdirectory: String = "",
-    factory: NativeFactory? = null,
-    nativeImplOverride: UserDirectoryNativeImpl? = null
+class CacheDirectory internal constructor(
+    appName: String,
+    subdirectory: String,
+    factory: NativeFactory?,
+    nativeImplOverride: UserDirectoryNativeImpl?
 ) : ConfigDirectory(appName, subdirectory, factory, nativeImplOverride) {
+
+    constructor(
+        appName: String = GenericUI.applicationName,
+        subdirectory: String = "",
+        factory: NativeFactory? = null
+    ) : this(appName, subdirectory, factory, null)
 
     override val fallbackScheme: String = "cache"
 
-    override fun createBackendImpl(activeFactory: NativeFactory): UserDirectoryNativeImpl =
+    protected override fun createBackendImpl(activeFactory: NativeFactory): UserDirectoryNativeImpl =
         activeFactory.createCacheDirectory(appName, subdirectory)
 
     /**
@@ -56,6 +65,59 @@ class CacheDirectory(
     }
 
     /**
+     * Asynchronously reads cached [ByteBuffer] for [urlOrKey], checking both [defaultExtension] and common image extensions.
+     */
+    suspend fun getCached(urlOrKey: String, defaultExtension: String = ".bin"): ByteBuffer? {
+        for (candidate in candidateFileNames(urlOrKey, defaultExtension)) {
+            if (exists(candidate)) {
+                val buf = read(candidate)
+                if (buf != null) return buf
+            }
+        }
+        return null
+    }
+
+    /**
+     * Asynchronously writes [buffer] into the cache directory for [urlOrKey] and returns the resolved file path.
+     */
+    suspend fun putCached(
+        urlOrKey: String,
+        buffer: ByteBuffer,
+        defaultExtension: String = ".bin"
+    ): String {
+        val bytes = buffer.toByteArray()
+        val detectedExt = detectExtensionFromBytes(bytes) ?: defaultExtension
+        val fileName = cacheFileNameForKey(urlOrKey, detectedExt)
+        write(fileName, buffer, append = false)
+        return resolvePath(fileName)
+    }
+
+    /**
+     * Asynchronously opens a [Readable] stream for the cached entry matching [urlOrKey], or returns `null` if not cached.
+     */
+    suspend fun openCachedReadable(urlOrKey: String, defaultExtension: String = ".bin"): Readable? {
+        for (candidate in candidateFileNames(urlOrKey, defaultExtension)) {
+            if (exists(candidate)) {
+                val stream = openReadable(candidate)
+                if (stream != null) return stream
+            }
+        }
+        return null
+    }
+
+    /**
+     * Asynchronously opens a [Writable] stream for caching [urlOrKey].
+     */
+    suspend fun openCachedWritable(
+        urlOrKey: String,
+        defaultExtension: String = ".bin",
+        append: Boolean = false
+    ): Writable {
+        val fileName = cacheFileNameForKey(urlOrKey, defaultExtension)
+        return openWritable(fileName, append)
+    }
+
+    /**
      * Writes [bytes] into the cache directory for [urlOrKey], automatically detecting the image extension
      * from the magic header when [defaultExtension] is `".bin"`, and returns the resolved file path.
      */
@@ -72,8 +134,10 @@ class CacheDirectory(
      */
     fun getCachedBytes(urlOrKey: String, defaultExtension: String = ".bin"): ByteArray? {
         for (candidate in candidateFileNames(urlOrKey, defaultExtension)) {
-            val bytes = readBytes(candidate)
-            if (bytes != null) return bytes
+            if (exists(candidate)) {
+                val bytes = readBytes(candidate)
+                if (bytes != null) return bytes
+            }
         }
         return null
     }
@@ -100,11 +164,6 @@ class CacheDirectory(
         }
         return removedAny
     }
-
-    /**
-     * Clears all files in this cache directory and returns the number of deleted files.
-     */
-    fun clearCache(): Int = clear()
 
     private fun candidateFileNames(urlOrKey: String, defaultExtension: String): List<String> {
         val primary = cacheFileNameForKey(urlOrKey, defaultExtension)

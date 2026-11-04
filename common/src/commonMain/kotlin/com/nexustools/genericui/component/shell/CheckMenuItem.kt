@@ -20,7 +20,7 @@ class CheckMenuItem(
         }
     }
 
-    override fun createNativeImpl(factory: NativeFactory): MenuItemNativeImpl<*> =
+    protected override fun createNativeImpl(factory: NativeFactory): MenuItemNativeImpl<*> =
         factory.createMenuItem(checkable = true, radio = false)
 
     override fun setChecked(checked: Boolean) {

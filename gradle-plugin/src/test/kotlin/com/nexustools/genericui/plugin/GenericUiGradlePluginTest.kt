@@ -2,7 +2,9 @@ package com.nexustools.genericui.plugin
 
 import org.gradle.testfixtures.ProjectBuilder
 import kotlin.test.Test
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class GenericUiGradlePluginTest {
@@ -72,7 +74,8 @@ class GenericUiGradlePluginTest {
         assertTrue(ext.backends.swingConfig.enabled)
         assertTrue(ext.backends.swingConfig.useLwjglGL)
         assertTrue(ext.backends.swingConfig.useVulkan)
-        assertTrue(ext.backends.swingConfig.targetClassifiers.size == 6)
+        assertTrue(ext.backends.swingConfig.targetClassifiers.size == 8)
+        assertTrue(ext.backends.swingConfig.targetClassifiers.all { it.isDesktop })
         assertTrue(ext.graphics.bundleVlcOnDesktop)
         assertTrue(ext.graphics.enableVlcHdrToneMapping)
         assertTrue(ext.graphics.enableVlcHardwareDecode)
@@ -242,7 +245,7 @@ class GenericUiGradlePluginTest {
         java.io.File(stylesSubDir, "app.scss").writeText(
             """
             ${'$'}accent: #ff6600;
-            genericui:root {
+            genericui:app {
                 .card {
                     border-color: ${'$'}accent;
                 }
@@ -272,7 +275,7 @@ class GenericUiGradlePluginTest {
         assertTrue(styleCssContent.contains("16px"), "Compiled web style.css should resolve @dimen/card_pad")
         assertTrue(styleCssContent.contains("body .hero"), "Compiled web style.css should flatten nested SASS selectors")
         assertTrue(rootAppCss.readText().contains("#ff6600"), "Compiled web app.css should resolve SASS variables")
-        assertTrue(rootAppCss.readText().contains("genericui\\:root .card"), "Compiled web app.css should escape genericui:<tag> selectors")
+        assertTrue(rootAppCss.readText().contains("genericui\\:app .card"), "Compiled web app.css should escape genericui:<tag> selectors")
     }
 
     @Test
@@ -394,7 +397,120 @@ class GenericUiGradlePluginTest {
         assertTrue(ss.getByName("mobileMain") in ss.getByName("android").dependsOn)
         assertTrue(ss.getByName("mobileMain") in ss.getByName("ios").dependsOn)
 
+        val targetNames = kotlin.targets.names
+        assertTrue("macosArm64" in targetNames, "Expected macosArm64 target to be registered")
+        assertTrue("iosArm64" in targetNames, "Expected iosArm64 target to be registered")
+        assertTrue("iosSimulatorArm64" in targetNames, "Expected iosSimulatorArm64 target to be registered")
+        assertFalse("macosX64" in targetNames, "macosX64 target must be removed")
+        assertFalse("iosX64" in targetNames, "iosX64 target must be removed")
+        assertFalse("macosX64" in sourceSetNames, "macosX64 sourceSet must be removed")
+        assertFalse("macosX64Main" in sourceSetNames, "macosX64Main sourceSet must be removed")
+        assertFalse("macosX64Test" in sourceSetNames, "macosX64Test sourceSet must be removed")
+        assertFalse("iosX64" in sourceSetNames, "iosX64 sourceSet must be removed")
+        assertFalse("iosX64Main" in sourceSetNames, "iosX64Main sourceSet must be removed")
+        assertFalse("iosX64Test" in sourceSetNames, "iosX64Test sourceSet must be removed")
+
         val expectedBuildTargetTasks = listOf(
+            "developmentWindows",
+            "productionWindows",
+            "developmentWindowsX64",
+            "productionWindowsX64",
+            "developmentWindowsX32",
+            "productionWindowsX32",
+            "developmentWindowsArm64",
+            "productionWindowsArm64",
+            "developmentMac",
+            "productionMac",
+            "developmentMacArm64",
+            "productionMacArm64",
+            "developmentLinuxGtk",
+            "productionLinuxGtk",
+            "developmentLinuxGtkX32",
+            "productionLinuxGtkX32",
+            "developmentLinuxGtkX64",
+            "productionLinuxGtkX64",
+            "developmentLinuxGtkArm32",
+            "productionLinuxGtkArm32",
+            "developmentLinuxGtkArm64",
+            "productionLinuxGtkArm64",
+            "developmentLinuxQt",
+            "productionLinuxQt",
+            "developmentLinuxQtX32",
+            "productionLinuxQtX32",
+            "developmentLinuxQtX64",
+            "productionLinuxQtX64",
+            "developmentLinuxQtArm32",
+            "productionLinuxQtArm32",
+            "developmentLinuxQtArm64",
+            "productionLinuxQtArm64",
+            "developmentAndroid",
+            "productionAndroid",
+            "developmentAndroidX32",
+            "productionAndroidX32",
+            "developmentAndroidX64",
+            "productionAndroidX64",
+            "developmentAndroidArm32",
+            "productionAndroidArm32",
+            "developmentAndroidArm64",
+            "productionAndroidArm64",
+            "developmentIos",
+            "productionIos",
+            "developmentIosArm64",
+            "productionIosArm64",
+            "developmentIosSimulatorArm64",
+            "productionIosSimulatorArm64",
+            "developmentSwing",
+            "productionSwing",
+            "developmentWeb",
+            "productionWeb",
+            "packageGenericUiWebDistribution",
+            "packageGenericUiWebDevelopmentDistribution",
+            "packageGenericUiWebProductionDistribution"
+        )
+        for (taskName in expectedBuildTargetTasks) {
+            assertNotNull(
+                project.tasks.findByName(taskName),
+                "Expected GenericUI build target task '$taskName' to be registered"
+            )
+        }
+
+        val expectedDistPaths = mapOf(
+            "developmentWindowsX64" to "dist/windows/x64/development",
+            "productionWindowsX64" to "dist/windows/x64/production",
+            "developmentWindowsX32" to "dist/windows/x32/development",
+            "productionWindowsX32" to "dist/windows/x32/production",
+            "developmentWindowsArm64" to "dist/windows/arm64/development",
+            "productionWindowsArm64" to "dist/windows/arm64/production",
+            "developmentMac" to "dist/mac/development",
+            "productionMac" to "dist/mac/production",
+            "developmentMacArm64" to "dist/mac/development",
+            "productionMacArm64" to "dist/mac/production",
+            "developmentLinuxGtkX64" to "dist/linux-gtk/x64/development",
+            "productionLinuxGtkX64" to "dist/linux-gtk/x64/production",
+            "developmentLinuxQtArm64" to "dist/linux-qt/arm64/development",
+            "productionLinuxQtArm64" to "dist/linux-qt/arm64/production",
+            "developmentAndroid" to "dist/android/development",
+            "productionAndroid" to "dist/android/production",
+            "developmentAndroidArm64" to "dist/android/arm64/development",
+            "productionAndroidArm64" to "dist/android/arm64/production",
+            "developmentIosArm64" to "dist/ios/arm64/development",
+            "productionIosArm64" to "dist/ios/arm64/production",
+            "developmentIosSimulatorArm64" to "dist/ios/simulatorArm64/development",
+            "productionIosSimulatorArm64" to "dist/ios/simulatorArm64/production",
+            "developmentSwing" to "dist/swing/development",
+            "productionSwing" to "dist/swing/production",
+            "developmentWeb" to "dist/web/development",
+            "productionWeb" to "dist/web/production"
+        )
+        for ((taskName, expectedDistRelPath) in expectedDistPaths) {
+            val task = project.tasks.getByName(taskName)
+            assertTrue(
+                task.extensions.extraProperties.get("genericUiDistRelativePath") == expectedDistRelPath,
+                "Task '$taskName' should output to build/$expectedDistRelPath"
+            )
+        }
+
+        val removedLegacyBuildTargetTasks = listOf(
             "windowsDevelopment",
             "windowsProduction",
             "macDevelopment",
@@ -412,13 +528,12 @@ class GenericUiGradlePluginTest {
             "iosDevelopment",
             "iosProduction",
             "webDevelopment",
-            "webProduction",
-            "packageGenericUiWebDistribution"
+            "webProduction"
         )
-        for (taskName in expectedBuildTargetTasks) {
-            assertNotNull(
-                project.tasks.findByName(taskName),
-                "Expected GenericUI build target task '$taskName' to be registered"
+        for (legacyTaskName in removedLegacyBuildTargetTasks) {
+            assertNull(
+                project.tasks.findByName(legacyTaskName),
+                "Legacy build target task '$legacyTaskName' must not be registered"
             )
         }
     }
@@ -446,52 +561,140 @@ class GenericUiGradlePluginTest {
         kotlin.test.assertEquals("web-icon.svg", ext.application.resolveEffectiveWebIconPath())
         java.io.File(project.projectDir, "web-icon.svg").writeText("<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 64 64\"></svg>")
 
+        // Stage sample application resources in src/commonMain/resources to verify resources-manifest.json discovery
+        val sampleDrawable = java.io.File(project.projectDir, "src/commonMain/resources/drawable/hero-banner.png")
+        sampleDrawable.parentFile.mkdirs()
+        sampleDrawable.writeBytes(GenericUiDefaultIconProvider.loadDefaultIconPngBytes())
+        val sampleStyle = java.io.File(project.projectDir, "src/commonMain/resources/styles/custom-theme.css")
+        sampleStyle.parentFile.mkdirs()
+        sampleStyle.writeText(":root { --brand-accent: #ff5500; }")
+        val sampleXml = java.io.File(project.projectDir, "src/commonMain/resources/xml/main-layout.xml")
+        sampleXml.parentFile.mkdirs()
+        sampleXml.writeText("<genericui:fragment xmlns:genericui=\"https://nexustools.com/ns/genericui\"/>")
+
         val webDistTask = project.tasks.getByName("packageGenericUiWebDistribution") as GenericUiWebDistributionTask
         webDistTask.packageWebDistribution()
 
         val distDir = webDistTask.outputDirectory.get().asFile
+        assertTrue(distDir.invariantSeparatorsPath.endsWith("build/dist/web/development"), "Default web dist output should be build/dist/web/development")
         val indexHtmlFile = java.io.File(distDir, "index.html")
-        val loaderJsFile = java.io.File(distDir, "genericui-loader.js")
+        val loaderJsFile = java.io.File(distDir, "loader.js")
         val namespaceXmlFile = java.io.File(distDir, "genericui-namespace.xml")
-        val genericUiCssFile = java.io.File(distDir, "genericui.css")
-        val stagedIconFile = java.io.File(distDir, "web-icon.svg")
+        val genericUiCssFile = java.io.File(distDir, "gui/genericui.css")
+        val resourcesManifestFile = java.io.File(distDir, "resources.json")
+        val stagedIconFile = java.io.File(distDir, "res/web-icon.svg")
 
-        assertTrue(indexHtmlFile.exists(), "index.html should be generated in build/dist/web")
-        assertTrue(loaderJsFile.exists(), "genericui-loader.js should be generated in build/dist/web")
-        assertTrue(namespaceXmlFile.exists(), "genericui-namespace.xml should be generated in build/dist/web")
-        assertTrue(genericUiCssFile.exists(), "genericui.css should be generated in build/dist/web")
-        assertTrue(stagedIconFile.exists(), "web-icon.svg should be staged in build/dist/web")
+        assertTrue(indexHtmlFile.exists(), "index.html should be generated in build/dist/web/development")
+        assertTrue(loaderJsFile.exists(), "loader.js should be generated in build/dist/web/development")
+        assertTrue(namespaceXmlFile.exists(), "genericui-namespace.xml should be generated in build/dist/web/development")
+        assertTrue(genericUiCssFile.exists(), "gui/genericui.css should be generated in build/dist/web/development")
+        assertTrue(resourcesManifestFile.exists(), "resources.json should be generated in build/dist/web/development")
+        assertTrue(stagedIconFile.exists(), "res/web-icon.svg should be staged in build/dist/web/development")
+
+        // Verify root directory only contains allowed root files + gui/ + res/
+        val allowedRootEntries = setOf(
+            "index.html",
+            "loader.js",
+            "manifest.webmanifest",
+            "genericui-namespace.xml",
+            "resources.json",
+            "test-web-studio.js",
+            "test-web-studio.wasm",
+            "gui",
+            "res"
+        )
+        for (entry in distDir.listFiles().orEmpty()) {
+            assertTrue(entry.name in allowedRootEntries, "Unexpected entry '${entry.name}' in root of web distribution")
+        }
+
+        // Verify resources.json entries
+        val resourcesManifestJson = resourcesManifestFile.readText()
+        assertTrue(resourcesManifestJson.contains("\"id\": \"styles/genericui\""))
+        assertTrue(resourcesManifestJson.contains("\"path\": \"gui/genericui.css\""))
+        assertTrue(resourcesManifestJson.contains("\"id\": \"xml/genericui-namespace\""))
+        assertTrue(resourcesManifestJson.contains("\"path\": \"genericui-namespace.xml\""))
+        assertTrue(resourcesManifestJson.contains("\"id\": \"drawable/hero-banner\""))
+        assertTrue(resourcesManifestJson.contains("\"path\": \"res/drawable/hero-banner.png\""))
+        assertTrue(resourcesManifestJson.contains("\"mimeType\": \"image/png\""))
+        assertTrue(resourcesManifestJson.contains("\"id\": \"styles/custom-theme\""))
+        assertTrue(resourcesManifestJson.contains("\"path\": \"res/styles/custom-theme.css\""))
+        assertTrue(resourcesManifestJson.contains("\"mimeType\": \"text/css\""))
+        assertTrue(resourcesManifestJson.contains("\"id\": \"xml/main-layout\""))
+        assertTrue(resourcesManifestJson.contains("\"path\": \"res/xml/main-layout.xml\""))
+        assertTrue(resourcesManifestJson.contains("\"hash\": \""))
+        assertTrue(resourcesManifestJson.contains("\"mimeType\": \"application/xml\""))
+        assertTrue(resourcesManifestJson.contains("\"size\": "))
 
         val namespaceXml = namespaceXmlFile.readText()
         assertTrue(namespaceXml.contains("<namespaceSpec xmlns=\"https://nexustools.com/ns/genericui/spec\" prefix=\"genericui\" uri=\"https://nexustools.com/ns/genericui\" version=\"1.0\">"))
-        assertTrue(namespaceXml.contains("tag=\"genericui:root\""))
+        assertTrue(namespaceXml.contains("tag=\"genericui:app\""))
         assertTrue(namespaceXml.contains("tag=\"genericui:window\""))
         assertTrue(namespaceXml.contains("tag=\"genericui:fragment\""))
         assertTrue(namespaceXml.contains("tag=\"genericui:fragment-container\""))
-        assertTrue(namespaceXml.contains("tag=\"genericui:scrollfragment\""))
         assertTrue(namespaceXml.contains("tag=\"genericui:menubar\""))
         assertTrue(namespaceXml.contains("tag=\"genericui:dockworkspace\""))
 
         val genericUiCss = genericUiCssFile.readText()
-        assertTrue(genericUiCss.contains("genericui\\:root"))
+        assertTrue(genericUiCss.contains("genericui\\:app"))
         assertTrue(genericUiCss.contains("hr.dropdown-divider,\ngenericui\\:menuseparator"))
-        assertTrue(genericUiCss.contains("genericui\\:scrollfragment"))
+        assertTrue(genericUiCss.contains("genericui\\:fragment.scroll-fragment"))
 
         val html = indexHtmlFile.readText()
         assertTrue(html.contains("xmlns:genericui=\"https://nexustools.com/ns/genericui\""))
         assertTrue(html.contains("<link id=\"genericui-namespace-spec\" rel=\"namespace\" data-namespace-prefix=\"genericui\" data-namespace-uri=\"https://nexustools.com/ns/genericui\" type=\"application/xml\" href=\"genericui-namespace.xml?"))
-        assertTrue(html.contains("<link id=\"genericui-css\" rel=\"stylesheet\" href=\"genericui.css?"))
-        assertTrue(html.contains("<genericui:root></genericui:root>"))
+        assertTrue(html.contains("<link id=\"genericui-css\" rel=\"stylesheet\" href=\"gui/genericui.css?"))
+        assertTrue(html.contains("<genericui:app></genericui:app>"))
         assertTrue(!html.contains("<div id=\"genericui-app\""))
-        assertTrue(html.contains("<link id=\"genericui-favicon\" rel=\"icon\" type=\"image/svg+xml\" href=\"web-icon.svg\">"))
-        assertTrue(html.contains("<img id=\"genericui-splash-icon\" src=\"web-icon.svg\""))
+        assertTrue(html.contains("<link id=\"genericui-favicon\" rel=\"icon\" type=\"image/svg+xml\" href=\"res/web-icon.svg\">"))
+        assertTrue(html.contains("<img id=\"genericui-splash-icon\" src=\"res/web-icon.svg\""))
         assertTrue(html.contains("width=\"64\" height=\"64\""))
         assertTrue(html.contains("id=\"genericui-splash-progress-bar\""))
         assertTrue(html.contains("id=\"genericui-splash-error-stack\""))
-        assertTrue(html.contains("<script type=\"loader-wasm\" src=\"wasm/test-web-studio-wasm-js.js?"))
-        assertTrue(html.contains("<script type=\"loader-js\" src=\"js/test-web-studio.js?"))
-        assertTrue(html.contains("<script id=\"genericui-loader-script\" src=\"genericui-loader.js?"))
-        assertTrue(html.contains("src=\"https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js\""))
+        assertTrue(html.contains("<script type=\"loader-wasm\" src=\"test-web-studio.wasm?"))
+        assertTrue(html.contains("<script type=\"loader-js\" src=\"test-web-studio.js?"))
+        assertTrue(html.contains("<link id=\"genericui-resources-manifest\" rel=\"resources\" type=\"application/json\" href=\"resources.json?"))
+        assertTrue(!html.contains("<script id=\"genericui-resource-manifest\">"))
+        assertTrue(html.contains("<script id=\"genericui-loader-script\" src=\"loader.js?"))
+        assertTrue(html.contains("<link id=\"genericui-bootstrap-css\" rel=\"stylesheet\" href=\"gui/bootstrap.min.css?"))
+        assertTrue(html.contains("<script id=\"genericui-bootstrap-js\" src=\"gui/bootstrap.bundle.min.js?"))
+        assertTrue(html.contains("<link id=\"genericui-bootstrap-icons-css\" rel=\"stylesheet\" href=\"gui/bootstrap-icons.min.css?"))
+        assertTrue(!html.contains("cdn.jsdelivr.net"))
+
+        // Verify strictly short 5 status strings in index.html and loader.js
+        val loaderJs = loaderJsFile.readText()
+        assertTrue(html.contains("id=\"genericui-splash-status\""))
+        assertTrue(html.contains(">Initializing</span></div>"))
+        assertTrue(html.contains("id=\"genericui-splash-status-icon\" class=\"genericui-splash-status-icon spinner-border spinner-border-sm\""))
+        assertTrue(!html.contains("Loading application..."))
+        assertTrue(loaderJs.contains("\"Initializing\""))
+        assertTrue(loaderJs.contains("\"Loading Resources\""))
+        assertTrue(loaderJs.contains("\"Loading Application\""))
+        assertTrue(loaderJs.contains("\"Error\""))
+        assertTrue(loaderJs.contains("\"Ready\""))
+        assertTrue(!loaderJs.contains("Detecting WebAssembly support"))
+        assertTrue(!loaderJs.contains("Downloading WebAssembly"))
+        assertTrue(!loaderJs.contains("Initializing WebAssembly"))
+        assertTrue(!loaderJs.contains("Downloading JavaScript"))
+        assertTrue(!loaderJs.contains("Starting JavaScript"))
+
+        // Resources preloaded before Wasm/JS regardless of webManifest; Wasm failures fall back to JS silently
+        assertTrue(loaderJs.contains("\"Loading Fallback\""))
+        assertTrue(loaderJs.contains("link[rel=\"resources\"]"))
+        assertTrue(loaderJs.contains("buildHashedResourceUrl"))
+        assertTrue(loaderJs.contains("./resources.json"))
+        assertTrue(loaderJs.contains("logWasmFallbackErrorSilently(wasmErr);"))
+        assertTrue(
+            loaderJs.indexOf("state.wasmSupported = detectWasmSupport();") < loaderJs.indexOf("return preloadAllResources(config)"),
+            "loader.js must detect WebAssembly support upfront before preloading resources"
+        )
+        assertTrue(loaderJs.contains("state.totalBytes = state.resourceBytes + appBundleBytes;"))
+        assertTrue(genericUiCss.contains("user-select: text !important"))
+        assertTrue(genericUiCss.contains(".genericui-splash.genericui-splash-hidden"))
+        val splashMarkup = html.substring(html.indexOf("id=\"genericui-splash\""), html.indexOf("<genericui:app>"))
+        assertTrue(!splashMarkup.contains("style=\""), "Splash markup must not contain inline style attributes")
+        assertTrue(genericUiCss.contains("#genericui-splash-error-stack"))
+        assertTrue(!resourcesManifestJson.contains(".php\""))
+        assertTrue(!resourcesManifestJson.contains(".scss\""))
     }
 
     @Test
@@ -527,15 +730,38 @@ class GenericUiGradlePluginTest {
 
         java.io.File(project.projectDir, "web-icon.svg").writeText("<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 64 64\"></svg>")
 
-        // 1. Verify Web Distribution (manifest.webmanifest + installable WebApp HTML tags + themeColor)
+        // Stage a sample app resource to verify inclusion in manifest.webmanifest resources and gui/genericui-sw.js
+        val appFont = java.io.File(project.projectDir, "src/commonMain/resources/font/inter.woff2")
+        appFont.parentFile.mkdirs()
+        appFont.writeBytes(byteArrayOf(0x77, 0x4F, 0x46, 0x32))
+
+        // Stage real Kotlin/Wasm + Kotlin/JS build outputs so the offline resource list contains existing bundle files
+        val wasmOut = java.io.File(project.layout.buildDirectory.get().asFile, "dist/wasmJs/productionExecutable").apply { mkdirs() }
+        java.io.File(wasmOut, "sample-web-studio-wasm-js.js").writeText("/* wasm glue */")
+        java.io.File(wasmOut, "sample-web-studio-wasm-js.wasm").writeBytes(byteArrayOf(0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00))
+        val jsOut = java.io.File(project.layout.buildDirectory.get().asFile, "dist/js/productionExecutable").apply { mkdirs() }
+        java.io.File(jsOut, "sample-web-studio.js").writeText("/* js ir bundle */")
+
+        // A comment-only placeholder left behind by an older plugin version must be removed from the distribution
+        val distDirEarly = (project.tasks.getByName("packageGenericUiWebDistribution") as GenericUiWebDistributionTask).outputDirectory.get().asFile
+        distDirEarly.mkdirs()
+        java.io.File(distDirEarly, "bootstrap.min.css").writeText("/* GenericUI Offline Bootstrap 5.3.3 Stylesheet (bootstrap.min.css) */\n")
+
+        // 1. Verify Web Distribution (manifest.webmanifest + gui/genericui-sw.js + resources.json + installable WebApp HTML tags + themeColor)
         val webDistTask = project.tasks.getByName("packageGenericUiWebDistribution") as GenericUiWebDistributionTask
         webDistTask.packageWebDistribution()
 
         val distDir = webDistTask.outputDirectory.get().asFile
         val manifestFile = java.io.File(distDir, "manifest.webmanifest")
+        val swFile = java.io.File(distDir, "gui/genericui-sw.js")
+        val resourcesManifestFile = java.io.File(distDir, "resources.json")
         val indexHtmlFile = java.io.File(distDir, "index.html")
+        val loaderJsFile = java.io.File(distDir, "loader.js")
 
         assertTrue(manifestFile.exists(), "manifest.webmanifest should be generated when allowInstallAsWebApp or webManifest is enabled")
+        assertTrue(swFile.exists(), "gui/genericui-sw.js should be generated when allowInstallAsWebApp or webManifest is enabled")
+        assertTrue(resourcesManifestFile.exists(), "resources.json should be generated in build/dist/web/development")
+
         val manifestJson = manifestFile.readText()
         assertTrue(manifestJson.contains("\"name\": \"Sample Web Studio\""))
         assertTrue(manifestJson.contains("\"short_name\": \"SampleWebStudio\""))
@@ -546,14 +772,50 @@ class GenericUiGradlePluginTest {
         assertTrue(manifestJson.contains("\"categories\": [\"entertainment\", \"multimedia\"]"))
         assertTrue(manifestJson.contains("\"sizes\": \"192x192 512x512\""))
         assertTrue(manifestJson.contains("\"url\": \"./?tab=player\""))
+        assertTrue(manifestJson.contains("\"offline_enabled\": true"))
+        assertTrue(manifestJson.contains("\"resources\": ["))
+        assertTrue(manifestJson.contains("\"./\""))
+        assertTrue(manifestJson.contains("\"index.html\""))
+        assertTrue(manifestJson.contains("\"gui/genericui.css\""))
+        // Comment-only placeholder assets are removed, while real packaged Bootstrap assets are staged in gui/
+        assertTrue(!java.io.File(distDir, "genericui-styles.css").exists(), "genericui-styles.css placeholder must not exist in build/dist/web")
+        for (packagedAsset in listOf("gui/bootstrap.min.css", "gui/bootstrap.bundle.min.js", "gui/bootstrap-icons.min.css", "gui/fonts/bootstrap-icons.woff2", "gui/fonts/bootstrap-icons.woff")) {
+            val f = java.io.File(distDir, packagedAsset)
+            assertTrue(f.exists() && f.length() > 1000L, "$packagedAsset real packaged asset must exist in build/dist/web")
+        }
+        assertTrue(manifestJson.contains("\"resources.json\""))
+        assertTrue(manifestJson.contains("\"sample-web-studio.wasm\""))
+        assertTrue(manifestJson.contains("\"sample-web-studio.js\""))
+        val sampleResourcesJson = resourcesManifestFile.readText()
+        assertTrue(sampleResourcesJson.contains("\"id\": \"wasm/sample-web-studio\""))
+        assertTrue(sampleResourcesJson.contains("\"id\": \"js/sample-web-studio\""))
+        assertTrue(sampleResourcesJson.contains("\"size\": "))
+        assertTrue(manifestJson.contains("\"res/web-icon.svg\""))
+        assertTrue(manifestJson.contains("\"res/icon-192.png\""))
+        assertTrue(manifestJson.contains("\"res/icon-512.png\""))
+        assertTrue(manifestJson.contains("\"res/favicon.ico\""))
+        assertTrue(manifestJson.contains("\"res/font/inter.woff2\""))
+
+        val swJs = swFile.readText()
+        assertTrue(swJs.contains("const CACHE_NAME = \"genericui-offline-v1\";"))
+        assertTrue(swJs.contains("cache.addAll(OFFLINE_RESOURCES)"))
+        assertTrue(swJs.contains("self.skipWaiting()"))
+        assertTrue(swJs.contains("self.clients.claim()"))
+        assertTrue(swJs.contains("\"./\""))
+        assertTrue(swJs.contains("\"index.html\""))
+        assertTrue(swJs.contains("\"resources.json\""))
+        assertTrue(swJs.contains("\"res/font/inter.woff2\""))
 
         val html = indexHtmlFile.readText()
+        val loaderJs = loaderJsFile.readText()
         assertTrue(html.contains("<link id=\"genericui-web-manifest\" rel=\"manifest\" href=\"manifest.webmanifest?"))
         assertTrue(html.contains("<meta id=\"genericui-theme-color\" name=\"theme-color\" content=\"#2A80FF\">"))
         assertTrue(html.contains("<meta id=\"genericui-mobile-web-app-capable\" name=\"mobile-web-app-capable\" content=\"yes\">"))
         assertTrue(html.contains("<meta id=\"genericui-apple-mobile-web-app-capable\" name=\"apple-mobile-web-app-capable\" content=\"yes\">"))
         assertTrue(html.contains("<meta id=\"genericui-application-name\" name=\"application-name\" content=\"SampleWebStudio\">"))
-        assertTrue(html.contains("<link id=\"genericui-apple-touch-icon\" rel=\"apple-touch-icon\" href=\"web-icon.svg\">"))
+        assertTrue(html.contains("<link id=\"genericui-apple-touch-icon\" rel=\"apple-touch-icon\" href=\"res/web-icon.svg\">"))
+        assertTrue(html.contains("navigator.serviceWorker.register('./gui/genericui-sw.js')"))
+        assertTrue(loaderJs.contains("navigator.serviceWorker.register('./gui/genericui-sw.js')"))
 
         // 2. Verify Desktop Resources (Windows .rc, macOS Info.plist, Linux .desktop) receive themeColor
         val desktopResTask = project.tasks.getByName("prepareGenericUiDesktopResources") as GenericUiDesktopResourceTask
@@ -576,8 +838,8 @@ class GenericUiGradlePluginTest {
 
         val rKtFile = ktResOut.walkTopDown().first { it.name == "R.kt" }
         val rKtText = rKtFile.readText()
-        assertTrue(rKtText.contains("val theme_color: ResourceId"))
-        assertTrue(rKtText.contains("val colorPrimary: ResourceId"))
+        assertTrue(rKtText.contains("val theme_color: ResourceID"))
+        assertTrue(rKtText.contains("val colorPrimary: ResourceID"))
 
         val regKtFile = ktResOut.walkTopDown().first { it.name == "GeneratedResourceRegistry.kt" }
         val regKtText = regKtFile.readText()
@@ -619,17 +881,17 @@ class GenericUiGradlePluginTest {
         assertTrue(GenericUiDefaultIconProvider.loadDefaultIconIcoBytes().size > 1000, "Bundled default icon.ico should be present")
         assertTrue(GenericUiDefaultIconProvider.loadDefaultIconPngBytes().size > 1000, "Bundled default icon.png should be present")
 
-        // 1. Web distribution should stage and reference the default icon.svg
+        // 1. Web distribution should stage and reference the default gui/icon.svg
         val webDistTask = project.tasks.getByName("packageGenericUiWebDistribution") as GenericUiWebDistributionTask
         webDistTask.packageWebDistribution()
         val distDir = webDistTask.outputDirectory.get().asFile
-        val defaultWebSvg = java.io.File(distDir, "icon.svg")
-        assertTrue(defaultWebSvg.exists(), "Default GenericUI icon.svg should be staged in build/dist/web when no icon is configured")
+        val defaultWebSvg = java.io.File(distDir, "gui/icon.svg")
+        assertTrue(defaultWebSvg.exists(), "Default GenericUI gui/icon.svg should be staged in build/dist/web/development when no icon is configured")
         val svgContent = defaultWebSvg.readText()
         assertTrue(svgContent.contains("macTopClip") && svgContent.contains("gtkTopClip") && svgContent.contains("winTopClip"))
         val indexHtml = java.io.File(distDir, "index.html").readText()
-        assertTrue(indexHtml.contains("<link id=\"genericui-favicon\" rel=\"icon\" type=\"image/svg+xml\" href=\"icon.svg\">"))
-        assertTrue(indexHtml.contains("<img id=\"genericui-splash-icon\" src=\"icon.svg\""))
+        assertTrue(indexHtml.contains("<link id=\"genericui-favicon\" rel=\"icon\" type=\"image/svg+xml\" href=\"gui/icon.svg\">"))
+        assertTrue(indexHtml.contains("<img id=\"genericui-splash-icon\" src=\"gui/icon.svg\""))
 
         // 2. Desktop resources should stage default icon.ico, icon.png, and icon.svg
         val desktopResTask = project.tasks.getByName("prepareGenericUiDesktopResources") as GenericUiDesktopResourceTask
@@ -647,13 +909,48 @@ class GenericUiGradlePluginTest {
         val resTask = project.tasks.getByName("compileGenericUiResources") as GenericUiResourceCompilerTask
         resTask.compileResources()
         val rKtFile = resTask.kotlinOutputDirectory.get().asFile.walkTopDown().first { it.name == "R.kt" }
-        assertTrue(rKtFile.readText().contains("val icon: ResourceId"), "R.drawable.icon should be generated by default")
+        assertTrue(rKtFile.readText().contains("val icon: ResourceID"), "R.drawable.icon should be generated by default")
         val backendResOut = resTask.backendOutputDirectory.get().asFile
         assertTrue(java.io.File(backendResOut, "windows/icon.ico").exists(), "Windows backend resources should include icon.ico")
         assertTrue(java.io.File(backendResOut, "android/res/drawable/icon.png").exists(), "Android backend resources should include icon.png")
         assertTrue(java.io.File(backendResOut, "apple/Assets.xcassets/AppIcon.appiconset/icon.png").exists(), "Apple backend resources should include icon.png")
+        assertTrue(java.io.File(backendResOut, "apple/Assets.xcassets/AppIcon.appiconset/icon.icns").exists(), "Apple backend resources should include icon.icns")
+        assertTrue(java.io.File(backendResOut, "apple/icon.icns").exists(), "Apple backend root should include icon.icns")
+        assertTrue(java.io.File(desktopOutDir, "macos/icon.icns").exists(), "macOS desktop resources should include icon.icns")
         assertTrue(java.io.File(backendResOut, "linux/drawable/icon.png").exists(), "Linux backend resources should include icon.png")
         assertTrue(java.io.File(backendResOut, "web/icon.png").exists(), "Web/Swing backend resources should include icon.png")
         assertTrue(java.io.File(backendResOut, "web/icon.ico").exists(), "Web/Swing backend resources should include icon.ico")
+
+        // 4. Verify non-512 viewBox SVG and SVG arc (A/a) paths rasterize and generate valid Windows .ico and Apple .icns
+        val pinkTvSvg = """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" fill="none">
+              <path d="M 227 112 V 89 A 22 22 0 0 1 271 89 V 112 Z" fill="#E0E7EF" stroke="#000000" stroke-width="20"/>
+              <rect x="34" y="112" width="444" height="345" rx="46" fill="#FF7E96"/>
+            </svg>
+        """.trimIndent()
+        val tempSvg = java.io.File(project.projectDir, "pink-tv.svg").apply { writeText(pinkTvSvg) }
+        val genIconsDir = java.io.File(project.projectDir, "build/test-gen-icons").apply { mkdirs() }
+        val genWinIco = GenericUiDefaultIconProvider.ensureWindowsIcoFromSourceOrDefault(tempSvg, project.projectDir, genIconsDir, "pink-tv.ico")
+        val genMacIcns = GenericUiDefaultIconProvider.ensureAppleIcnsFromSourceOrDefault(tempSvg, project.projectDir, genIconsDir, "pink-tv.icns")
+        assertTrue(genWinIco.exists() && genWinIco.length() > 1000L, "Windows .ico should be generated from source .svg")
+        val icnsBytes = genMacIcns.readBytes()
+        assertTrue(
+            icnsBytes.size > 1000 &&
+                icnsBytes[0] == 'i'.code.toByte() &&
+                icnsBytes[1] == 'c'.code.toByte() &&
+                icnsBytes[2] == 'n'.code.toByte() &&
+                icnsBytes[3] == 's'.code.toByte(),
+            "Apple .icns should have valid 'icns' magic header when generated from source .svg"
+        )
+        val svg128 = """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+                <rect x="0" y="0" width="128" height="128" fill="#FF3366"/>
+            </svg>
+        """.trimIndent()
+        val rendered256 = javax.imageio.ImageIO.read(
+            java.io.ByteArrayInputStream(GenericUiDefaultIconProvider.renderSvgTextToPngBytes(svg128, 256))
+        )
+        val bottomRightAlpha = (rendered256.getRGB(240, 240) ushr 24) and 0xFF
+        assertTrue(bottomRightAlpha > 200, "128x128 viewBox SVG should scale to fill the bottom-right quadrant of a 256x256 icon")
     }
 }

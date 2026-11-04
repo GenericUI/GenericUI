@@ -50,17 +50,35 @@ open class Slider(
 
     var onValueChanged: ((Double) -> Unit)? = null
 
-    override fun createNativeImpl(factory: NativeFactory): RangeSliderNativeImpl<*> =
+    fun dispatchUserValueChange(newVal: Double) {
+        val clamped = newVal.coerceIn(min, max)
+        value = clamped
+        onValueChanged?.invoke(clamped)
+    }
+
+    protected override fun createNativeImpl(factory: NativeFactory): RangeSliderNativeImpl<*> =
         factory.createRangeSlider()
 
     override fun syncStateToNative() {
         super.syncStateToNative()
         val impl = typedNative<RangeSliderNativeImpl<*>>() ?: return
-        impl.setRange(min, max, step)
-        impl.setValue(value)
+        isDispatchingValueChange = true
+        try {
+            impl.setRange(min, max, step)
+            impl.setValue(value)
+        } finally {
+            isDispatchingValueChange = false
+        }
         impl.setOnValueChanged { updated ->
-            value = updated
-            onValueChanged?.invoke(updated)
+            if (!isDispatchingValueChange) {
+                isDispatchingValueChange = true
+                try {
+                    value = updated
+                } finally {
+                    isDispatchingValueChange = false
+                }
+                onValueChanged?.invoke(updated)
+            }
         }
     }
 }

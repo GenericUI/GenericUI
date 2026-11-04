@@ -180,7 +180,7 @@ open class DockPanel(
         onReattachHandler?.invoke(this, position)
     }
 
-    override fun createNativeImpl(factory: NativeFactory): DockPanelNativeImpl<*> =
+    protected override fun createNativeImpl(factory: NativeFactory): DockPanelNativeImpl<*> =
         factory.createDockPanel()
 
     override fun syncStateToNative() {

@@ -17,11 +17,18 @@ object BootstrapClassMapper {
 
         val semanticType = snapshot.type?.takeIf { it.isSemantic }
         if (semanticType != null && prefix.isNotEmpty()) {
-            tokens.add(prefix)
-            if (snapshot.outline && prefix == "btn") {
-                tokens.add("$prefix-outline-${semanticType.cssSuffix}")
+            if (prefix == "badge" || prefix.startsWith("badge ")) {
+                prefix.split(' ').filter { it.isNotEmpty() }.forEach { tokens.add(it) }
+                tokens.add("text-bg-${semanticType.cssSuffix}")
+                tokens.add("bg-${semanticType.cssSuffix}")
+                tokens.add("badge-${semanticType.cssSuffix}")
             } else {
-                tokens.add("$prefix-${semanticType.cssSuffix}")
+                tokens.add(prefix)
+                if (snapshot.outline && prefix == "btn") {
+                    tokens.add("$prefix-outline-${semanticType.cssSuffix}")
+                } else {
+                    tokens.add("$prefix-${semanticType.cssSuffix}")
+                }
             }
         }
         if (snapshot.size != null && prefix.isNotEmpty()) {

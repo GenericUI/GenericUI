@@ -201,7 +201,7 @@ class Phase2CodegenAndAndroidTasksTest {
         val resourceKtFile = File(ktResDir, "com/example/studio/res/Resource.kt")
         assertTrue(resourceKtFile.isFile, "Expected Resource.kt to be generated")
         val resourceKtText = resourceKtFile.readText()
-        assertTrue(resourceKtText.contains("typealias ResourceID = com.nexustools.genericui.resources.ResourceID"))
+        assertTrue(resourceKtText.contains("import com.nexustools.genericui.resources.ResourceID"))
         assertTrue(resourceKtText.contains("object Resource"))
         assertTrue(resourceKtText.contains("val logo: ResourceID"))
         assertTrue(resourceKtText.contains("val app_title: ResourceID"))
@@ -211,7 +211,7 @@ class Phase2CodegenAndAndroidTasksTest {
         assertTrue(resourceKtText.contains("val studio: ResourceID"))
         val rKtText = File(ktResDir, "com/example/studio/res/R.kt").readText()
         assertTrue(rKtText.contains("object style"))
-        assertTrue(rKtText.contains("val studio: ResourceId"))
+        assertTrue(rKtText.contains("val studio: ResourceID"))
 
         val backendResDir = resTask.backendOutputDirectory.get().asFile
         val winCurFile = File(backendResDir, "windows/cursors/crosshair.cur")

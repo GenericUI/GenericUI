@@ -4,64 +4,72 @@ import com.nexustools.genericui.component.fragment.Fragment
 import com.nexustools.genericui.component.fragment.FragmentBundle
 import com.nexustools.genericui.component.fragment.FragmentContainer
 import com.nexustools.genericui.component.layout.HybridBreakpointSpec
+import com.nexustools.genericui.component.layout.HybridSplitNavigationContainer
 import com.nexustools.genericui.component.layout.HybridSplitNavigationLayout
+import com.nexustools.genericui.component.layout.HybridSplitNavigationLayoutImpl
 import com.nexustools.genericui.core.AbstractComponent
 import com.nexustools.genericui.window.WindowConfiguration
 
 /**
- * Helper [Fragment] wrapping [HybridSplitNavigationLayout] to support both [AbstractComponent]
+ * Helper [LayoutFragment] wrapping [HybridSplitNavigationLayout] to support both [AbstractComponent]
  * and child [Fragment] sections with automatic top-tabs (`inColumnMode == true`) vs. bottom-navigation
  * (`inColumnMode == false`) switching across mobile, tablet, web, and desktop viewports.
  */
 open class HybridSplitNavigationFragment(
     initialInColumnMode: Boolean = false,
-    breakpointSpec: HybridBreakpointSpec = HybridBreakpointSpec.DEFAULT
-) : Fragment() {
+    breakpointSpec: HybridBreakpointSpec = HybridBreakpointSpec.DEFAULT,
+    id: String? = null
+) : LayoutFragment<HybridSplitNavigationLayoutImpl, HybridSplitNavigationLayout>(id = id) {
 
-    val splitNavigationLayout: HybridSplitNavigationLayout = HybridSplitNavigationLayout(
+    val splitNavigationContainer: HybridSplitNavigationContainer = HybridSplitNavigationContainer(
         inColumnMode = initialInColumnMode,
         breakpointSpec = breakpointSpec
     )
+
+    override val layout: HybridSplitNavigationLayout = splitNavigationContainer.layout
+
+    val splitNavigationLayout: HybridSplitNavigationLayout
+        get() = layout
 
     private val sectionFragments = linkedMapOf<String, Fragment>()
     private val sectionFragmentContainers = linkedMapOf<String, FragmentContainer>()
 
     var inColumnMode: Boolean
-        get() = splitNavigationLayout.inColumnMode
+        get() = layout.inColumnMode
         set(value) {
-            splitNavigationLayout.inColumnMode = value
+            layout.inColumnMode = value
         }
 
     var breakpointSpec: HybridBreakpointSpec
-        get() = splitNavigationLayout.breakpointSpec
+        get() = layout.breakpointSpec
         set(value) {
-            splitNavigationLayout.breakpointSpec = value
+            layout.breakpointSpec = value
         }
 
     val selectedSectionId: String?
-        get() = splitNavigationLayout.selectedSectionId
+        get() = layout.selectedSectionId
 
     val sectionIds: List<String>
-        get() = splitNavigationLayout.sectionIds
+        get() = layout.sectionIds
 
     var onSectionSelected: ((String) -> Unit)?
-        get() = splitNavigationLayout.onSectionSelected
+        get() = layout.onSectionSelected
         set(value) {
-            splitNavigationLayout.onSectionSelected = value
+            layout.onSectionSelected = value
         }
 
     init {
-        addChild(splitNavigationLayout)
+        addChild(splitNavigationContainer)
     }
 
     override fun onCreate(savedState: FragmentBundle?) {
-        super.onCreate(savedState)
-        if (!children.contains(splitNavigationLayout)) {
-            addChild(splitNavigationLayout)
+        if (!children.contains(splitNavigationContainer)) {
+            addChild(splitNavigationContainer)
         }
+        super.onCreate(savedState)
         val winSize = hostingWindow?.getWindowSize() ?: attachedWindow?.getWindowSize()
         if (winSize != null && winSize.width > 0 && winSize.height > 0) {
-            splitNavigationLayout.updateViewport(winSize.width, winSize.height)
+            layout.updateViewport(winSize.width, winSize.height)
         }
     }
 
@@ -77,7 +85,7 @@ open class HybridSplitNavigationFragment(
     ): HybridSplitNavigationFragment = apply {
         sectionFragments.remove(id)
         sectionFragmentContainers.remove(id)?.dispose()
-        splitNavigationLayout.addSection(
+        layout.addSection(
             id = id,
             title = title,
             icon = icon,
@@ -106,7 +114,7 @@ open class HybridSplitNavigationFragment(
         }
         sectionFragments[id] = fragment
         sectionFragmentContainers[id] = host
-        splitNavigationLayout.addSection(
+        layout.addSection(
             id = id,
             title = title,
             icon = icon,
@@ -121,19 +129,19 @@ open class HybridSplitNavigationFragment(
     fun removeSection(id: String): Boolean {
         sectionFragments.remove(id)
         sectionFragmentContainers.remove(id)?.dispose()
-        return splitNavigationLayout.removeSection(id)
+        return layout.removeSection(id)
     }
 
     /**
      * Selects the section identified by [id].
      */
-    fun selectSection(id: String): Boolean = splitNavigationLayout.selectSection(id)
+    fun selectSection(id: String): Boolean = layout.selectSection(id)
 
     /**
      * Returns the [AbstractComponent] for section [id], or `null`.
      */
     fun getSectionComponent(id: String): AbstractComponent? =
-        splitNavigationLayout.getSectionComponent(id)
+        layout.getSectionComponent(id)
 
     /**
      * Returns the child [Fragment] registered via [addFragmentSection] for [id], or `null`.
@@ -144,12 +152,11 @@ open class HybridSplitNavigationFragment(
      * Mounts an optional header component above the active section content.
      */
     fun setHeaderComponent(component: AbstractComponent?): HybridSplitNavigationFragment = apply {
-        splitNavigationLayout.setHeaderComponent(component)
+        layout.setHeaderComponent(component)
     }
 
     override fun onResize(viewportWidth: Int, viewportHeight: Int) {
         super.onResize(viewportWidth, viewportHeight)
-        splitNavigationLayout.updateViewport(viewportWidth, viewportHeight)
         for (fragment in sectionFragments.values) {
             fragment.onResize(viewportWidth, viewportHeight)
         }
@@ -157,7 +164,6 @@ open class HybridSplitNavigationFragment(
 
     override fun onConfigurationChanged(newConfig: WindowConfiguration) {
         super.onConfigurationChanged(newConfig)
-        splitNavigationLayout.applyWindowConfiguration(newConfig)
         for (fragment in sectionFragments.values) {
             fragment.onConfigurationChanged(newConfig)
         }

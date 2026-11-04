@@ -573,7 +573,7 @@ abstract class GenericUiSassCompileTask : DefaultTask() {
                 appendLine("package $packageName")
                 appendLine()
             }
-            appendLine("import com.nexustools.genericui.style.RgbaColor")
+            appendLine("import com.nexustools.genericui.style.color.RgbaColor")
             appendLine("import com.nexustools.genericui.style.css.CompiledStyleRule")
             appendLine("import com.nexustools.genericui.style.css.ComponentStyle")
             appendLine("import com.nexustools.genericui.style.css.CssRule")

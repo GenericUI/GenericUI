@@ -18,6 +18,6 @@ open class ListGroup(
         }
     }
 
-    override fun createNativeImpl(factory: NativeFactory): ContainerNativeImpl<*> =
+    protected override fun createNativeImpl(factory: NativeFactory): ContainerNativeImpl<*> =
         factory.createContainer(classPrefix, htmlTag)
 }

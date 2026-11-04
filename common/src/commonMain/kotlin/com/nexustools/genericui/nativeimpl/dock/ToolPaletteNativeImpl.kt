@@ -2,7 +2,7 @@ package com.nexustools.genericui.nativeimpl.dock
 
 import com.nexustools.genericui.component.dock.ToolPaletteItem
 import com.nexustools.genericui.core.AbstractContainerNativeImpl
-import com.nexustools.genericui.style.RgbaColor
+import com.nexustools.genericui.style.color.RgbaColor
 
 interface ToolPaletteNativeImpl<out W> : AbstractContainerNativeImpl<W> {
     fun setColumns(columns: Int)

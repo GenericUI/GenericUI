@@ -16,6 +16,6 @@ open class ListGroupItem(
         htmlTag = tagName
     }
 
-    override fun createNativeImpl(factory: NativeFactory): ContainerNativeImpl<*> =
+    protected override fun createNativeImpl(factory: NativeFactory): ContainerNativeImpl<*> =
         factory.createContainer(if (isActive) "list-group-item active" else "list-group-item", htmlTag)
 }

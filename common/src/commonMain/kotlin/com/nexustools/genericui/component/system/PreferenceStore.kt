@@ -40,7 +40,7 @@ class PreferenceStore(
      */
     val configDirectory: ConfigDirectory = ConfigDirectory(appName = appName, factory = factory)
 
-    val nativeImpl: PreferenceStoreNativeImpl
+    internal val nativeImpl: PreferenceStoreNativeImpl
         get() {
             if (factory == null) {
                 val active = GenericUI.activeFactory
@@ -87,16 +87,6 @@ class PreferenceStore(
     }
 
     /**
-     * Alias for [put]: serializes and persists [value] under [key].
-     */
-    fun <T : Any> save(key: String, value: T?): PreferenceStore = put(key, value)
-
-    /**
-     * Alias for [put]: serializes and persists structured object [value] under [key].
-     */
-    fun <T : Any> putObject(key: String, value: T?): PreferenceStore = put(key, value)
-
-    /**
      * Reads and deserializes the object or primitive stored under [key] into an instance of [targetClass],
      * or returns [defaultValue] if [key] does not exist.
      */
@@ -106,27 +96,9 @@ class PreferenceStore(
     }
 
     /**
-     * Alias for [get]: reads and deserializes the object or primitive stored under [key] into [targetClass].
-     */
-    fun <T : Any> load(key: String, targetClass: KClass<T>, defaultValue: T? = null): T? =
-        get(key, targetClass, defaultValue)
-
-    /**
-     * Alias for [get]: reads and deserializes the structured object stored under [key] into [targetClass].
-     */
-    fun <T : Any> getObject(key: String, targetClass: KClass<T>, defaultValue: T? = null): T? =
-        get(key, targetClass, defaultValue)
-
-    /**
      * Reified overload of [get] that deserializes the value stored under [key] into `T`.
      */
     inline fun <reified T : Any> get(key: String, defaultValue: T? = null): T? =
-        get(key, T::class, defaultValue)
-
-    /**
-     * Reified overload of [getObject] that deserializes the object stored under [key] into `T`.
-     */
-    inline fun <reified T : Any> getObject(key: String, defaultValue: T? = null): T? =
         get(key, T::class, defaultValue)
 
     /**
@@ -134,12 +106,6 @@ class PreferenceStore(
      */
     inline fun <reified T : Any> getOrDefault(key: String, defaultValue: T): T =
         get(key, T::class, defaultValue) ?: defaultValue
-
-    /**
-     * Reified overload of [load] returning non-null [defaultValue] if absent.
-     */
-    inline fun <reified T : Any> load(key: String, defaultValue: T): T =
-        getOrDefault(key, defaultValue)
 
     /**
      * Reads the raw [PreferenceElement] AST stored under [key], or `null` if absent.
@@ -288,14 +254,6 @@ class PreferenceStore(
     fun removeChangeListener(listener: PreferenceChangeListener) {
         registeredListeners.remove(listener)
         nativeImpl.removeChangeListener(listener)
-    }
-
-    fun registerChangeListener(listener: PreferenceChangeListener) {
-        addChangeListener(listener)
-    }
-
-    fun unregisterChangeListener(listener: PreferenceChangeListener) {
-        removeChangeListener(listener)
     }
 
     override fun dispose() {

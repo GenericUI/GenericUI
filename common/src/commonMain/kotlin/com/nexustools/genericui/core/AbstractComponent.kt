@@ -2,7 +2,10 @@ package com.nexustools.genericui.core
 
 import com.nexustools.genericui.component.shell.ContextMenu
 import com.nexustools.genericui.enums.bootstrap.*
+import com.nexustools.genericui.enums.window.DisplayCutoutMode
 import com.nexustools.genericui.event.KeyEvent
+import com.nexustools.genericui.event.PointerDragManager
+import com.nexustools.genericui.event.PointerDragSession
 import com.nexustools.genericui.event.PointerEvent
 import com.nexustools.genericui.event.WheelEvent
 import com.nexustools.genericui.geometry.EdgeInsets
@@ -15,7 +18,7 @@ import com.nexustools.genericui.style.css.ComputedStyle
 import com.nexustools.genericui.style.css.CssCursorValue
 import com.nexustools.genericui.style.css.CssStyleSheet
 import com.nexustools.genericui.style.css.PrecompiledStyleSheet
-import com.nexustools.genericui.style.gradient.Gradient
+import com.nexustools.genericui.style.gradient.Gradient.Gradient
 import com.nexustools.genericui.style.mapper.BootstrapClassMapper
 import com.nexustools.genericui.style.mapper.BootstrapStyleSnapshot
 import com.nexustools.genericui.style.transition.CssTransitionController
@@ -43,6 +46,7 @@ abstract class AbstractComponent(
     open var htmlTag: String = initialHtmlTag
         set(value) {
             val normalized = value.trim().ifEmpty { defaultHtmlTag() }
+            if (field == normalized) return
             field = normalized
             nativeImpl?.setAttribute("data-genericui-tag", normalized)
             val sheet = lastAppliedStyleSheet
@@ -62,8 +66,8 @@ abstract class AbstractComponent(
      */
     var mountedInTitleBar: Boolean = false
 
-    var nativeImpl: NativeImpl<*>? = null
-        internal set
+    @PublishedApi
+    internal var nativeImpl: NativeImpl<*>? = null
 
     open val activeFactory: NativeFactory?
         get() = resolveActiveFactory()
@@ -81,19 +85,43 @@ abstract class AbstractComponent(
     var widthPx: Int? = null
         set(value) {
             field = value
-            val h = heightPx ?: preferredSizeState?.height ?: 0
-            if (value != null) setPreferredSize(Size(value, h))
+            val h = heightPx
+            when {
+                value != null -> setPreferredSize(Size(value, h ?: preferredSizeState?.height ?: 0))
+                h != null -> setPreferredSize(Size(0, h))
+                else -> setPreferredSize(null)
+            }
         }
     var heightPx: Int? = null
         set(value) {
             field = value
-            val w = widthPx ?: preferredSizeState?.width ?: 0
-            if (value != null) setPreferredSize(Size(w, value))
+            val w = widthPx
+            when {
+                value != null -> setPreferredSize(Size(w ?: preferredSizeState?.width ?: 0, value))
+                w != null -> setPreferredSize(Size(w, 0))
+                else -> setPreferredSize(null)
+            }
         }
     var minWidthPx: Int? = null
+        set(value) {
+            field = value
+            if (value != null) setStyleProperty("min-width", "${value}px") else removeStyleProperty("min-width")
+        }
     var minHeightPx: Int? = null
+        set(value) {
+            field = value
+            if (value != null) setStyleProperty("min-height", "${value}px") else removeStyleProperty("min-height")
+        }
     var maxWidthPx: Int? = null
+        set(value) {
+            field = value
+            if (value != null) setStyleProperty("max-width", "${value}px") else removeStyleProperty("max-width")
+        }
     var maxHeightPx: Int? = null
+        set(value) {
+            field = value
+            if (value != null) setStyleProperty("max-height", "${value}px") else removeStyleProperty("max-height")
+        }
 
     var padding: EdgeInsets = EdgeInsets.ZERO
         private set
@@ -117,8 +145,14 @@ abstract class AbstractComponent(
     )
 
     private fun onComponentStyleChanged() {
-        val base = lastAppliedStyleSheet?.resolveStyleForComponent(this, viewportWidthPx = lastStyleSheetViewportWidthPx)
-            ?: computedStyleState
+        val activeFactory = resolveActiveFactory() ?: GenericUI.activeFactory
+        val engineEnabled = activeFactory?.isStyleSheetEngineEnabled ?: true
+        val base = if (engineEnabled) {
+            lastAppliedStyleSheet?.resolveStyleForComponent(this, viewportWidthPx = lastStyleSheetViewportWidthPx)
+                ?: computedStyleState
+        } else {
+            computedStyleState
+        }
         val updated = componentStyleInstance.toComputedStyle(base)
         applyComputedStyle(updated)
         nativeImpl?.applyComponentStyle(componentStyleInstance)
@@ -283,6 +317,7 @@ abstract class AbstractComponent(
      * and invoking [onPointerEnter].
      */
     fun dispatchPointerEnter(event: PointerEvent = PointerEvent()) {
+        if (!isEnabled) return
         isHovered = true
         onPointerEnter?.invoke(event)
     }
@@ -293,6 +328,7 @@ abstract class AbstractComponent(
      */
     fun dispatchPointerLeave(event: PointerEvent = PointerEvent()) {
         isHovered = false
+        if (!isEnabled) return
         onPointerLeave?.invoke(event)
     }
 
@@ -380,7 +416,7 @@ abstract class AbstractComponent(
 
     protected abstract fun createNativeImpl(factory: NativeFactory): NativeImpl<*>
 
-    open fun ensureNativeImpl(): NativeImpl<*>? {
+    internal open fun ensureNativeImpl(): NativeImpl<*>? {
         if (!visibleState) return null
         val existing = nativeImpl
         if (existing != null) return existing
@@ -406,10 +442,27 @@ abstract class AbstractComponent(
         impl.setActivePressedState(activePressedState)
         impl.setOpacity(opacityState)
         impl.setTooltipText(tooltipTextState)
+        impl.setAttribute("data-genericui-tag", htmlTag)
         for ((attrKey, attrVal) in customAttributesState) {
             impl.setAttribute(attrKey, attrVal)
         }
         impl.setPreferredSize(preferredSizeState)
+        minWidthPx?.let {
+            inlineStyleMap["min-width"] = "${it}px"
+            componentStyleInstance.setRawDeclaration("min-width", "${it}px")
+        }
+        minHeightPx?.let {
+            inlineStyleMap["min-height"] = "${it}px"
+            componentStyleInstance.setRawDeclaration("min-height", "${it}px")
+        }
+        maxWidthPx?.let {
+            inlineStyleMap["max-width"] = "${it}px"
+            componentStyleInstance.setRawDeclaration("max-width", "${it}px")
+        }
+        maxHeightPx?.let {
+            inlineStyleMap["max-height"] = "${it}px"
+            componentStyleInstance.setRawDeclaration("max-height", "${it}px")
+        }
         impl.setPadding(padding)
         impl.setMargin(margin)
         computedStyleState?.let {
@@ -817,30 +870,41 @@ abstract class AbstractComponent(
         get() = enabledState
         set(value) {
             enabledState = value
+            if (!value) {
+                hoveredState = false
+                focusedState = false
+                activePressedState = false
+                nativeImpl?.setHoveredState(false)
+                nativeImpl?.setFocusedState(false)
+                nativeImpl?.setActivePressedState(false)
+            }
             nativeImpl?.setEnabled(value)
         }
 
     var isHovered: Boolean
-        get() = nativeImpl?.isHoveredState() ?: hoveredState
+        get() = if (!enabledState) false else (nativeImpl?.isHoveredState() ?: hoveredState)
         set(value) {
-            hoveredState = value
-            nativeImpl?.setHoveredState(value)
+            val coerced = if (!enabledState) false else value
+            hoveredState = coerced
+            nativeImpl?.setHoveredState(coerced)
             notifyParentCacheDirty()
         }
 
     var isFocused: Boolean
-        get() = nativeImpl?.isFocusedState() ?: focusedState
+        get() = if (!enabledState) false else (nativeImpl?.isFocusedState() ?: focusedState)
         set(value) {
-            focusedState = value
-            nativeImpl?.setFocusedState(value)
+            val coerced = if (!enabledState) false else value
+            focusedState = coerced
+            nativeImpl?.setFocusedState(coerced)
             notifyParentCacheDirty()
         }
 
     var isActivePressed: Boolean
-        get() = nativeImpl?.isActivePressedState() ?: activePressedState
+        get() = if (!enabledState) false else (nativeImpl?.isActivePressedState() ?: activePressedState)
         set(value) {
-            activePressedState = value
-            nativeImpl?.setActivePressedState(value)
+            val coerced = if (!enabledState) false else value
+            activePressedState = coerced
+            nativeImpl?.setActivePressedState(coerced)
             notifyParentCacheDirty()
         }
 
@@ -879,7 +943,7 @@ abstract class AbstractComponent(
         nativeImpl?.setAttribute(name, null)
     }
 
-    fun setPreferredSize(size: Size?) {
+    open fun setPreferredSize(size: Size?) {
         preferredSizeState = size
         nativeImpl?.setPreferredSize(size)
     }
@@ -900,7 +964,7 @@ abstract class AbstractComponent(
         nativeImpl?.setMargin(margin)
     }
 
-    fun applyComputedStyle(style: ComputedStyle) {
+    open fun applyComputedStyle(style: ComputedStyle) {
         val previous = computedStyleState
         computedStyleState = style
         opacityState = style.opacity.coerceIn(0f, 1f)
@@ -928,8 +992,16 @@ abstract class AbstractComponent(
             return combined.entries.joinToString("; ") { "${it.key}: ${it.value}" }
         }
         set(value) {
+            val previousKeys = (inlineStyleMap.keys + componentStyleInstance.toCssPropertyMap().keys).toSet()
             inlineStyleMap.clear()
             componentStyleInstance.clear()
+            var cleanedBase = computedStyleState
+            if (cleanedBase != null) {
+                for (oldKey in previousKeys) {
+                    cleanedBase = removeKeyFromComputedStyle(cleanedBase!!, oldKey)
+                }
+                computedStyleState = cleanedBase
+            }
             if (value.isNotBlank()) {
                 for (decl in value.split(';')) {
                     val colon = decl.indexOf(':')
@@ -952,11 +1024,16 @@ abstract class AbstractComponent(
         if (trimmedValue.isEmpty()) {
             inlineStyleMap.remove(key)
             componentStyleInstance.setRawDeclaration(key, null)
+            computedStyleState = computedStyleState?.let { removeKeyFromComputedStyle(it, key) }
         } else {
             inlineStyleMap[key] = trimmedValue
             componentStyleInstance.setRawDeclaration(key, trimmedValue)
         }
         rebuildComputedStyleFromInlineMap()
+    }
+
+    fun removeStyleProperty(property: String) {
+        setStyleProperty(property, "")
     }
 
     fun getStyleProperty(property: String): String? {
@@ -967,15 +1044,66 @@ abstract class AbstractComponent(
     }
 
     fun clearStyleProperties() {
+        val previousKeys = (inlineStyleMap.keys + componentStyleInstance.toCssPropertyMap().keys).toSet()
         inlineStyleMap.clear()
         componentStyleInstance.clear()
+        var cleanedBase = computedStyleState
+        if (cleanedBase != null) {
+            for (oldKey in previousKeys) {
+                cleanedBase = removeKeyFromComputedStyle(cleanedBase!!, oldKey)
+            }
+            computedStyleState = cleanedBase
+        }
         rebuildComputedStyleFromInlineMap()
     }
 
     private fun rebuildComputedStyleFromInlineMap() {
+        val activeFactory = resolveActiveFactory() ?: GenericUI.activeFactory
+        val engineEnabled = activeFactory?.isStyleSheetEngineEnabled ?: true
+        val sheetBase = if (engineEnabled) {
+            lastAppliedStyleSheet?.resolveStyleForComponent(
+                this,
+                viewportWidthPx = lastStyleSheetViewportWidthPx
+            )
+        } else {
+            null
+        }
         val parsed = CssStyleSheet.parseInlineStyle(inlineStyle)
-        val merged = (computedStyleState ?: ComputedStyle()).mergeWith(parsed)
+        val base = sheetBase ?: (computedStyleState ?: ComputedStyle())
+        val merged = componentStyleInstance.toComputedStyle(base.mergeWith(parsed))
         applyComputedStyle(merged)
+        nativeImpl?.applyComponentStyle(componentStyleInstance)
+    }
+
+    private fun removeKeyFromComputedStyle(base: ComputedStyle, key: String): ComputedStyle {
+        val updatedRaw = base.rawDeclarations - key
+        val updatedImportant = base.importantProperties - key
+        return when (key) {
+            "width" -> base.copy(width = null, rawDeclarations = updatedRaw, importantProperties = updatedImportant)
+            "height" -> base.copy(height = null, rawDeclarations = updatedRaw, importantProperties = updatedImportant)
+            "min-width" -> base.copy(minWidth = null, rawDeclarations = updatedRaw, importantProperties = updatedImportant)
+            "min-height" -> base.copy(minHeight = null, rawDeclarations = updatedRaw, importantProperties = updatedImportant)
+            "max-width" -> base.copy(maxWidth = null, rawDeclarations = updatedRaw, importantProperties = updatedImportant)
+            "max-height" -> base.copy(maxHeight = null, rawDeclarations = updatedRaw, importantProperties = updatedImportant)
+            "flex" -> base.copy(
+                rawDeclarations = updatedRaw - "flex-grow" - "flex-shrink" - "flex-basis",
+                importantProperties = updatedImportant - "flex-grow" - "flex-shrink" - "flex-basis"
+            )
+            "aspect-ratio" -> base.copy(aspectRatio = null, rawDeclarations = updatedRaw, importantProperties = updatedImportant)
+            "display" -> base.copy(display = null, rawDeclarations = updatedRaw, importantProperties = updatedImportant)
+            "position" -> base.copy(position = null, rawDeclarations = updatedRaw, importantProperties = updatedImportant)
+            "left" -> base.copy(left = null, rawDeclarations = updatedRaw, importantProperties = updatedImportant)
+            "top" -> base.copy(top = null, rawDeclarations = updatedRaw, importantProperties = updatedImportant)
+            "right" -> base.copy(right = null, rawDeclarations = updatedRaw, importantProperties = updatedImportant)
+            "bottom" -> base.copy(bottom = null, rawDeclarations = updatedRaw, importantProperties = updatedImportant)
+            "z-index" -> base.copy(zIndex = null, rawDeclarations = updatedRaw, importantProperties = updatedImportant)
+            "overflow" -> base.copy(overflow = null, rawDeclarations = updatedRaw, importantProperties = updatedImportant)
+            "background-color" -> base.copy(backgroundColor = null, rawDeclarations = updatedRaw, importantProperties = updatedImportant)
+            "color" -> base.copy(textColor = null, rawDeclarations = updatedRaw, importantProperties = updatedImportant)
+            "border-color" -> base.copy(borderColor = null, rawDeclarations = updatedRaw, importantProperties = updatedImportant)
+            "border-radius" -> base.copy(borderRadiusPx = null, borderRadiusPercent = null, rawDeclarations = updatedRaw, importantProperties = updatedImportant)
+            else -> base.copy(rawDeclarations = updatedRaw, importantProperties = updatedImportant)
+        }
     }
 
     private fun syncRawDeclarations(base: ComputedStyle, cssKey: String, cssValue: String?): Map<String, String> =
@@ -988,14 +1116,14 @@ abstract class AbstractComponent(
             applyComputedStyle(
                 base.copy(
                     backgroundColor = value,
-                    rawDeclarations = syncRawDeclarations(base, "background-color", value?.toCssRgba())
+                    rawDeclarations = syncRawDeclarations(base, "background-color", value?.toCssRgbaString())
                 )
             )
         }
 
     /**
-     * Component background gradient ([com.nexustools.genericui.style.gradient.LinearGradient] or
-     * [com.nexustools.genericui.style.gradient.RadialGradient]) configured via `style { ... }` or CSS.
+     * Component background gradient ([com.nexustools.genericui.style.gradient.Gradient.LinearGradient] or
+     * [com.nexustools.genericui.style.gradient.Gradient.RadialGradient]) configured via `style { ... }` or CSS.
      */
     var backgroundGradient: Gradient?
         get() = nativeImpl?.getBackgroundGradient() ?: computedStyleState?.backgroundGradient
@@ -1033,9 +1161,9 @@ abstract class AbstractComponent(
      */
     fun resolveEffectiveStyle(checked: Boolean = false): ComputedStyle =
         (computedStyleState ?: ComputedStyle()).resolveForState(
-            hovered = isHovered,
-            focused = isFocused,
-            active = isActivePressed,
+            hovered = isEnabled && isHovered,
+            focused = isEnabled && isFocused,
+            active = isEnabled && isActivePressed,
             enabled = isEnabled,
             checked = checked
         )
@@ -1047,7 +1175,7 @@ abstract class AbstractComponent(
             applyComputedStyle(
                 base.copy(
                     textColor = value,
-                    rawDeclarations = syncRawDeclarations(base, "color", value?.toCssRgba())
+                    rawDeclarations = syncRawDeclarations(base, "color", value?.toCssRgbaString())
                 )
             )
         }
@@ -1059,7 +1187,7 @@ abstract class AbstractComponent(
             applyComputedStyle(
                 base.copy(
                     borderColor = value,
-                    rawDeclarations = syncRawDeclarations(base, "border-color", value?.toCssRgba())
+                    rawDeclarations = syncRawDeclarations(base, "border-color", value?.toCssRgbaString())
                 )
             )
         }
@@ -1219,6 +1347,8 @@ abstract class AbstractComponent(
      * recursively to all child components.
      */
     open fun applyStyleSheet(styleSheet: CssStyleSheet, viewportWidthPx: Int = 1280) {
+        val activeFactory = resolveActiveFactory() ?: GenericUI.activeFactory
+        if (activeFactory != null && !activeFactory.isStyleSheetEngineEnabled) return
         lastAppliedStyleSheet = styleSheet
         lastStyleSheetViewportWidthPx = viewportWidthPx
         val resolved = styleSheet.resolveStyleForComponent(this, viewportWidthPx = viewportWidthPx)
@@ -1235,7 +1365,119 @@ abstract class AbstractComponent(
      * and all of its descendants with zero runtime SASS/CSS parsing overhead.
      */
     open fun applyPrecompiledStyleSheet(precompiled: PrecompiledStyleSheet, viewportWidthPx: Int = 1280) {
+        val activeFactory = resolveActiveFactory() ?: GenericUI.activeFactory
+        if (activeFactory != null && !activeFactory.isStyleSheetEngineEnabled) return
         applyStyleSheet(precompiled.styleSheet, viewportWidthPx)
+    }
+
+    // Element-Level Fullscreen API
+    private var fullscreenElementState: Boolean = false
+    private var fullscreenCutoutModeState: DisplayCutoutMode = DisplayCutoutMode.SHORT_EDGES
+
+    var onFullscreenChanged: ((Boolean) -> Unit)? = null
+
+    /**
+     * Returns `true` when this component (or window/fragment) is currently displayed in fullscreen mode.
+     */
+    open fun isFullscreen(): Boolean {
+        val hostWin = resolveHostingWindow()
+        if (hostWin != null && hostWin !== this) {
+            return hostWin.fullscreenElement === this || fullscreenElementState
+        }
+        return fullscreenElementState
+    }
+
+    /**
+     * Requests that this component (and all of its child components, such as a video player + overlay stack)
+     * enter fullscreen mode across the hosting window/viewport.
+     */
+    open fun requestFullscreen(cutoutMode: DisplayCutoutMode = DisplayCutoutMode.SHORT_EDGES) {
+        fullscreenCutoutModeState = cutoutMode
+        val hostWin = resolveHostingWindow()
+        if (hostWin != null && hostWin !== this) {
+            hostWin.requestElementFullscreen(this, cutoutMode)
+        } else {
+            updateFullscreenElementState(true, cutoutMode)
+        }
+    }
+
+    /**
+     * Exits fullscreen mode if this component (or its hosting window) is currently fullscreen.
+     */
+    open fun exitFullscreen() {
+        val hostWin = resolveHostingWindow()
+        if (hostWin != null && hostWin !== this) {
+            if (hostWin.fullscreenElement === this || hostWin.isFullscreen()) {
+                hostWin.exitElementFullscreen()
+            } else {
+                updateFullscreenElementState(false, fullscreenCutoutModeState)
+            }
+        } else {
+            updateFullscreenElementState(false, fullscreenCutoutModeState)
+        }
+    }
+
+    /**
+     * Toggles fullscreen state for this component and returns the new fullscreen state.
+     */
+    open fun toggleFullscreen(cutoutMode: DisplayCutoutMode = DisplayCutoutMode.SHORT_EDGES): Boolean {
+        if (isFullscreen()) {
+            exitFullscreen()
+        } else {
+            requestFullscreen(cutoutMode)
+        }
+        return isFullscreen()
+    }
+
+    /**
+     * Sets whether this component is in fullscreen mode.
+     */
+    open fun setFullscreen(fullscreen: Boolean) {
+        setFullscreen(fullscreen, DisplayCutoutMode.SHORT_EDGES)
+    }
+
+    /**
+     * Sets whether this component is in fullscreen mode with the given [cutoutMode].
+     */
+    open fun setFullscreen(fullscreen: Boolean, cutoutMode: DisplayCutoutMode) {
+        if (fullscreen) {
+            requestFullscreen(cutoutMode)
+        } else {
+            exitFullscreen()
+        }
+    }
+
+    internal fun updateFullscreenElementState(
+        fullscreen: Boolean,
+        cutoutMode: DisplayCutoutMode = fullscreenCutoutModeState
+    ) {
+        val changed = fullscreenElementState != fullscreen
+        fullscreenElementState = fullscreen
+        fullscreenCutoutModeState = cutoutMode
+        if (fullscreen) {
+            setAttribute("data-genericui-fullscreen-element", "true")
+        } else {
+            removeAttribute("data-genericui-fullscreen-element")
+        }
+        if (changed) {
+            onFullscreenChanged?.invoke(fullscreen)
+        }
+    }
+
+    internal fun resolveHostingWindow(): com.nexustools.genericui.component.shell.Window? {
+        var cur: AbstractComponent? = this
+        while (cur != null) {
+            if (cur is com.nexustools.genericui.component.shell.Window) return cur
+            if (cur is com.nexustools.genericui.component.fragment.Fragment) {
+                cur.attachedWindow?.let { return it }
+                (cur.hostingWindow as? com.nexustools.genericui.component.shell.Window)?.let { return it }
+            }
+            if (cur is com.nexustools.genericui.component.fragment.FragmentContainer) {
+                cur.hostWindow?.let { return it }
+            }
+            cur = cur.parent
+        }
+        return com.nexustools.genericui.component.shell.Application.current?.mainWindow
     }
 
     // Event Listeners
@@ -1262,7 +1504,29 @@ abstract class AbstractComponent(
     @kotlin.jvm.JvmName("assignOnKeyUp")
     fun setOnKeyUp(listener: ((KeyEvent) -> Unit)?) { onKeyUp = listener }
 
+    val isPointerDragging: Boolean
+        get() = PointerDragManager.isDragging(this)
+
+    /**
+     * Starts a global pointer drag session via [PointerDragManager] so dragging continues
+     * when the pointer leaves this component's bounds and pointer release (`pointerup` / `mouseup`)
+     * is handled even outside the boundary of this component.
+     */
+    fun startPointerDrag(
+        initialEvent: PointerEvent = PointerEvent(),
+        onDragMove: (PointerEvent) -> Unit,
+        onDragEnd: (event: PointerEvent, cancelled: Boolean) -> Unit = { _, _ -> }
+    ): PointerDragSession = PointerDragManager.startDrag(
+        target = this,
+        initialEvent = initialEvent,
+        onDragMove = onDragMove,
+        onDragEnd = onDragEnd
+    )
+
     override fun dispose() {
+        if (PointerDragManager.isDragging(this)) {
+            PointerDragManager.cancelActiveDrag()
+        }
         clearAllTimers()
         nativeImpl?.dispose()
         nativeImpl = null

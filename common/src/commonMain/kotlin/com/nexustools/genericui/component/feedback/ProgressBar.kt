@@ -35,7 +35,7 @@ class ProgressBar(
         this.type = type
     }
 
-    override fun createNativeImpl(factory: NativeFactory): ProgressBarNativeImpl<*> =
+    protected override fun createNativeImpl(factory: NativeFactory): ProgressBarNativeImpl<*> =
         factory.createProgressBar()
 
     override fun syncStateToNative() {

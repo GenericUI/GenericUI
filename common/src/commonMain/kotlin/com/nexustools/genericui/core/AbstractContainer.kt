@@ -18,9 +18,14 @@ abstract class AbstractContainer(
 
     val renderCache: ContainerRenderCache = ContainerRenderCache()
 
-    private val _children = mutableListOf<AbstractComponent>()
+    private var _children: List<AbstractComponent> = emptyList()
     val children: List<AbstractComponent>
         get() = _children
+
+    internal fun reorderChildrenInMemory(orderedChildren: List<AbstractComponent>) {
+        _children = orderedChildren.toList()
+        markRenderCacheDirty()
+    }
 
     fun markRenderCacheDirty() {
         renderCache.markDirty()
@@ -35,14 +40,18 @@ abstract class AbstractContainer(
             (child.parent as? AbstractContainer)?.removeChild(child)
         }
         child.parent = this
-        if (index < 0 || index >= _children.size) {
-            _children.add(child)
+        val current = _children
+        val next = ArrayList<AbstractComponent>(current.size + 1)
+        next.addAll(current)
+        if (index < 0 || index >= next.size) {
+            next.add(child)
         } else {
-            _children.add(index, child)
+            next.add(index, child)
         }
+        _children = next
         markRenderCacheDirty()
         val parentImpl = typedNative<AbstractContainerNativeImpl<*>>()
-        if (parentImpl != null && isVisible && child.isVisible) {
+        if (parentImpl != null && child.isVisible) {
             val childImpl = child.ensureNativeImpl()
             if (childImpl != null) {
                 parentImpl.addChildNative(childImpl, index)
@@ -51,8 +60,19 @@ abstract class AbstractContainer(
     }
 
     open fun removeChild(child: AbstractComponent): Boolean {
-        val removed = _children.remove(child)
+        val current = _children
+        if (!current.contains(child)) return false
+        val next = ArrayList<AbstractComponent>(current.size)
+        var removed = false
+        for (item in current) {
+            if (!removed && item === child) {
+                removed = true
+            } else {
+                next.add(item)
+            }
+        }
         if (removed) {
+            _children = next
             child.parent = null
             markRenderCacheDirty()
             val childImpl = child.nativeImpl
@@ -64,15 +84,35 @@ abstract class AbstractContainer(
     }
 
     open fun clearChildren() {
-        for (child in _children) {
+        val current = _children
+        _children = emptyList()
+        for (child in current) {
             child.parent = null
         }
-        _children.clear()
         markRenderCacheDirty()
         typedNative<AbstractContainerNativeImpl<*>>()?.clearChildrenNative()
     }
 
-    override fun onAttachNative(impl: NativeImpl<*>) {
+    internal override fun ensureNativeImpl(): NativeImpl<*>? {
+        val wasAlreadyCreated = (nativeImpl != null)
+        val impl = super.ensureNativeImpl() ?: return null
+        if (wasAlreadyCreated) {
+            val containerImpl = impl as? AbstractContainerNativeImpl<*>
+            if (containerImpl != null) {
+                for ((idx, child) in _children.withIndex()) {
+                    if (child.isVisible) {
+                        val childImpl = child.ensureNativeImpl()
+                        if (childImpl != null) {
+                            containerImpl.addChildNative(childImpl, idx)
+                        }
+                    }
+                }
+            }
+        }
+        return impl
+    }
+
+    protected override fun onAttachNative(impl: NativeImpl<*>) {
         super.onAttachNative(impl)
         val containerImpl = impl as? AbstractContainerNativeImpl<*> ?: return
         for (child in _children) {
@@ -120,10 +160,11 @@ abstract class AbstractContainer(
     }
 
     override fun dispose() {
-        for (child in _children) {
+        val current = _children
+        _children = emptyList()
+        for (child in current) {
             child.dispose()
         }
-        _children.clear()
         super.dispose()
     }
 }

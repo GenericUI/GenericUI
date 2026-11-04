@@ -48,10 +48,10 @@ class PreferenceStoreTest {
             hardwareAcceleration = true,
             pinnedPanels = listOf("layers", "timeline", "inspector")
         )
-        store.save("editor_settings", settings)
+        store.put("editor_settings", settings)
         assertTrue(store.contains("editor_settings"))
 
-        val loaded = store.load(
+        val loaded = store.getOrDefault(
             "editor_settings",
             EditorUserSettings("light", 12, 5000L, 1.0f, false, emptyList())
         )

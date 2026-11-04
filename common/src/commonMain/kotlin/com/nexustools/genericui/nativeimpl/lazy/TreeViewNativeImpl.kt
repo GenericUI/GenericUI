@@ -9,4 +9,15 @@ interface TreeViewNativeImpl<out W> : NativeImpl<W> {
     fun setOnNodeSelected(listener: ((TreeNode<*>) -> Unit)?)
     fun setOnNodeDoubleClicked(listener: ((TreeNode<*>) -> Unit)?)
     fun setOnNodeContextMenu(listener: ((TreeNode<*>, Float, Float) -> Unit)?)
+    fun setEstimatedRowHeight(rowHeightPx: Float, overscanRows: Int = 4) {}
+    fun updateViewportMetrics(
+        scrollOffsetPx: Float,
+        viewportHeightPx: Float,
+        firstActiveIndex: Int,
+        lastActiveIndex: Int,
+        leadingSpacerPx: Float,
+        trailingSpacerPx: Float,
+        totalContentExtentPx: Float
+    ) {}
+    fun setOnViewportScrollChanged(listener: ((scrollOffsetPx: Float, viewportHeightPx: Float) -> Unit)?) {}
 }

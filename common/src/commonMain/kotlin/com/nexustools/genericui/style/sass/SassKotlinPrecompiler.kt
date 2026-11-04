@@ -1,6 +1,6 @@
 package com.nexustools.genericui.style.sass
 
-import com.nexustools.genericui.res.ResourceType
+import com.nexustools.genericui.resources.ResourceType
 import com.nexustools.genericui.res.Resources
 import com.nexustools.genericui.style.css.CompiledSelectorSegment
 import com.nexustools.genericui.style.css.CompiledStyleRule
@@ -25,7 +25,7 @@ object SassKotlinPrecompiler {
         // @color/<name>
         result = Regex("@color/([a-zA-Z0-9_-]+)").replace(result) { match ->
             val name = match.groupValues[1]
-            Resources.activeTable.getColorByName(name)?.toCssRgba() ?: match.value
+            Resources.activeTable.getColorByName(name)?.toCssRgbaString() ?: match.value
         }
         // @dimen/<name>
         result = Regex("@dimen/([a-zA-Z0-9_-]+)").replace(result) { match ->

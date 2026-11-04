@@ -5,14 +5,26 @@ import com.nexustools.genericui.component.dock.DockPanel
 import com.nexustools.genericui.component.dock.DockWorkspace
 import com.nexustools.genericui.component.fragment.Fragment
 import com.nexustools.genericui.component.fragment.helper.AdaptiveNavigationScaffoldFragment
+import com.nexustools.genericui.component.fragment.helper.CardLayoutFragment
 import com.nexustools.genericui.component.fragment.helper.CollapsibleBottomDockFragment
+import com.nexustools.genericui.component.fragment.helper.CollapsiblePanelFragment
+import com.nexustools.genericui.component.fragment.helper.ColumnLayoutFragment
 import com.nexustools.genericui.component.fragment.helper.DockWorkspaceFragment
 import com.nexustools.genericui.component.fragment.helper.HybridColumnFragment
 import com.nexustools.genericui.component.fragment.helper.HybridSplitNavigationFragment
 import com.nexustools.genericui.component.fragment.helper.ResponsiveBentoGridFragment
 import com.nexustools.genericui.component.fragment.helper.ResponsiveMasterDetailFragment
+import com.nexustools.genericui.component.fragment.helper.SplitPaneFragment
+import com.nexustools.genericui.component.shell.SplitPane
+import com.nexustools.genericui.component.surface.Accordion
+import com.nexustools.genericui.component.surface.AccordionItem
+import com.nexustools.genericui.component.surface.CollapsiblePanel
+import com.nexustools.genericui.component.typography.Label
+import com.nexustools.genericui.enums.bootstrap.ResponsiveBreakpoint
+import com.nexustools.genericui.enums.bootstrap.SpacingScale
 import com.nexustools.genericui.enums.dock.DockPosition
 import com.nexustools.genericui.enums.system.BackendTarget
+import com.nexustools.genericui.enums.ui.Orientation
 import com.nexustools.genericui.enums.window.WindowState
 import com.nexustools.genericui.window.WindowConfiguration
 import kotlin.test.Test
@@ -637,5 +649,261 @@ class HybridLayoutsTest {
         assertEquals(12, fragment.activeColumnsForItem("hero"))
         assertEquals(12, fragment.activeColumnsForItem("stats"))
         assertEquals(12, fragment.activeColumnsForItem("activity"))
+    }
+
+    @Test
+    fun testColumnLayoutColumnContainerColumnSpecAndFragment() {
+        val fragment = ColumnLayoutFragment(
+            gutter = SpacingScale.S3,
+            gutterX = SpacingScale.S2,
+            gutterY = SpacingScale.S4,
+            rowCols = 1,
+            rowColsSm = 2,
+            rowColsMd = 3,
+            rowColsLg = 4,
+            rowColsXl = 6,
+            rowColsXxl = 6
+        )
+        fragment.performCreate(null)
+
+        val container = fragment.columnContainer
+        assertTrue(container.hasClass("row"))
+        assertTrue(container.hasClass("g-3"))
+        assertTrue(container.hasClass("gx-2"))
+        assertTrue(container.hasClass("gy-4"))
+        assertTrue(container.hasClass("row-cols-1"))
+        assertTrue(container.hasClass("row-cols-sm-2"))
+        assertTrue(container.hasClass("row-cols-md-3"))
+        assertTrue(container.hasClass("row-cols-lg-4"))
+        assertTrue(container.hasClass("row-cols-xl-6"))
+        assertTrue(container.hasClass("row-cols-xxl-6"))
+
+        val col1 = fragment.addColumn(
+            ColumnSpec(
+                span = 12,
+                sm = 6,
+                md = 4,
+                lg = 3,
+                xl = 2,
+                xxl = 2,
+                offset = 1,
+                offsetMd = 2,
+                order = 2,
+                orderLg = 1
+            ),
+            content = Label("Col 1")
+        )
+        assertTrue(col1.hasClass("col-12"))
+        assertTrue(col1.hasClass("col-sm-6"))
+        assertTrue(col1.hasClass("col-md-4"))
+        assertTrue(col1.hasClass("col-lg-3"))
+        assertTrue(col1.hasClass("col-xl-2"))
+        assertTrue(col1.hasClass("col-xxl-2"))
+        assertTrue(col1.hasClass("offset-1"))
+        assertTrue(col1.hasClass("offset-md-2"))
+        assertTrue(col1.hasClass("order-2"))
+        assertTrue(col1.hasClass("order-lg-1"))
+
+        val autoCol = fragment.addColumn(
+            ColumnSpec(autoWidth = true, mdAuto = true),
+            content = Label("Auto Col")
+        )
+        assertTrue(autoCol.hasClass("col-auto"))
+        assertTrue(autoCol.hasClass("col-md-auto"))
+
+        // Verify responsive breakpoint cascading
+        fragment.onResize(400, 800)
+        assertEquals(ResponsiveBreakpoint.XS, container.activeBreakpoint)
+        assertEquals(12, col1.spec.resolveSpanForBreakpoint(ResponsiveBreakpoint.XS))
+
+        fragment.onResize(800, 600)
+        assertEquals(ResponsiveBreakpoint.MD, container.activeBreakpoint)
+        assertEquals(4, col1.spec.resolveSpanForBreakpoint(ResponsiveBreakpoint.MD))
+
+        fragment.onResize(1440, 900)
+        assertEquals(ResponsiveBreakpoint.XXL, container.activeBreakpoint)
+        assertEquals(2, col1.spec.resolveSpanForBreakpoint(ResponsiveBreakpoint.XXL))
+    }
+
+    @Test
+    fun testAdaptiveCardLayoutContainerAndCardLayoutFragmentModes() {
+        // 1. CARD_ON_LARGE_SCREENS (default)
+        val fragment = CardLayoutFragment(
+            cardTitle = "Sign In",
+            cardSubtitle = "Continue to workspace",
+            cardMode = AdaptiveCardMode.CARD_ON_LARGE_SCREENS,
+            cardMaxWidthPx = 480,
+            cardBreakpointDp = 600f
+        )
+        val formContent = Container("div", "login-form")
+        fragment.addCardContent(formContent)
+        fragment.performCreate(null)
+
+        // Wide screen -> Card active
+        fragment.onResize(1280, 800)
+        assertTrue(fragment.isCardActive)
+        assertTrue(fragment.cardContainer.isVisible)
+        assertFalse(fragment.inlineContentStack.isVisible)
+        assertEquals(fragment.cardContainer, formContent.parent)
+
+        // Narrow screen (< 600dp) -> Inline stack active (no card chrome)
+        fragment.onResize(390, 844)
+        assertFalse(fragment.isCardActive)
+        assertFalse(fragment.cardContainer.isVisible)
+        assertTrue(fragment.inlineContentStack.isVisible)
+        assertEquals(fragment.inlineContentStack, formContent.parent)
+
+        // 2. CARD_ON_SMALL_SCREENS
+        val container = AdaptiveCardContainer(
+            cardTitle = "Mobile Card",
+            cardMode = AdaptiveCardMode.CARD_ON_SMALL_SCREENS,
+            cardBreakpointDp = 600f
+        )
+        val item = Label("Body")
+        container.addContent(item)
+
+        container.updateViewport(390f, 844f, 390)
+        assertTrue(container.isCardActive)
+        assertTrue(container.cardContainer.isVisible)
+
+        container.updateViewport(1280f, 800f, 800)
+        assertFalse(container.isCardActive)
+        assertTrue(container.inlineContentStack.isVisible)
+
+        // 3. ALWAYS_CARD
+        container.cardMode = AdaptiveCardMode.ALWAYS_CARD
+        container.updateViewport(390f, 844f, 390)
+        assertTrue(container.isCardActive)
+        container.updateViewport(1280f, 800f, 800)
+        assertTrue(container.isCardActive)
+    }
+
+    @Test
+    fun testSplitPaneLayoutContainerAndFragment() {
+        val splitFragment = SplitPaneFragment(
+            orientation = Orientation.HORIZONTAL,
+            dividerPosition = 0.35f
+        )
+        val left = Container("div", "left-pane")
+        val right = Container("div", "right-pane")
+        splitFragment.setPanes(left, right)
+        splitFragment.performCreate(null)
+
+        val splitPane: SplitPane = splitFragment.splitPane
+        assertEquals(Orientation.HORIZONTAL, splitPane.orientation)
+        assertEquals(0.35f, splitPane.dividerPosition)
+        assertEquals(left, splitPane.firstPane)
+        assertEquals(right, splitPane.secondPane)
+        assertTrue(splitPane.hasClass("gui-split-pane-horizontal"))
+
+        splitFragment.orientation = Orientation.VERTICAL
+        splitFragment.dividerPosition = 0.6f
+        assertEquals(Orientation.VERTICAL, splitPane.orientation)
+        assertEquals(0.6f, splitPane.dividerPosition)
+        assertTrue(splitPane.hasClass("gui-split-pane-vertical"))
+    }
+
+    @Test
+    fun testCollapsiblePanelLayoutContainerAccordionAndFragment() {
+        val panelFragment = CollapsiblePanelFragment(title = "Advanced Settings", expanded = true)
+        val body = Container("div", "settings-body")
+        panelFragment.setContent(body)
+        panelFragment.performCreate(null)
+
+        val panel: CollapsiblePanel = panelFragment.collapsiblePanel
+        assertEquals("Advanced Settings", panel.title)
+        assertTrue(panel.isExpanded)
+        assertTrue(panel.bodyContainer.isVisible)
+        assertTrue(panel.hasClass("show"))
+
+        panelFragment.toggle()
+        assertFalse(panel.isExpanded)
+        assertFalse(panel.bodyContainer.isVisible)
+        assertTrue(panel.hasClass("collapsed"))
+
+        // Accordion single-expanded behavior
+        val accordion = Accordion(allowMultipleExpanded = false)
+        val item1 = AccordionItem("s1", "Section 1", expanded = true)
+        val item2 = AccordionItem("s2", "Section 2", expanded = false)
+        accordion.addItem(item1).addItem(item2)
+
+        assertTrue(item1.isExpanded)
+        assertFalse(item2.isExpanded)
+
+        item2.isExpanded = true
+        assertFalse(item1.isExpanded)
+        assertTrue(item2.isExpanded)
+    }
+
+    @Test
+    fun testVStackHStackConstraintsAndHybridSmallScreen16x9WithBottomTabs() {
+        val vstack = VStack(gapPx = 0)
+        val topVideo = Container("div", "video-pane")
+        val bottomTabs = Container("div", "tab-container")
+        vstack.addChild(topVideo, StackConstraint.ASPECT_16_9)
+        vstack.addChild(bottomTabs, StackConstraint.EXPAND)
+
+        val videoConstraint = vstack.getChildConstraint(topVideo)
+        assertNotNull(videoConstraint)
+        assertEquals(0f, videoConstraint.weight)
+        assertEquals(0f, videoConstraint.flexShrink)
+        assertEquals("16 / 9", topVideo.getStyleProperty("aspect-ratio"))
+
+        val tabsConstraint = vstack.getChildConstraint(bottomTabs)
+        assertNotNull(tabsConstraint)
+        assertEquals(1f, tabsConstraint.weight)
+        assertEquals(1f, vstack.getChildWeight(bottomTabs))
+        assertEquals("1", bottomTabs.getStyleProperty("flex-grow"))
+        assertEquals(0, bottomTabs.minHeightPx)
+
+        val hstack = HStack(gapPx = 12)
+        val leftCol = Container("div", "left-col")
+        val rightCol = Container("div", "right-col")
+        hstack.addChild(leftCol, 1.8f)
+        hstack.addChild(rightCol, 1.0f)
+        assertEquals(1.8f, hstack.getChildWeight(leftCol))
+        assertEquals(1.0f, hstack.getChildWeight(rightCol))
+
+        // HybridColumnLayout in SINGLE mode applies 16:9 constraint to pinned top column and expanding weight to tab container
+        val hybrid = HybridColumnLayout(foldMode = HybridFoldMode.PIN_FIRST_COLUMN_TOP)
+        val playerPane = Container("div", "player-pane")
+        val splitNav = HybridSplitNavigationContainer(inColumnMode = false)
+        splitNav.addSection("queue", "Queue", content = Container("div", "queue-list"))
+        splitNav.addSection("shows", "Shows", content = Container("div", "shows-list"))
+        hybrid.addColumn(
+            id = "player",
+            title = "Player",
+            weight = 1.8f,
+            colMd = 7,
+            compactAspectRatio = 16f / 9f,
+            component = playerPane
+        )
+        hybrid.addColumn(
+            id = "library",
+            title = "Library",
+            weight = 1.0f,
+            colMd = 5,
+            component = splitNav
+        )
+
+        // Small screen (480x800)
+        hybrid.updateViewport(viewportWidthDp = 480, viewportHeightDp = 800, smallestScreenWidthDp = 480)
+        assertEquals(HybridLayoutMode.SINGLE, hybrid.layoutMode)
+        val pinnedConstraint = hybrid.singleStack.getChildConstraint(playerPane)
+        assertNotNull(pinnedConstraint)
+        assertEquals(0f, pinnedConstraint.weight)
+        assertEquals("16 / 9", playerPane.getStyleProperty("aspect-ratio"))
+
+        val libraryConstraint = hybrid.singleStack.getChildConstraint(splitNav)
+        assertNotNull(libraryConstraint)
+        assertEquals(1f, libraryConstraint.weight)
+        assertEquals("1", splitNav.getStyleProperty("flex-grow"))
+        assertFalse(splitNav.topTabLayout.isVisible)
+        assertTrue(splitNav.bottomNavigationBar.isVisible)
+
+        // Web breakpoint check: < 768 is SINGLE, >= 768 is COLUMNS regardless of viewportHeightDp
+        val spec = HybridBreakpointSpec.DEFAULT
+        assertFalse(spec.shouldUseWideColumns(viewportWidthDp = 500, viewportHeightDp = 900, backendTarget = BackendTarget.Web))
+        assertTrue(spec.shouldUseWideColumns(viewportWidthDp = 900, viewportHeightDp = 500, backendTarget = BackendTarget.Web))
     }
 }

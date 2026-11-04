@@ -3,7 +3,7 @@ package com.nexustools.genericui.component.dock
 import com.nexustools.genericui.core.AbstractContainer
 import com.nexustools.genericui.core.NativeFactory
 import com.nexustools.genericui.nativeimpl.dock.ToolPaletteNativeImpl
-import com.nexustools.genericui.style.RgbaColor
+import com.nexustools.genericui.style.color.RgbaColor
 
 /**
  * Multi-column studio tool icon grid for selecting interactive viewport tools
@@ -77,7 +77,7 @@ class ToolPalette(
         impl.setTools(_tools, activeToolId)
     }
 
-    override fun createNativeImpl(factory: NativeFactory): ToolPaletteNativeImpl<*> =
+    protected override fun createNativeImpl(factory: NativeFactory): ToolPaletteNativeImpl<*> =
         factory.createToolPalette()
 
     override fun syncStateToNative() {

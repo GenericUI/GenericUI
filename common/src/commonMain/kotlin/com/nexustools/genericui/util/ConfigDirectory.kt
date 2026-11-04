@@ -2,6 +2,9 @@ package com.nexustools.genericui.util
 
 import com.nexustools.genericui.core.GenericUI
 import com.nexustools.genericui.core.NativeFactory
+import com.nexustools.genericui.io.ByteBuffer
+import com.nexustools.genericui.io.Readable
+import com.nexustools.genericui.io.Writable
 import com.nexustools.genericui.nativeimpl.system.UserDirectoryNativeImpl
 
 /**
@@ -15,18 +18,24 @@ import com.nexustools.genericui.nativeimpl.system.UserDirectoryNativeImpl
  * - **Swing (`:desktop:swing`)**: Host OS user config directory (`%APPDATA%`, `~/Library/Preferences`, or `~/.config`)
  * - **Android (`:mobile:android`)**: `<context.filesDir>/<appName>`
  * - **iOS (`:mobile:ios`)**: `<Home>/Library/Application Support/<appName>`
- * - **Web (`:web`)**: `window.localStorage` namespace `genericui:config:<appName>`
+ * - **Web (`:web`)**: Browser `window.indexedDB` store `"config"` (with `localStorage` read-through cache)
  */
-open class ConfigDirectory(
-    appName: String = GenericUI.applicationName,
-    subdirectory: String = "",
-    factory: NativeFactory? = null,
-    nativeImplOverride: UserDirectoryNativeImpl? = null
+open class ConfigDirectory internal constructor(
+    appName: String,
+    subdirectory: String,
+    factory: NativeFactory?,
+    nativeImplOverride: UserDirectoryNativeImpl?
 ) : UserDirectory(appName, subdirectory, factory, nativeImplOverride) {
+
+    constructor(
+        appName: String = GenericUI.applicationName,
+        subdirectory: String = "",
+        factory: NativeFactory? = null
+    ) : this(appName, subdirectory, factory, null)
 
     override val fallbackScheme: String = "config"
 
-    override fun createBackendImpl(activeFactory: NativeFactory): UserDirectoryNativeImpl =
+    protected override fun createBackendImpl(activeFactory: NativeFactory): UserDirectoryNativeImpl =
         activeFactory.createConfigDirectory(appName, subdirectory)
 
     fun fileNameForKey(key: String, extensionWithDot: String): String {
@@ -41,6 +50,25 @@ open class ConfigDirectory(
 
     fun resolveKeyPath(key: String, extensionWithDot: String): String =
         resolvePath(fileNameForKey(key, extensionWithDot))
+
+    suspend fun readKey(key: String, extensionWithDot: String): ByteBuffer? =
+        read(fileNameForKey(key, extensionWithDot))
+
+    suspend fun writeKey(
+        key: String,
+        extensionWithDot: String,
+        buffer: ByteBuffer,
+        append: Boolean = false
+    ): Boolean = write(fileNameForKey(key, extensionWithDot), buffer, append)
+
+    suspend fun openKeyReadable(key: String, extensionWithDot: String): Readable? =
+        openReadable(fileNameForKey(key, extensionWithDot))
+
+    suspend fun openKeyWritable(
+        key: String,
+        extensionWithDot: String,
+        append: Boolean = false
+    ): Writable = openWritable(fileNameForKey(key, extensionWithDot), append)
 
     fun writeKeyBytes(key: String, extensionWithDot: String, bytes: ByteArray): Boolean =
         writeBytes(fileNameForKey(key, extensionWithDot), bytes)

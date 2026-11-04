@@ -4,7 +4,9 @@ import com.nexustools.genericui.component.navigation.BottomNavigationBar
 import com.nexustools.genericui.component.tabs.BadgeTab
 import com.nexustools.genericui.component.tabs.Tab
 import com.nexustools.genericui.component.tabs.TabContainer
+import com.nexustools.genericui.component.tabs.TabPosition
 import com.nexustools.genericui.core.AbstractComponent
+import com.nexustools.genericui.core.AbstractContainer
 import com.nexustools.genericui.enums.bootstrap.DisplayMode
 import com.nexustools.genericui.enums.bootstrap.FlexDirection
 import com.nexustools.genericui.window.WindowConfiguration
@@ -21,9 +23,19 @@ import kotlin.math.min
  *   [contentHost] without recreating child components.
  */
 open class HybridSplitNavigationLayout(
+    host: AbstractContainer = Container("genericui:hybridsplitnavigationlayout", "gui-hybrid-split-navigation"),
     inColumnMode: Boolean = false,
-    var breakpointSpec: HybridBreakpointSpec = HybridBreakpointSpec.DEFAULT
-) : Container("genericui:hybridsplitnavigationlayout", "gui-hybrid-split-navigation") {
+    breakpointSpec: HybridBreakpointSpec = HybridBreakpointSpec.DEFAULT
+) : Layout<HybridSplitNavigationLayoutImpl>(host, breakpointSpec) {
+
+    constructor(
+        inColumnMode: Boolean,
+        breakpointSpec: HybridBreakpointSpec = HybridBreakpointSpec.DEFAULT
+    ) : this(
+        host = Container("genericui:hybridsplitnavigationlayout", "gui-hybrid-split-navigation"),
+        inColumnMode = inColumnMode,
+        breakpointSpec = breakpointSpec
+    )
 
     private class SectionEntry(
         val id: String,
@@ -36,6 +48,7 @@ open class HybridSplitNavigationLayout(
 
     private val sections = linkedMapOf<String, SectionEntry>()
     private var suppressNavCallbacks: Boolean = false
+    private var inColumnModeState: Boolean = inColumnMode
 
     val topTabLayout: TabContainer = TabContainer()
     val headerSlot: Container = Container("div", "gui-split-nav-header")
@@ -47,10 +60,11 @@ open class HybridSplitNavigationLayout(
 
     var onSectionSelected: ((String) -> Unit)? = null
 
-    var inColumnMode: Boolean = inColumnMode
+    var inColumnMode: Boolean
+        get() = inColumnModeState
         set(value) {
-            field = value
-            syncNavigationModeVisibility()
+            inColumnModeState = value
+            impl.syncNavigationChrome(value)
         }
 
     val sectionIds: List<String>
@@ -60,15 +74,64 @@ open class HybridSplitNavigationLayout(
         get() = sections.size
 
     init {
-        htmlTag = "genericui:hybridsplitnavigationlayout"
-        setDisplay(DisplayMode.FLEX)
-        setFlexDirection(FlexDirection.COLUMN)
+        ensureMounted()
+    }
+
+    override fun createImpl(factory: LayoutFactory): HybridSplitNavigationLayoutImpl =
+        factory.createHybridSplitNavigationLayout(this)
+
+    override fun onMount() {
+        host.addClass("gui-hybrid-split-navigation")
+        host.setDisplay(DisplayMode.FLEX)
+        host.setFlexDirection(FlexDirection.COLUMN)
+        host.setStyleProperty("display", "flex")
+        host.setStyleProperty("flex-direction", "column")
+        host.setStyleProperty("width", "100%")
+        host.setStyleProperty("height", "100%")
+        host.setStyleProperty("min-height", "0")
+        host.setStyleProperty("flex", "1 1 0%")
+        host.setStyleProperty("overflow", "hidden")
+
+        topTabLayout.setStyleProperty("flex-shrink", "0")
+        topTabLayout.setStyleProperty("width", "100%")
+
+        headerSlot.setStyleProperty("flex-shrink", "0")
+        headerSlot.setStyleProperty("width", "100%")
+
+        contentHost.setDisplay(DisplayMode.FLEX)
+        contentHost.setFlexDirection(FlexDirection.COLUMN)
+        contentHost.setStyleProperty("display", "flex")
+        contentHost.setStyleProperty("flex-direction", "column")
+        contentHost.setStyleProperty("flex", "1 1 0%")
+        contentHost.setStyleProperty("flex-grow", "1")
+        contentHost.setStyleProperty("flex-shrink", "1")
+        contentHost.setStyleProperty("flex-basis", "0%")
+        contentHost.setStyleProperty("min-height", "0")
+        contentHost.setStyleProperty("width", "100%")
+        contentHost.setStyleProperty("height", "100%")
+        contentHost.setStyleProperty("overflow", "hidden")
+        contentHost.setStyleProperty("overflow-x", "hidden")
+        contentHost.setStyleProperty("overflow-y", "hidden")
+        contentHost.addClass("flex-grow-1 overflow-hidden")
+
+        bottomNavigationBar.setStyleProperty("flex-shrink", "0")
+        bottomNavigationBar.setStyleProperty("width", "100%")
+        bottomNavigationBar.addClass("mt-auto w-100 flex-shrink-0")
 
         headerSlot.isVisible = false
-        addChild(topTabLayout)
-        addChild(headerSlot)
-        addChild(contentHost)
-        addChild(bottomNavigationBar)
+        val stackHost = host as? VStack
+        if (!host.children.contains(topTabLayout)) {
+            if (stackHost != null) stackHost.addChild(topTabLayout, StackConstraint.FIXED) else host.addChild(topTabLayout)
+        }
+        if (!host.children.contains(headerSlot)) {
+            if (stackHost != null) stackHost.addChild(headerSlot, StackConstraint.FIXED) else host.addChild(headerSlot)
+        }
+        if (!host.children.contains(contentHost)) {
+            if (stackHost != null) stackHost.addChild(contentHost, StackConstraint.EXPAND) else host.addChild(contentHost)
+        }
+        if (!host.children.contains(bottomNavigationBar)) {
+            if (stackHost != null) stackHost.addChild(bottomNavigationBar, StackConstraint.FIXED) else host.addChild(bottomNavigationBar)
+        }
 
         topTabLayout.setOnTabSelected { tabId ->
             if (!suppressNavCallbacks && tabId != selectedSectionId && sections.containsKey(tabId)) {
@@ -81,7 +144,7 @@ open class HybridSplitNavigationLayout(
             }
         }
 
-        syncNavigationModeVisibility()
+        impl.syncNavigationChrome(inColumnModeState)
     }
 
     /**
@@ -172,12 +235,26 @@ open class HybridSplitNavigationLayout(
             contentHost.clearChildren()
             contentHost.addChild(entry.content)
         }
+        refreshLazyListsInSubtree(entry.content)
 
         syncActiveSelectionToBars()
         if (changed) {
             onSectionSelected?.invoke(id)
         }
         return true
+    }
+
+    private fun refreshLazyListsInSubtree(component: AbstractComponent) {
+        when (component) {
+            is com.nexustools.genericui.component.lazy.LazyList -> component.refreshLazyViewport()
+            is com.nexustools.genericui.component.lazy.LazyGrid -> component.refreshLazyViewport()
+            is com.nexustools.genericui.component.lazy.TreeView<*> -> component.refreshLazyViewport()
+            is AbstractContainer -> {
+                for (child in component.children) {
+                    refreshLazyListsInSubtree(child)
+                }
+            }
+        }
     }
 
     /**
@@ -235,7 +312,7 @@ open class HybridSplitNavigationLayout(
             viewportWidthDp = viewportWidthDp,
             viewportHeightDp = viewportHeightDp,
             smallestScreenWidthDp = smallestScreenWidthDp,
-            backendTarget = resolveActiveFactory()?.backendTarget
+            backendTarget = host.resolveActiveFactory()?.backendTarget
         )
     }
 
@@ -252,17 +329,33 @@ open class HybridSplitNavigationLayout(
         )
     }
 
-    private fun syncNavigationModeVisibility() {
+    override fun onConfigurationChanged(config: WindowConfiguration) {
+        super.onConfigurationChanged(config)
+        applyWindowConfiguration(config)
+    }
+
+    override fun onResize(viewportWidth: Int, viewportHeight: Int) {
+        super.onResize(viewportWidth, viewportHeight)
+        updateViewport(viewportWidth, viewportHeight)
+    }
+
+    /**
+     * Applies the evaluated [inColumnMode] navigation chrome to [topTabLayout], [bottomNavigationBar], and [host].
+     */
+    fun applyNavigationChrome(inColumnMode: Boolean) {
+        inColumnModeState = inColumnMode
         if (inColumnMode) {
+            topTabLayout.tabPosition = TabPosition.TOP
             topTabLayout.isVisible = true
             bottomNavigationBar.isVisible = false
-            addClass("gui-split-nav-column-mode")
-            removeClass("gui-split-nav-compact-mode")
+            host.addClass("gui-split-nav-column-mode")
+            host.removeClass("gui-split-nav-compact-mode")
         } else {
+            topTabLayout.tabPosition = TabPosition.BOTTOM
             topTabLayout.isVisible = false
             bottomNavigationBar.isVisible = true
-            addClass("gui-split-nav-compact-mode")
-            removeClass("gui-split-nav-column-mode")
+            host.addClass("gui-split-nav-compact-mode")
+            host.removeClass("gui-split-nav-column-mode")
         }
         syncActiveSelectionToBars()
     }

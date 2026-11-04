@@ -6,7 +6,7 @@ package com.nexustools.genericui.component.layout
  */
 enum class HybridTabPlacement {
     /**
-     * Renders a top [com.nexustools.genericui.component.navigation.TabLayout] above the tabbed column content.
+     * Renders a top [com.nexustools.genericui.component.tabs.TabContainer] above the tabbed column content.
      */
     TOP_TABS,
 

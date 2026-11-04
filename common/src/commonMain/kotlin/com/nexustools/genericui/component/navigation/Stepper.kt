@@ -15,6 +15,6 @@ class Stepper(
         htmlTag = "genericui:stepper"
     }
 
-    override fun createNativeImpl(factory: NativeFactory): ContainerNativeImpl<*> =
+    protected override fun createNativeImpl(factory: NativeFactory): ContainerNativeImpl<*> =
         factory.createContainer("stepper", htmlTag)
 }

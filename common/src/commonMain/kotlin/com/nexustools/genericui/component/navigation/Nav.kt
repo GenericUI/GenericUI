@@ -14,6 +14,6 @@ class Nav(
         htmlTag = "genericui:nav"
     }
 
-    override fun createNativeImpl(factory: NativeFactory): ContainerNativeImpl<*> =
+    protected override fun createNativeImpl(factory: NativeFactory): ContainerNativeImpl<*> =
         factory.createContainer(if (pills) "nav nav-pills" else "nav", htmlTag)
 }

@@ -4,7 +4,9 @@ import com.nexustools.genericui.component.fragment.Fragment
 import com.nexustools.genericui.component.fragment.FragmentBundle
 import com.nexustools.genericui.component.layout.DynamicFullscreenController
 import com.nexustools.genericui.component.layout.HybridBreakpointSpec
+import com.nexustools.genericui.component.layout.HybridColumnContainer
 import com.nexustools.genericui.component.layout.HybridColumnLayout
+import com.nexustools.genericui.component.layout.HybridColumnLayoutImpl
 import com.nexustools.genericui.component.layout.HybridColumnSpec
 import com.nexustools.genericui.component.layout.HybridFoldMode
 import com.nexustools.genericui.component.layout.HybridFullscreenPolicy
@@ -16,19 +18,20 @@ import com.nexustools.genericui.enums.window.DisplayCutoutMode
 import com.nexustools.genericui.window.WindowConfiguration
 
 /**
- * Helper [Fragment] that hosts a [HybridColumnLayout] and coordinates child column [Fragment] lifecycles,
- * responsive viewport/configuration changes, Picture-in-Picture transitions, and optional [DynamicFullscreenController]
- * back-navigation handling.
+ * Helper [LayoutFragment] that hosts a [HybridColumnContainer] / [HybridColumnLayout] and coordinates
+ * child column [Fragment] lifecycles, responsive viewport/configuration changes, Picture-in-Picture transitions,
+ * and optional [DynamicFullscreenController] back-navigation handling.
  */
 open class HybridColumnFragment(
     foldMode: HybridFoldMode = HybridFoldMode.PIN_FIRST_COLUMN_TOP,
-    tabPlacement: HybridTabPlacement = HybridTabPlacement.TOP_TABS,
+    tabPlacement: HybridTabPlacement = HybridTabPlacement.ADAPTIVE_TOP_IN_COLUMNS_BOTTOM_IN_SINGLE,
     breakpointSpec: HybridBreakpointSpec = HybridBreakpointSpec.DEFAULT,
     fullscreenPolicy: HybridFullscreenPolicy = HybridFullscreenPolicy.DISABLED,
-    fullscreenTargetColumnIndex: Int = 0
-) : Fragment() {
+    fullscreenTargetColumnIndex: Int = 0,
+    id: String? = null
+) : LayoutFragment<HybridColumnLayoutImpl, HybridColumnLayout>(id = id) {
 
-    val hybridColumnLayout: HybridColumnLayout = HybridColumnLayout(
+    val hybridColumnContainer: HybridColumnContainer = HybridColumnContainer(
         foldMode = foldMode,
         tabPlacement = tabPlacement,
         breakpointSpec = breakpointSpec,
@@ -36,43 +39,48 @@ open class HybridColumnFragment(
         fullscreenTargetColumnIndex = fullscreenTargetColumnIndex
     )
 
+    override val layout: HybridColumnLayout = hybridColumnContainer.layout
+
+    val hybridColumnLayout: HybridColumnLayout
+        get() = layout
+
     private val childFragments = linkedMapOf<String, Fragment>()
 
     val fullscreenController: DynamicFullscreenController?
-        get() = hybridColumnLayout.fullscreenController
+        get() = layout.fullscreenController
 
     val layoutMode: HybridLayoutMode
-        get() = hybridColumnLayout.layoutMode
+        get() = layout.layoutMode
 
     val inColumnMode: Boolean
-        get() = hybridColumnLayout.inColumnMode
+        get() = layout.inColumnMode
 
     var foldMode: HybridFoldMode
-        get() = hybridColumnLayout.foldMode
+        get() = layout.foldMode
         set(value) {
-            hybridColumnLayout.foldMode = value
+            layout.foldMode = value
         }
 
     var tabPlacement: HybridTabPlacement
-        get() = hybridColumnLayout.tabPlacement
+        get() = layout.tabPlacement
         set(value) {
-            hybridColumnLayout.tabPlacement = value
+            layout.tabPlacement = value
         }
 
     var breakpointSpec: HybridBreakpointSpec
-        get() = hybridColumnLayout.breakpointSpec
+        get() = layout.breakpointSpec
         set(value) {
-            hybridColumnLayout.breakpointSpec = value
+            layout.breakpointSpec = value
         }
 
     var fullscreenPolicy: HybridFullscreenPolicy
-        get() = hybridColumnLayout.fullscreenPolicy
+        get() = layout.fullscreenPolicy
         set(value) {
-            hybridColumnLayout.fullscreenPolicy = value
+            layout.fullscreenPolicy = value
         }
 
     init {
-        addChild(hybridColumnLayout)
+        addChild(hybridColumnContainer)
     }
 
     /**
@@ -81,11 +89,11 @@ open class HybridColumnFragment(
     fun enableDynamicFullscreen(
         policy: HybridFullscreenPolicy = HybridFullscreenPolicy.AUTO_PHONE_LANDSCAPE_AND_TABLET_LOCKED
     ): DynamicFullscreenController {
-        val controller = hybridColumnLayout.enableDynamicFullscreen(
+        val controller = layout.enableDynamicFullscreen(
             policy = policy,
             window = hostingWindow
         )
-        super.setFullscreen(hybridColumnLayout.isFullscreen, getDisplayCutoutMode())
+        super.setFullscreen(layout.isFullscreen, getDisplayCutoutMode())
         return controller
     }
 
@@ -93,7 +101,7 @@ open class HybridColumnFragment(
      * Disables dynamic fullscreen behavior and exits fullscreen if active.
      */
     fun disableDynamicFullscreen() {
-        hybridColumnLayout.disableDynamicFullscreen()
+        layout.disableDynamicFullscreen()
         super.setFullscreen(false, getDisplayCutoutMode())
     }
 
@@ -101,7 +109,7 @@ open class HybridColumnFragment(
      * Registers a component column in [hybridColumnLayout].
      */
     fun addColumn(spec: HybridColumnSpec, component: AbstractComponent): HybridColumnFragment = apply {
-        hybridColumnLayout.addColumn(spec, component)
+        layout.addColumn(spec, component)
     }
 
     /**
@@ -119,7 +127,7 @@ open class HybridColumnFragment(
         compactAspectRatio: Float? = null,
         component: AbstractComponent
     ): HybridColumnFragment = apply {
-        hybridColumnLayout.addColumn(
+        layout.addColumn(
             id = id,
             title = title,
             weight = weight,
@@ -141,28 +149,28 @@ open class HybridColumnFragment(
     fun addFragmentColumn(spec: HybridColumnSpec, childFragment: Fragment): HybridColumnFragment = apply {
         childFragments[spec.id] = childFragment
         syncChildFragmentLifecycleToCurrentState(childFragment)
-        hybridColumnLayout.addColumn(spec, childFragment)
+        layout.addColumn(spec, childFragment)
     }
 
     /**
      * Selects the tab corresponding to [columnId] when columns are collapsed into tabs.
      */
     fun selectTab(columnId: String): Boolean =
-        hybridColumnLayout.selectTab(columnId)
+        layout.selectTab(columnId)
 
     override fun setFullscreen(fullscreen: Boolean, cutoutMode: DisplayCutoutMode) {
         super.setFullscreen(fullscreen, cutoutMode)
-        if (hybridColumnLayout.isFullscreen != fullscreen) {
-            hybridColumnLayout.isFullscreen = fullscreen
+        if (layout.isFullscreen != fullscreen) {
+            layout.isFullscreen = fullscreen
         }
     }
 
     override fun onCreate(savedState: FragmentBundle?) {
         super.onCreate(savedState)
-        if (hybridColumnLayout.parent !== this) {
-            addChild(hybridColumnLayout)
+        if (hybridColumnContainer.parent == null) {
+            addChild(hybridColumnContainer)
         }
-        hybridColumnLayout.fullscreenController?.targetWindow = hostingWindow
+        layout.fullscreenController?.targetWindow = hostingWindow
         for (child in childFragments.values) {
             child.performCreate(savedState)
         }
@@ -177,7 +185,7 @@ open class HybridColumnFragment(
 
     override fun onResume() {
         super.onResume()
-        hybridColumnLayout.fullscreenController?.targetWindow = hostingWindow
+        layout.fullscreenController?.targetWindow = hostingWindow
         for (child in childFragments.values) {
             child.performResume()
         }
@@ -207,9 +215,8 @@ open class HybridColumnFragment(
 
     override fun onResize(viewportWidth: Int, viewportHeight: Int) {
         super.onResize(viewportWidth, viewportHeight)
-        hybridColumnLayout.updateViewport(viewportWidth, viewportHeight)
-        if (super.isFullscreen() != hybridColumnLayout.isFullscreen) {
-            super.setFullscreen(hybridColumnLayout.isFullscreen, getDisplayCutoutMode())
+        if (fullscreenPolicy != HybridFullscreenPolicy.DISABLED && super.isFullscreen() != layout.isFullscreen) {
+            super.setFullscreen(layout.isFullscreen, getDisplayCutoutMode())
         }
         for (child in childFragments.values) {
             child.onResize(viewportWidth, viewportHeight)
@@ -218,9 +225,8 @@ open class HybridColumnFragment(
 
     override fun onConfigurationChanged(newConfig: WindowConfiguration) {
         super.onConfigurationChanged(newConfig)
-        hybridColumnLayout.applyWindowConfiguration(newConfig)
-        if (super.isFullscreen() != hybridColumnLayout.isFullscreen) {
-            super.setFullscreen(hybridColumnLayout.isFullscreen, getDisplayCutoutMode())
+        if (fullscreenPolicy != HybridFullscreenPolicy.DISABLED && super.isFullscreen() != layout.isFullscreen) {
+            super.setFullscreen(layout.isFullscreen, getDisplayCutoutMode())
         }
         for (child in childFragments.values) {
             child.onConfigurationChanged(newConfig)
@@ -229,19 +235,19 @@ open class HybridColumnFragment(
 
     override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean) {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode)
-        hybridColumnLayout.isInPictureInPictureMode = isInPictureInPictureMode
+        layout.isInPictureInPictureMode = isInPictureInPictureMode
         for (child in childFragments.values) {
             child.onPictureInPictureModeChanged(isInPictureInPictureMode)
         }
     }
 
     override fun onBackPressed(): Boolean {
-        if (hybridColumnLayout.fullscreenController?.onBackPressed() == true) {
+        if (layout.fullscreenController?.onBackPressed() == true) {
             super.setFullscreen(false, getDisplayCutoutMode())
             return true
         }
-        if (hybridColumnLayout.isFullscreen) {
-            hybridColumnLayout.isFullscreen = false
+        if (layout.isFullscreen) {
+            layout.isFullscreen = false
             super.setFullscreen(false, getDisplayCutoutMode())
             return true
         }

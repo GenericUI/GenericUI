@@ -6,12 +6,12 @@ import com.nexustools.genericui.core.NativeFactory
 import com.nexustools.genericui.core.NativeImpl
 import com.nexustools.genericui.event.KeyShortcut
 import com.nexustools.genericui.nativeimpl.shell.MenuNativeImpl
-import com.nexustools.genericui.res.ResourceId
+import com.nexustools.genericui.resources.ResourceID
 
 class Menu(
     label: String = "",
     icon: String? = null,
-    iconRes: ResourceId? = null
+    iconRes: ResourceID? = null
 ) : AbstractContainer("nav-item") {
     init {
         htmlTag = "genericui:menu"
@@ -20,10 +20,10 @@ class Menu(
     private var labelState: String = label
     private var iconState: String? = icon ?: iconRes?.toResourceUri()
 
-    override fun createNativeImpl(factory: NativeFactory): MenuNativeImpl<*> =
+    protected override fun createNativeImpl(factory: NativeFactory): MenuNativeImpl<*> =
         factory.createMenu()
 
-    override fun onAttachNative(impl: NativeImpl<*>) {
+    protected override fun onAttachNative(impl: NativeImpl<*>) {
         super.onAttachNative(impl)
         val menuImpl = impl as? MenuNativeImpl<*> ?: return
         menuImpl.setLabel(labelState)
@@ -42,7 +42,7 @@ class Menu(
         typedNative<MenuNativeImpl<*>>()?.setIcon(icon)
     }
 
-    fun setIconResource(resId: ResourceId) {
+    fun setIconResource(resId: ResourceID) {
         setIcon(resId.toResourceUri())
     }
 

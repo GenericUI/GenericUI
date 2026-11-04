@@ -1,7 +1,7 @@
 package com.nexustools.genericui.style.css
 
 import com.nexustools.genericui.enums.css.CssUnit
-import com.nexustools.genericui.res.ResourceType
+import com.nexustools.genericui.resources.ResourceType
 import com.nexustools.genericui.res.Resources
 import com.nexustools.genericui.resources.ResourceID
 import com.nexustools.genericui.resources.ResourceResolver

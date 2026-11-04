@@ -28,7 +28,7 @@ open class CheckBox(
 
     var onCheckedChanged: ((Boolean) -> Unit)? = null
 
-    override fun createNativeImpl(factory: NativeFactory): CheckboxNativeImpl<*> =
+    protected override fun createNativeImpl(factory: NativeFactory): CheckboxNativeImpl<*> =
         factory.createCheckbox(switchStyle = switchStyle, radioStyle = radioStyle)
 
     override fun syncStateToNative() {

@@ -1031,7 +1031,7 @@ open class DockWorkspace(
         syncCompactDrawerLayout()
     }
 
-    override fun createNativeImpl(factory: NativeFactory): DockWorkspaceNativeImpl<*> =
+    protected override fun createNativeImpl(factory: NativeFactory): DockWorkspaceNativeImpl<*> =
         factory.createDockWorkspace()
 
     override fun syncStateToNative() {

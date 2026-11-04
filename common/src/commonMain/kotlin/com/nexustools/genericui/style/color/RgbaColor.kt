@@ -60,12 +60,8 @@ data class RgbaColor(
         }
     }
 
-    fun toHexString(includeAlpha: Boolean = a < 255): String = toHex(includeAlpha)
-
     fun toCssRgbaString(): String =
         if (a >= 255) "rgb($r, $g, $b)" else "rgba($r, $g, $b, ${(alphaFloat * 1000f).toInt() / 1000f})"
-
-    fun toCssRgba(): String = toCssRgbaString()
 
     fun withAlpha(alphaFloat: Float): RgbaColor =
         RgbaColor(r = r, g = g, b = b, a = alphaFloat)

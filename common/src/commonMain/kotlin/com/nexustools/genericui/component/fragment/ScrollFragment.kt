@@ -21,15 +21,15 @@ open class ScrollFragment : Fragment() {
     private var onScrollHandler: ((scrollX: Int, scrollY: Int) -> Unit)? = null
 
     init {
-        htmlTag = "genericui:scrollfragment"
+        htmlTag = "genericui:fragment"
         getBootstrap().overflow = OverflowBehavior.AUTO
         addClass("scroll-fragment")
     }
 
-    override fun createNativeImpl(factory: NativeFactory): ScrollViewNativeImpl<*> =
-        factory.createScrollView()
+    protected override fun createNativeImpl(factory: NativeFactory): ScrollViewNativeImpl<*> =
+        factory.createScrollView(htmlTag)
 
-    override fun onAttachNative(impl: NativeImpl<*>) {
+    protected override fun onAttachNative(impl: NativeImpl<*>) {
         super.onAttachNative(impl)
         val scrollImpl = impl as? ScrollViewNativeImpl<*> ?: return
         if (scrollX != 0 || scrollY != 0) {

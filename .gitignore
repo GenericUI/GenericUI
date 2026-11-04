@@ -10,3 +10,5 @@ build/
 *.iml
 local.properties
 **/local.properties
+node_modules/
+**/node_modules/

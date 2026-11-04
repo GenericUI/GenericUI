@@ -4,6 +4,7 @@ import com.nexustools.genericui.component.action.Button
 import com.nexustools.genericui.component.fragment.Fragment
 import com.nexustools.genericui.component.fragment.FragmentBundle
 import com.nexustools.genericui.component.layout.Container
+import com.nexustools.genericui.component.layout.LayerSizingMode
 import com.nexustools.genericui.component.shell.FragmentApplication
 import com.nexustools.genericui.component.shell.Window
 import com.nexustools.genericui.core.UiTimerScheduler
@@ -200,10 +201,36 @@ class FragmentHostFragmentTest {
         assertTrue(first.hasClass("destroyed"))
         assertTrue(second.hasClass("created"))
         assertEquals(2, host.stageContainer.children.size)
+        assertEquals(2, host.stageLayout.layers.size)
+        assertTrue(host.stageContainer.hasClass("gui-layered-container"))
+        assertEquals("relative", host.stageContainer.getStyleProperty("position"))
 
-        // Advance past exit + enter duration (500ms)
-        UiTimerScheduler.advanceTimeBy(560)
+        val outgoingConstraint = host.stageLayout.getLayerConstraint(first)
+        val incomingConstraint = host.stageLayout.getLayerConstraint(second)
+        assertNotNull(outgoingConstraint)
+        assertNotNull(incomingConstraint)
+        assertEquals(LayerSizingMode.FILL, outgoingConstraint.sizingMode)
+        assertEquals(LayerSizingMode.FILL, incomingConstraint.sizingMode)
+        assertTrue(outgoingConstraint.passThroughPointerEvents)
+        assertEquals("absolute", first.getStyleProperty("position"))
+        assertEquals("absolute", second.getStyleProperty("position"))
+        assertEquals("100%", first.getStyleProperty("width"))
+        assertEquals("100%", first.getStyleProperty("height"))
+        assertEquals("100%", second.getStyleProperty("width"))
+        assertEquals("100%", second.getStyleProperty("height"))
+
+        // Advance past the 50ms activation delay -> incoming layer moves above outgoing with zIndex = 5
+        UiTimerScheduler.advanceTimeBy(60)
+        val activeIncomingConstraint = host.stageLayout.getLayerConstraint(second)
+        assertNotNull(activeIncomingConstraint)
+        assertEquals(5, activeIncomingConstraint.zIndex)
+        assertFalse(activeIncomingConstraint.passThroughPointerEvents)
+        assertEquals(0, host.stageLayout.getLayerConstraint(first)?.zIndex)
+
+        // Advance past remaining exit duration (500ms)
+        UiTimerScheduler.advanceTimeBy(500)
         assertEquals(1, host.stageContainer.children.size)
+        assertEquals(1, host.stageLayout.layers.size)
         assertSame(second, host.currentFragment)
     }
 
@@ -255,5 +282,76 @@ class FragmentHostFragmentTest {
         navbarHost.refreshNavigationChrome()
         assertFalse(navbarHost.backButton.mountedInTitleBar)
         assertTrue(navbarHost.fallbackNavbar.isVisible)
+    }
+
+    private open class TitledRouteFragment(private val name: String) : Fragment() {
+        init {
+            pageTitle = name
+        }
+    }
+
+    private class AssetManagerFragment : TitledRouteFragment("Asset Manager")
+    private class BloodlinesFragment : TitledRouteFragment("Bloodlines")
+    private class TaxonomiesFragment : TitledRouteFragment("Taxonomies")
+
+    @Test
+    fun testWindowTitleAlwaysMatchesActiveFragmentAcrossPushBackAndForward() {
+        val bridge = FakeWebHistoryBridge()
+        val previousFactory = FragmentHistoryBridge.factory
+        FragmentHistoryBridge.factory = { bridge }
+        try {
+            val host = FragmentHostFragment(appTitle = "DC App")
+            val app = FragmentApplication(initialFragment = host, title = "DC App")
+            host.registerRoute("asset", AssetManagerFragment::class) { AssetManagerFragment() }
+            host.registerRoute("asset/bloodline", BloodlinesFragment::class) { BloodlinesFragment() }
+            host.registerRoute("asset/taxonomy", TaxonomiesFragment::class) { TaxonomiesFragment() }
+
+            fun assertTitles(expectedPage: String, step: String) {
+                val expected = "DC App - $expectedPage"
+                assertEquals(expected, app.mainIWindow.getTitle(), "window title after $step")
+                val activeEntry = bridge.history.firstOrNull { it.index == bridge.currentIndex }
+                assertEquals(expected, activeEntry?.title, "active history entry title after $step")
+            }
+
+            host.navigateToRoute("asset", addToBackStack = false)
+            assertTitles("Asset Manager", "initial navigation")
+            host.navigateToRoute("asset/bloodline")
+            assertTitles("Bloodlines", "push asset/bloodline")
+            host.navigateToRoute("asset/taxonomy")
+            assertTitles("Taxonomies", "push asset/taxonomy")
+            assertTrue(host.popBackStack())
+            assertTitles("Bloodlines", "back")
+            assertTrue(host.goForward())
+            assertTitles("Taxonomies", "forward")
+        } finally {
+            FragmentHistoryBridge.factory = previousFactory
+        }
+    }
+
+    @Test
+    fun testDeepLinkedInitialRouteBrowserBackToBlankHashTransitionsToHomeRoute() {
+        val bridge = FakeWebHistoryBridge()
+        bridge.currentHash = "#asset/bloodline"
+        val root = Container("div")
+        val host = FragmentHostSystem(
+            rootContainer = root,
+            appTitle = "DC App",
+            transitionSpec = FragmentTransitionSpec.None,
+            historyBridge = bridge
+        )
+        host.registerRoute("", MenuRouteFragment::class, title = "Home") { MenuRouteFragment() }
+        host.registerRoute("asset", AssetManagerFragment::class, title = "Asset Manager") { AssetManagerFragment() }
+        host.registerRoute("asset/bloodline", BloodlinesFragment::class, title = "Bloodlines") { BloodlinesFragment() }
+
+        val initialFrag = host.resolveInitialDeepLink("")
+        assertTrue(initialFrag is BloodlinesFragment)
+        assertEquals("asset/bloodline", host.currentRoute)
+
+        // Simulate Browser Back to a blank hash ("") when history index 0 was deep-linked to "asset/bloodline"
+        bridge.currentHash = ""
+        bridge.popStateListener?.invoke("", 0, null)
+
+        assertEquals("", host.currentRoute)
+        assertTrue(host.currentFragment is MenuRouteFragment)
     }
 }

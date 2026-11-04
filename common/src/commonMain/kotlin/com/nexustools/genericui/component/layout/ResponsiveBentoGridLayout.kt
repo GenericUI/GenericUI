@@ -1,6 +1,7 @@
 package com.nexustools.genericui.component.layout
 
 import com.nexustools.genericui.core.AbstractComponent
+import com.nexustools.genericui.core.AbstractContainer
 import com.nexustools.genericui.enums.bootstrap.DisplayMode
 import com.nexustools.genericui.enums.bootstrap.FlexDirection
 import com.nexustools.genericui.enums.bootstrap.FlexWrap
@@ -13,14 +14,33 @@ import kotlin.math.min
  * into a single-column (`colXs = 12`) vertical feed on small-screen mobile (`< 600dp`) and narrow web viewports.
  */
 open class ResponsiveBentoGridLayout(
-    var breakpointSpec: HybridBreakpointSpec = HybridBreakpointSpec.DEFAULT,
+    host: AbstractContainer = Container("genericui:responsivebentogridlayout", "gui-responsive-bento-grid"),
+    breakpointSpec: HybridBreakpointSpec = HybridBreakpointSpec.DEFAULT,
     var gapPx: Int = 16
-) : Container("genericui:responsivebentogridlayout", "gui-responsive-bento-grid") {
+) : Layout<ResponsiveBentoGridLayoutImpl>(host, breakpointSpec) {
+
+    constructor(
+        breakpointSpec: HybridBreakpointSpec,
+        gapPx: Int = 16
+    ) : this(
+        host = Container("genericui:responsivebentogridlayout", "gui-responsive-bento-grid"),
+        breakpointSpec = breakpointSpec,
+        gapPx = gapPx
+    )
+
+    constructor(
+        gapPx: Int,
+        breakpointSpec: HybridBreakpointSpec = HybridBreakpointSpec.DEFAULT
+    ) : this(
+        host = Container("genericui:responsivebentogridlayout", "gui-responsive-bento-grid"),
+        breakpointSpec = breakpointSpec,
+        gapPx = gapPx
+    )
 
     private class BentoCardEntry(
         var spec: BentoGridItemSpec,
         val component: AbstractComponent,
-        val cellCol: Col,
+        val cellCol: Column,
         var activeColSpan: Int
     )
 
@@ -29,7 +49,7 @@ open class ResponsiveBentoGridLayout(
     private var lastViewportHeightDp: Int = 800
     private var lastSmallestScreenWidthDp: Int = 800
 
-    val gridRow: Row = Row()
+    val gridRow: ColumnContainer = ColumnContainer()
 
     var isSingleColumnFeed: Boolean = false
         private set
@@ -41,13 +61,23 @@ open class ResponsiveBentoGridLayout(
         get() = cards.size
 
     init {
-        htmlTag = "genericui:responsivebentogridlayout"
-        setDisplay(DisplayMode.FLEX)
-        setFlexDirection(FlexDirection.COLUMN)
+        ensureMounted()
+    }
+
+    override fun createImpl(factory: LayoutFactory): ResponsiveBentoGridLayoutImpl =
+        factory.createResponsiveBentoGridLayout(this)
+
+    override fun onMount() {
+        host.addClass("gui-responsive-bento-grid")
+        host.setDisplay(DisplayMode.FLEX)
+        host.setFlexDirection(FlexDirection.COLUMN)
 
         gridRow.setFlexWrap(FlexWrap.WRAP)
         gridRow.addClass("gui-bento-grid-row")
-        addChild(gridRow)
+        if (!host.children.contains(gridRow)) {
+            host.addChild(gridRow)
+        }
+        impl.syncGrid(lastViewportWidthDp.toFloat(), lastViewportHeightDp.toFloat())
     }
 
     /**
@@ -58,7 +88,7 @@ open class ResponsiveBentoGridLayout(
             removeCard(spec.id)
         }
         val span = spec.resolveColSpan(lastViewportWidthDp, isSingleColumnFeed)
-        val cell = Col(span = span, weight = span / 12f).apply {
+        val cell = Column(span = span).apply {
             addClass("gui-bento-grid-item")
             spec.minHeightPx?.let { minHeightPx = it }
             addChild(component)
@@ -71,7 +101,7 @@ open class ResponsiveBentoGridLayout(
         )
         cards[spec.id] = entry
         gridRow.addChild(cell)
-        syncCardSpans()
+        impl.syncGrid(lastViewportWidthDp.toFloat(), lastViewportHeightDp.toFloat())
     }
 
     /**
@@ -141,16 +171,7 @@ open class ResponsiveBentoGridLayout(
         lastViewportHeightDp = viewportHeightDp
         lastSmallestScreenWidthDp = smallestScreenWidthDp
 
-        val backend = resolveActiveFactory()?.backendTarget
-        val smallMobilePhone = smallestScreenWidthDp < breakpointSpec.tabletSmallestWidthDp &&
-            viewportHeightDp < breakpointSpec.tabletSmallestWidthDp
-        isSingleColumnFeed = if (backend != null && backend.isMobile) {
-            breakpointSpec.isSmallScreenMobile(smallestScreenWidthDp)
-        } else {
-            viewportWidthDp < breakpointSpec.mediumBreakpointDp || smallMobilePhone
-        }
-
-        syncCardSpans()
+        impl.syncGrid(viewportWidthDp.toFloat(), viewportHeightDp.toFloat())
     }
 
     /**
@@ -166,13 +187,44 @@ open class ResponsiveBentoGridLayout(
         )
     }
 
-    private fun syncCardSpans() {
+    override fun onConfigurationChanged(config: WindowConfiguration) {
+        super.onConfigurationChanged(config)
+        applyWindowConfiguration(config)
+    }
+
+    override fun onResize(viewportWidth: Int, viewportHeight: Int) {
+        super.onResize(viewportWidth, viewportHeight)
+        updateViewport(viewportWidth, viewportHeight)
+    }
+
+    /**
+     * Applies the evaluated card spans to all items in [gridRow].
+     */
+    fun applyGridLayout(
+        viewportWidthDp: Int = lastViewportWidthDp,
+        viewportHeightDp: Int = lastViewportHeightDp
+    ) {
+        lastViewportWidthDp = viewportWidthDp
+        lastViewportHeightDp = viewportHeightDp
+
+        val backend = host.resolveActiveFactory()?.backendTarget
+        val smallMobilePhone = impl.supportsDynamicViewportSwitching &&
+            lastSmallestScreenWidthDp < breakpointSpec.tabletSmallestWidthDp &&
+            viewportHeightDp < breakpointSpec.tabletSmallestWidthDp
+        isSingleColumnFeed = if (backend != null && backend.isMobile) {
+            breakpointSpec.isSmallScreenMobile(lastSmallestScreenWidthDp)
+        } else {
+            impl.supportsDynamicViewportSwitching &&
+                (viewportWidthDp < breakpointSpec.mediumBreakpointDp || smallMobilePhone)
+        }
+
         for (entry in cards.values) {
             val span = entry.spec.resolveColSpan(
                 viewportWidthDp = lastViewportWidthDp,
                 isSmallScreenMobile = isSingleColumnFeed
             )
             entry.activeColSpan = span
+            entry.cellCol.span = span
             entry.cellCol.setClass("col-$span gui-bento-grid-item")
             entry.spec.minHeightPx?.let { entry.cellCol.minHeightPx = it }
         }

@@ -9,7 +9,7 @@ import com.nexustools.genericui.image.PixelFormat
 import com.nexustools.genericui.image.cache.ImageCacheManager
 import com.nexustools.genericui.image.codec.LibJpegCodec
 import com.nexustools.genericui.image.codec.LibPngCodec
-import com.nexustools.genericui.style.RgbaColor
+import com.nexustools.genericui.style.color.RgbaColor
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -53,7 +53,7 @@ class UserDirectoryAndImageCacheTest {
         assertEquals("DirectoryTestApp", store.configDirectory.appName)
 
         configDir.clear()
-        cacheDir.clearCache()
+        cacheDir.clear()
         configDir.dispose()
         cacheDir.dispose()
         store.dispose()

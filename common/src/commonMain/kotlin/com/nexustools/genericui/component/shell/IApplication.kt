@@ -3,9 +3,11 @@ package com.nexustools.genericui.component.shell
 import com.nexustools.genericui.component.fragment.FragmentBundle
 import com.nexustools.genericui.component.fragment.IFragment
 import com.nexustools.genericui.component.layout.Container
+import com.nexustools.genericui.component.system.PreferenceStore
 import com.nexustools.genericui.core.Disposable
 import com.nexustools.genericui.core.GenericUI
 import com.nexustools.genericui.core.NativeFactory
+import com.nexustools.genericui.enums.bootstrap.BootstrapType
 import com.nexustools.genericui.enums.fragment.FragmentLaunchMode
 import com.nexustools.genericui.enums.system.BackendTarget
 import com.nexustools.genericui.enums.ui.ThemeMode
@@ -45,7 +47,7 @@ interface IApplication : Disposable {
 
     /** Active platform [BackendTarget] (`Windows`, `MacOS`, `Gtk`, `Qt`, `Swing`, `Android`, `IOS`, `Web`). */
     val backendTarget: BackendTarget
-        get() = GenericUI.activeFactory?.backendTarget ?: BackendTarget.fromBackendName(backendName)
+        get() = GenericUI.activeFactory?.backendTarget ?: BackendTarget.Windows
 
     /** Operating system family name (e.g., `"Windows"`, `"macOS"`, `"Linux"`, `"Android"`, `"iOS"`, `"Web Browser"`). */
     val systemOsName: String
@@ -84,15 +86,15 @@ interface IApplication : Disposable {
 
     /** `true` if the application can spawn multiple native OS top-level windows. */
     val supportsMultipleWindows: Boolean
-        get() = backendTarget.isDesktop
+        get() = GenericUI.activeFactory?.supportsMultipleWindows ?: true
 
     /** `true` if the application supports floating tool-modal utility windows (`PanelWindow`). */
     val supportsToolModalWindows: Boolean
-        get() = backendTarget.isDesktop
+        get() = GenericUI.activeFactory?.supportsToolModalWindows ?: true
 
     /** `true` if the platform supports long-running background services (Android `Service`). */
     val supportsServices: Boolean
-        get() = backendTarget == BackendTarget.Android
+        get() = GenericUI.activeFactory?.supportsServices ?: false
 
     /** `true` if custom [TitleBar] configuration is supported on [mainWindow]. */
     val supportsCustomTitleBar: Boolean
@@ -104,7 +106,7 @@ interface IApplication : Disposable {
 
     /** `true` if the platform provides a global screen-top system menu bar (macOS `NSApplication.mainMenu`). */
     val supportsSystemMenuBar: Boolean
-        get() = backendTarget == BackendTarget.MacOS
+        get() = GenericUI.activeFactory?.supportsSystemMenuBar ?: false
 
     /** `true` if the platform renders `MenuBar` as a top `Navbar` with dropdown trigger (`Android`, `IOS`). */
     val supportsNavbarMenuBar: Boolean
@@ -112,7 +114,7 @@ interface IApplication : Disposable {
 
     /** `true` if persistent OS system tray / status bar icons are supported. */
     val supportsSystemTray: Boolean
-        get() = backendTarget.isDesktop
+        get() = GenericUI.activeFactory?.supportsSystemTray ?: true
 
     /** `true` if native OS desktop/mobile notifications are supported. */
     val supportsNativeNotifications: Boolean
@@ -124,11 +126,11 @@ interface IApplication : Disposable {
 
     /** `true` if native directory/folder chooser dialogs are supported. */
     val supportsDirectorySelection: Boolean
-        get() = backendTarget.isSystem
+        get() = GenericUI.activeFactory?.supportsDirectorySelection ?: true
 
     /** `true` if direct local filesystem path access is supported without browser sandbox restrictions. */
     val supportsDirectFileSystemAccess: Boolean
-        get() = backendTarget.isSystem
+        get() = GenericUI.activeFactory?.supportsDirectFileSystemAccess ?: true
 
     /** `true` if Picture-in-Picture (PiP) mode is supported. */
     val supportsPictureInPicture: Boolean
@@ -150,6 +152,23 @@ interface IApplication : Disposable {
     val supportsHardwareGpuAcceleration: Boolean
         get() = true
 
+    /** `true` when the application currently has no network connectivity (`!isOnline`). */
+    val isOffline: Boolean
+        get() = false
+
+    /** `true` when the application currently has active network connectivity (`!isOffline`). */
+    val isOnline: Boolean
+        get() = !isOffline
+
+    /** Registers a listener invoked whenever the application's offline state changes (`true` = offline, `false` = online). */
+    fun addOfflineListener(listener: (isOffline: Boolean) -> Unit) {}
+
+    /** Removes a previously registered offline state listener. */
+    fun removeOfflineListener(listener: (isOffline: Boolean) -> Unit) {}
+
+    /** Sets a primary callback invoked when the application transitions offline (`true`) or online (`false`). */
+    fun setOnOfflineChanged(listener: ((isOffline: Boolean) -> Unit)?) {}
+
     // Content, Chrome, Fragment, StyleSheet & Theme Management
     fun setContent(container: Container)
     fun getContent(): Container?
@@ -159,9 +178,7 @@ interface IApplication : Disposable {
     fun getTitleBar(): TitleBar?
     fun setThemeMode(mode: ThemeMode)
     fun getThemeMode(): ThemeMode
-    fun setTheme(theme: ThemeMode) = setThemeMode(theme)
-    fun getTheme(): ThemeMode = getThemeMode()
-    fun getResolvedTheme(): ThemeMode = SystemThemeDetector.resolveTheme(getTheme())
+    fun getResolvedTheme(): ThemeMode = SystemThemeDetector.resolveTheme(getThemeMode())
     fun addThemeChangeListener(listener: (ThemeMode) -> Unit) {}
     fun removeThemeChangeListener(listener: (ThemeMode) -> Unit) {}
     fun setThemeColor(colorHex: String?)
@@ -237,7 +254,19 @@ interface IApplication : Disposable {
         launchMode: FragmentLaunchMode = FragmentLaunchMode.SAME_WINDOW
     ): T = mainIWindow.launchFragment(fragment, launchArgs, addToBackStack, launchMode)
 
+    /**
+     * Returns the application-scoped [PreferenceStore] instance, lazily creating and caching it on first access.
+     */
+    fun getPreferenceStore(): PreferenceStore
+
     // Execution & Lifecycle
+    val isWebSplashSupported: Boolean
+        get() = GenericUI.activeFactory?.isWebSplashSupported == true
+
+    fun setWebSplashStatus(statusText: String, type: BootstrapType = BootstrapType.NONE) {}
+    fun setWebSplashProgress(progressPercent: Int, type: BootstrapType = BootstrapType.PRIMARY) {}
+    fun setWebSplashError(message: String, stackTrace: String? = null, title: String = "Error") {}
+    fun finishWebSplash() {}
     fun run(factory: NativeFactory = GenericUI.requireFactory())
     fun exit(exitCode: Int = 0)
 }

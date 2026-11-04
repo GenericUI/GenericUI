@@ -1,6 +1,7 @@
 package com.nexustools.genericui.component.layout
 
 import com.nexustools.genericui.core.AbstractComponent
+import com.nexustools.genericui.core.AbstractContainer
 import com.nexustools.genericui.enums.bootstrap.DisplayMode
 import com.nexustools.genericui.enums.bootstrap.FlexDirection
 import com.nexustools.genericui.window.WindowConfiguration
@@ -17,8 +18,16 @@ import kotlin.math.min
  *   is `true`, or when [hideWhenPrimaryColumnVisible] and [isPrimaryColumnVisible] are both `true`.
  */
 open class CollapsibleBottomDockLayout(
-    var breakpointSpec: HybridBreakpointSpec = HybridBreakpointSpec.DEFAULT
-) : Container("genericui:collapsiblebottomdocklayout", "gui-collapsible-bottom-dock") {
+    host: AbstractContainer = Container("genericui:collapsiblebottomdocklayout", "gui-collapsible-bottom-dock"),
+    breakpointSpec: HybridBreakpointSpec = HybridBreakpointSpec.DEFAULT
+) : Layout<CollapsibleBottomDockLayoutImpl>(host, breakpointSpec) {
+
+    constructor(
+        breakpointSpec: HybridBreakpointSpec
+    ) : this(
+        host = Container("genericui:collapsiblebottomdocklayout", "gui-collapsible-bottom-dock"),
+        breakpointSpec = breakpointSpec
+    )
 
     val mainContentHost: Container = Container("div", "gui-bottom-dock-main-content")
     val bottomDockContainer: Container = Container("div", "gui-bottom-dock-bar")
@@ -32,7 +41,7 @@ open class CollapsibleBottomDockLayout(
         set(value) {
             val changed = (field != value)
             field = value
-            syncDockState()
+            impl.syncDockState()
             if (changed) {
                 onDockCollapsedChanged?.invoke(value)
             }
@@ -44,43 +53,43 @@ open class CollapsibleBottomDockLayout(
     var isDockHidden: Boolean = false
         set(value) {
             field = value
-            syncDockState()
+            impl.syncDockState()
         }
 
     var isFullscreen: Boolean = false
         set(value) {
             field = value
-            syncDockState()
+            impl.syncDockState()
         }
 
     var isInPictureInPictureMode: Boolean = false
         set(value) {
             field = value
-            syncDockState()
+            impl.syncDockState()
         }
 
     var hideWhenPrimaryColumnVisible: Boolean = false
         set(value) {
             field = value
-            syncDockState()
+            impl.syncDockState()
         }
 
     var isPrimaryColumnVisible: Boolean = false
         set(value) {
             field = value
-            syncDockState()
+            impl.syncDockState()
         }
 
     var collapsedHeightPx: Int = 60
         set(value) {
             field = value.coerceAtLeast(0)
-            syncDockState()
+            impl.syncDockState()
         }
 
     var expandedHeightPx: Int = 320
         set(value) {
             field = value.coerceAtLeast(0)
-            syncDockState()
+            impl.syncDockState()
         }
 
     val isDockCurrentlyVisible: Boolean
@@ -94,19 +103,47 @@ open class CollapsibleBottomDockLayout(
     var onDockVisibilityChanged: ((Boolean) -> Unit)? = null
 
     init {
-        htmlTag = "genericui:collapsiblebottomdocklayout"
-        setDisplay(DisplayMode.FLEX)
-        setFlexDirection(FlexDirection.COLUMN)
+        ensureMounted()
+    }
+
+    override fun createImpl(factory: LayoutFactory): CollapsibleBottomDockLayoutImpl =
+        factory.createCollapsibleBottomDockLayout(this)
+
+    override fun onMount() {
+        host.addClass("gui-collapsible-bottom-dock")
+        host.setDisplay(DisplayMode.FLEX)
+        host.setFlexDirection(FlexDirection.COLUMN)
+        host.setStyleProperty("width", "100%")
+        host.setStyleProperty("height", "100%")
+        host.setStyleProperty("min-height", "0")
+        host.setStyleProperty("flex-grow", "1")
+        host.setStyleProperty("overflow", "hidden")
+
+        mainContentHost.setDisplay(DisplayMode.FLEX)
+        mainContentHost.setFlexDirection(FlexDirection.COLUMN)
+        mainContentHost.setStyleProperty("width", "100%")
+        mainContentHost.setStyleProperty("height", "100%")
+        mainContentHost.setStyleProperty("min-height", "0")
+        mainContentHost.setStyleProperty("flex-grow", "1")
+        mainContentHost.setStyleProperty("overflow", "hidden")
 
         bottomDockContainer.setDisplay(DisplayMode.FLEX)
         bottomDockContainer.setFlexDirection(FlexDirection.COLUMN)
-        bottomDockContainer.addChild(collapsedContentSlot)
-        bottomDockContainer.addChild(expandedSheetSlot)
+        if (!bottomDockContainer.children.contains(collapsedContentSlot)) {
+            bottomDockContainer.addChild(collapsedContentSlot)
+        }
+        if (!bottomDockContainer.children.contains(expandedSheetSlot)) {
+            bottomDockContainer.addChild(expandedSheetSlot)
+        }
 
-        addChild(mainContentHost)
-        addChild(bottomDockContainer)
+        if (!host.children.contains(mainContentHost)) {
+            host.addChild(mainContentHost)
+        }
+        if (!host.children.contains(bottomDockContainer)) {
+            host.addChild(bottomDockContainer)
+        }
 
-        syncDockState()
+        impl.syncDockState()
     }
 
     /**
@@ -139,7 +176,7 @@ open class CollapsibleBottomDockLayout(
             expandedSheetSlot.addChild(expandedSheetContent)
         }
         hasDockContent = (component != null || expandedSheetContent != null)
-        syncDockState()
+        impl.syncDockState()
     }
 
     /**
@@ -188,12 +225,12 @@ open class CollapsibleBottomDockLayout(
             viewportWidthDp = viewportWidthDp,
             viewportHeightDp = viewportHeightDp,
             smallestScreenWidthDp = smallestScreenWidthDp,
-            backendTarget = resolveActiveFactory()?.backendTarget
+            backendTarget = host.resolveActiveFactory()?.backendTarget
         )
         if (hideWhenPrimaryColumnVisible) {
             isPrimaryColumnVisible = wideColumns
         } else {
-            syncDockState()
+            impl.syncDockState()
         }
     }
 
@@ -213,7 +250,20 @@ open class CollapsibleBottomDockLayout(
         )
     }
 
-    private fun syncDockState() {
+    override fun onConfigurationChanged(config: WindowConfiguration) {
+        super.onConfigurationChanged(config)
+        applyWindowConfiguration(config)
+    }
+
+    override fun onResize(viewportWidth: Int, viewportHeight: Int) {
+        super.onResize(viewportWidth, viewportHeight)
+        updateViewport(viewportWidth, viewportHeight)
+    }
+
+    /**
+     * Applies the current dock visibility and height state to [bottomDockContainer] and [expandedSheetSlot].
+     */
+    fun applyDockState() {
         val visible = isDockCurrentlyVisible
         bottomDockContainer.isVisible = visible
         bottomDockContainer.heightPx = if (isDockCollapsed) collapsedHeightPx else expandedHeightPx

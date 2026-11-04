@@ -6,9 +6,9 @@ import com.nexustools.genericui.component.content.Table
 import com.nexustools.genericui.component.content.TableCell
 import com.nexustools.genericui.component.content.TableColumn
 import com.nexustools.genericui.component.content.TableRow
-import com.nexustools.genericui.component.layout.Col
+import com.nexustools.genericui.component.layout.Column
+import com.nexustools.genericui.component.layout.ColumnContainer
 import com.nexustools.genericui.component.layout.HStack
-import com.nexustools.genericui.component.layout.Row
 import com.nexustools.genericui.component.layout.VStack
 import com.nexustools.genericui.component.surface.Card
 import com.nexustools.genericui.component.typography.Heading
@@ -68,8 +68,8 @@ class BookContainerTest {
                 addChild(Text("Composed using standard GenericUI components.", paragraph = true))
             }
             content {
-                val row = Row()
-                val leftCol = Col(span = 6)
+                val row = ColumnContainer()
+                val leftCol = Column(span = 6)
                 val card = Card(title = "Attributes")
                 val table = Table()
                     .setColumns(
@@ -87,7 +87,7 @@ class BookContainerTest {
                 card.addChild(table)
                 leftCol.addChild(card)
 
-                val rightCol = Col(span = 6)
+                val rightCol = Column(span = 6)
                 val vstack = VStack()
                 vstack.addChild(Label("Portrait Preview"))
                 vstack.addChild(ImageView(sourceUrl = "https://example.com/portrait.png"))

@@ -6,6 +6,8 @@ import com.nexustools.genericui.component.fragment.FragmentBundle
 import com.nexustools.genericui.component.fragment.FragmentHost
 import com.nexustools.genericui.component.fragment.FragmentRegistry
 import com.nexustools.genericui.component.layout.Container
+import com.nexustools.genericui.component.layout.LayeredContainer
+import com.nexustools.genericui.component.layout.LayeredLayout
 import com.nexustools.genericui.component.shell.Window
 import com.nexustools.genericui.core.Disposable
 import com.nexustools.genericui.enums.fragment.FragmentState
@@ -37,12 +39,14 @@ class FragmentHostSystem(
         val historyIndex: Int
     )
 
-    val stageContainer: Container = Container("div", "fragment-stage")
+    val stageContainer: LayeredContainer = LayeredContainer("div", "fragment-stage")
+    val stageLayout: LayeredLayout
+        get() = stageContainer.layout
     val loaderContainer: Container = Container("div", "loader").apply {
         isVisible = false
     }
     val loaderSpinner: Spinner = Spinner()
-    val transitionController: FragmentTransitionController = FragmentTransitionController(stageContainer)
+    val transitionController: FragmentTransitionController = FragmentTransitionController(stageContainer, stageLayout)
 
     private val routes = linkedMapOf<String, FragmentRouteEntry>()
     private val backStack = mutableListOf<HistoryStackEntry>()
@@ -99,6 +103,21 @@ class FragmentHostSystem(
         if (!rootContainer.hasClass("fragment-host")) {
             rootContainer.addClass("fragment-host")
         }
+        rootContainer.setStyleProperty("display", "flex")
+        rootContainer.setStyleProperty("flex-direction", "column")
+        rootContainer.setStyleProperty("width", "100%")
+        rootContainer.setStyleProperty("height", "100%")
+        rootContainer.setStyleProperty("min-height", "0")
+        rootContainer.setStyleProperty("flex-grow", "1")
+        rootContainer.setStyleProperty("overflow", "hidden")
+
+        stageContainer.setStyleProperty("position", "relative")
+        stageContainer.setStyleProperty("width", "100%")
+        stageContainer.setStyleProperty("height", "100%")
+        stageContainer.setStyleProperty("min-height", "0")
+        stageContainer.setStyleProperty("flex-grow", "1")
+        stageContainer.setStyleProperty("overflow", "hidden")
+
         loaderContainer.addChild(loaderSpinner)
         rootContainer.addChild(stageContainer)
         rootContainer.addChild(loaderContainer)
@@ -512,9 +531,12 @@ class FragmentHostSystem(
         if (hashRoute != null && routes.containsKey(hashRoute)) {
             return navigateToRoute(hashRoute, restoredState, addToBackStack = false)
         }
-        val fallback = defaultRoute?.let { normalizeRoute(it) }?.takeIf { it.isNotEmpty() }
+        val fallback = defaultRoute?.let { normalizeRoute(it) }
         if (fallback != null && routes.containsKey(fallback)) {
             return navigateToRoute(fallback, restoredState, addToBackStack = false)
+        }
+        if (routes.containsKey("")) {
+            return navigateToRoute("", restoredState, addToBackStack = false)
         }
         return null
     }
@@ -528,10 +550,16 @@ class FragmentHostSystem(
         isHandlingPopState = true
         try {
             val normalizedRoute = normalizeRoute(rawRoute)
+            val defaultBlankRoute = if ("" in routes) "" else routes.keys.firstOrNull()
 
             // 1. Check if historyIndex matches backStack or forwardStack
             if (historyIndex != null) {
-                if (historyIndex < currentHistoryIndex && backStack.any { it.historyIndex == historyIndex }) {
+                if (historyIndex < currentHistoryIndex &&
+                    backStack.any {
+                        it.historyIndex == historyIndex &&
+                            (it.route == normalizedRoute || (normalizedRoute.isEmpty() && it.route == defaultBlankRoute))
+                    }
+                ) {
                     while (backStack.isNotEmpty() && currentHistoryIndex > historyIndex) {
                         val nextBack = backStack.last()
                         if (nextBack.historyIndex == historyIndex && restoredState != null) {
@@ -541,7 +569,12 @@ class FragmentHostSystem(
                     }
                     return
                 }
-                if (historyIndex > currentHistoryIndex && forwardStack.any { it.historyIndex == historyIndex }) {
+                if (historyIndex > currentHistoryIndex &&
+                    forwardStack.any {
+                        it.historyIndex == historyIndex &&
+                            (it.route == normalizedRoute || (normalizedRoute.isEmpty() && it.route == defaultBlankRoute))
+                    }
+                ) {
                     while (forwardStack.isNotEmpty() && currentHistoryIndex < historyIndex) {
                         val nextForward = forwardStack.last()
                         if (nextForward.historyIndex == historyIndex && restoredState != null) {
@@ -552,7 +585,11 @@ class FragmentHostSystem(
                     return
                 }
                 val indexedEntry = historyEntriesByIndex[historyIndex]
-                if (indexedEntry != null && historyIndex != currentHistoryIndex) {
+                val matchesIndexedRoute = indexedEntry != null && (
+                    indexedEntry.route == normalizedRoute ||
+                        (normalizedRoute.isEmpty() && defaultBlankRoute != null && indexedEntry.route == defaultBlankRoute)
+                    )
+                if (indexedEntry != null && historyIndex != currentHistoryIndex && matchesIndexedRoute) {
                     if (restoredState != null) {
                         indexedEntry.savedState.putAll(restoredState)
                     }
@@ -587,9 +624,10 @@ class FragmentHostSystem(
                 return
             }
             val registered = routes[normalizedRoute]
-            if (registered != null && normalizedRoute != currentRoute) {
+                ?: if (normalizedRoute.isEmpty() && defaultBlankRoute != null) routes[defaultBlankRoute] else null
+            if (registered != null && registered.route != currentRoute) {
                 val fragment = instantiateRouteFragment(registered, restoredState)
-                pushFragment(fragment, normalizedRoute, restoredState)
+                pushFragment(fragment, registered.route, restoredState)
             } else if (restoredState != null) {
                 currentFragment?.onRestoreInstanceState(restoredState)
             }
@@ -689,7 +727,7 @@ class FragmentHostSystem(
             destroyOutgoing = destroyOutgoing,
             mountIncoming = { frag ->
                 if (!stageContainer.children.contains(frag)) {
-                    stageContainer.addChild(frag)
+                    stageContainer.addFillLayer(frag)
                 }
                 if (frag.state == FragmentState.INITIALIZED || frag.state == FragmentState.DESTROYED) {
                     frag.performCreate(restoredState)
@@ -712,7 +750,7 @@ class FragmentHostSystem(
                 outFrag.attachedWindow = null
                 outFrag.attachedIWindow = null
                 if (stageContainer.children.contains(outFrag)) {
-                    stageContainer.removeChild(outFrag)
+                    stageContainer.removeLayer(outFrag)
                 }
             },
             applyStylesTo = { frag ->
@@ -759,6 +797,19 @@ class FragmentHostSystem(
         onLoadingChanged?.invoke(loading)
     }
 
+    private var lastStyledFragment: Fragment? = null
+    private var lastStyledBreakpointTier: Int = -1
+    private var lastStyledThemeMode: com.nexustools.genericui.enums.ui.ThemeMode? = null
+
+    private fun resolveBreakpointTier(widthPx: Int): Int = when {
+        widthPx < 576 -> 0
+        widthPx < 768 -> 1
+        widthPx < 992 -> 2
+        widthPx < 1200 -> 3
+        widthPx < 1400 -> 4
+        else -> 5
+    }
+
     fun applyStoredStyleSheetTo(fragment: Fragment) {
         val precompiled = precompiledStyleSheet
         val sheet = themeStyleSheet
@@ -766,23 +817,47 @@ class FragmentHostSystem(
             precompiled != null -> fragment.applyPrecompiledStyleSheet(precompiled, viewportWidthPx)
             sheet != null -> fragment.applyStyleSheet(sheet, viewportWidthPx)
         }
+        lastStyledFragment = fragment
+        lastStyledBreakpointTier = resolveBreakpointTier(viewportWidthPx)
     }
 
     fun updateViewportSize(widthPx: Int, heightPx: Int) {
-        viewportWidthPx = widthPx.coerceAtLeast(1)
-        viewportHeightPx = heightPx.coerceAtLeast(1)
+        val nextW = widthPx.coerceAtLeast(1)
+        val nextH = heightPx.coerceAtLeast(1)
+        viewportWidthPx = nextW
+        viewportHeightPx = nextH
+        resolveHostingIWindow()?.let { stageLayout.onAttachWindow(it) }
+        stageLayout.onResize(nextW, nextH)
         val active = currentFragment ?: return
-        applyStoredStyleSheetTo(active)
+        val nextTier = resolveBreakpointTier(nextW)
+        if (active !== lastStyledFragment || nextTier != lastStyledBreakpointTier) {
+            applyStoredStyleSheetTo(active)
+        }
         active.onResize(viewportWidthPx, viewportHeightPx)
     }
 
-    fun onConfigurationChanged(newConfig: WindowConfiguration) {
-        viewportWidthPx = newConfig.widthPx.coerceAtLeast(1)
-        viewportHeightPx = newConfig.heightPx.coerceAtLeast(1)
+    override fun onResize(viewportWidth: Int, viewportHeight: Int) {
+        updateViewportSize(viewportWidth, viewportHeight)
+    }
+
+    override fun onConfigurationChanged(newConfig: WindowConfiguration) {
+        val nextW = newConfig.widthPx.coerceAtLeast(1)
+        val nextH = newConfig.heightPx.coerceAtLeast(1)
+        val sizeChanged = nextW != viewportWidthPx || nextH != viewportHeightPx
+        viewportWidthPx = nextW
+        viewportHeightPx = nextH
+        resolveHostingIWindow()?.let { stageLayout.onAttachWindow(it) }
+        stageLayout.onConfigurationChanged(newConfig)
         val active = currentFragment ?: return
-        applyStoredStyleSheetTo(active)
+        val nextTier = resolveBreakpointTier(nextW)
+        if (active !== lastStyledFragment || nextTier != lastStyledBreakpointTier || newConfig.themeMode != lastStyledThemeMode) {
+            lastStyledThemeMode = newConfig.themeMode
+            applyStoredStyleSheetTo(active)
+        }
         active.onConfigurationChanged(newConfig)
-        active.onResize(viewportWidthPx, viewportHeightPx)
+        if (sizeChanged) {
+            active.onResize(viewportWidthPx, viewportHeightPx)
+        }
     }
 
     fun onApplyStyleSheet(styleSheet: CssStyleSheet, widthPx: Int) {
@@ -842,6 +917,7 @@ class FragmentHostSystem(
         historyBridge.setOnPopStateListener(null)
         historyBridge.dispose()
         transitionController.dispose()
+        stageLayout.dispose()
         clearAndDestroyStack(backStack)
         clearAndDestroyStack(forwardStack)
         historyEntriesByIndex.clear()

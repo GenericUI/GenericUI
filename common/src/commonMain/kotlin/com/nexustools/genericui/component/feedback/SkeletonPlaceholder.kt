@@ -17,6 +17,6 @@ class SkeletonPlaceholder(
         this.heightPx = heightPx
     }
 
-    override fun createNativeImpl(factory: NativeFactory): ContainerNativeImpl<*> =
+    protected override fun createNativeImpl(factory: NativeFactory): ContainerNativeImpl<*> =
         factory.createContainer("placeholder-glow", htmlTag)
 }

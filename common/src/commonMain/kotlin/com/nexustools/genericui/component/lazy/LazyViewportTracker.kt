@@ -39,9 +39,11 @@ class LazyViewportTracker(
         }
 
         val cols = columns.coerceAtLeast(1)
-        val firstRow = floor(scrollOffsetPx.coerceAtLeast(0f) / estimatedItemExtentPx).toInt()
+        val totalRows = ceil(totalItems.toFloat() / cols.toFloat()).toInt().coerceAtLeast(1)
         val visibleRows = ceil(viewportExtentPx / estimatedItemExtentPx).toInt().coerceAtLeast(1)
-        val lastRow = firstRow + visibleRows
+        val maxFirstRow = (totalRows - visibleRows).coerceAtLeast(0)
+        val firstRow = floor(scrollOffsetPx.coerceAtLeast(0f) / estimatedItemExtentPx).toInt().coerceIn(0, maxFirstRow)
+        val lastRow = (firstRow + visibleRows).coerceAtMost(totalRows - 1)
 
         val firstVis = (firstRow * cols).coerceIn(0, totalItems - 1)
         val lastVis = ((lastRow * cols) + (cols - 1)).coerceIn(firstVis, totalItems - 1)
@@ -50,12 +52,23 @@ class LazyViewportTracker(
         val firstAct = (firstVis - overscanCount).coerceAtLeast(0)
         val lastAct = (lastVis + overscanCount).coerceAtMost(totalItems - 1)
 
+        val firstActRow = firstAct / cols
+        val lastActRow = lastAct / cols
+        val leadingRows = firstActRow.coerceAtLeast(0)
+        val trailingRows = (totalRows - 1 - lastActRow).coerceAtLeast(0)
+        val leadingPx = leadingRows * estimatedItemExtentPx
+        val trailingPx = trailingRows * estimatedItemExtentPx
+        val totalExtentPx = totalRows * estimatedItemExtentPx
+
         val nextWindow = LazyViewportWindow(
             firstVisibleIndex = firstVis,
             lastVisibleIndex = lastVis,
             firstActiveIndex = firstAct,
             lastActiveIndex = lastAct,
-            totalItemCount = totalItems
+            totalItemCount = totalItems,
+            leadingSpacerPx = leadingPx,
+            trailingSpacerPx = trailingPx,
+            totalContentExtentPx = totalExtentPx
         )
 
         val prev = currentWindow

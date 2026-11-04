@@ -10,7 +10,7 @@ import com.nexustools.genericui.nativeimpl.layout.ContainerNativeImpl
  */
 open class Card(
     title: String? = null
-) : AbstractContainer() {
+) : AbstractContainer("card") {
     var title: String? = title
         set(value) {
             field = value
@@ -28,6 +28,6 @@ open class Card(
         }
     }
 
-    override fun createNativeImpl(factory: NativeFactory): ContainerNativeImpl<*> =
+    protected override fun createNativeImpl(factory: NativeFactory): ContainerNativeImpl<*> =
         factory.createContainer("card", htmlTag)
 }

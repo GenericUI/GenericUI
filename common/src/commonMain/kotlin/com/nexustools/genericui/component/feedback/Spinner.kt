@@ -17,7 +17,7 @@ class Spinner(
         this.type = type
     }
 
-    override fun createNativeImpl(factory: NativeFactory): SpinnerNativeImpl<*> =
+    protected override fun createNativeImpl(factory: NativeFactory): SpinnerNativeImpl<*> =
         factory.createSpinner()
 
     override fun syncStateToNative() {

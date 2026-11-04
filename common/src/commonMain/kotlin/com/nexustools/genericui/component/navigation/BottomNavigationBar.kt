@@ -11,11 +11,24 @@ class BottomNavigationBar : AbstractComponent(htmlTag = "genericui:bottomnavigat
     private val _items = mutableListOf<Triple<String, String, String?>>()
     val items: List<Triple<String, String, String?>> get() = _items
 
+    private var isUpdatingSelectionFromNative: Boolean = false
+    private var isSettingSelectionProgrammatically: Boolean = false
+
     var selectedItemId: String? = null
         set(value) {
+            if (field == value && (isUpdatingSelectionFromNative || isSettingSelectionProgrammatically)) {
+                return
+            }
             field = value
             if (value != null) {
-                typedNative<BottomNavigationBarNativeImpl<*>>()?.setSelectedItemId(value)
+                if (!isUpdatingSelectionFromNative && !isSettingSelectionProgrammatically) {
+                    isSettingSelectionProgrammatically = true
+                    try {
+                        typedNative<BottomNavigationBarNativeImpl<*>>()?.setSelectedItemId(value)
+                    } finally {
+                        isSettingSelectionProgrammatically = false
+                    }
+                }
                 onItemSelected?.invoke(value)
             }
         }
@@ -37,16 +50,28 @@ class BottomNavigationBar : AbstractComponent(htmlTag = "genericui:bottomnavigat
         typedNative<BottomNavigationBarNativeImpl<*>>()?.setItems(_items)
     }
 
-    override fun createNativeImpl(factory: NativeFactory): BottomNavigationBarNativeImpl<*> =
+    protected override fun createNativeImpl(factory: NativeFactory): BottomNavigationBarNativeImpl<*> =
         factory.createBottomNavigationBar()
 
     override fun syncStateToNative() {
         super.syncStateToNative()
         val impl = typedNative<BottomNavigationBarNativeImpl<*>>() ?: return
         impl.setItems(_items)
-        selectedItemId?.let { impl.setSelectedItemId(it) }
+        isSettingSelectionProgrammatically = true
+        try {
+            selectedItemId?.let { impl.setSelectedItemId(it) }
+        } finally {
+            isSettingSelectionProgrammatically = false
+        }
         impl.setOnItemSelected { id ->
-            selectedItemId = id
+            if (!isSettingSelectionProgrammatically && !isUpdatingSelectionFromNative && selectedItemId != id) {
+                isUpdatingSelectionFromNative = true
+                try {
+                    selectedItemId = id
+                } finally {
+                    isUpdatingSelectionFromNative = false
+                }
+            }
         }
     }
 }

@@ -42,7 +42,7 @@ class Table : AbstractContainer() {
         typedNative<TableNativeImpl<*>>()?.setRows(_rows.map { r -> r.cells.map { it.text } })
     }
 
-    override fun createNativeImpl(factory: NativeFactory): TableNativeImpl<*> =
+    protected override fun createNativeImpl(factory: NativeFactory): TableNativeImpl<*> =
         factory.createTable()
 
     override fun syncStateToNative() {

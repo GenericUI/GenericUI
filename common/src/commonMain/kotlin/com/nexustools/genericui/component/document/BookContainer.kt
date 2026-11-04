@@ -105,12 +105,6 @@ open class BookContainer(
         return page
     }
 
-    /**
-     * Alias for [addPage] matching `createPage { ... }` style call sites.
-     */
-    fun createPage(title: String = "", block: (BookPage.() -> Unit)? = null): BookPage =
-        addPage(title = title, block = block)
-
     fun removePage(index: Int) {
         if (index !in _pages.indices) return
         val removed = _pages.removeAt(index)
@@ -154,12 +148,7 @@ open class BookContainer(
         return impl?.printBook(documentTitle, pageSize, orientation, marginMm) ?: true
     }
 
-    /**
-     * Convenience alias for [print].
-     */
-    fun printDocument(): Boolean = print()
-
-    override fun createNativeImpl(factory: NativeFactory): BookContainerNativeImpl<*> =
+    protected override fun createNativeImpl(factory: NativeFactory): BookContainerNativeImpl<*> =
         factory.createBookContainer()
 
     override fun syncStateToNative() {

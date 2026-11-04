@@ -4,7 +4,7 @@ import com.nexustools.genericui.component.shell.Window
 import com.nexustools.genericui.core.GenericUI
 import com.nexustools.genericui.enums.bootstrap.BootstrapType
 import com.nexustools.genericui.nativeimpl.shell.WindowNativeImpl
-import com.nexustools.genericui.style.RgbaColor
+import com.nexustools.genericui.style.color.RgbaColor
 
 /**
  * High-level static utility entry points for opening native alert, confirmation, prompt,

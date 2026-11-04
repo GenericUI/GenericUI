@@ -43,7 +43,7 @@ class DockGroup(
         return false
     }
 
-    override fun createNativeImpl(factory: NativeFactory): DockGroupNativeImpl<*> =
+    protected override fun createNativeImpl(factory: NativeFactory): DockGroupNativeImpl<*> =
         factory.createDockGroup()
 
     override fun syncStateToNative() {

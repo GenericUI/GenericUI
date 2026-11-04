@@ -1,13 +1,8 @@
-package com.nexustools.genericui.style.gradient
+package com.nexustools.genericui.style.gradient.Gradient
 
 import com.nexustools.genericui.component.action.Button
 import com.nexustools.genericui.component.layout.Container
-import com.nexustools.genericui.style.ColorRgba
-import com.nexustools.genericui.style.Gradient
-import com.nexustools.genericui.style.GradientStop
-import com.nexustools.genericui.style.LinearGradient
-import com.nexustools.genericui.style.RadialGradient
-import com.nexustools.genericui.style.RadialGradientShape
+import com.nexustools.genericui.style.color.RgbaColor
 import com.nexustools.genericui.style.css.CssBackgroundImage
 import com.nexustools.genericui.style.css.CssStyleSheet
 import kotlin.test.Test
@@ -22,13 +17,13 @@ class GradientStyleTest {
     fun testLinearGradientAndRadialGradientExtendGradient() {
         val linear: Gradient = LinearGradient(
             90f,
-            ColorRgba(255, 0, 0, 1.0),
-            ColorRgba(0, 0, 255, 1.0)
+            RgbaColor(255, 0, 0, 1.0),
+            RgbaColor(0, 0, 255, 1.0)
         )
         val radial: Gradient = RadialGradient(
             RadialGradientShape.CIRCLE,
-            ColorRgba(0, 255, 0, 1.0),
-            ColorRgba(0, 0, 0, 1.0)
+            RgbaColor(0, 255, 0, 1.0),
+            RgbaColor(0, 0, 0, 1.0)
         )
 
         assertIs<LinearGradient>(linear)
@@ -56,13 +51,13 @@ class GradientStyleTest {
     fun testComponentBackgroundGradientWithinStylesAndHoverStates() {
         val defaultGrad = LinearGradient(
             135f,
-            GradientStop(ColorRgba(37, 99, 235, 1.0), 0f),
-            GradientStop(ColorRgba(29, 78, 216, 1.0), 1f)
+            GradientStop(RgbaColor(37, 99, 235, 1.0), 0f),
+            GradientStop(RgbaColor(29, 78, 216, 1.0), 1f)
         )
         val hoverGrad = RadialGradient(
             RadialGradientShape.CIRCLE,
-            ColorRgba(59, 130, 246, 1.0),
-            ColorRgba(30, 64, 175, 1.0)
+            RgbaColor(59, 130, 246, 1.0),
+            RgbaColor(30, 64, 175, 1.0)
         )
 
         val btn = Button("Launch")
@@ -91,8 +86,8 @@ class GradientStyleTest {
             CssBackgroundImage.fromGradient(
                 RadialGradient(
                     RadialGradientShape.ELLIPSE,
-                    ColorRgba(20, 20, 30, 1.0),
-                    ColorRgba(10, 10, 15, 1.0)
+                    RgbaColor(20, 20, 30, 1.0),
+                    RgbaColor(10, 10, 15, 1.0)
                 )
             )
         )

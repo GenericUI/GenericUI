@@ -1,4 +1,8 @@
+@file:OptIn(kotlin.concurrent.atomics.ExperimentalAtomicApi::class)
+
 package com.nexustools.genericui.nativeimpl.system
+
+import kotlin.concurrent.atomics.AtomicInt
 
 /**
  * Cross-platform in-memory fallback implementation of [UserDirectoryNativeImpl] used when no
@@ -26,7 +30,19 @@ class DefaultUserDirectoryNativeImpl(
     override var isDisposed: Boolean = false
         private set
 
+    private val lockState = AtomicInt(0)
     private val entries = LinkedHashMap<String, ByteArray>()
+
+    private inline fun <T> withLock(block: () -> T): T {
+        while (!lockState.compareAndSet(0, 1)) {
+            // Short spin for cross-platform non-blocking synchronization
+        }
+        try {
+            return block()
+        } finally {
+            lockState.store(0)
+        }
+    }
 
     override fun ensureDirectoryExists(): Boolean = !isDisposed
 
@@ -35,60 +51,67 @@ class DefaultUserDirectoryNativeImpl(
         return "$directoryPath/$clean"
     }
 
-    override fun writeBytes(fileName: String, bytes: ByteArray): Boolean {
-        if (isDisposed) return false
+    override fun writeBytes(fileName: String, bytes: ByteArray): Boolean = withLock {
+        if (isDisposed) return@withLock false
         val clean = sanitizeFileName(fileName)
         entries[clean] = bytes.copyOf()
-        return true
+        true
     }
 
-    override fun readBytes(fileName: String): ByteArray? {
-        if (isDisposed) return null
+    override fun readBytes(fileName: String): ByteArray? = withLock {
+        if (isDisposed) return@withLock null
         val clean = sanitizeFileName(fileName)
-        return entries[clean]?.copyOf()
+        entries[clean]?.copyOf()
     }
 
-    override fun exists(fileName: String): Boolean {
-        if (isDisposed) return false
+    override fun exists(fileName: String): Boolean = withLock {
+        if (isDisposed) return@withLock false
         val clean = sanitizeFileName(fileName)
-        return entries.containsKey(clean)
+        entries.containsKey(clean)
     }
 
-    override fun fileSize(fileName: String): Long {
-        if (isDisposed) return 0L
+    override fun fileSize(fileName: String): Long = withLock {
+        if (isDisposed) return@withLock 0L
         val clean = sanitizeFileName(fileName)
-        return entries[clean]?.size?.toLong() ?: 0L
+        entries[clean]?.size?.toLong() ?: 0L
     }
 
-    override fun delete(fileName: String): Boolean {
-        if (isDisposed) return false
+    override fun delete(fileName: String): Boolean = withLock {
+        if (isDisposed) return@withLock false
         val clean = sanitizeFileName(fileName)
-        return entries.remove(clean) != null
+        entries.remove(clean) != null
     }
 
-    override fun listFiles(): List<String> = entries.keys.toList()
+    override fun listFiles(): List<String> = withLock { entries.keys.toList() }
 
-    override fun clearAll(): Int {
+    override fun clearAll(): Int = withLock {
         val count = entries.size
         entries.clear()
-        return count
+        count
     }
 
-    override fun totalByteSize(): Long {
+    override fun totalByteSize(): Long = withLock {
         var total = 0L
         for (bytes in entries.values) {
             total += bytes.size.toLong()
         }
-        return total
+        total
     }
 
-    override fun dispose() {
+    override fun dispose() = withLock {
         isDisposed = true
         entries.clear()
     }
 
     private fun sanitizeFileName(raw: String): String {
-        val trimmed = raw.trim().trim('/', '\\').ifEmpty { "unnamed" }
+        var stripped = raw.trim()
+        val prefixSlash = "$directoryPath/"
+        if (stripped.startsWith(prefixSlash)) {
+            stripped = stripped.removePrefix(prefixSlash)
+        } else if (stripped == directoryPath) {
+            stripped = "unnamed"
+        }
+        val trimmed = stripped.trim('/', '\\').ifEmpty { "unnamed" }
         return trimmed.replace(Regex("[\\\\/:*?\"<>|]"), "_")
     }
 }

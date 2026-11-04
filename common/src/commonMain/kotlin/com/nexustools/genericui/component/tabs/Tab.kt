@@ -85,7 +85,7 @@ open class Tab(
         }
     }
 
-    override fun createNativeImpl(factory: NativeFactory): TabNativeImpl<*> =
+    protected override fun createNativeImpl(factory: NativeFactory): TabNativeImpl<*> =
         factory.createTab(closable = false)
 
     override fun syncStateToNative() {

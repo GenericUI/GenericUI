@@ -5,7 +5,7 @@ import com.nexustools.genericui.image.ImageBuffer
 import com.nexustools.genericui.image.ImageLoader
 import com.nexustools.genericui.image.PixelFormat
 import com.nexustools.genericui.res.DrawableResource
-import com.nexustools.genericui.res.ResourceType
+import com.nexustools.genericui.resources.ResourceType
 import com.nexustools.genericui.res.Resources
 import com.nexustools.genericui.resources.ResourceID
 import com.nexustools.genericui.resources.ResourceResolver

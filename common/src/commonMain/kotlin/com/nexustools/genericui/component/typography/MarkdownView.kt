@@ -16,7 +16,7 @@ class MarkdownView(
             typedNative<MarkdownViewNativeImpl<*>>()?.setMarkdown(value)
         }
 
-    override fun createNativeImpl(factory: NativeFactory): MarkdownViewNativeImpl<*> =
+    protected override fun createNativeImpl(factory: NativeFactory): MarkdownViewNativeImpl<*> =
         factory.createMarkdownView()
 
     override fun syncStateToNative() {

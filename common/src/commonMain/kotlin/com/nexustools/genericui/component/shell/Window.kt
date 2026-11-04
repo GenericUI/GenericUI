@@ -1,15 +1,16 @@
 package com.nexustools.genericui.component.shell
 
+import com.nexustools.genericui.component.dialog.DialogWindow
 import com.nexustools.genericui.component.dock.PanelWindow
 import com.nexustools.genericui.component.fragment.FragmentContainer
 import com.nexustools.genericui.component.layout.Container
 import com.nexustools.genericui.component.navigation.BottomNavigationBar
 import com.nexustools.genericui.component.navigation.Navbar
+import com.nexustools.genericui.core.AbstractComponent
 import com.nexustools.genericui.core.AbstractContainer
 import com.nexustools.genericui.core.GenericUI
 import com.nexustools.genericui.core.NativeFactory
 import com.nexustools.genericui.core.NativeImpl
-import com.nexustools.genericui.enums.system.BackendTarget
 import com.nexustools.genericui.enums.window.DisplayCutoutMode
 import com.nexustools.genericui.enums.window.WindowState
 import com.nexustools.genericui.geometry.Rect
@@ -56,9 +57,13 @@ open class Window(
     private var positionXState: Int = 0
     private var positionYState: Int = 0
     private var sizeState: Size = initialSize
+    private var minWindowSizeState: Size? = null
     private var windowStateVal: WindowState = WindowState.NORMAL
     private var fullscreenState: Boolean = false
     private var cutoutModeState: DisplayCutoutMode = DisplayCutoutMode.DEFAULT
+
+    var fullscreenElement: AbstractComponent? = null
+        private set
 
     open override val isClosable: Boolean = true
     open override val isMinimizable: Boolean = true
@@ -83,42 +88,17 @@ open class Window(
     val attachedPanelWindows: List<PanelWindow>
         get() = _attachedPanelWindows
 
+    private val _attachedDialogWindows = mutableListOf<DialogWindow>()
+    val attachedDialogWindows: List<DialogWindow>
+        get() = _attachedDialogWindows
+
     override val childWindows: List<IWindow>
-        get() = _attachedPanelWindows
+        get() = _attachedPanelWindows + _attachedDialogWindows
 
     open override val titleCapabilities: TitleCapabilities
-        get() {
-            winImpl?.let { return it.getTitleCapabilities() }
-            val target = (ExplicitFactory ?: GenericUI.activeFactory)?.backendTarget ?: return TitleCapabilities()
-            return when (target) {
-                BackendTarget.Web -> TitleCapabilities(
-                    isEmulated = true,
-                    supportsMinimizeButton = false,
-                    supportsMaximizeButton = false,
-                    supportsCloseButton = false,
-                    supportsControlsPlacement = false,
-                    supportsCustomHeight = false,
-                    isTitleBarRequired = false,
-                    titleBarRendersAsNavbar = true,
-                    menuBarRendersAsNavbar = false,
-                    menuBarMergesIntoTitleNavbar = true
-                )
-                BackendTarget.Android, BackendTarget.IOS -> TitleCapabilities(
-                    isEmulated = true,
-                    supportsNavbarMenuBar = true,
-                    supportsWindowIcon = false,
-                    supportsMinimizeButton = false,
-                    supportsMaximizeButton = false,
-                    supportsCloseButton = false,
-                    supportsControlsPlacement = false,
-                    isTitleBarRequired = false,
-                    titleBarRendersAsNavbar = true,
-                    menuBarRendersAsNavbar = true,
-                    menuBarMergesIntoTitleNavbar = true
-                )
-                else -> TitleCapabilities()
-            }
-        }
+        get() = winImpl?.getTitleCapabilities()
+            ?: (ExplicitFactory ?: GenericUI.activeFactory)?.defaultTitleCapabilities
+            ?: TitleCapabilities()
 
     final override var isWindowFocused: Boolean = false
         private set
@@ -139,11 +119,24 @@ open class Window(
         _attachedPanelWindows.remove(panelWindow)
     }
 
+    internal fun registerAttachedDialogWindow(dialogWindow: DialogWindow) {
+        if (dialogWindow !in _attachedDialogWindows) {
+            _attachedDialogWindows.add(dialogWindow)
+        }
+    }
+
+    internal fun unregisterAttachedDialogWindow(dialogWindow: DialogWindow) {
+        _attachedDialogWindows.remove(dialogWindow)
+    }
+
     open override fun bringToFront() {
         frontOrderSequence = nextFrontSequence()
         winImpl?.bringToFront()
         if (_attachedPanelWindows.isNotEmpty()) {
             bringAttachedPanelWindowsToFront()
+        }
+        if (_attachedDialogWindows.isNotEmpty()) {
+            bringAttachedDialogWindowsToFront()
         }
     }
 
@@ -151,6 +144,14 @@ open class Window(
         for (panelWin in _attachedPanelWindows.toList()) {
             if (panelWin.isVisible) {
                 panelWin.bringToFront()
+            }
+        }
+    }
+
+    fun bringAttachedDialogWindowsToFront() {
+        for (dialogWin in _attachedDialogWindows.toList()) {
+            if (dialogWin.isVisible && dialogWin.isWindowShown) {
+                dialogWin.bringToFront()
             }
         }
     }
@@ -166,6 +167,7 @@ open class Window(
             frontOrderSequence = nextFrontSequence()
             winImpl?.bringToFront()
             bringAttachedPanelWindowsToFront()
+            bringAttachedDialogWindowsToFront()
         }
         onFocusListener?.invoke(focused)
     }
@@ -175,28 +177,40 @@ open class Window(
         return ExplicitFactory ?: GenericUI.activeFactory
     }
 
-    override fun createNativeImpl(factory: NativeFactory): WindowNativeImpl<*> =
+    protected override fun createNativeImpl(factory: NativeFactory): WindowNativeImpl<*> =
         factory.createWindow()
 
-    override fun onAttachNative(impl: NativeImpl<*>) {
+    protected override fun onAttachNative(impl: NativeImpl<*>) {
         super.onAttachNative(impl)
         val wImpl = impl as? WindowNativeImpl<*> ?: return
         wImpl.setTitle(titleState)
+        minWindowSizeState?.let { wImpl.setMinWindowSize(it) }
+        installNativeWindowResizeForwarder(wImpl)
         wImpl.setWindowSize(sizeState)
         wImpl.setWindowState(windowStateVal)
-        if (fullscreenState) {
-            wImpl.setFullscreen(true, cutoutModeState)
+        if (fullscreenState || fullscreenElement != null) {
+            val target = fullscreenElement ?: contentContainer ?: this
+            val elImpl = if (target === this) wImpl else target.ensureNativeImpl()
+            wImpl.setFullscreenElement(elImpl, cutoutModeState)
         }
         syncTitleBarAndMenuBarToNative(wImpl)
         syncNavBarToNative(wImpl)
         syncBottomNavToNative(wImpl)
-        wImpl.setOnWindowResize(onResizeListener)
         wImpl.setOnWindowFocusChanged { focused ->
             dispatchWindowFocusChanged(focused)
         }
         wImpl.setOnWindowCloseRequested(onCloseRequestedListener)
         for (panelWin in _attachedPanelWindows.toList()) {
             panelWin.syncToolModalAttachmentToNative()
+        }
+    }
+
+    private fun installNativeWindowResizeForwarder(wImpl: WindowNativeImpl<*>) {
+        wImpl.setOnWindowResize { config ->
+            sizeState = Size(config.widthPx, config.heightPx)
+            fragmentContainer?.onResize(config.widthPx, config.heightPx)
+            fragmentContainer?.onConfigurationChanged(config)
+            onResizeListener?.invoke(config)
         }
     }
 
@@ -263,11 +277,34 @@ open class Window(
     }
 
     override fun setWindowSize(size: Size) {
-        sizeState = size
-        winImpl?.setWindowSize(size)
+        val min = minWindowSizeState
+        val clamped = if (min != null) {
+            Size(maxOf(size.width, min.width), maxOf(size.height, min.height))
+        } else {
+            size
+        }
+        sizeState = clamped
+        winImpl?.setWindowSize(clamped)
     }
 
     override fun getWindowSize(): Size = winImpl?.getWindowSize() ?: sizeState
+
+    override fun getMinWindowSize(): Size? = winImpl?.getMinWindowSize() ?: minWindowSizeState
+
+    override fun setMinWindowSize(minSize: Size?) {
+        minWindowSizeState = minSize
+        winImpl?.setMinWindowSize(minSize)
+        if (minSize != null) {
+            val clamped = Size(
+                maxOf(sizeState.width, minSize.width),
+                maxOf(sizeState.height, minSize.height)
+            )
+            if (clamped != sizeState) {
+                sizeState = clamped
+                winImpl?.setWindowSize(clamped)
+            }
+        }
+    }
 
     override var windowBounds: Rect
         get() {
@@ -287,17 +324,51 @@ open class Window(
 
     override fun getWindowState(): WindowState = winImpl?.getWindowState() ?: windowStateVal
 
-    override fun setFullscreen(fullscreen: Boolean, cutoutMode: DisplayCutoutMode) {
-        fullscreenState = fullscreen
+    fun requestElementFullscreen(
+        element: AbstractComponent,
+        cutoutMode: DisplayCutoutMode = DisplayCutoutMode.SHORT_EDGES
+    ) {
+        val prev = fullscreenElement
+        if (prev != null && prev !== element) {
+            prev.updateFullscreenElementState(false, cutoutMode)
+        }
+        fullscreenElement = element
+        fullscreenState = true
         cutoutModeState = cutoutMode
-        winImpl?.let {
-            it.setFullscreen(fullscreen, cutoutMode)
-            syncNavBarToNative(it)
-            syncBottomNavToNative(it)
+        element.updateFullscreenElementState(true, cutoutMode)
+        if (element !== this) {
+            updateFullscreenElementState(true, cutoutMode)
+        }
+        winImpl?.let { impl ->
+            val elImpl = if (element === this) impl else element.ensureNativeImpl()
+            impl.setFullscreenElement(elImpl, cutoutMode)
+            syncNavBarToNative(impl)
+            syncBottomNavToNative(impl)
         }
     }
 
-    override fun isFullscreen(): Boolean = winImpl?.isFullscreen() ?: fullscreenState
+    fun exitElementFullscreen() {
+        val prev = fullscreenElement
+        fullscreenElement = null
+        fullscreenState = false
+        prev?.updateFullscreenElementState(false, cutoutModeState)
+        updateFullscreenElementState(false, cutoutModeState)
+        winImpl?.let { impl ->
+            impl.setFullscreenElement(null, cutoutModeState)
+            syncNavBarToNative(impl)
+            syncBottomNavToNative(impl)
+        }
+    }
+
+    override fun setFullscreen(fullscreen: Boolean, cutoutMode: DisplayCutoutMode) {
+        if (fullscreen) {
+            requestElementFullscreen(fullscreenElement ?: contentContainer ?: this, cutoutMode)
+        } else {
+            exitElementFullscreen()
+        }
+    }
+
+    override fun isFullscreen(): Boolean = winImpl?.isFullscreen() ?: (fullscreenState || fullscreenElement != null)
 
     open override fun setTitleBar(titleBar: TitleBar?) {
         val old = titleBarInstructions
@@ -338,14 +409,29 @@ open class Window(
 
     override fun setContent(container: Container) {
         contentContainer?.let { removeChild(it) }
-        container.htmlTag = "genericui:root"
+        if (container is com.nexustools.genericui.component.fragment.Fragment) {
+            container.htmlTag = "genericui:fragment"
+        } else {
+            container.htmlTag = "genericui:app"
+        }
         contentContainer = container
         if (container is FragmentContainer) {
             container.hostWindow = this
             container.hostingIWindow = this
             _fragmentContainer = container
         }
+        winImpl?.let { impl ->
+            val currentSize = impl.getWindowSize()
+            if (currentSize.width > 0 && currentSize.height > 0) {
+                sizeState = currentSize
+            }
+        }
         addChild(container)
+        if (sizeState.width > 0 && sizeState.height > 0) {
+            val cfg = WindowConfiguration(widthPx = sizeState.width, heightPx = sizeState.height)
+            fragmentContainer?.onResize(sizeState.width, sizeState.height)
+            fragmentContainer?.onConfigurationChanged(cfg)
+        }
     }
 
     override fun getContent(): Container? = contentContainer
@@ -378,16 +464,37 @@ open class Window(
         if (factory != null) {
             ExplicitFactory = factory
         }
+        val hasAnyContent = children.isNotEmpty() ||
+            contentContainer != null ||
+            _fragmentContainer != null ||
+            titleBarInstructions != null ||
+            menuBar != null ||
+            navBar != null ||
+            bottomNavigationBar != null ||
+            isToolWindow ||
+            Application.findApplicationForWindow(this) != null
+        if (!hasAnyContent) {
+            throw IllegalStateException(
+                "Cannot show Window '$titleState' with no content: add a root component or Fragment before calling show()."
+            )
+        }
         isWindowShown = true
         val impl = ensureNativeImpl() as? WindowNativeImpl<*>
+            ?: throw IllegalStateException(
+                "Cannot show Window '$titleState': no NativeImpl / NativeFactory is configured on the active backend."
+            )
+        installNativeWindowResizeForwarder(impl)
         titleBarInstructions?.setHostEmbedsComponents(titleCapabilities.canEmbedComponentsInTitleBar)
-        impl?.showWindow()
+        impl.showWindow()
         frontOrderSequence = nextFrontSequence()
         for (panelWin in _attachedPanelWindows.toList()) {
             panelWin.syncToolModalAttachmentToNative()
             if (panelWin.isVisible) {
                 panelWin.bringToFront()
             }
+        }
+        if (_attachedDialogWindows.isNotEmpty()) {
+            bringAttachedDialogWindowsToFront()
         }
     }
 
@@ -418,13 +525,17 @@ open class Window(
             panelWin.close()
         }
         _attachedPanelWindows.clear()
+        for (dialogWin in _attachedDialogWindows.toList()) {
+            dialogWin.close()
+        }
+        _attachedDialogWindows.clear()
         winImpl?.closeWindow()
         dispose()
     }
 
     override fun setOnWindowResize(listener: ((WindowConfiguration) -> Unit)?) {
         onResizeListener = listener
-        winImpl?.setOnWindowResize(listener)
+        winImpl?.let { installNativeWindowResizeForwarder(it) }
     }
 
     override fun setOnWindowFocusChanged(listener: ((Boolean) -> Unit)?) {

@@ -25,6 +25,6 @@ class FormGroup(
         helpLabel?.let { addChild(it) }
     }
 
-    override fun createNativeImpl(factory: NativeFactory): ContainerNativeImpl<*> =
+    protected override fun createNativeImpl(factory: NativeFactory): ContainerNativeImpl<*> =
         factory.createContainer("form-group mb-3", htmlTag)
 }

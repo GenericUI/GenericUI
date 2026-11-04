@@ -14,10 +14,13 @@ open class Select(
     private val _options = options.toMutableList()
     val options: List<SelectOption> get() = _options
 
-    var selectedValue: String? = selectedValue
+    private var selectedValueState: String? = selectedValue
+
+    var selectedValue: String?
+        get() = selectedValueState
         set(value) {
-            if (field == value) return
-            field = value
+            if (selectedValueState == value) return
+            selectedValueState = value
             typedNative<SelectNativeImpl<*>>()?.setSelectedValue(value)
         }
 
@@ -26,32 +29,32 @@ open class Select(
     fun setOptions(newOptions: List<SelectOption>): Select = apply {
         _options.clear()
         _options.addAll(newOptions)
-        if (selectedValue == null) {
-            selectedValue = _options.firstOrNull()?.value
+        if (selectedValueState == null || _options.none { it.value == selectedValueState }) {
+            selectedValueState = _options.firstOrNull()?.value
         }
         typedNative<SelectNativeImpl<*>>()?.setOptions(_options.map { it.value to it.label })
-        typedNative<SelectNativeImpl<*>>()?.setSelectedValue(selectedValue)
+        typedNative<SelectNativeImpl<*>>()?.setSelectedValue(selectedValueState)
     }
 
     fun addOption(value: String, label: String = value): Select = apply {
         _options.add(SelectOption(value, label))
-        if (selectedValue == null) {
-            selectedValue = value
+        if (selectedValueState == null) {
+            selectedValueState = value
         }
         typedNative<SelectNativeImpl<*>>()?.setOptions(_options.map { it.value to it.label })
-        typedNative<SelectNativeImpl<*>>()?.setSelectedValue(selectedValue)
+        typedNative<SelectNativeImpl<*>>()?.setSelectedValue(selectedValueState)
     }
 
-    override fun createNativeImpl(factory: NativeFactory): SelectNativeImpl<*> =
+    protected override fun createNativeImpl(factory: NativeFactory): SelectNativeImpl<*> =
         factory.createSelect()
 
     override fun syncStateToNative() {
         super.syncStateToNative()
         val impl = typedNative<SelectNativeImpl<*>>() ?: return
         impl.setOptions(_options.map { it.value to it.label })
-        impl.setSelectedValue(selectedValue)
+        impl.setSelectedValue(selectedValueState)
         impl.setOnSelectionChanged { updated ->
-            selectedValue = updated
+            selectedValueState = updated
             onSelectionChanged?.invoke(updated)
         }
     }

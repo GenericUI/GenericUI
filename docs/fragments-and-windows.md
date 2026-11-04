@@ -116,7 +116,7 @@ class WorkspaceMainFragment : Fragment() {
 
 ## 3. `IFragment`, `launchFragment(FragmentClass, LaunchArgs)`, & 1:1 Android `AppCompatActivity` Generation
 
-[`IFragment`](../common/src/commonMain/kotlin/com/nexustools/genericui/component/fragment/IFragment.kt) is implemented by [`Fragment`](../common/src/commonMain/kotlin/com/nexustools/genericui/component/fragment/Fragment.kt) and all fragment subclasses (`ScrollFragment`, `PageFragment`, `FragmentHostFragment`, `DockWorkspaceFragment`, `AdaptiveSplitTabFragment`, `AlienFragment`, etc.).
+[`IFragment`](../common/src/commonMain/kotlin/com/nexustools/genericui/component/fragment/IFragment.kt) is implemented by [`Fragment`](../common/src/commonMain/kotlin/com/nexustools/genericui/component/fragment/Fragment.kt) and all fragment subclasses (`ScrollFragment`, `PageFragment`, `FragmentHostFragment`, `TabbedFragment`, `DockWorkspaceFragment`, `AdaptiveSplitTabFragment`, `AlienFragment`, etc.). Every `IFragment` also provides `getPreferenceStore(): PreferenceStore`, returning the hosting `IApplication`'s `PreferenceStore` (or a default application-scoped `PreferenceStore` when detached during unit tests).
 
 ### 3.1 Launching Fragments (`launchFragment`)
 
@@ -183,6 +183,35 @@ Every `IWindow` (and `IFragment.titleCapabilities`) exposes [`TitleCapabilities`
 | **Android (`:mobile:android`)** | **No navbar added to view hierarchy.** | Material `Navbar` (`MaterialToolbar`) with title & custom components. | Material `Navbar` with menu dropdown on the right. | Single Material `Navbar` with title/components on the left and menu dropdown on the right. |
 | **iOS (`:mobile:ios`)** | **No navbar added to view hierarchy.** | Native iOS navigation-bar layout with title & items. | Native iOS navigation bar with menu button on the right. | Native iOS navigation bar with title on the left/center and menu on the right. |
 | **Web (`:web`)** | **No navbar or menubar added to DOM.** | Bootstrap `Navbar` at the top of the viewport. | Standalone `MenuBar` strip only. | Single Bootstrap `Navbar` with title/icon on the left and `MenuBar` on the right. |
+
+### 4.3 `Window` Resize & Configuration Change Propagation (`onResize` & `onConfigurationChanged`)
+
+Whenever a top-level [`Window`](../common/src/commonMain/kotlin/com/nexustools/genericui/component/shell/Window.kt) (or `IWindow` / browser viewport) is resized or changes orientation/DPI/theme configuration, `Window.installNativeWindowResizeForwarder` automatically propagates both `onResize(viewportWidth, viewportHeight)` and `onConfigurationChanged(newConfig: WindowConfiguration)` down the entire active fragment hierarchy without breaking user-registered `window.setOnWindowResize { ... }` listeners:
+
+```text
+Window (WindowNativeImpl.setOnWindowResize)
+  ├── Updates sizeState = Size(config.widthPx, config.heightPx)
+  ├── Calls fragmentContainer?.onResize(config.widthPx, config.heightPx)
+  │     └── FragmentContainer (implements FragmentHost)
+  │           └── currentFragment?.onResize(viewportWidth, viewportHeight)
+  │                 ├── FragmentHostFragment (implements FragmentHost)
+  │                 │     └── hostSystem.updateViewportSize(viewportWidth, viewportHeight)
+  │                 │           └── activeFragment?.onResize(viewportWidth, viewportHeight)
+  │                 └── AlienFragmentHostFragment (:extensions:alien, implements FragmentHost)
+  │                       └── hostSystem.updateViewportSize(viewportWidth, viewportHeight)
+  │                             ├── Re-evaluates responsive CSS @media rules & viewport units (vw/vh)
+  │                             └── activeFragment?.onResize(viewportWidth, viewportHeight)
+  ├── Calls fragmentContainer?.onConfigurationChanged(config)
+  │     └── Propagates WindowConfiguration through FragmentContainer -> FragmentHostFragment / AlienFragmentHostFragment -> active child Fragment
+  └── Invokes user onResizeListener?.invoke(config)
+```
+
+| Host / Fragment Class | Resize & Configuration Propagation Behavior |
+| :--- | :--- |
+| **[`Window`](../common/src/commonMain/kotlin/com/nexustools/genericui/component/shell/Window.kt)** | Installs `installNativeWindowResizeForwarder(wImpl)` during `onAttachNative`, `show()`, and `setOnWindowResize(...)`, forwarding `config.widthPx`/`config.heightPx` and `config` to `fragmentContainer` before invoking any user `onResizeListener`. |
+| **[`FragmentHost`](../common/src/commonMain/kotlin/com/nexustools/genericui/component/fragment/FragmentHost.kt) & [`FragmentContainer`](../common/src/commonMain/kotlin/com/nexustools/genericui/component/fragment/FragmentContainer.kt)** | Declares `onResize(viewportWidth: Int, viewportHeight: Int)` and `onConfigurationChanged(newConfig: WindowConfiguration)` on `FragmentHost` and forwards both to `currentFragment`. |
+| **[`FragmentHostFragment`](../common/src/commonMain/kotlin/com/nexustools/genericui/component/fragment/helper/FragmentHostFragment.kt) & [`FragmentHostSystem`](../common/src/commonMain/kotlin/com/nexustools/genericui/component/fragment/helper/FragmentHostSystem.kt)** | Overrides `onResize` and `onConfigurationChanged`, calling `hostSystem.updateViewportSize(viewportWidth, viewportHeight)` and `hostSystem.onConfigurationChanged(newConfig)` so the active routed child `Fragment` (e.g., `CenteredMenuPageFragment` recalculating `.menu` scale or responsive hybrid layouts) updates immediately on every window resize. |
+| **[`AlienFragmentHostFragment`](../extensions/alien/common/src/commonMain/kotlin/com/nexustools/genericui/ext/alien/AlienFragmentHostFragment.kt)** (`:extensions:alien`) | Forwards `onResize(viewportWidth, viewportHeight)` and `onConfigurationChanged(newConfig)` to both the self-rendered `AlienContainer` Canvas2D layout/stylesheet engine and `hostSystem` so nested `AlienFragment` screens resize in lockstep with the host window. |
 
 ---
 
@@ -290,10 +319,16 @@ class PortalHostFragment : FragmentHostFragment(
 - **`:extensions:dsl` Builders**: When `:extensions:dsl` is enabled, `style { ... }`, `bootstrap { ... }`, and `important { ... }` are available on all components inside DSL blocks.
 
 ### 6.2 Global Stylesheets & Theme Mode Live on `IApplication` (Not `IFragment`)
-- Global stylesheet attachment (`addStyleSheet` / `removeStyleSheet` accepting `Resource.style.<name>`, path, or `PrecompiledStyleSheet`) and application theme mode (`setTheme(ThemeMode.AUTO | DARK | LIGHT)`, `getTheme()`, `getResolvedTheme()`) live on **`IApplication`** (`hostingWindow?.application` / `app`), **never** on `IFragment`.
+- Global stylesheet attachment (`addStyleSheet` / `removeStyleSheet` accepting `Resource.style.<name>`, path, or `PrecompiledStyleSheet`) and application theme mode (`setThemeMode(ThemeMode.AUTO | DARK | LIGHT)`, `getThemeMode()`, `getResolvedTheme()`) live on **`IApplication`** (`hostingWindow?.application` / `app`), **never** on `IFragment`.
 - Only `:extensions:alien`'s `AlienFragment` and `AlienContainer` (which implement [`IAlien`](../extensions/alien/common/src/commonMain/kotlin/com/nexustools/genericui/ext/alien/IAlien.kt)) maintain their own per-Alien stylesheet cascade (`IAlien.BOOTSTRAP_STYLE_SHEET_ID` at index `0` and `insertApplicationStyleSheets = 1` by default).
 
-### 6.3 Hybrid Responsive Fragment Helpers
+### 6.3 Multi-Tab Document & Browser Host (`TabbedFragment`)
+[`TabbedFragment`](../common/src/commonMain/kotlin/com/nexustools/genericui/component/fragment/helper/TabbedFragment.kt) (`com.nexustools.genericui.component.fragment.helper`) is a multi-tab host `Fragment` where each open tab (`TabbedDocumentTab`) owns its own independent [`FragmentHostSystem`](../common/src/commonMain/kotlin/com/nexustools/genericui/component/fragment/helper/FragmentHostSystem.kt) navigation history stack (`maxHistoryPerTab = 50` by default, with per-tab `navigateBackInActiveTab()`, `navigateForwardInActiveTab()`, and `pushFragmentInTab(...)`):
+- **`TabbedChromeMode.AUTO`** *(Default)*: Automatically renders horizontal desktop/tablet browser tabs (`DESKTOP_BROWSER_TABS`) when viewport width $\ge$ `mobileCompactBreakpointDp` (`600dp`), and switches to a compact Chrome/Firefox-style mobile tab switcher pill (`MOBILE_SWITCHER_PILL`) with a `[N]` tab-count badge and full-screen card switcher overlay (`isMobileTabSwitcherOpen`, `openMobileTabSwitcher()`, `closeMobileTabSwitcher()`) when viewport width $< 600\text{dp}$.
+- **`TabbedChromeMode.DESKTOP_BROWSER_TABS`**: Always renders a horizontal browser/editor tab bar with closable tabs and a `+` new-tab button.
+- **`TabbedChromeMode.MOBILE_SWITCHER_PILL`**: Always renders the compact mobile `[N]` tab-count pill and full-screen tab switcher overlay.
+
+### 6.4 Hybrid Responsive Fragment Helpers
 See the [**Hybrid Layouts & Fragment Helpers Guide (`layouts-and-helpers.md`)**](./layouts-and-helpers.md) for full documentation of all 7 responsive fragment helpers:
 - [`HybridColumnFragment`](../common/src/commonMain/kotlin/com/nexustools/genericui/component/fragment/helper/HybridColumnFragment.kt) (`HybridColumnLayout`, `HybridFoldMode`, `HybridTabPlacement`, `DynamicFullscreenController`, `HybridFullscreenPolicy`)
 - [`DockWorkspaceFragment`](../common/src/commonMain/kotlin/com/nexustools/genericui/component/fragment/helper/DockWorkspaceFragment.kt) (`DockWorkspace` with automatic compact mobile edge swipe-out drawers via `DockMobileDrawerPolicy`)

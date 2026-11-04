@@ -150,8 +150,8 @@ class CssTransitionController(
                         fromColor = currentFrameState.backgroundColor ?: previous.backgroundColor,
                         toColor = next.backgroundColor
                     ),
-                    fromRaw = previous.backgroundColor.toCssRgba(),
-                    toRaw = next.backgroundColor.toCssRgba()
+                    fromRaw = previous.backgroundColor.toCssRgbaString(),
+                    toRaw = next.backgroundColor.toCssRgbaString()
                 )
             }
         }

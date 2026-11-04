@@ -125,7 +125,7 @@ Across every backend, user-added CSS classes (`addClass`, `removeClass`, `hasCla
 
 ## 6. `IApplication` Theming (`ThemeMode.AUTO`, `DARK`, `LIGHT` — Default `AUTO`)
 
-`IApplication` (and `Application`) defaults to **`ThemeMode.AUTO`** and exposes `setTheme(theme: ThemeMode)`, `getTheme(): ThemeMode`, and `getResolvedTheme(): ThemeMode` (`ThemeMode.LIGHT` or `ThemeMode.DARK`). Every backend implements live OS dark/light theme detection:
+`IApplication` (and `Application`) defaults to **`ThemeMode.AUTO`** and exposes `setThemeMode(mode: ThemeMode)`, `getThemeMode(): ThemeMode`, and `getResolvedTheme(): ThemeMode` (`ThemeMode.LIGHT` or `ThemeMode.DARK`). Every backend implements live OS dark/light theme detection:
 
 | Backend | Native System Theme Detection & Live Application Mechanism |
 | :--- | :--- |
@@ -140,7 +140,24 @@ Across every backend, user-added CSS classes (`addClass`, `removeClass`, `hasCla
 
 ---
 
-## 7. Selecting Backends in `build.gradle.kts`
+## 7. Per-Backend Native Implementation Matrix: Async `Readable`/`Writable`, `IFileSystem`, `Database`, `Network`, `HttpClient`, `SocketIoClient`, & `isOffline`
+
+All 8 backends implement `:common`'s 100% asynchronous, non-blocking coroutine I/O, storage, database, networking, and offline state contracts ([`docs/utils.md`](./utils.md)):
+
+| Backend | Async `Readable` / `Writable` & `FileSystem` (`IFileSystem`) | `ConfigDirectory` & `CacheDirectory` (`UserDirectory : IFileSystem`) | `Database` (Zero-Parsing Structured AST) | `Network` (`TcpClient` & `UdpClient`) | `HttpClient` | `WebSocket` & `SocketIoClient` | `IApplication.isOffline` & Offline Support |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **Windows (`:desktop:windows`)** | Win32 `CreateFileW` (`FILE_FLAG_OVERLAPPED`) + async I/O worker pool (`FileSystemAvailability.Always`). | `%APPDATA%\<appName>` & `%LOCALAPPDATA%\<appName>\Cache` delegating `IFileSystem` to `FileSystem`. | Native C **`libsqlite3`** (`WindowsDatabaseNativeImpl`). | WinSock2 (`WSAStartup`, non-blocking `SOCKET` TCP & `SOCK_DGRAM` UDP + multicast). | WinHTTP (`WinHttpOpen`, `WinHttpSendRequest`, `WinHttpReadData`). | WinHTTP WebSocket (`WinHttpWebSocketCompleteUpgrade`, `WinHttpWebSocketSend`/`Receive`). | WinINet `InternetGetConnectedState` / `INetworkListManager`. |
+| **macOS (`:desktop:macos`)** | Grand Central Dispatch (`dispatch_io_t` / `NSFileHandle` async queues, `FileSystemAvailability.Always`). | `~/.config/<appName>` & `~/Library/Caches/<appName>` delegating `IFileSystem` to `FileSystem`. | System **`libsqlite3`** (`/usr/lib/libsqlite3.dylib`, `MacosDatabaseNativeImpl`). | Apple `Network.framework` (`NWConnection`) & BSD non-blocking `SOCK_DGRAM` UDP sockets. | Apple `NSURLSession` (`dataTaskWithRequest:` / `bytesForRequest:`). | Apple `NSURLSessionWebSocketTask` + Engine.IO v4 / Socket.IO v4. | Apple `NWPathMonitor` (`nw_path_status_satisfied`). |
+| **Linux GTK4 (`:desktop:gtk`)** | GIO `GFile` (`g_file_read_async`, `g_file_replace_async`, `GInputStream`/`GOutputStream`, `FileSystemAvailability.Always`). | XDG `$XDG_CONFIG_HOME/<appName>` & `$XDG_CACHE_HOME/<appName>` delegating `IFileSystem` to `FileSystem`. | System **`libsqlite3`** (`GtkDatabaseNativeImpl`). | GIO `GSocketClient` / `GSocketConnection` (TCP/TLS) & `GSocket` (`G_SOCKET_TYPE_DATAGRAM` UDP + multicast). | `libsoup-3.0` (`SoupSession` `soup_session_send_and_read_async`) / `libcurl`. | `libsoup-3.0` `SoupWebsocketConnection` (`soup_session_websocket_connect_async`). | GIO `GNetworkMonitor` (`g_network_monitor_get_network_available`). |
+| **Linux Qt6 (`:desktop:qt`)** | Qt `QFile` / `QSaveFile` + `QtConcurrent` / `QIODevice` non-blocking streams (`FileSystemAvailability.Always`). | XDG `$XDG_CONFIG_HOME/<appName>` & `$XDG_CACHE_HOME/<appName>` delegating `IFileSystem` to `FileSystem`. | **Qt 6 `QtSql`** (`QSqlDatabase` `"QSQLITE"` + parameterized `QSqlQuery`, `QtDatabaseNativeImpl`). | Qt 6 `QTcpSocket` / `QSslSocket` (TCP/TLS) & `QUdpSocket` (UDP + multicast). | Qt 6 `QNetworkAccessManager` (`QNetworkRequest` / `QNetworkReply`). | Qt 6 `QWebSocket` + Engine.IO v4 / Socket.IO v4. | Qt 6 `QNetworkInformation` (`reachability()` + `reachabilityChanged`). |
+| **JVM Swing (`:desktop:swing`)** | Java NIO.2 `AsynchronousFileChannel` + `Dispatchers.IO` (`FileSystemAvailability.Always`). | Host OS config/cache directories delegating `IFileSystem` to `FileSystem`. | **`org.xerial:sqlite-jdbc`** (`jdbc:sqlite:<filePath>`, `SwingDatabaseNativeImpl`). | Java NIO `AsynchronousSocketChannel` / `SSLSocket` (TCP) & `DatagramChannel` / `MulticastSocket` (UDP). | `java.net.http.HttpClient` (`sendAsync`). | `java.net.http.WebSocket` + Engine.IO v4 / Socket.IO v4. | `java.net.NetworkInterface` active interface inspection. |
+| **Android (`:mobile:android`)** | SAF `ContentResolver` (`ACTION_OPEN_DOCUMENT` / `ACTION_CREATE_DOCUMENT`, `FileSystemAvailability.WithPermission`) + app-sandbox `File`s. | `context.filesDir/<appName>` & `context.cacheDir/<appName>` delegating `IFileSystem` to `FileSystem` (`Always`). | **`androidx.sqlite:sqlite-ktx`** / `SQLiteDatabase` (`AndroidDatabaseNativeImpl`). | `java.nio.channels.SocketChannel` / `SSLSocket` (TCP) & `DatagramChannel` / `MulticastSocket` (UDP) on `Dispatchers.IO`. | `HttpURLConnection` / `OkHttp` on `Dispatchers.IO`. | `java.net.http.WebSocket` / OkHttp WebSocket + Socket.IO v4. | `ConnectivityManager` (`NetworkCapabilities.NET_CAPABILITY_INTERNET` + `NetworkCallback`). |
+| **iOS (`:mobile:ios`)** | `UIDocumentPickerViewController` (`WithPermission`) + `NSFileManager` / `dispatch_io_t` sandbox files (`Always`). | `Library/Application Support/<appName>` & `Library/Caches/<appName>` delegating `IFileSystem` to `FileSystem` (`Always`). | iOS system **`libsqlite3`** (`IosDatabaseNativeImpl`). | Apple `Network.framework` (`NWConnection`) & BSD `SOCK_DGRAM` UDP sockets. | Apple `NSURLSession` (`dataTaskWithRequest:`). | Apple `NSURLSessionWebSocketTask` + Socket.IO v4. | Apple `NWPathMonitor` (`nw_path_status_satisfied`). |
+| **Web (`:web`)** | Browser **File System Access API** (`showOpenFilePicker`, `showSaveFilePicker`, `showDirectoryPicker`, `WithPermission`) + `<input type="file">` fallback (**no `indexdb://` scheme**). | Browser **`window.indexedDB` directly** (`"genericui_user_dirs:<appName>"`, stores `"config"` and `"cache"`, `Always`) **without** using `Database` (`PreferenceStore` uses `localStorage`). | Browser **`window.indexedDB`** isolated in `"genericui_db:<databaseName>:<filePath>"` with `"tbl:<tableName>"` object stores (`WebDatabaseNativeImpl`). | `supportsTcp() = false`, `supportsUdp() = false`, `supportsMulticastUdp() = false`. | Browser `window.fetch()` + `ReadableStream` (`getReader()`). | Browser `window.WebSocket` + Engine.IO v4 / Socket.IO v4. | `!navigator.onLine` + `window` `"online"`/`"offline"` events + offline PWA **`manifest.webmanifest`** (`"offline_enabled": true`, `"resources": [...]`) & **`genericui-sw.js`** Service Worker cache. |
+
+---
+
+## 8. Selecting Backends in `build.gradle.kts`
 
 ```kotlin
 genericui {
@@ -165,15 +182,15 @@ genericui {
 
 ---
 
-## 8. Lifecycle Development & Production Build Tasks
+## 9. Lifecycle Development & Production Build Tasks
 
 | Platform Backend | Development Task | Production Task |
 | :--- | :--- | :--- |
-| **Windows (`:desktop:windows`)** | `./gradlew windowsDevelopment` | `./gradlew windowsProduction` |
-| **macOS (`:desktop:macos`)** | `./gradlew macDevelopment` (`macosDevelopment`) | `./gradlew macProduction` (`macosProduction`) |
-| **Linux GTK4 (`:desktop:gtk`)** | `./gradlew linuxDevelopmentGtk` | `./gradlew linuxProductionGtk` |
-| **Linux Qt6 (`:desktop:qt`)** | `./gradlew linuxDevelopmentQt` | `./gradlew linuxProductionQt` |
-| **Java Swing (`:desktop:swing`)** | `./gradlew swingDevelopment` | `./gradlew swingProduction` |
-| **Android (`:mobile:android`)** | `./gradlew androidDevelopment` | `./gradlew androidProduction` |
-| **iOS (`:mobile:ios`)** | `./gradlew iosDevelopment` | `./gradlew iosProduction` |
-| **Web (`:web` Wasm + JS IR + Dist)** | `./gradlew webDevelopment` | `./gradlew webProduction` (`packageGenericUiWebDistribution`) |
+| **Windows (`:desktop:windows`)** | `./gradlew developmentWindows` | `./gradlew productionWindows` |
+| **macOS (`:desktop:macos`)** | `./gradlew developmentMac` (`developmentMacos`) | `./gradlew productionMac` (`productionMacos`) |
+| **Linux GTK4 (`:desktop:gtk`)** | `./gradlew developmentLinuxGtk` | `./gradlew productionLinuxGtk` |
+| **Linux Qt6 (`:desktop:qt`)** | `./gradlew developmentLinuxQt` | `./gradlew productionLinuxQt` |
+| **Java Swing (`:desktop:swing`)** | `./gradlew developmentSwing` | `./gradlew productionSwing` |
+| **Android (`:mobile:android`)** | `./gradlew developmentAndroid` | `./gradlew productionAndroid` |
+| **iOS (`:mobile:ios`)** | `./gradlew developmentIos` | `./gradlew productionIos` |
+| **Web (`:web` Wasm + JS IR + Dist)** | `./gradlew developmentWeb` | `./gradlew productionWeb` (`packageGenericUiWebDistribution`) |

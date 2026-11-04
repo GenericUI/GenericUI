@@ -13,6 +13,6 @@ class StatusBar : AbstractContainer() {
         htmlTag = "genericui:statusbar"
     }
 
-    override fun createNativeImpl(factory: NativeFactory): ContainerNativeImpl<*> =
+    protected override fun createNativeImpl(factory: NativeFactory): ContainerNativeImpl<*> =
         factory.createContainer("status-bar", htmlTag)
 }

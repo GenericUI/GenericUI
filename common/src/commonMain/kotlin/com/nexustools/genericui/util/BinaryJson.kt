@@ -3,10 +3,22 @@ package com.nexustools.genericui.util
 import com.nexustools.genericui.component.system.PreferenceElement
 import com.nexustools.genericui.component.system.PreferenceElementKind
 import com.nexustools.genericui.component.system.PreferenceObjectCodec
+import com.nexustools.genericui.io.ByteBuffer
+import com.nexustools.genericui.io.ByteOrder
+import com.nexustools.genericui.io.Readable
+import com.nexustools.genericui.io.ReadableByteBuffer
+import com.nexustools.genericui.io.Writable
+import com.nexustools.genericui.io.WritableByteBuffer
+import kotlin.coroutines.Continuation
+import kotlin.coroutines.EmptyCoroutineContext
+import kotlin.coroutines.startCoroutine
 import kotlin.reflect.KClass
 
 /**
  * Cross-platform binary JSON encoder and decoder (`com.nexustools.genericui.util.BinaryJson`).
+ *
+ * Operates directly on [Writable] and [Readable] streams (automatically supporting [WritableByteBuffer],
+ * [ReadableByteBuffer], file streams, network sockets, HTTP request/response streams, and database streams).
  *
  * Encodes and decodes structured values ([PreferenceElement] trees, objects, maps, arrays, strings,
  * numbers, booleans, and `null`) using a 1-byte type tag followed by big-endian content bytes instead of text:
@@ -39,13 +51,34 @@ object BinaryJson {
     const val TYPE_OBJECT: Byte = 0x0B
 
     /**
+     * Encodes a [PreferenceElement] tree directly into any [Writable] stream (including [WritableByteBuffer]).
+     */
+    fun encodeElement(element: PreferenceElement, writable: Writable) {
+        writeElement(writable, element)
+    }
+
+    /**
+     * Encodes any object, [Map], [Collection], array, primitive, or `null` directly into any [Writable] stream.
+     */
+    fun encode(value: Any?, writable: Writable) {
+        encodeElement(PreferenceObjectCodec.toElement(value), writable)
+    }
+
+    /**
+     * Encodes a [PreferenceElement] tree into a big-endian [ByteBuffer].
+     */
+    fun encodeElementToBuffer(element: PreferenceElement): ByteBuffer =
+        WritableByteBuffer(initialCapacity = 256, byteOrder = ByteOrder.BIG_ENDIAN)
+            .also { encodeElement(element, it) }
+            .toByteBuffer()
+
+    /**
      * Encodes a [PreferenceElement] tree into binary JSON bytes.
      */
-    fun encodeElement(element: PreferenceElement): ByteArray {
-        val out = ByteWriter()
-        writeElement(out, element)
-        return out.toByteArray()
-    }
+    fun encodeElement(element: PreferenceElement): ByteArray =
+        WritableByteBuffer(initialCapacity = 256, byteOrder = ByteOrder.BIG_ENDIAN)
+            .also { encodeElement(element, it) }
+            .toByteArray()
 
     /**
      * Encodes any object, [Map], [Collection], array, primitive, or `null` into binary JSON bytes.
@@ -54,12 +87,59 @@ object BinaryJson {
         encodeElement(PreferenceObjectCodec.toElement(value))
 
     /**
+     * Encodes any object, [Map], [Collection], array, primitive, or `null` into a [ByteBuffer].
+     */
+    fun encodeToBuffer(value: Any?): ByteBuffer =
+        encodeElementToBuffer(PreferenceObjectCodec.toElement(value))
+
+    /**
+     * Asynchronously decodes a [PreferenceElement] tree directly from any [Readable] stream
+     * (including [ReadableByteBuffer]).
+     */
+    suspend fun decodeElement(readable: Readable): PreferenceElement =
+        readElement(readable)
+
+    /**
+     * Asynchronously decodes a [Readable] stream into standard Kotlin primitives, [List]s, and [LinkedHashMap]s.
+     */
+    suspend fun decode(readable: Readable): Any? =
+        decodeElement(readable).toPlainValue()
+
+    /**
+     * Asynchronously decodes a [Readable] stream directly into an instance of [targetClass].
+     */
+    suspend fun <T : Any> decodeAs(
+        readable: Readable,
+        targetClass: KClass<T>,
+        defaultValue: T? = null
+    ): T? {
+        val element = runCatching { decodeElement(readable) }.getOrNull() ?: return defaultValue
+        if (element.isNull) return defaultValue
+        return PreferenceObjectCodec.fromElement(element, targetClass, defaultValue)
+    }
+
+    suspend inline fun <reified T : Any> decodeAs(
+        readable: Readable,
+        defaultValue: T? = null
+    ): T? = decodeAs(readable, T::class, defaultValue)
+
+    /**
      * Decodes binary JSON bytes into a [PreferenceElement] tree.
      */
     fun decodeElement(bytes: ByteArray): PreferenceElement {
         if (bytes.isEmpty()) return PreferenceElement.Null
-        val reader = ByteReader(bytes)
-        return readElement(reader)
+        return decodeElement(ByteBuffer.wrap(bytes, byteOrder = ByteOrder.BIG_ENDIAN))
+    }
+
+    /**
+     * Decodes a binary JSON [ByteBuffer] into a [PreferenceElement] tree using [ReadableByteBuffer].
+     */
+    fun decodeElement(buffer: ByteBuffer): PreferenceElement {
+        if (!buffer.hasRemaining) return PreferenceElement.Null
+        val reader = ReadableByteBuffer(buffer, buffer.position, ByteOrder.BIG_ENDIAN)
+        val result = runNonSuspending { decodeElement(reader as Readable) }
+        buffer.position = reader.position.coerceIn(0, buffer.limit)
+        return result
     }
 
     /**
@@ -67,6 +147,12 @@ object BinaryJson {
      */
     fun decode(bytes: ByteArray): Any? =
         decodeElement(bytes).toPlainValue()
+
+    /**
+     * Decodes a binary JSON [ByteBuffer] into standard Kotlin primitives, [List]s, and [LinkedHashMap]s.
+     */
+    fun decode(buffer: ByteBuffer): Any? =
+        decodeElement(buffer).toPlainValue()
 
     /**
      * Decodes binary JSON bytes directly into an instance of [targetClass].
@@ -81,17 +167,35 @@ object BinaryJson {
         return PreferenceObjectCodec.fromElement(element, targetClass, defaultValue)
     }
 
+    /**
+     * Decodes a binary JSON [ByteBuffer] directly into an instance of [targetClass].
+     */
+    fun <T : Any> decodeAs(
+        buffer: ByteBuffer,
+        targetClass: KClass<T>,
+        defaultValue: T? = null
+    ): T? {
+        if (!buffer.hasRemaining) return defaultValue
+        val element = runCatching { decodeElement(buffer) }.getOrNull() ?: return defaultValue
+        return PreferenceObjectCodec.fromElement(element, targetClass, defaultValue)
+    }
+
     inline fun <reified T : Any> decodeAs(
         bytes: ByteArray,
         defaultValue: T? = null
     ): T? = decodeAs(bytes, T::class, defaultValue)
 
-    private fun writeElement(out: ByteWriter, element: PreferenceElement) {
+    inline fun <reified T : Any> decodeAs(
+        buffer: ByteBuffer,
+        defaultValue: T? = null
+    ): T? = decodeAs(buffer, T::class, defaultValue)
+
+    private fun writeElement(out: Writable, element: PreferenceElement) {
         when (element.kind) {
             PreferenceElementKind.NULL -> out.writeByte(TYPE_NULL)
             PreferenceElementKind.BOOLEAN -> {
                 out.writeByte(TYPE_BOOLEAN)
-                out.writeByte(if (element.booleanValue == true) 1 else 0)
+                out.writeBoolean(element.booleanValue == true)
             }
             PreferenceElementKind.NUMBER -> {
                 val n = element.numberValue ?: 0
@@ -102,99 +206,123 @@ object BinaryJson {
                     }
                     PreferenceElement.NUMBER_TAG_SHORT -> {
                         out.writeByte(TYPE_SHORT)
-                        out.writeShort(n.toShort())
+                        out.writeShort(n.toShort(), ByteOrder.BIG_ENDIAN)
                     }
                     PreferenceElement.NUMBER_TAG_INT -> {
                         out.writeByte(TYPE_INT)
-                        out.writeInt(n.toInt())
+                        out.writeInt(n.toInt(), ByteOrder.BIG_ENDIAN)
                     }
                     PreferenceElement.NUMBER_TAG_LONG -> {
                         out.writeByte(TYPE_LONG)
-                        out.writeLong(n.toLong())
+                        out.writeLong(n.toLong(), ByteOrder.BIG_ENDIAN)
                     }
                     PreferenceElement.NUMBER_TAG_FLOAT -> {
                         out.writeByte(TYPE_FLOAT)
-                        out.writeInt(n.toFloat().toRawBits())
+                        out.writeFloat(n.toFloat(), ByteOrder.BIG_ENDIAN)
                     }
                     PreferenceElement.NUMBER_TAG_DOUBLE -> {
                         out.writeByte(TYPE_DOUBLE)
-                        out.writeLong(n.toDouble().toRawBits())
+                        out.writeDouble(n.toDouble(), ByteOrder.BIG_ENDIAN)
                     }
                     else -> {
                         out.writeByte(TYPE_DOUBLE)
-                        out.writeLong(n.toDouble().toRawBits())
+                        out.writeDouble(n.toDouble(), ByteOrder.BIG_ENDIAN)
                     }
                 }
             }
             PreferenceElementKind.STRING -> {
                 out.writeByte(TYPE_STRING)
-                out.writeUtf8(element.stringValue ?: "")
+                writeUtf8(out, element.stringValue ?: "")
             }
             PreferenceElementKind.ARRAY -> {
                 out.writeByte(TYPE_ARRAY)
-                out.writeInt(element.arrayElements.size)
+                out.writeInt(element.arrayElements.size, ByteOrder.BIG_ENDIAN)
                 for (item in element.arrayElements) {
                     writeElement(out, item)
                 }
             }
             PreferenceElementKind.MAP -> {
                 out.writeByte(TYPE_MAP)
-                out.writeInt(element.mapEntries.size)
+                out.writeInt(element.mapEntries.size, ByteOrder.BIG_ENDIAN)
                 for ((k, v) in element.mapEntries) {
-                    out.writeUtf8(k)
+                    writeUtf8(out, k)
                     writeElement(out, v)
                 }
             }
             PreferenceElementKind.OBJECT -> {
                 out.writeByte(TYPE_OBJECT)
-                out.writeInt(element.mapEntries.size)
+                out.writeInt(element.mapEntries.size, ByteOrder.BIG_ENDIAN)
                 for ((k, v) in element.mapEntries) {
-                    out.writeUtf8(k)
+                    writeUtf8(out, k)
                     writeElement(out, v)
                 }
             }
         }
     }
 
-    private fun readElement(reader: ByteReader): PreferenceElement {
-        if (!reader.hasRemaining()) return PreferenceElement.Null
-        return when (reader.readByte()) {
+    private fun writeUtf8(out: Writable, str: String) {
+        val utf8 = str.encodeToByteArray()
+        out.writeInt(utf8.size, ByteOrder.BIG_ENDIAN)
+        out.writeBytes(utf8, 0, utf8.size)
+    }
+
+    private suspend fun readElement(readable: Readable): PreferenceElement {
+        val tag = readable.readByteOrNull() ?: return PreferenceElement.Null
+        return when (tag) {
             TYPE_NULL -> PreferenceElement.Null
-            TYPE_BOOLEAN -> PreferenceElement.ofBoolean(reader.readByte() != 0.toByte())
-            TYPE_BYTE -> PreferenceElement.ofByte(reader.readByte())
-            TYPE_SHORT -> PreferenceElement.ofShort(reader.readShort())
-            TYPE_INT -> PreferenceElement.ofInt(reader.readInt())
-            TYPE_LONG -> PreferenceElement.ofLong(reader.readLong())
-            TYPE_FLOAT -> PreferenceElement.ofFloat(Float.fromBits(reader.readInt()))
-            TYPE_DOUBLE -> PreferenceElement.ofDouble(Double.fromBits(reader.readLong()))
-            TYPE_STRING -> PreferenceElement.ofString(reader.readUtf8())
+            TYPE_BOOLEAN -> PreferenceElement.ofBoolean((readable.readByteOrNull() ?: 0.toByte()) != 0.toByte())
+            TYPE_BYTE -> PreferenceElement.ofByte(readable.readByteOrNull() ?: 0)
+            TYPE_SHORT -> {
+                val buf = readable.tryReadFully(2) ?: return PreferenceElement.ofShort(0)
+                PreferenceElement.ofShort(buf.readShort(0, ByteOrder.BIG_ENDIAN))
+            }
+            TYPE_INT -> {
+                val buf = readable.tryReadFully(4) ?: return PreferenceElement.ofInt(0)
+                PreferenceElement.ofInt(buf.readInt(0, ByteOrder.BIG_ENDIAN))
+            }
+            TYPE_LONG -> {
+                val buf = readable.tryReadFully(8) ?: return PreferenceElement.ofLong(0L)
+                PreferenceElement.ofLong(buf.readLong(0, ByteOrder.BIG_ENDIAN))
+            }
+            TYPE_FLOAT -> {
+                val buf = readable.tryReadFully(4) ?: return PreferenceElement.ofFloat(0f)
+                PreferenceElement.ofFloat(buf.readFloat(0, ByteOrder.BIG_ENDIAN))
+            }
+            TYPE_DOUBLE -> {
+                val buf = readable.tryReadFully(8) ?: return PreferenceElement.ofDouble(0.0)
+                PreferenceElement.ofDouble(buf.readDouble(0, ByteOrder.BIG_ENDIAN))
+            }
+            TYPE_STRING -> PreferenceElement.ofString(readUtf8(readable))
             TYPE_ARRAY -> {
-                val count = reader.readInt().coerceAtLeast(0)
+                val countBuf = readable.tryReadFully(4) ?: return PreferenceElement.ofArray(emptyList())
+                val count = countBuf.readInt(0, ByteOrder.BIG_ENDIAN).coerceAtLeast(0)
                 val list = ArrayList<PreferenceElement>(count)
                 for (i in 0 until count) {
-                    if (!reader.hasRemaining()) break
-                    list.add(readElement(reader))
+                    if (!readable.isReadable || readable.isEnded) break
+                    list.add(readElement(readable))
                 }
                 PreferenceElement.ofArray(list)
             }
             TYPE_MAP -> {
-                val count = reader.readInt().coerceAtLeast(0)
+                val countBuf = readable.tryReadFully(4) ?: return PreferenceElement.ofMap(emptyMap())
+                val count = countBuf.readInt(0, ByteOrder.BIG_ENDIAN).coerceAtLeast(0)
                 val map = LinkedHashMap<String, PreferenceElement>(count)
                 for (i in 0 until count) {
-                    if (!reader.hasRemaining()) break
-                    val key = reader.readUtf8()
-                    val value = readElement(reader)
+                    if (!readable.isReadable || readable.isEnded) break
+                    val key = readUtf8(readable)
+                    val value = readElement(readable)
                     map[key] = value
                 }
                 PreferenceElement.ofMap(map)
             }
             TYPE_OBJECT -> {
-                val count = reader.readInt().coerceAtLeast(0)
+                val countBuf = readable.tryReadFully(4) ?: return PreferenceElement.ofObject(emptyMap())
+                val count = countBuf.readInt(0, ByteOrder.BIG_ENDIAN).coerceAtLeast(0)
                 val fields = LinkedHashMap<String, PreferenceElement>(count)
                 for (i in 0 until count) {
-                    if (!reader.hasRemaining()) break
-                    val fieldName = reader.readUtf8()
-                    val fieldVal = readElement(reader)
+                    if (!readable.isReadable || readable.isEnded) break
+                    val fieldName = readUtf8(readable)
+                    val fieldVal = readElement(readable)
                     fields[fieldName] = fieldVal
                 }
                 PreferenceElement.ofObject(fields)
@@ -203,97 +331,20 @@ object BinaryJson {
         }
     }
 
-    private class ByteWriter(initialCapacity: Int = 64) {
-        private var buf = ByteArray(initialCapacity)
-        private var size = 0
-
-        private fun ensureCapacity(extra: Int) {
-            val needed = size + extra
-            if (needed <= buf.size) return
-            var newCap = buf.size * 2
-            while (newCap < needed) newCap *= 2
-            buf = buf.copyOf(newCap)
-        }
-
-        fun writeByte(value: Byte) {
-            ensureCapacity(1)
-            buf[size++] = value
-        }
-
-        fun writeShort(value: Short) {
-            ensureCapacity(2)
-            val v = value.toInt()
-            buf[size++] = ((v ushr 8) and 0xFF).toByte()
-            buf[size++] = (v and 0xFF).toByte()
-        }
-
-        fun writeInt(value: Int) {
-            ensureCapacity(4)
-            buf[size++] = ((value ushr 24) and 0xFF).toByte()
-            buf[size++] = ((value ushr 16) and 0xFF).toByte()
-            buf[size++] = ((value ushr 8) and 0xFF).toByte()
-            buf[size++] = (value and 0xFF).toByte()
-        }
-
-        fun writeLong(value: Long) {
-            ensureCapacity(8)
-            buf[size++] = ((value ushr 56) and 0xFF).toByte()
-            buf[size++] = ((value ushr 48) and 0xFF).toByte()
-            buf[size++] = ((value ushr 40) and 0xFF).toByte()
-            buf[size++] = ((value ushr 32) and 0xFF).toByte()
-            buf[size++] = ((value ushr 24) and 0xFF).toByte()
-            buf[size++] = ((value ushr 16) and 0xFF).toByte()
-            buf[size++] = ((value ushr 8) and 0xFF).toByte()
-            buf[size++] = (value and 0xFF).toByte()
-        }
-
-        fun writeUtf8(str: String) {
-            val utf8 = str.encodeToByteArray()
-            writeInt(utf8.size)
-            ensureCapacity(utf8.size)
-            utf8.copyInto(buf, destinationOffset = size)
-            size += utf8.size
-        }
-
-        fun toByteArray(): ByteArray = buf.copyOf(size)
+    private suspend fun readUtf8(readable: Readable): String {
+        val lenBuf = readable.tryReadFully(4) ?: return ""
+        val len = lenBuf.readInt(0, ByteOrder.BIG_ENDIAN).coerceAtLeast(0)
+        if (len == 0) return ""
+        val payload = readable.tryReadFully(len) ?: return ""
+        return payload.toString("utf8")
     }
 
-    private class ByteReader(private val data: ByteArray) {
-        private var pos = 0
-
-        fun hasRemaining(): Boolean = pos < data.size
-
-        fun readByte(): Byte {
-            if (pos >= data.size) return 0
-            return data[pos++]
-        }
-
-        fun readShort(): Short {
-            val b0 = (readByte().toInt() and 0xFF)
-            val b1 = (readByte().toInt() and 0xFF)
-            return ((b0 shl 8) or b1).toShort()
-        }
-
-        fun readInt(): Int {
-            val b0 = (readByte().toInt() and 0xFF)
-            val b1 = (readByte().toInt() and 0xFF)
-            val b2 = (readByte().toInt() and 0xFF)
-            val b3 = (readByte().toInt() and 0xFF)
-            return (b0 shl 24) or (b1 shl 16) or (b2 shl 8) or b3
-        }
-
-        fun readLong(): Long {
-            val hi = readInt().toLong() and 0xFFFFFFFFL
-            val lo = readInt().toLong() and 0xFFFFFFFFL
-            return (hi shl 32) or lo
-        }
-
-        fun readUtf8(): String {
-            val len = readInt().coerceIn(0, data.size - pos)
-            if (len <= 0) return ""
-            val str = data.decodeToString(startIndex = pos, endIndex = pos + len)
-            pos += len
-            return str
-        }
+    private fun <T> runNonSuspending(block: suspend () -> T): T {
+        var result: Result<T>? = null
+        block.startCoroutine(Continuation(EmptyCoroutineContext) { outcome ->
+            result = outcome
+        })
+        return result?.getOrThrow()
+            ?: throw IllegalStateException("Synchronous ReadableByteBuffer suspended unexpectedly")
     }
 }

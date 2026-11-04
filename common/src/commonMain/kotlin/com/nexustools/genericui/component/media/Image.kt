@@ -12,10 +12,12 @@ import com.nexustools.genericui.resources.ResourceResolver
 open class Image(
     src: String = "",
     alt: String = "",
-    objectFit: ObjectFit = ObjectFit.CONTAIN
+    objectFit: ObjectFit = ObjectFit.CONTAIN,
+    placeholder: String = "res://drawable/loading"
 ) : ImageView(
     sourceUrl = src.ifEmpty { null },
-    objectFit = objectFit
+    objectFit = objectFit,
+    placeholderUrl = placeholder.ifEmpty { "res://drawable/loading" }
 ) {
     init {
         if (alt.isNotEmpty()) {
@@ -25,12 +27,15 @@ open class Image(
 
     constructor(
         resId: ResourceID,
-        alt: String = resId.name
+        alt: String = resId.name,
+        placeholderResId: ResourceID? = com.nexustools.genericui.res.Resources.LOADING_IMAGE
     ) : this(
         src = ResourceResolver.getUrl(resId),
-        alt = alt
+        alt = alt,
+        placeholder = placeholderResId?.let { ResourceResolver.getUrl(it) } ?: "res://drawable/loading"
     ) {
         this.resourceId = resId
+        this.placeholderResourceId = placeholderResId
     }
 
     override fun setSource(resId: ResourceID) {

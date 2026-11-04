@@ -12,6 +12,6 @@ class Well : AbstractContainer() {
         htmlTag = "genericui:well"
     }
 
-    override fun createNativeImpl(factory: NativeFactory): ContainerNativeImpl<*> =
+    protected override fun createNativeImpl(factory: NativeFactory): ContainerNativeImpl<*> =
         factory.createContainer("well p-3 border rounded", htmlTag)
 }

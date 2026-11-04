@@ -9,7 +9,7 @@ class MenuBar : AbstractContainer("navbar-nav") {
         htmlTag = "genericui:menubar"
     }
 
-    override fun createNativeImpl(factory: NativeFactory): MenuBarNativeImpl<*> =
+    protected override fun createNativeImpl(factory: NativeFactory): MenuBarNativeImpl<*> =
         factory.createMenuBar()
 
     fun addMenu(menu: Menu): MenuBar {

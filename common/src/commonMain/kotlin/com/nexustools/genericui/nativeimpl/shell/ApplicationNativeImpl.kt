@@ -14,6 +14,8 @@ interface ApplicationNativeImpl<out W> : Disposable {
     fun getThemeColor(): String? = null
     fun addStyleSheet(styleSheet: PrecompiledStyleSheet) {}
     fun removeStyleSheet(styleSheet: PrecompiledStyleSheet) {}
+    fun isOffline(): Boolean = false
+    fun setOnOfflineChanged(listener: ((Boolean) -> Unit)?) {}
     fun runEventLoop(onStarted: () -> Unit)
     fun exitApplication(exitCode: Int = 0)
 }

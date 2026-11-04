@@ -4,12 +4,14 @@ import com.nexustools.genericui.component.fragment.Fragment
 import com.nexustools.genericui.component.fragment.FragmentBundle
 import com.nexustools.genericui.component.fragment.FragmentContainer
 import com.nexustools.genericui.component.layout.HybridBreakpointSpec
+import com.nexustools.genericui.component.layout.ResponsiveMasterDetailContainer
 import com.nexustools.genericui.component.layout.ResponsiveMasterDetailLayout
+import com.nexustools.genericui.component.layout.ResponsiveMasterDetailLayoutImpl
 import com.nexustools.genericui.core.AbstractComponent
 import com.nexustools.genericui.window.WindowConfiguration
 
 /**
- * Helper [Fragment] hosting a [ResponsiveMasterDetailLayout] (`Master` + `Detail` + optional `Inspector`).
+ * Helper [LayoutFragment] hosting a [ResponsiveMasterDetailLayout] (`Master` + `Detail` + optional `Inspector`).
  *
  * - Supports both [AbstractComponent] and [Fragment] panes ([setMasterFragment], [setDetailFragment], [setInspectorFragment]).
  * - Forwards [onResize] and [onConfigurationChanged] to [masterDetailLayout] and hosted pane fragments.
@@ -17,12 +19,18 @@ import com.nexustools.genericui.window.WindowConfiguration
  *   the Detail pane in compact single-pane mode.
  */
 open class ResponsiveMasterDetailFragment(
-    breakpointSpec: HybridBreakpointSpec = HybridBreakpointSpec.DEFAULT
-) : Fragment() {
+    breakpointSpec: HybridBreakpointSpec = HybridBreakpointSpec.DEFAULT,
+    id: String? = null
+) : LayoutFragment<ResponsiveMasterDetailLayoutImpl, ResponsiveMasterDetailLayout>(id = id) {
 
-    val masterDetailLayout: ResponsiveMasterDetailLayout = ResponsiveMasterDetailLayout(
+    val masterDetailContainer: ResponsiveMasterDetailContainer = ResponsiveMasterDetailContainer(
         breakpointSpec = breakpointSpec
     )
+
+    override val layout: ResponsiveMasterDetailLayout = masterDetailContainer.layout
+
+    val masterDetailLayout: ResponsiveMasterDetailLayout
+        get() = layout
 
     var masterFragment: Fragment? = null
         private set
@@ -36,32 +44,32 @@ open class ResponsiveMasterDetailFragment(
     private var inspectorFragmentContainer: FragmentContainer? = null
 
     val isSideBySideMode: Boolean
-        get() = masterDetailLayout.isSideBySideMode
+        get() = layout.isSideBySideMode
 
     val isInspectorSideBySide: Boolean
-        get() = masterDetailLayout.isInspectorSideBySide
+        get() = layout.isInspectorSideBySide
 
     val isDetailShowingInCompact: Boolean
-        get() = masterDetailLayout.isDetailShowingInCompact
+        get() = layout.isDetailShowingInCompact
 
     var isInspectorOpen: Boolean
-        get() = masterDetailLayout.isInspectorOpen
+        get() = layout.isInspectorOpen
         set(value) {
-            masterDetailLayout.isInspectorOpen = value
+            layout.isInspectorOpen = value
         }
 
     init {
-        addChild(masterDetailLayout)
+        addChild(masterDetailContainer)
     }
 
     override fun onCreate(savedState: FragmentBundle?) {
-        super.onCreate(savedState)
-        if (!children.contains(masterDetailLayout)) {
-            addChild(masterDetailLayout)
+        if (!children.contains(masterDetailContainer)) {
+            addChild(masterDetailContainer)
         }
+        super.onCreate(savedState)
         val winSize = hostingWindow?.getWindowSize() ?: attachedWindow?.getWindowSize()
         if (winSize != null && winSize.width > 0 && winSize.height > 0) {
-            masterDetailLayout.updateViewport(winSize.width, winSize.height)
+            layout.updateViewport(winSize.width, winSize.height)
         }
     }
 
@@ -73,7 +81,7 @@ open class ResponsiveMasterDetailFragment(
         masterFragment = null
         masterFragmentContainer?.dispose()
         masterFragmentContainer = null
-        masterDetailLayout.setMasterPane(component, widthPx, colMd)
+        layout.setMasterPane(component, widthPx, colMd)
     }
 
     fun setDetailPane(
@@ -83,7 +91,7 @@ open class ResponsiveMasterDetailFragment(
         detailFragment = null
         detailFragmentContainer?.dispose()
         detailFragmentContainer = null
-        masterDetailLayout.setDetailPane(component, colMd)
+        layout.setDetailPane(component, colMd)
     }
 
     fun setInspectorPane(
@@ -94,7 +102,7 @@ open class ResponsiveMasterDetailFragment(
         inspectorFragment = null
         inspectorFragmentContainer?.dispose()
         inspectorFragmentContainer = null
-        masterDetailLayout.setInspectorPane(component, widthPx, colXl)
+        layout.setInspectorPane(component, widthPx, colXl)
     }
 
     fun setMasterFragment(
@@ -111,7 +119,7 @@ open class ResponsiveMasterDetailFragment(
         }
         masterFragment = fragment
         masterFragmentContainer = host
-        masterDetailLayout.setMasterPane(host, widthPx, colMd)
+        layout.setMasterPane(host, widthPx, colMd)
     }
 
     fun setDetailFragment(
@@ -127,7 +135,7 @@ open class ResponsiveMasterDetailFragment(
         }
         detailFragment = fragment
         detailFragmentContainer = host
-        masterDetailLayout.setDetailPane(host, colMd)
+        layout.setDetailPane(host, colMd)
     }
 
     fun setInspectorFragment(
@@ -148,16 +156,15 @@ open class ResponsiveMasterDetailFragment(
         }
         inspectorFragment = fragment
         inspectorFragmentContainer = host
-        masterDetailLayout.setInspectorPane(host, widthPx, colXl)
+        layout.setInspectorPane(host, widthPx, colXl)
     }
 
-    fun openDetailInCompact(): Boolean = masterDetailLayout.openDetailInCompact()
+    fun openDetailInCompact(): Boolean = layout.openDetailInCompact()
 
-    fun navigateBackToMaster(): Boolean = masterDetailLayout.navigateBackToMaster()
+    fun navigateBackToMaster(): Boolean = layout.navigateBackToMaster()
 
     override fun onResize(viewportWidth: Int, viewportHeight: Int) {
         super.onResize(viewportWidth, viewportHeight)
-        masterDetailLayout.updateViewport(viewportWidth, viewportHeight)
         masterFragment?.onResize(viewportWidth, viewportHeight)
         detailFragment?.onResize(viewportWidth, viewportHeight)
         inspectorFragment?.onResize(viewportWidth, viewportHeight)
@@ -165,18 +172,17 @@ open class ResponsiveMasterDetailFragment(
 
     override fun onConfigurationChanged(newConfig: WindowConfiguration) {
         super.onConfigurationChanged(newConfig)
-        masterDetailLayout.applyWindowConfiguration(newConfig)
         masterFragment?.onConfigurationChanged(newConfig)
         detailFragment?.onConfigurationChanged(newConfig)
         inspectorFragment?.onConfigurationChanged(newConfig)
     }
 
     override fun onBackPressed(): Boolean {
-        if (masterDetailLayout.isDetailShowingInCompact && !masterDetailLayout.isSideBySideMode) {
+        if (layout.isDetailShowingInCompact && !layout.isSideBySideMode) {
             if (detailFragment?.onBackPressed() == true) {
                 return true
             }
-            if (masterDetailLayout.navigateBackToMaster()) {
+            if (layout.navigateBackToMaster()) {
                 return true
             }
         }

@@ -20,6 +20,6 @@ class Breadcrumb : AbstractContainer() {
         _items.addAll(entries)
     }
 
-    override fun createNativeImpl(factory: NativeFactory): ContainerNativeImpl<*> =
+    protected override fun createNativeImpl(factory: NativeFactory): ContainerNativeImpl<*> =
         factory.createContainer("breadcrumb", htmlTag)
 }

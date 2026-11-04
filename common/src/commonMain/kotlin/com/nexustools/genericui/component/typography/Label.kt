@@ -13,7 +13,7 @@ open class Label(
     text: String = "",
     private val tagName: String = "label",
     private val classPrefix: String = "form-label"
-) : AbstractComponent(htmlTag = tagName) {
+) : AbstractComponent(componentClassPrefix = classPrefix, htmlTag = tagName) {
     init {
         htmlTag = tagName
     }
@@ -54,7 +54,7 @@ open class Label(
         text = if (text.isEmpty()) this else text + this
     }
 
-    override fun createNativeImpl(factory: NativeFactory): TextNativeImpl<*> =
+    protected override fun createNativeImpl(factory: NativeFactory): TextNativeImpl<*> =
         factory.createText(htmlTag, classPrefix)
 
     override fun syncStateToNative() {
