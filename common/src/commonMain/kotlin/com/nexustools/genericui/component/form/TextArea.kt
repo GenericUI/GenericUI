@@ -15,5 +15,9 @@ class TextArea(
 ) {
     init {
         htmlTag = "textarea"
+        ignoreKeyEventsWhenTypingInTextInput = false
     }
+
+    override val isTextInputComponent: Boolean
+        get() = true
 }

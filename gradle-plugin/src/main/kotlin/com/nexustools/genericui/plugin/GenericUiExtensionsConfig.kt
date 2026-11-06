@@ -9,7 +9,7 @@ package com.nexustools.genericui.plugin
  *    `:extensions:<name>`) for extensions with native C/C++/ObjC, Java/LWJGL, and Web platform-specific implementations:
  *    - `:extensions:gpu` (`GpuDevice`, `GpuOffscreenContext`, `VKContext` primary, `GLContext` fallback with ANGLE on Windows)
  *    - `:extensions:canvas2d` (`Canvas2D`, `Canvas2DContext`, `CurveEditor`)
- *    - `:extensions:canvas3d` (`GLCanvas`, `VKCanvas` — relies on `:extensions:gpu`)
+ *    - `:extensions:canvas3d` (`Canvas3D`, `ScrollCanvas3D`, `Canvas3DOverlayHost` — relies on `:extensions:gpu`)
  *    - `:extensions:media` (`VideoPlayer`, `AudioPlayer`, `AudioAnalyzer`, `WebVttSrtParser` — uses native `libvlc` on
  *      native desktop backends, `libvlcj` on `:swing`, and native platform media components on `:mobile` and `:web`;
  *      does NOT depend on `:extensions:gpu`, `:extensions:canvas2d`, or any other extension)
@@ -26,9 +26,9 @@ package com.nexustools.genericui.plugin
  *      and base `:common` Image API `com.nexustools.genericui.image.*`)
  *    - `:extensions:codeeditor` (`IdeCodeEditor` — relies on `:extensions:canvas2d`)
  *    - `:extensions:aichat` (`AIChatDrawer`, `AiChatContainer`, `AIChatAgentOrchestrator` — relies on `:extensions:codeeditor`)
- *    - `:extensions:threejs` (`ThreeSceneCanvas`, `ThreeGLCanvas`, `ThreeVKCanvas` — relies on `:extensions:gpu` and `:extensions:canvas3d`)
- *    - `:extensions:box2d` (`Box2DWorld`, `Box2DCanvas` — relies on `:extensions:canvas2d` and `:extensions:canvas3d`)
- *    - `:extensions:box3d` (`Box3DWorld`, `Box3DThreeSynchronizer` — relies on `:extensions:canvas3d` and `:extensions:threejs`)
+ *    - `:extensions:threejs` (`WebGLRenderer`, `Scene`, `PerspectiveCamera` — relies on `:extensions:gpu` and `:extensions:canvas3d`)
+ *    - `:extensions:box2d` (`World2D`, `Box2DDebugDrawer` — relies on `:extensions:canvas2d` and `:extensions:canvas3d`)
+ *    - `:extensions:box3d` (`World3D`, `Box3DDebugRenderer` — relies on `:extensions:canvas3d` and `:extensions:threejs`)
  */
 open class GenericUiExtensionsConfig {
     var gpuEnabled: Boolean = false
@@ -96,7 +96,7 @@ open class GenericUiExtensionsConfig {
     }
 
     /**
-     * Includes `:extensions:canvas3d` (`GLCanvas`, `VKCanvas`). Automatically enables `gpu`, `canvas2d`, and `overlay`.
+     * Includes `:extensions:canvas3d` (`Canvas3D`, `ScrollCanvas3D`, `Canvas3DOverlayHost`). Automatically enables `gpu`, `canvas2d`, and `overlay`.
      */
     fun canvas3d(enabled: Boolean = true) {
         canvas3dEnabled = enabled
@@ -161,7 +161,7 @@ open class GenericUiExtensionsConfig {
     }
 
     /**
-     * Includes `:extensions:threejs` (Three.js-style 3D scene graph built atop `GLCanvas` / `VKCanvas`).
+     * Includes `:extensions:threejs` (Three.js-style 3D scene graph built atop `Canvas3D`).
      * Automatically enables `gpu` and `canvas3d`.
      */
     fun threeJs(enabled: Boolean = true) {
@@ -185,7 +185,7 @@ open class GenericUiExtensionsConfig {
     }
 
     /**
-     * Includes `:extensions:box3d` (pure Kotlin Multiplatform 3D rigid-body physics engine & `Box3DThreeJsBridge`).
+     * Includes `:extensions:box3d` (pure Kotlin Multiplatform 3D rigid-body physics engine & `Box3DDebugRenderer`).
      * Automatically enables `canvas3d` and `threeJs` (and transitively `gpu`).
      */
     fun box3d(enabled: Boolean = true) {

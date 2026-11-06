@@ -50,7 +50,7 @@ enum class GenericUiExtensionModule(
         id = "canvas3d",
         dslMethodName = "canvas3d",
         displayName = "Canvas 3D GL & Vulkan (:extensions:canvas3d)",
-        description = "Hardware-accelerated GLCanvas and VKCanvas viewport widgets",
+        description = "Hardware-accelerated Canvas3D and ScrollCanvas3D viewport widgets",
         gradleModulePath = ":extensions:canvas3d",
         isProjectOfProjects = true
     ),

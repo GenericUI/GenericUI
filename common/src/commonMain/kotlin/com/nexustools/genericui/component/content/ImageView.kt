@@ -33,6 +33,8 @@ open class ImageView(
 
     private var rawImageBuffer: ImageBuffer? = null
     private var isAsyncLoadingState: Boolean = false
+    private var suppressNativeSourceUrlSync: Boolean = false
+    private var lastAppliedFilter: CssFilter? = null
 
     var resourceId: ResourceID? = null
         protected set
@@ -59,7 +61,21 @@ open class ImageView(
     var sourceUrl: String? = sourceUrl
         set(value) {
             field = value
-            typedNative<ImageNativeImpl<*>>()?.setSourceUrl(value)
+            if (!suppressNativeSourceUrlSync) {
+                if (value == null || !value.startsWith("memory://", ignoreCase = true)) {
+                    rawImageBuffer = null
+                    imageBuffer = null
+                } else {
+                    val resolved = ImageLoader.resolveMemoryBuffer(value)
+                    if (resolved != null) {
+                        rawImageBuffer = resolved
+                        imageBuffer = resolved
+                        typedNative<ImageNativeImpl<*>>()?.setImageBuffer(resolved)
+                        return
+                    }
+                }
+                typedNative<ImageNativeImpl<*>>()?.setSourceUrl(value)
+            }
         }
 
     /**
@@ -207,14 +223,25 @@ open class ImageView(
             processed = activeFilter.applyToImageBuffer(processed)
         }
         this.imageBuffer = processed
-        this.sourceUrl = "memory://imagebuffer/${processed.width}x${processed.height}@${processed.hashCode()}"
+        val memoryUri = "memory://imagebuffer/${processed.width}x${processed.height}@${processed.hashCode()}"
+        ImageLoader.registerMemoryBuffer(memoryUri, processed)
+        suppressNativeSourceUrlSync = true
+        try {
+            this.sourceUrl = memoryUri
+        } finally {
+            suppressNativeSourceUrlSync = false
+        }
+        typedNative<ImageNativeImpl<*>>()?.setImageBuffer(processed)
     }
 
     override fun applyComputedStyle(style: ComputedStyle) {
         super.applyComputedStyle(style)
         val effectiveFilter = getStyle().getFilter() ?: style.filter
-        typedNative<ImageNativeImpl<*>>()?.setCssFilter(effectiveFilter)
-        refreshProcessedImageBuffer()
+        if (effectiveFilter != lastAppliedFilter) {
+            lastAppliedFilter = effectiveFilter
+            typedNative<ImageNativeImpl<*>>()?.setCssFilter(effectiveFilter)
+            refreshProcessedImageBuffer()
+        }
     }
 
     /**
@@ -275,7 +302,12 @@ open class ImageView(
         impl.setOnError(onError)
         impl.setAntialiasing(antialiasing)
         impl.setPlaceholderUrl(placeholderUrl)
-        impl.setSourceUrl(sourceUrl)
+        val currentBuffer = imageBuffer
+        if (currentBuffer != null) {
+            impl.setImageBuffer(currentBuffer)
+        } else {
+            impl.setSourceUrl(sourceUrl)
+        }
         impl.setFallbackText(fallbackText)
         impl.setObjectFit(objectFit)
         impl.setTintColor(tintColor)

@@ -6,7 +6,7 @@ package com.nexustools.genericui.plugin
  * By default, `:swing` uses zero-dependency Java2D (`Graphics2D`) rendering for `Canvas2D`.
  * Enabling [useLwjglGL] or [useVulkan] automatically injects the required LWJGL 3 artifacts
  * (`lwjgl-jawt`, `lwjgl-egl`, `lwjgl-opengles`, `lwjgl-opengl`, `lwjgl-vulkan`, `lwjgl-shaderc`,
- * `lwjgl-vma`) and platform native classifiers for hardware-accelerated `GLCanvas` and `VKCanvas`.
+ * `lwjgl-vma`) and platform native classifiers for hardware-accelerated `Canvas3D`.
  */
 open class SwingBackendConfig {
     /** Whether the `:swing` backend is enabled for this project. */
@@ -14,13 +14,13 @@ open class SwingBackendConfig {
 
     /**
      * Whether to wire LWJGL OpenGL / OpenGL ES (`lwjgl-jawt`, `lwjgl-egl`, `lwjgl-opengles`, `lwjgl-opengl`)
-     * and native classifiers into the JVM runtime for hardware-accelerated `GLCanvas`.
+     * and native classifiers into the JVM runtime for hardware-accelerated `Canvas3D` (`OPENGL_ES`).
      */
     var useLwjglGL: Boolean = false
 
     /**
      * Whether to wire LWJGL Vulkan (`lwjgl-jawt`, `lwjgl-vulkan`, `lwjgl-shaderc`, `lwjgl-vma`)
-     * and native classifiers (including `MoltenVK` on macOS) into the JVM runtime for `VKCanvas`.
+     * and native classifiers (including `MoltenVK` on macOS) into the JVM runtime for `Canvas3D` (`VULKAN`).
      */
     var useVulkan: Boolean = false
 

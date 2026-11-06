@@ -24,6 +24,7 @@ open class TabContainer(
     var adaptiveTabPosition: Boolean = false
 ) : AbstractContainer() {
     private val _entries = mutableListOf<TabEntry>()
+    private val registeredNativeEntries = HashSet<TabEntry>()
     val entries: List<TabEntry> get() = _entries
     val tabs: List<TabEntry> get() = _entries
 
@@ -77,16 +78,43 @@ open class TabContainer(
 
     var selectedIndex: Int = 0
         set(value) {
+            if (_entries.isEmpty()) {
+                field = 0
+                return
+            }
             val clamped = value.coerceIn(0, (_entries.size - 1).coerceAtLeast(0))
+            val candidate = _entries.getOrNull(clamped)
+            if (candidate != null && !candidate.tab.isSelectable) {
+                (candidate.tab as? ButtonTab)?.performClick()
+                syncTabAndContentVisibility()
+                if (field in _entries.indices && _entries[field].tab.isSelectable) {
+                    isSettingSelectionProgrammatically = true
+                    try {
+                        typedNative<TabContainerNativeImpl<*>>()?.setSelectedTabIndex(field, false)
+                    } finally {
+                        isSettingSelectionProgrammatically = false
+                    }
+                }
+                return
+            }
             if (field == clamped &&
                 _entries.getOrNull(clamped)?.tab?.isSelected == true &&
                 (isUpdatingSelectionFromNative || isSettingSelectionProgrammatically)
             ) {
+                syncTabAndContentVisibility()
                 return
             }
             field = clamped
-            _entries.forEachIndexed { idx, entry ->
-                entry.tab.isSelected = (idx == clamped)
+            syncTabAndContentVisibility()
+            val selectedEntry = _entries.getOrNull(clamped)
+            selectedEntry?.content?.let { activeContent ->
+                if (isVisible) {
+                    val sheet = lastAppliedStyleSheet
+                    if (sheet != null) {
+                        activeContent.applyStyleSheet(sheet, lastStyleSheetViewportWidthPx)
+                    }
+                    activeContent.ensureNativeImpl()
+                }
             }
             if (!isUpdatingSelectionFromNative && !isSettingSelectionProgrammatically) {
                 isSettingSelectionProgrammatically = true
@@ -96,7 +124,6 @@ open class TabContainer(
                     isSettingSelectionProgrammatically = false
                 }
             }
-            val selectedEntry = _entries.getOrNull(clamped)
             selectedEntry?.tab?.onSelected?.invoke()
             onTabSelected?.invoke(clamped)
             if (selectedEntry != null) {
@@ -104,6 +131,41 @@ open class TabContainer(
                 onTabIdSelected?.invoke(selectedEntry.id)
             }
         }
+
+    private fun realizeTabContentNativeImpl(content: AbstractComponent): com.nexustools.genericui.core.NativeImpl<*>? {
+        if (!this.isVisible) return content.nativeImpl
+        content.nativeImpl?.let { return it }
+        if (!content.isVisible) {
+            content.isVisible = true
+        }
+        val sheet = lastAppliedStyleSheet
+        if (sheet != null && content.lastAppliedStyleSheet !== sheet) {
+            content.applyStyleSheet(sheet, lastStyleSheetViewportWidthPx)
+        }
+        val impl = content.ensureNativeImpl()
+        if (sheet != null) {
+            content.applyStyleSheet(sheet, lastStyleSheetViewportWidthPx)
+        }
+        return impl
+    }
+
+    private fun syncTabAndContentVisibility() {
+        _entries.forEachIndexed { idx, entry ->
+            val isActive = (idx == selectedIndex) && entry.tab.isSelectable
+            entry.tab.isSelected = isActive
+            entry.content?.let { content ->
+                content.isVisible = isActive
+                if (isActive) {
+                    content.removeClass("d-none")
+                    if (content.getStyleProperty("display") == "none") {
+                        content.removeStyleProperty("display")
+                    }
+                } else {
+                    content.addClass("d-none")
+                }
+            }
+        }
+    }
 
     var activeIndex: Int
         get() = selectedIndex
@@ -131,6 +193,10 @@ open class TabContainer(
      * Adds a tab using a [Tab] component ([Tab], [CloseableTab], [BadgeTab], [PinnedTab], [EditableTab]).
      */
     fun addTab(tab: Tab, content: AbstractComponent, index: Int = -1): TabContainer = apply {
+        require(tab.supportsContent && tab !is ButtonTab) {
+            "ButtonTab does not support tab content; use addButtonTab() instead."
+        }
+        tab.isVisible = true
         wireTabCallbacks(tab)
         val entry = TabEntry(tab = tab, content = content)
         val insertIdx = if (index < 0 || index >= _entries.size) {
@@ -142,20 +208,76 @@ open class TabContainer(
         }
         addChild(tab)
         addChild(content)
-        tab.isSelected = (insertIdx == selectedIndex)
+        if (selectedIndex !in _entries.indices || !_entries[selectedIndex].tab.isSelectable) {
+            val firstSelectable = _entries.indexOfFirst { it.tab.isSelectable }
+            if (firstSelectable >= 0) {
+                selectedIndex = firstSelectable
+            }
+        }
 
         val impl = typedNative<TabContainerNativeImpl<*>>()
-        if (impl != null && isVisible) {
+        if (impl != null && isVisible && entry !in registeredNativeEntries) {
             val tabImpl = (tab.nativeImpl ?: tab.ensureNativeImpl()) as? TabNativeImpl<*>
-            val contentImpl = content.nativeImpl ?: content.ensureNativeImpl()
+            val contentImpl = realizeTabContentNativeImpl(content)
             if (contentImpl != null) {
                 if (tabImpl != null) {
                     impl.addTabNative(tabImpl, contentImpl, insertIdx)
                 } else {
                     impl.addTabNative(tab.displayTitle, contentImpl, insertIdx)
                 }
+                registeredNativeEntries.add(entry)
             }
         }
+        syncTabAndContentVisibility()
+    }
+
+    /**
+     * Adds a [ButtonTab] to the tab strip that invokes its [ButtonTab.onClick] callback without
+     * switching tabs or mounting a content pane.
+     */
+    fun addButtonTab(tab: ButtonTab, index: Int = -1): ButtonTab {
+        tab.isVisible = true
+        wireTabCallbacks(tab)
+        val entry = TabEntry(tab = tab, content = null)
+        val insertIdx = if (index < 0 || index >= _entries.size) {
+            _entries.add(entry)
+            _entries.size - 1
+        } else {
+            _entries.add(index, entry)
+            index
+        }
+        addChild(tab)
+        tab.isSelected = false
+
+        val impl = typedNative<TabContainerNativeImpl<*>>()
+        if (impl != null && isVisible && entry !in registeredNativeEntries) {
+            val tabImpl = (tab.nativeImpl ?: tab.ensureNativeImpl()) as? TabNativeImpl<*>
+            if (tabImpl != null) {
+                impl.addButtonTabNative(tabImpl, insertIdx)
+                registeredNativeEntries.add(entry)
+            }
+        }
+        syncTabAndContentVisibility()
+        return tab
+    }
+
+    /**
+     * Convenience overload to create and add a [ButtonTab] directly to this [TabContainer].
+     */
+    fun addButtonTab(
+        title: String,
+        id: String = "button_tab_${_entries.size}",
+        icon: String? = null,
+        index: Int = -1,
+        onClick: () -> Unit
+    ): ButtonTab {
+        val buttonTab = ButtonTab(
+            title = title,
+            id = id,
+            icon = icon,
+            onClick = onClick
+        )
+        return addButtonTab(buttonTab, index)
     }
 
     /**
@@ -225,16 +347,50 @@ open class TabContainer(
     fun removeTabAt(index: Int): TabEntry? {
         if (index !in _entries.indices) return null
         val removed = _entries.removeAt(index)
+        val wasRegistered = registeredNativeEntries.remove(removed)
         removed.tab.ownerNotifyUpdated = null
         removed.tab.ownerRequestClose = null
         removeChild(removed.tab)
-        removeChild(removed.content)
-        typedNative<TabContainerNativeImpl<*>>()?.removeTabNative(index)
-        if (_entries.isNotEmpty() && selectedIndex >= _entries.size) {
-            selectedIndex = _entries.size - 1
+        removed.content?.let { removeChild(it) }
+        if (wasRegistered) {
+            typedNative<TabContainerNativeImpl<*>>()?.removeTabNative(index)
+        }
+        if (_entries.isNotEmpty()) {
+            val clamped = selectedIndex.coerceIn(0, _entries.lastIndex)
+            if (_entries[clamped].tab.isSelectable) {
+                selectedIndex = clamped
+            } else {
+                val fallback = (clamped downTo 0).firstOrNull { _entries[it].tab.isSelectable }
+                    ?: (clamped + 1.._entries.lastIndex).firstOrNull { _entries[it].tab.isSelectable }
+                if (fallback != null) {
+                    selectedIndex = fallback
+                } else {
+                    syncTabAndContentVisibility()
+                }
+            }
         }
         return removed
     }
+
+    fun clearTabs() {
+        val impl = typedNative<TabContainerNativeImpl<*>>()
+        for (i in _entries.lastIndex downTo 0) {
+            val removed = _entries.removeAt(i)
+            val wasRegistered = registeredNativeEntries.remove(removed)
+            removed.tab.ownerNotifyUpdated = null
+            removed.tab.ownerRequestClose = null
+            removeChild(removed.tab)
+            removed.content?.let { removeChild(it) }
+            if (wasRegistered) {
+                impl?.removeTabNative(i)
+            }
+        }
+        registeredNativeEntries.clear()
+        selectedIndex = 0
+    }
+
+    fun indexOfTab(tabId: String): Int =
+        _entries.indexOfFirst { it.id == tabId }
 
     fun removeTab(tabId: String): Boolean {
         val idx = _entries.indexOfFirst { it.id == tabId }
@@ -280,13 +436,26 @@ open class TabContainer(
     }
 
     fun setActiveTab(tabId: String) {
-        val idx = _entries.indexOfFirst { it.id == tabId }
-        if (idx >= 0) {
-            selectedIndex = idx
+        selectTab(tabId)
+    }
+
+    fun selectTab(tabId: String): Boolean {
+        val idx = indexOfTab(tabId)
+        if (idx < 0) return false
+        val entry = _entries[idx]
+        if (!entry.tab.isSelectable) {
+            (entry.tab as? ButtonTab)?.performClick()
+            return false
         }
+        selectedIndex = idx
+        return true
     }
 
     fun selectTab(tab: Tab) {
+        if (!tab.isSelectable) {
+            (tab as? ButtonTab)?.performClick()
+            return
+        }
         val idx = _entries.indexOfFirst { it.tab === tab }
         if (idx >= 0) {
             selectedIndex = idx
@@ -312,6 +481,11 @@ open class TabContainer(
     protected override fun createNativeImpl(factory: NativeFactory): TabContainerNativeImpl<*> =
         factory.createTabContainer()
 
+    protected override fun onAttachNative(impl: com.nexustools.genericui.core.NativeImpl<*>) {
+        registeredNativeEntries.clear()
+        super.onAttachNative(impl)
+    }
+
     override var isVisible: Boolean
         get() = super.isVisible
         set(value) {
@@ -328,21 +502,48 @@ open class TabContainer(
         impl.setTabPositionNative(tabPosition)
         impl.setTabBarStyleNative(tabBarStyle)
         _entries.forEachIndexed { idx, entry ->
-            val contentImpl = entry.content.nativeImpl ?: entry.content.ensureNativeImpl() ?: return@forEachIndexed
+            entry.tab.isVisible = true
             val tabImpl = (entry.tab.nativeImpl ?: entry.tab.ensureNativeImpl()) as? TabNativeImpl<*>
-            if (tabImpl != null) {
-                impl.addTabNative(tabImpl, contentImpl, idx)
+            if (!entry.tab.supportsContent || entry.content == null) {
+                if (tabImpl != null && entry !in registeredNativeEntries) {
+                    impl.addButtonTabNative(tabImpl, idx)
+                    registeredNativeEntries.add(entry)
+                }
             } else {
-                impl.addTabNative(entry.tab.displayTitle, contentImpl, idx)
+                val contentImpl = realizeTabContentNativeImpl(entry.content) ?: return@forEachIndexed
+                if (entry !in registeredNativeEntries) {
+                    if (tabImpl != null) {
+                        impl.addTabNative(tabImpl, contentImpl, idx)
+                    } else {
+                        impl.addTabNative(entry.tab.displayTitle, contentImpl, idx)
+                    }
+                    registeredNativeEntries.add(entry)
+                }
             }
         }
+        syncTabAndContentVisibility()
         isSettingSelectionProgrammatically = true
         try {
-            impl.setSelectedTabIndex(selectedIndex, fadeTransition)
+            if (selectedIndex in _entries.indices && _entries[selectedIndex].tab.isSelectable) {
+                impl.setSelectedTabIndex(selectedIndex, fadeTransition)
+            }
         } finally {
             isSettingSelectionProgrammatically = false
         }
         impl.setOnTabSelected { idx ->
+            val entry = _entries.getOrNull(idx)
+            if (entry != null && !entry.tab.isSelectable) {
+                (entry.tab as? ButtonTab)?.performClick()
+                isSettingSelectionProgrammatically = true
+                try {
+                    if (selectedIndex in _entries.indices && _entries[selectedIndex].tab.isSelectable) {
+                        impl.setSelectedTabIndex(selectedIndex, false)
+                    }
+                } finally {
+                    isSettingSelectionProgrammatically = false
+                }
+                return@setOnTabSelected
+            }
             if (!isSettingSelectionProgrammatically && !isUpdatingSelectionFromNative && selectedIndex != idx) {
                 isUpdatingSelectionFromNative = true
                 try {

@@ -573,24 +573,28 @@ abstract class GenericUiSassCompileTask : DefaultTask() {
                 appendLine("package $packageName")
                 appendLine()
             }
+            appendLine("import com.nexustools.genericui.component.shell.IApplication")
+            appendLine("import com.nexustools.genericui.enums.bootstrap.*")
+            appendLine("import com.nexustools.genericui.enums.css.*")
+            appendLine("import com.nexustools.genericui.enums.ui.ObjectFit")
             appendLine("import com.nexustools.genericui.style.color.RgbaColor")
-            appendLine("import com.nexustools.genericui.style.css.CompiledStyleRule")
-            appendLine("import com.nexustools.genericui.style.css.ComponentStyle")
-            appendLine("import com.nexustools.genericui.style.css.CssRule")
-            appendLine("import com.nexustools.genericui.style.css.CssStyleSheet")
-            appendLine("import com.nexustools.genericui.style.css.PrecompiledStyleSheet")
-            appendLine("import com.nexustools.genericui.style.css.StyleSheetRegistry")
+            appendLine("import com.nexustools.genericui.style.css.*")
+            appendLine("import com.nexustools.genericui.style.gradient.Gradient.GradientStop")
+            appendLine("import com.nexustools.genericui.style.gradient.Gradient.LinearGradient")
+            appendLine("import com.nexustools.genericui.style.transition.CssTransform2D")
+            appendLine("import com.nexustools.genericui.style.transition.CssTransitionSpec")
+            appendLine("import com.nexustools.genericui.system.style.*")
             appendLine()
             appendLine("/**")
-            appendLine(" * Auto-generated precompiled GenericUI stylesheet for `$stylesheetName`.")
-            appendLine(" * Pre-parsed at build time by `compileGenericUiSass` for zero-overhead runtime styling.")
+            appendLine(" * Auto-generated precompiled GenericUI Blink stylesheet for `$stylesheetName`.")
+            appendLine(" * Pre-parsed at build time by `compileGenericUiSass` with zero runtime CSS parsing.")
             appendLine(" */")
-            appendLine("object $objectName : PrecompiledStyleSheet {")
+            appendLine("object $objectName : BlinkStyleSheet() {")
             appendLine("    override val name: String = ${escapeKotlinString(stylesheetName)}")
             appendLine()
             appendLine("    override val cssResourcePath: String = ${escapeKotlinString(cssResourcePath)}")
             appendLine()
-            appendLine("    override val rawCss: String = ${escapeKotlinString(normalizedCss)}")
+            appendLine("    override val rawCss: String = \"\"")
             appendLine()
             if (sortedRules.isEmpty()) {
                 appendLine("    override val compiledRules: List<CompiledStyleRule> = emptyList()")
@@ -598,78 +602,60 @@ abstract class GenericUiSassCompileTask : DefaultTask() {
                 appendLine("    override val compiledRules: List<CompiledStyleRule> = listOf(")
                 for ((ruleIdx, rule) in sortedRules.withIndex()) {
                     val comma = if (ruleIdx < sortedRules.lastIndex) "," else ""
+                    val parsedSegments = parseSelectorSegmentsAtBuildTime(rule.selector)
+                    val subjectPseudo = parsedSegments.lastOrNull()?.pseudoClasses?.firstOrNull()
                     appendLine("        CompiledStyleRule(")
                     appendLine("            selector = ${escapeKotlinString(rule.selector)},")
+                    if (parsedSegments.isEmpty()) {
+                        appendLine("            segments = emptyList(),")
+                    } else {
+                        appendLine("            segments = listOf(")
+                        for ((segIdx, seg) in parsedSegments.withIndex()) {
+                            val segComma = if (segIdx < parsedSegments.lastIndex) "," else ""
+                            val tagExpr = seg.tagName?.let { escapeKotlinString(it) } ?: "null"
+                            val idExpr = seg.id?.let { escapeKotlinString(it) } ?: "null"
+                            val classesExpr = if (seg.classes.isEmpty()) {
+                                "emptySet()"
+                            } else {
+                                "setOf(${seg.classes.joinToString(", ") { escapeKotlinString(it) }})"
+                            }
+                            val pseudosExpr = if (seg.pseudoClasses.isEmpty()) {
+                                "emptySet()"
+                            } else {
+                                "setOf(${seg.pseudoClasses.joinToString(", ") { escapeKotlinString(it) }})"
+                            }
+                            val combExpr = seg.combinatorToLeft?.let { "CssCombinator.$it" } ?: "null"
+                            appendLine("                CompiledSelectorSegment(tagName = $tagExpr, id = $idExpr, classes = $classesExpr, pseudoClasses = $pseudosExpr, combinatorToLeft = $combExpr)$segComma")
+                        }
+                        appendLine("            ),")
+                    }
                     appendLine("            style = ComponentStyle().apply {")
                     for ((prop, rawVal) in rule.declarations) {
                         val isImp = rawVal.contains("!important", ignoreCase = true)
                         val cleanVal = rawVal.replace(Regex("!\\s*important", RegexOption.IGNORE_CASE), "").trim()
-                        appendLine("                setRawDeclaration(${escapeKotlinString(prop)}, ${escapeKotlinString(cleanVal)}, $isImp)")
-                        when (prop) {
-                            "background-color" -> {
-                                appendLine("                RgbaColor.fromCss(${escapeKotlinString(cleanVal)})?.let { setBackgroundColor(it, $isImp) }")
-                            }
-                            "color" -> {
-                                appendLine("                RgbaColor.fromCss(${escapeKotlinString(cleanVal)})?.let { setTextColor(it, $isImp) }")
-                            }
-                            "accent-color" -> {
-                                appendLine("                RgbaColor.fromCss(${escapeKotlinString(cleanVal)})?.let { setAccentColor(it, $isImp) }")
-                            }
-                            "border-color" -> {
-                                appendLine("                RgbaColor.fromCss(${escapeKotlinString(cleanVal)})?.let { setBorderColor(it, $isImp) }")
-                            }
-                            "opacity" -> {
-                                val opVal = cleanVal.toFloatOrNull()
-                                if (opVal != null) {
-                                    appendLine("                setOpacity(${opVal}f, $isImp)")
-                                }
-                            }
+                        for (stmt in emitTypedComponentStyleStatements(prop, cleanVal, isImp)) {
+                            appendLine("                $stmt")
                         }
                     }
                     appendLine("            },")
                     appendLine("            specificity = ${rule.specificity},")
+                    appendLine("            sourceOrder = $ruleIdx,")
                     appendLine("            mediaMinWidthPx = ${rule.mediaMinWidthPx ?: "null"},")
-                    appendLine("            mediaMaxWidthPx = ${rule.mediaMaxWidthPx ?: "null"}")
+                    appendLine("            mediaMaxWidthPx = ${rule.mediaMaxWidthPx ?: "null"},")
+                    appendLine("            pseudoClass = ${subjectPseudo?.let { escapeKotlinString(it) } ?: "null"}")
                     appendLine("        )$comma")
                 }
                 appendLine("    )")
             }
             appendLine()
-            appendLine("    override val styleSheet: CssStyleSheet = CssStyleSheet.precompiled(")
-            if (sortedRules.isEmpty()) {
-                appendLine("        rules = emptyList(),")
-            } else {
-                appendLine("        rules = listOf(")
-                for ((ruleIdx, rule) in sortedRules.withIndex()) {
-                    val comma = if (ruleIdx < sortedRules.lastIndex) "," else ""
-                    appendLine("            CssRule(")
-                    appendLine("                selector = ${escapeKotlinString(rule.selector)},")
-                    if (rule.declarations.isEmpty()) {
-                        appendLine("                declarations = emptyMap(),")
-                    } else {
-                        appendLine("                declarations = mapOf(")
-                        val entries = rule.declarations.entries.toList()
-                        for ((declIdx, entry) in entries.withIndex()) {
-                            val declComma = if (declIdx < entries.lastIndex) "," else ""
-                            appendLine("                    ${escapeKotlinString(entry.key)} to ${escapeKotlinString(entry.value)}$declComma")
-                        }
-                        appendLine("                ),")
-                    }
-                    appendLine("                specificity = ${rule.specificity},")
-                    appendLine("                mediaMinWidthPx = ${rule.mediaMinWidthPx ?: "null"},")
-                    appendLine("                mediaMaxWidthPx = ${rule.mediaMaxWidthPx ?: "null"}")
-                    appendLine("            )$comma")
-                }
-                appendLine("        ),")
-            }
             if (keyframes.isEmpty()) {
-                appendLine("        keyframes = emptyMap()")
+                appendLine("    override val keyframes: Map<String, Map<String, Map<String, String>>> = emptyMap()")
             } else {
-                appendLine("        keyframes = mapOf(")
+                appendLine("    override val keyframes: Map<String, Map<String, Map<String, String>>> = mapOf(")
                 val kfEntries = keyframes.entries.toList()
                 for ((kfIdx, kfEntry) in kfEntries.withIndex()) {
                     val kfComma = if (kfIdx < kfEntries.lastIndex) "," else ""
-                    appendLine("            ${escapeKotlinString(kfEntry.key)} to mapOf(")
+                    appendLine("        ${escapeKotlinString(kfEntry.key)} to mapOf(")
                     val stepEntries = kfEntry.value.entries.toList()
                     for ((stepIdx, stepEntry) in stepEntries.withIndex()) {
                         val stepComma = if (stepIdx < stepEntries.lastIndex) "," else ""
@@ -677,19 +663,689 @@ abstract class GenericUiSassCompileTask : DefaultTask() {
                             "${escapeKotlinString(it.key)} to ${escapeKotlinString(it.value)}"
                         }
                         val declMapExpr = if (declPairs.isEmpty()) "emptyMap()" else "mapOf($declPairs)"
-                        appendLine("                ${escapeKotlinString(stepEntry.key)} to $declMapExpr$stepComma")
+                        appendLine("            ${escapeKotlinString(stepEntry.key)} to $declMapExpr$stepComma")
                     }
-                    appendLine("            )$kfComma")
+                    appendLine("        )$kfComma")
                 }
-                appendLine("        )")
+                appendLine("    )")
             }
-            appendLine("    )")
+            appendLine()
+            appendLine("    override val ruleSet: BlinkRuleBucketMap = BlinkRuleBucketMap.fromCompiledStyleRules(compiledRules)")
             appendLine()
             appendLine("    init {")
+            appendLine("        BlinkStyleEngine.registerStyleSheet(this)")
             appendLine("        StyleSheetRegistry.register(name, cssResourcePath, this)")
             appendLine("    }")
             appendLine("}")
         }
+    }
+
+    private data class BuildTimeSelectorSegment(
+        val tagName: String?,
+        val id: String?,
+        val classes: List<String>,
+        val pseudoClasses: List<String>,
+        val combinatorToLeft: String?
+    )
+
+    private val NOT_DISABLED_REGEX =
+        Regex(":not\\(\\s*(?::disabled|\\[\\s*disabled(?:\\s*=[^]]*)?\\s*\\]|\\.disabled)\\s*\\)", RegexOption.IGNORE_CASE)
+    private val DISABLED_PSEUDO_OR_ATTR_REGEX =
+        Regex("(?::disabled\\b|\\[\\s*disabled(?:\\s*=[^]]*)?\\s*\\])", RegexOption.IGNORE_CASE)
+
+    private fun sanitizeSelectorOrNull(rawSelector: String): String? {
+        val trimmed = rawSelector.trim()
+        if (trimmed.isEmpty()) return null
+        val withoutNotDisabled = trimmed.replace(NOT_DISABLED_REGEX, "").trim()
+        if (withoutNotDisabled.isEmpty()) return null
+        if (DISABLED_PSEUDO_OR_ATTR_REGEX.containsMatchIn(withoutNotDisabled)) {
+            return null
+        }
+        return withoutNotDisabled
+    }
+
+    private fun parseSelectorSegmentsAtBuildTime(selector: String): List<BuildTimeSelectorSegment> {
+        val sanitized = sanitizeSelectorOrNull(selector) ?: return emptyList()
+        val rawTokens = sanitized
+            .replace(">", " > ")
+            .split(Regex("\\s+"))
+            .filter { it.isNotEmpty() }
+        if (rawTokens.isEmpty()) return emptyList()
+
+        val result = mutableListOf<BuildTimeSelectorSegment>()
+        var pendingCombinator: String? = null
+        for (tok in rawTokens) {
+            when (tok) {
+                ">" -> pendingCombinator = "CHILD"
+                "+" -> pendingCombinator = "ADJACENT_SIBLING"
+                "~" -> pendingCombinator = "GENERAL_SIBLING"
+                else -> {
+                    val comb = if (result.isEmpty()) null else (pendingCombinator ?: "DESCENDANT")
+                    pendingCombinator = null
+                    result.add(parseSingleSelectorAtom(tok, comb))
+                }
+            }
+        }
+        return result
+    }
+
+    private fun parseSingleSelectorAtom(rawToken: String, combinatorToLeft: String?): BuildTimeSelectorSegment {
+        var working = rawToken.trim().replace(NOT_DISABLED_REGEX, "")
+        working = working.replace(Regex(":not\\([^)]*\\)", RegexOption.IGNORE_CASE), "")
+        val pseudos = mutableListOf<String>()
+        val pseudoRegex = Regex(":(hover|focus-visible|focus-within|focus|active|disabled|checked|enabled)", RegexOption.IGNORE_CASE)
+        for (m in pseudoRegex.findAll(working)) {
+            pseudos.add(m.groupValues[1].lowercase())
+        }
+        if (Regex("\\[\\s*disabled(?:\\s*=[^]]*)?\\s*\\]", RegexOption.IGNORE_CASE).containsMatchIn(working) &&
+            "disabled" !in pseudos
+        ) {
+            pseudos.add("disabled")
+        }
+        working = working.replace(pseudoRegex, "")
+        // Strip attribute selectors like [data-bs-theme="dark"] into class token if present
+        if (working.contains("[data-bs-theme=\"dark\"]", ignoreCase = true) ||
+            working.contains("[data-bs-theme='dark']", ignoreCase = true)
+        ) {
+            working = working
+                .replace("[data-bs-theme=\"dark\"]", ".bs-theme-dark", ignoreCase = true)
+                .replace("[data-bs-theme='dark']", ".bs-theme-dark", ignoreCase = true)
+        }
+        working = working.replace(Regex("\\[[^]]*]"), "")
+
+        val idMatch = Regex("#([a-zA-Z0-9_-]+)").find(working)
+        val id = idMatch?.groupValues?.get(1)
+        working = working.replace(Regex("#[a-zA-Z0-9_-]+"), "")
+
+        val classes = Regex("\\.([a-zA-Z0-9_-]+)").findAll(working).map { it.groupValues[1] }.toList()
+        val leadingTag = working.replace(Regex("\\.[a-zA-Z0-9_-]+"), "").trim()
+            .takeIf { it.isNotEmpty() && it != "*" }
+
+        return BuildTimeSelectorSegment(
+            tagName = leadingTag,
+            id = id,
+            classes = classes,
+            pseudoClasses = pseudos,
+            combinatorToLeft = combinatorToLeft
+        )
+    }
+
+    private fun emitTypedComponentStyleStatements(prop: String, cleanVal: String, isImp: Boolean): List<String> {
+        val out = mutableListOf<String>()
+        when (prop.lowercase()) {
+            "background-color" -> {
+                emitColorExpr(cleanVal)?.let { out.add("setBackgroundColor($it, $isImp)") }
+            }
+            "background" -> {
+                val gradExpr = emitLinearGradientExpr(cleanVal)
+                if (gradExpr != null) {
+                    out.add("setBackgroundImage(CssBackgroundImage.fromGradient($gradExpr), $isImp)")
+                } else {
+                    emitColorExpr(cleanVal)?.let { out.add("setBackgroundColor($it, $isImp)") }
+                }
+            }
+            "background-image" -> {
+                val gradExpr = emitLinearGradientExpr(cleanVal)
+                if (gradExpr != null) {
+                    out.add("setBackgroundImage(CssBackgroundImage.fromGradient($gradExpr), $isImp)")
+                } else if (cleanVal.startsWith("url(", ignoreCase = true)) {
+                    val url = cleanVal.removePrefix("url(").removeSuffix(")").trim().trim('\'', '"')
+                    out.add("setBackgroundImage(CssBackgroundImage.url(${escapeKotlinString(url)}), $isImp)")
+                }
+            }
+            "color" -> emitColorExpr(cleanVal)?.let { out.add("setTextColor($it, $isImp)") }
+            "accent-color" -> emitColorExpr(cleanVal)?.let { out.add("setAccentColor($it, $isImp)") }
+            "border-color" -> emitColorExpr(cleanVal)?.let { out.add("setBorderColor($it, $isImp)") }
+            "opacity" -> cleanVal.toFloatOrNull()?.let { out.add("setOpacity(${it}f, $isImp)") }
+            "display" -> emitDisplayEnum(cleanVal)?.let { out.add("setDisplay($it, $isImp)") }
+            "visibility" -> emitVisibilityEnum(cleanVal)?.let { out.add("setVisibility($it, $isImp)") }
+            "position" -> emitPositionEnum(cleanVal)?.let { out.add("setPosition($it, $isImp)") }
+            "top" -> emitLengthExpr(cleanVal)?.let { out.add("setTop($it, $isImp)") }
+            "right" -> emitLengthExpr(cleanVal)?.let { out.add("setRight($it, $isImp)") }
+            "bottom" -> emitLengthExpr(cleanVal)?.let { out.add("setBottom($it, $isImp)") }
+            "left" -> emitLengthExpr(cleanVal)?.let { out.add("setLeft($it, $isImp)") }
+            "width" -> emitLengthExpr(cleanVal)?.let { out.add("setWidth($it, $isImp)") }
+            "height" -> emitLengthExpr(cleanVal)?.let { out.add("setHeight($it, $isImp)") }
+            "min-width" -> emitLengthExpr(cleanVal)?.let { out.add("setMinWidth($it, $isImp)") }
+            "min-height" -> emitLengthExpr(cleanVal)?.let { out.add("setMinHeight($it, $isImp)") }
+            "max-width" -> emitLengthExpr(cleanVal)?.let { out.add("setMaxWidth($it, $isImp)") }
+            "max-height" -> emitLengthExpr(cleanVal)?.let { out.add("setMaxHeight($it, $isImp)") }
+            "margin" -> emitEdgeLengthsExpr(cleanVal)?.let { out.add("setMargin($it, $isImp)") }
+            "margin-top" -> emitLengthExpr(cleanVal)?.let { out.add("setMarginTop($it, $isImp)") }
+            "margin-right" -> emitLengthExpr(cleanVal)?.let { out.add("setMarginRight($it, $isImp)") }
+            "margin-bottom" -> emitLengthExpr(cleanVal)?.let { out.add("setMarginBottom($it, $isImp)") }
+            "margin-left" -> emitLengthExpr(cleanVal)?.let { out.add("setMarginLeft($it, $isImp)") }
+            "padding" -> emitEdgeLengthsExpr(cleanVal)?.let { out.add("setPadding($it, $isImp)") }
+            "padding-top" -> emitLengthExpr(cleanVal)?.let { out.add("setPaddingTop($it, $isImp)") }
+            "padding-right" -> emitLengthExpr(cleanVal)?.let { out.add("setPaddingRight($it, $isImp)") }
+            "padding-bottom" -> emitLengthExpr(cleanVal)?.let { out.add("setPaddingBottom($it, $isImp)") }
+            "padding-left" -> emitLengthExpr(cleanVal)?.let { out.add("setPaddingLeft($it, $isImp)") }
+            "box-sizing" -> emitBoxSizingEnum(cleanVal)?.let { out.add("setBoxSizing($it, $isImp)") }
+            "border-width" -> emitEdgeLengthsExpr(cleanVal)?.let { out.add("setBorderWidth($it, $isImp)") }
+            "border-style" -> emitBorderStyleEnum(cleanVal)?.let { out.add("setBorderStyle($it, $isImp)") }
+            "border" -> {
+                if (cleanVal.equals("none", ignoreCase = true) || cleanVal == "0") {
+                    out.add("setBorderStyle(CssBorderStyle.NONE, $isImp)")
+                    out.add("setBorderWidth(CssEdgeLengths.all(CssLength.ZERO), $isImp)")
+                } else {
+                    for (tok in splitTokensPreservingParens(cleanVal)) {
+                        val bStyle = emitBorderStyleEnum(tok)
+                        if (bStyle != null) {
+                            out.add("setBorderStyle($bStyle, $isImp)")
+                            continue
+                        }
+                        val bColor = emitColorExpr(tok)
+                        if (bColor != null) {
+                            out.add("setBorderColor($bColor, $isImp)")
+                            continue
+                        }
+                        val bLen = emitLengthExpr(tok)
+                        if (bLen != null) {
+                            out.add("setBorderWidth(CssEdgeLengths.all($bLen), $isImp)")
+                        }
+                    }
+                }
+            }
+            "border-radius" -> emitCornerRadiiExpr(cleanVal)?.let { out.add("setBorderRadius($it, $isImp)") }
+            "font-size" -> emitLengthExpr(cleanVal)?.let { out.add("setFontSize($it, $isImp)") }
+            "font-weight" -> emitFontWeightStmt(cleanVal, isImp)?.let { out.add(it) }
+            "font-style" -> emitFontStyleEnum(cleanVal)?.let { out.add("setFontStyle($it, $isImp)") }
+            "font-family" -> {
+                val families = cleanVal.split(",").map { it.trim().trim('\'', '"') }.filter { it.isNotEmpty() }
+                if (families.isNotEmpty()) {
+                    out.add("setFontFamily(CssFontFamily(listOf(${families.joinToString(", ") { escapeKotlinString(it) }})), $isImp)")
+                }
+            }
+            "line-height" -> emitLengthExpr(cleanVal)?.let { out.add("setLineHeight($it, $isImp)") }
+            "letter-spacing" -> emitLengthExpr(cleanVal)?.let { out.add("setLetterSpacing($it, $isImp)") }
+            "text-align" -> emitTextAlignEnum(cleanVal)?.let { out.add("setTextAlign($it, $isImp)") }
+            "text-transform" -> emitTextTransformEnum(cleanVal)?.let { out.add("setTextTransform($it, $isImp)") }
+            "text-overflow" -> emitTextOverflowEnum(cleanVal)?.let { out.add("setTextOverflow($it, $isImp)") }
+            "text-decoration" -> emitTextDecorationEnum(cleanVal)?.let { out.add("setTextDecoration($it, $isImp)") }
+            "white-space" -> emitWhiteSpaceEnum(cleanVal)?.let { out.add("setWhiteSpace($it, $isImp)") }
+            "flex-direction" -> emitFlexDirectionEnum(cleanVal)?.let { out.add("setFlexDirection($it, $isImp)") }
+            "flex-wrap" -> emitFlexWrapEnum(cleanVal)?.let { out.add("setFlexWrap($it, $isImp)") }
+            "justify-content" -> emitJustifyContentEnum(cleanVal)?.let { out.add("setJustifyContent($it, $isImp)") }
+            "align-items" -> emitAlignItemsEnum(cleanVal)?.let { out.add("setAlignItems($it, $isImp)") }
+            "align-self" -> emitAlignSelfEnum(cleanVal)?.let { out.add("setAlignSelf($it, $isImp)") }
+            "flex-grow" -> cleanVal.toFloatOrNull()?.let { out.add("setFlexGrow(${it}f, $isImp)") }
+            "flex-shrink" -> cleanVal.toFloatOrNull()?.let { out.add("setFlexShrink(${it}f, $isImp)") }
+            "flex-basis" -> emitLengthExpr(cleanVal)?.let { out.add("setFlexBasis($it, $isImp)") }
+            "gap" -> emitLengthExpr(cleanVal)?.let { out.add("setGap($it, $isImp)") }
+            "row-gap" -> emitLengthExpr(cleanVal)?.let { out.add("setRowGap($it, $isImp)") }
+            "column-gap" -> emitLengthExpr(cleanVal)?.let { out.add("setColumnGap($it, $isImp)") }
+            "overflow" -> emitOverflowEnum(cleanVal)?.let { out.add("setOverflow($it, $isImp)") }
+            "overflow-x" -> emitOverflowEnum(cleanVal)?.let { out.add("setOverflowX($it, $isImp)") }
+            "overflow-y" -> emitOverflowEnum(cleanVal)?.let { out.add("setOverflowY($it, $isImp)") }
+            "pointer-events" -> emitPointerEventsEnum(cleanVal)?.let { out.add("setPointerEvents($it, $isImp)") }
+            "user-select", "-webkit-user-select" -> emitUserSelectEnum(cleanVal)?.let { out.add("setUserSelect($it, $isImp)") }
+            "object-fit" -> emitObjectFitEnum(cleanVal)?.let { out.add("setObjectFit($it, $isImp)") }
+            "cursor" -> emitCursorEnum(cleanVal)?.let { out.add("setCursor($it, $isImp)") }
+            "z-index" -> cleanVal.toIntOrNull()?.let { out.add("setZIndex($it, $isImp)") }
+            "box-shadow", "-webkit-box-shadow" -> emitShadowListExpr(cleanVal)?.let { out.add("setBoxShadow($it, $isImp)") }
+            "text-shadow" -> emitShadowListExpr(cleanVal)?.let { out.add("setTextShadow($it, $isImp)") }
+            "filter" -> emitFilterExpr(cleanVal)?.let { out.add("setFilter($it, $isImp)") }
+            "backdrop-filter", "-webkit-backdrop-filter" -> emitFilterExpr(cleanVal)?.let { out.add("setBackdropFilter($it, $isImp)") }
+        }
+        return out
+    }
+
+    private fun emitColorExpr(raw: String): String? {
+        val clean = raw.trim().lowercase()
+        when (clean) {
+            "transparent" -> return "RgbaColor(0, 0, 0, 0)"
+            "white" -> return "RgbaColor(255, 255, 255, 255)"
+            "black" -> return "RgbaColor(0, 0, 0, 255)"
+            "red" -> return "RgbaColor(255, 0, 0, 255)"
+            "green" -> return "RgbaColor(0, 128, 0, 255)"
+            "blue" -> return "RgbaColor(0, 0, 255, 255)"
+        }
+        if (clean.startsWith("#")) {
+            val hex = clean.removePrefix("#")
+            return when (hex.length) {
+                3 -> {
+                    val r = hex.substring(0, 1).repeat(2).toIntOrNull(16) ?: return null
+                    val g = hex.substring(1, 2).repeat(2).toIntOrNull(16) ?: return null
+                    val b = hex.substring(2, 3).repeat(2).toIntOrNull(16) ?: return null
+                    "RgbaColor($r, $g, $b, 255)"
+                }
+                4 -> {
+                    val r = hex.substring(0, 1).repeat(2).toIntOrNull(16) ?: return null
+                    val g = hex.substring(1, 2).repeat(2).toIntOrNull(16) ?: return null
+                    val b = hex.substring(2, 3).repeat(2).toIntOrNull(16) ?: return null
+                    val a = hex.substring(3, 4).repeat(2).toIntOrNull(16) ?: return null
+                    "RgbaColor($r, $g, $b, $a)"
+                }
+                6 -> {
+                    val r = hex.substring(0, 2).toIntOrNull(16) ?: return null
+                    val g = hex.substring(2, 4).toIntOrNull(16) ?: return null
+                    val b = hex.substring(4, 6).toIntOrNull(16) ?: return null
+                    "RgbaColor($r, $g, $b, 255)"
+                }
+                8 -> {
+                    val r = hex.substring(0, 2).toIntOrNull(16) ?: return null
+                    val g = hex.substring(2, 4).toIntOrNull(16) ?: return null
+                    val b = hex.substring(4, 6).toIntOrNull(16) ?: return null
+                    val a = hex.substring(6, 8).toIntOrNull(16) ?: return null
+                    "RgbaColor($r, $g, $b, $a)"
+                }
+                else -> null
+            }
+        }
+        val rgbaMatch = Regex("^rgba?\\(\\s*(\\d+)\\s*,\\s*(\\d+)\\s*,\\s*(\\d+)(?:\\s*,\\s*([0-9.]+))?\\s*\\)$").matchEntire(clean)
+        if (rgbaMatch != null) {
+            val r = rgbaMatch.groupValues[1].toIntOrNull()?.coerceIn(0, 255) ?: return null
+            val g = rgbaMatch.groupValues[2].toIntOrNull()?.coerceIn(0, 255) ?: return null
+            val b = rgbaMatch.groupValues[3].toIntOrNull()?.coerceIn(0, 255) ?: return null
+            val aStr = rgbaMatch.groupValues[4]
+            val a = if (aStr.isEmpty()) 255 else {
+                val af = aStr.toFloatOrNull() ?: 1f
+                if (af <= 1f && aStr.contains('.')) (af * 255f).toInt().coerceIn(0, 255)
+                else if (af <= 1f) (af * 255f).toInt().coerceIn(0, 255)
+                else af.toInt().coerceIn(0, 255)
+            }
+            return "RgbaColor($r, $g, $b, $a)"
+        }
+        return null
+    }
+
+    private fun emitLengthExpr(raw: String): String? {
+        val clean = raw.trim().lowercase()
+        if (clean == "auto") return "CssLength.AUTO"
+        if (clean == "none") return "CssLength.NONE"
+        if (clean == "0" || clean == "0px") return "CssLength.ZERO"
+        if (clean == "100%") return "CssLength.PERCENT_100"
+        if (clean == "50%") return "CssLength.PERCENT_50"
+        val calcMatch = Regex("^calc\\(\\s*([+-]?[0-9]*\\.?[0-9]+)%\\s*([+-])\\s*([0-9]*\\.?[0-9]+)px\\s*\\)$").matchEntire(clean)
+        if (calcMatch != null) {
+            val pct = calcMatch.groupValues[1].toFloatOrNull() ?: return null
+            val op = calcMatch.groupValues[2]
+            val px = calcMatch.groupValues[3].toFloatOrNull() ?: return null
+            val signedPx = if (op == "-") -px else px
+            return "CssLength.calcPercentPx(${pct}f, ${signedPx}f)"
+        }
+        val unitMap = listOf(
+            "vmin" to "CssUnit.VMIN",
+            "vmax" to "CssUnit.VMAX",
+            "rem" to "CssUnit.REM",
+            "px" to "CssUnit.PX",
+            "dp" to "CssUnit.DP",
+            "em" to "CssUnit.EM",
+            "vw" to "CssUnit.VW",
+            "vh" to "CssUnit.VH",
+            "pt" to "CssUnit.PT",
+            "%" to "CssUnit.PERCENT"
+        )
+        for ((suffix, unitEnum) in unitMap) {
+            if (clean.endsWith(suffix)) {
+                val num = clean.removeSuffix(suffix).trim().toFloatOrNull() ?: return null
+                return "CssLength(${num}f, $unitEnum)"
+            }
+        }
+        val bare = clean.toFloatOrNull() ?: return null
+        return "CssLength(${bare}f, CssUnit.PX)"
+    }
+
+    private fun emitEdgeLengthsExpr(raw: String): String? {
+        val tokens = raw.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }.map { emitLengthExpr(it) ?: return null }
+        return when (tokens.size) {
+            1 -> "CssEdgeLengths.all(${tokens[0]})"
+            2 -> "CssEdgeLengths(top = ${tokens[0]}, right = ${tokens[1]}, bottom = ${tokens[0]}, left = ${tokens[1]})"
+            3 -> "CssEdgeLengths(top = ${tokens[0]}, right = ${tokens[1]}, bottom = ${tokens[2]}, left = ${tokens[1]})"
+            4 -> "CssEdgeLengths(top = ${tokens[0]}, right = ${tokens[1]}, bottom = ${tokens[2]}, left = ${tokens[3]})"
+            else -> null
+        }
+    }
+
+    private fun emitCornerRadiiExpr(raw: String): String? {
+        val tokens = raw.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }.map { emitLengthExpr(it) ?: return null }
+        return when (tokens.size) {
+            1 -> "CssCornerRadii.all(${tokens[0]})"
+            2 -> "CssCornerRadii(topLeft = ${tokens[0]}, topRight = ${tokens[1]}, bottomRight = ${tokens[0]}, bottomLeft = ${tokens[1]})"
+            3 -> "CssCornerRadii(topLeft = ${tokens[0]}, topRight = ${tokens[1]}, bottomRight = ${tokens[2]}, bottomLeft = ${tokens[1]})"
+            4 -> "CssCornerRadii(topLeft = ${tokens[0]}, topRight = ${tokens[1]}, bottomRight = ${tokens[2]}, bottomLeft = ${tokens[3]})"
+            else -> null
+        }
+    }
+
+    private fun emitLinearGradientExpr(raw: String): String? {
+        val clean = raw.trim()
+        if (!clean.startsWith("linear-gradient(", ignoreCase = true) || !clean.endsWith(")")) return null
+        val inner = clean.substring("linear-gradient(".length, clean.length - 1).trim()
+        val parts = splitTopLevelCommas(inner)
+        if (parts.size < 2) return null
+        var angleDeg = 180f
+        var startIdx = 0
+        val first = parts[0].trim().lowercase()
+        if (first.endsWith("deg")) {
+            angleDeg = first.removeSuffix("deg").trim().toFloatOrNull() ?: 180f
+            startIdx = 1
+        } else if (first.startsWith("to ")) {
+            angleDeg = when (first.removePrefix("to ").trim()) {
+                "right" -> 90f
+                "left" -> 270f
+                "top" -> 0f
+                "bottom" -> 180f
+                else -> 135f
+            }
+            startIdx = 1
+        }
+        val stopExprs = mutableListOf<String>()
+        val stopCount = parts.size - startIdx
+        for ((i, stopRaw) in parts.subList(startIdx, parts.size).withIndex()) {
+            val tokens = splitTokensPreservingParens(stopRaw.trim())
+            if (tokens.isEmpty()) continue
+            val colorExpr = emitColorExpr(tokens[0]) ?: continue
+            val pos = if (tokens.size > 1 && tokens[1].endsWith("%")) {
+                (tokens[1].removeSuffix("%").toFloatOrNull() ?: 0f) / 100f
+            } else {
+                if (stopCount <= 1) 0f else i.toFloat() / (stopCount - 1).toFloat()
+            }
+            stopExprs.add("GradientStop($colorExpr, ${pos}f)")
+        }
+        if (stopExprs.size < 2) return null
+        return "LinearGradient(${angleDeg}f, listOf(${stopExprs.joinToString(", ")}))"
+    }
+
+    private fun emitShadowListExpr(raw: String): String? {
+        val clean = raw.trim()
+        if (clean.equals("none", ignoreCase = true)) return "CssShadowList.NONE"
+        val shadowParts = splitTopLevelCommas(clean)
+        val shadowExprs = mutableListOf<String>()
+        for (part in shadowParts) {
+            val tokens = splitTokensPreservingParens(part.trim())
+            var inset = false
+            var colorExpr = "RgbaColor(0, 0, 0, 128)"
+            val lengths = mutableListOf<String>()
+            for (tok in tokens) {
+                if (tok.equals("inset", ignoreCase = true)) {
+                    inset = true
+                    continue
+                }
+                val col = emitColorExpr(tok)
+                if (col != null) {
+                    colorExpr = col
+                    continue
+                }
+                val len = emitLengthExpr(tok)
+                if (len != null) {
+                    lengths.add(len)
+                }
+            }
+            if (lengths.size >= 2) {
+                val ox = lengths[0]
+                val oy = lengths[1]
+                val blur = lengths.getOrNull(2) ?: "CssLength.ZERO"
+                val spread = lengths.getOrNull(3) ?: "CssLength.ZERO"
+                shadowExprs.add("CssShadow(offsetX = $ox, offsetY = $oy, blurRadius = $blur, spreadRadius = $spread, color = $colorExpr, inset = $inset)")
+            }
+        }
+        if (shadowExprs.isEmpty()) return null
+        return "CssShadowList(listOf(${shadowExprs.joinToString(", ")}))"
+    }
+
+    private fun emitFilterExpr(raw: String): String? {
+        val blurMatch = Regex("blur\\(\\s*([0-9.]+)(?:px)?\\s*\\)", RegexOption.IGNORE_CASE).find(raw)
+        if (blurMatch != null) {
+            val blurPx = blurMatch.groupValues[1].toFloatOrNull() ?: return null
+            return "CssFilter(blur = CssLength(${blurPx}f, CssUnit.PX))"
+        }
+        return null
+    }
+
+    private fun emitDisplayEnum(v: String): String? = when (v.trim().lowercase()) {
+        "none" -> "CssDisplay.NONE"
+        "block" -> "CssDisplay.BLOCK"
+        "inline" -> "CssDisplay.INLINE"
+        "inline-block" -> "CssDisplay.INLINE_BLOCK"
+        "flex" -> "CssDisplay.FLEX"
+        "inline-flex" -> "CssDisplay.INLINE_FLEX"
+        "grid" -> "CssDisplay.GRID"
+        "inline-grid" -> "CssDisplay.INLINE_GRID"
+        "contents" -> "CssDisplay.CONTENTS"
+        else -> null
+    }
+
+    private fun emitVisibilityEnum(v: String): String? = when (v.trim().lowercase()) {
+        "visible" -> "CssVisibility.VISIBLE"
+        "hidden" -> "CssVisibility.HIDDEN"
+        "collapse" -> "CssVisibility.COLLAPSE"
+        else -> null
+    }
+
+    private fun emitPositionEnum(v: String): String? = when (v.trim().lowercase()) {
+        "static" -> "CssPosition.STATIC"
+        "relative" -> "CssPosition.RELATIVE"
+        "absolute" -> "CssPosition.ABSOLUTE"
+        "fixed" -> "CssPosition.FIXED"
+        "sticky" -> "CssPosition.STICKY"
+        else -> null
+    }
+
+    private fun emitBoxSizingEnum(v: String): String? = when (v.trim().lowercase()) {
+        "border-box" -> "CssBoxSizing.BORDER_BOX"
+        "content-box" -> "CssBoxSizing.CONTENT_BOX"
+        else -> null
+    }
+
+    private fun emitBorderStyleEnum(v: String): String? = when (v.trim().lowercase()) {
+        "none" -> "CssBorderStyle.NONE"
+        "solid" -> "CssBorderStyle.SOLID"
+        "dashed" -> "CssBorderStyle.DASHED"
+        "dotted" -> "CssBorderStyle.DOTTED"
+        "double" -> "CssBorderStyle.DOUBLE"
+        else -> null
+    }
+
+    private fun emitFontWeightStmt(v: String, isImp: Boolean): String? {
+        val num = when (v.trim().lowercase()) {
+            "normal" -> 400
+            "bold" -> 700
+            "lighter" -> 300
+            "bolder" -> 800
+            else -> v.trim().toIntOrNull()
+        } ?: return null
+        val enumName = when (num) {
+            300 -> "FontWeight.LIGHT"
+            400 -> "FontWeight.NORMAL"
+            500 -> "FontWeight.MEDIUM"
+            600 -> "FontWeight.SEMIBOLD"
+            700 -> "FontWeight.BOLD"
+            else -> null
+        }
+        return if (enumName != null) {
+            "setFontWeight($enumName, $isImp)"
+        } else {
+            "fontWeightNumeric = $num"
+        }
+    }
+
+    private fun emitFontStyleEnum(v: String): String? = when (v.trim().lowercase()) {
+        "normal" -> "CssFontStyle.NORMAL"
+        "italic" -> "CssFontStyle.ITALIC"
+        "oblique" -> "CssFontStyle.OBLIQUE"
+        else -> null
+    }
+
+    private fun emitTextAlignEnum(v: String): String? = when (v.trim().lowercase()) {
+        "left", "start" -> "TextAlignment.START"
+        "center" -> "TextAlignment.CENTER"
+        "right", "end" -> "TextAlignment.END"
+        "justify" -> "TextAlignment.JUSTIFY"
+        else -> null
+    }
+
+    private fun emitTextTransformEnum(v: String): String? = when (v.trim().lowercase()) {
+        "none" -> "TextTransform.NONE"
+        "lowercase" -> "TextTransform.LOWERCASE"
+        "uppercase" -> "TextTransform.UPPERCASE"
+        "capitalize" -> "TextTransform.CAPITALIZE"
+        else -> null
+    }
+
+    private fun emitTextOverflowEnum(v: String): String? = when (v.trim().lowercase()) {
+        "ellipsis", "truncate" -> "TextOverflow.ELLIPSIS"
+        "nowrap" -> "TextOverflow.NOWRAP"
+        "clip", "wrap" -> "TextOverflow.WRAP"
+        else -> null
+    }
+
+    private fun emitTextDecorationEnum(v: String): String? = when (v.trim().lowercase()) {
+        "none" -> "CssTextDecoration.NONE"
+        "underline" -> "CssTextDecoration.UNDERLINE"
+        "line-through" -> "CssTextDecoration.LINE_THROUGH"
+        "overline" -> "CssTextDecoration.OVERLINE"
+        else -> null
+    }
+
+    private fun emitWhiteSpaceEnum(v: String): String? = when (v.trim().lowercase()) {
+        "normal" -> "CssWhiteSpace.NORMAL"
+        "nowrap" -> "CssWhiteSpace.NOWRAP"
+        "pre" -> "CssWhiteSpace.PRE"
+        "pre-wrap" -> "CssWhiteSpace.PRE_WRAP"
+        "pre-line" -> "CssWhiteSpace.PRE_LINE"
+        else -> null
+    }
+
+    private fun emitFlexDirectionEnum(v: String): String? = when (v.trim().lowercase()) {
+        "row" -> "FlexDirection.ROW"
+        "row-reverse" -> "FlexDirection.ROW_REVERSE"
+        "column" -> "FlexDirection.COLUMN"
+        "column-reverse" -> "FlexDirection.COLUMN_REVERSE"
+        else -> null
+    }
+
+    private fun emitFlexWrapEnum(v: String): String? = when (v.trim().lowercase()) {
+        "nowrap" -> "FlexWrap.NOWRAP"
+        "wrap" -> "FlexWrap.WRAP"
+        "wrap-reverse" -> "FlexWrap.WRAP_REVERSE"
+        else -> null
+    }
+
+    private fun emitJustifyContentEnum(v: String): String? = when (v.trim().lowercase()) {
+        "flex-start", "start", "left" -> "JustifyContent.START"
+        "flex-end", "end", "right" -> "JustifyContent.END"
+        "center" -> "JustifyContent.CENTER"
+        "space-between", "between" -> "JustifyContent.BETWEEN"
+        "space-around", "around" -> "JustifyContent.AROUND"
+        "space-evenly", "evenly" -> "JustifyContent.EVENLY"
+        else -> null
+    }
+
+    private fun emitAlignItemsEnum(v: String): String? = when (v.trim().lowercase()) {
+        "flex-start", "start" -> "AlignItems.START"
+        "flex-end", "end" -> "AlignItems.END"
+        "center" -> "AlignItems.CENTER"
+        "baseline" -> "AlignItems.BASELINE"
+        "stretch" -> "AlignItems.STRETCH"
+        else -> null
+    }
+
+    private fun emitAlignSelfEnum(v: String): String? = when (v.trim().lowercase()) {
+        "auto" -> "AlignSelf.AUTO"
+        "flex-start", "start" -> "AlignSelf.START"
+        "flex-end", "end" -> "AlignSelf.END"
+        "center" -> "AlignSelf.CENTER"
+        "baseline" -> "AlignSelf.BASELINE"
+        "stretch" -> "AlignSelf.STRETCH"
+        else -> null
+    }
+
+    private fun emitOverflowEnum(v: String): String? = when (v.trim().lowercase()) {
+        "auto" -> "OverflowBehavior.AUTO"
+        "hidden", "clip" -> "OverflowBehavior.HIDDEN"
+        "visible" -> "OverflowBehavior.VISIBLE"
+        "scroll" -> "OverflowBehavior.SCROLL"
+        else -> null
+    }
+
+    private fun emitPointerEventsEnum(v: String): String? = when (v.trim().lowercase()) {
+        "auto" -> "CssPointerEvents.AUTO"
+        "none" -> "CssPointerEvents.NONE"
+        else -> null
+    }
+
+    private fun emitUserSelectEnum(v: String): String? = when (v.trim().lowercase()) {
+        "auto" -> "CssUserSelect.AUTO"
+        "none" -> "CssUserSelect.NONE"
+        "text" -> "CssUserSelect.TEXT"
+        "all" -> "CssUserSelect.ALL"
+        else -> null
+    }
+
+    private fun emitObjectFitEnum(v: String): String? = when (v.trim().lowercase()) {
+        "contain" -> "ObjectFit.CONTAIN"
+        "cover" -> "ObjectFit.COVER"
+        "fill" -> "ObjectFit.FILL"
+        "scale-down", "scale" -> "ObjectFit.SCALE_DOWN"
+        "none" -> "ObjectFit.NONE"
+        else -> null
+    }
+
+    private fun emitCursorEnum(v: String): String? = when (v.trim().lowercase()) {
+        "default" -> "CssCursor.DEFAULT"
+        "pointer" -> "CssCursor.POINTER"
+        "text" -> "CssCursor.TEXT"
+        "move" -> "CssCursor.MOVE"
+        "grab" -> "CssCursor.GRAB"
+        "grabbing" -> "CssCursor.GRABBING"
+        "not-allowed" -> "CssCursor.NOT_ALLOWED"
+        "crosshair" -> "CssCursor.CROSSHAIR"
+        "ew-resize", "col-resize" -> "CssCursor.EW_RESIZE"
+        "ns-resize", "row-resize" -> "CssCursor.NS_RESIZE"
+        else -> null
+    }
+
+    private fun splitTokensPreservingParens(raw: String): List<String> {
+        val out = mutableListOf<String>()
+        val current = StringBuilder()
+        var depth = 0
+        for (ch in raw) {
+            when {
+                ch == '(' -> {
+                    depth++
+                    current.append(ch)
+                }
+                ch == ')' -> {
+                    depth = (depth - 1).coerceAtLeast(0)
+                    current.append(ch)
+                }
+                ch.isWhitespace() && depth == 0 -> {
+                    if (current.isNotEmpty()) {
+                        out.add(current.toString())
+                        current.clear()
+                    }
+                }
+                else -> current.append(ch)
+            }
+        }
+        if (current.isNotEmpty()) out.add(current.toString())
+        return out
+    }
+
+    private fun splitTopLevelCommas(raw: String): List<String> {
+        val out = mutableListOf<String>()
+        val current = StringBuilder()
+        var depth = 0
+        for (ch in raw) {
+            when {
+                ch == '(' -> {
+                    depth++
+                    current.append(ch)
+                }
+                ch == ')' -> {
+                    depth = (depth - 1).coerceAtLeast(0)
+                    current.append(ch)
+                }
+                ch == ',' && depth == 0 -> {
+                    out.add(current.toString().trim())
+                    current.clear()
+                }
+                else -> current.append(ch)
+            }
+        }
+        if (current.isNotEmpty()) out.add(current.toString().trim())
+        return out.filter { it.isNotEmpty() }
     }
 
     private fun parseCssRulesAndKeyframes(
@@ -748,8 +1404,9 @@ abstract class GenericUiSassCompileTask : DefaultTask() {
                 }
                 header.isNotEmpty() -> {
                     val decls = parseDeclarations(body)
-                    val selectors = header.split(",").map { it.trim() }.filter { it.isNotEmpty() }
-                    for (sel in selectors) {
+                    val selectors = splitTopLevelCommas(header)
+                    for (rawSel in selectors) {
+                        val sel = sanitizeSelectorOrNull(rawSel) ?: continue
                         rules.add(
                             ParsedRule(
                                 selector = sel,

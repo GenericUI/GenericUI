@@ -40,11 +40,10 @@ open class CollapsibleBottomDockLayout(
     var isDockCollapsed: Boolean = false
         set(value) {
             val changed = (field != value)
+            if (!changed) return
             field = value
             impl.syncDockState()
-            if (changed) {
-                onDockCollapsedChanged?.invoke(value)
-            }
+            onDockCollapsedChanged?.invoke(value)
         }
 
     val isDockExpanded: Boolean
@@ -52,30 +51,35 @@ open class CollapsibleBottomDockLayout(
 
     var isDockHidden: Boolean = false
         set(value) {
+            if (field == value) return
             field = value
             impl.syncDockState()
         }
 
     var isFullscreen: Boolean = false
         set(value) {
+            if (field == value) return
             field = value
             impl.syncDockState()
         }
 
     var isInPictureInPictureMode: Boolean = false
         set(value) {
+            if (field == value) return
             field = value
             impl.syncDockState()
         }
 
     var hideWhenPrimaryColumnVisible: Boolean = false
         set(value) {
+            if (field == value) return
             field = value
             impl.syncDockState()
         }
 
     var isPrimaryColumnVisible: Boolean = false
         set(value) {
+            if (field == value) return
             field = value
             impl.syncDockState()
         }
@@ -265,16 +269,32 @@ open class CollapsibleBottomDockLayout(
      */
     fun applyDockState() {
         val visible = isDockCurrentlyVisible
-        bottomDockContainer.isVisible = visible
-        bottomDockContainer.heightPx = if (isDockCollapsed) collapsedHeightPx else expandedHeightPx
-        expandedSheetSlot.isVisible = !isDockCollapsed && expandedSheetSlot.children.isNotEmpty()
+        if (bottomDockContainer.isVisible != visible) {
+            bottomDockContainer.isVisible = visible
+        }
+        val targetH = if (isDockCollapsed) collapsedHeightPx else expandedHeightPx
+        if (bottomDockContainer.heightPx != targetH) {
+            bottomDockContainer.heightPx = targetH
+        }
+        val sheetVis = !isDockCollapsed && expandedSheetSlot.children.isNotEmpty()
+        if (expandedSheetSlot.isVisible != sheetVis) {
+            expandedSheetSlot.isVisible = sheetVis
+        }
 
         if (isDockCollapsed) {
-            bottomDockContainer.addClass("gui-bottom-dock-collapsed")
-            bottomDockContainer.removeClass("gui-bottom-dock-expanded")
+            if (!bottomDockContainer.hasClass("gui-bottom-dock-collapsed")) {
+                bottomDockContainer.addClass("gui-bottom-dock-collapsed")
+            }
+            if (bottomDockContainer.hasClass("gui-bottom-dock-expanded")) {
+                bottomDockContainer.removeClass("gui-bottom-dock-expanded")
+            }
         } else {
-            bottomDockContainer.addClass("gui-bottom-dock-expanded")
-            bottomDockContainer.removeClass("gui-bottom-dock-collapsed")
+            if (!bottomDockContainer.hasClass("gui-bottom-dock-expanded")) {
+                bottomDockContainer.addClass("gui-bottom-dock-expanded")
+            }
+            if (bottomDockContainer.hasClass("gui-bottom-dock-collapsed")) {
+                bottomDockContainer.removeClass("gui-bottom-dock-collapsed")
+            }
         }
 
         if (visible != lastKnownVisibleState) {

@@ -1,5 +1,6 @@
 package com.nexustools.genericui.style.css
 
+import com.nexustools.genericui.component.layout.LayoutBackendTarget
 import com.nexustools.genericui.enums.bootstrap.BorderRadiusStyle
 import com.nexustools.genericui.enums.bootstrap.ShadowElevation
 import com.nexustools.genericui.enums.css.CssBorderStyle
@@ -19,7 +20,7 @@ import kotlin.math.roundToInt
  *
  * Covers solid & alpha-transparent backgrounds, linear/radial gradients, borders (width, style, color,
  * corner radius), foreground text/icon color, opacity, padding, explicit box dimensions, gap, box shadow,
- * and focus ring styling.
+ * focus ring styling, and CSS filter / backdrop-filter blur.
  */
 data class StyledVisualSpec(
     val backgroundColor: RgbaColor? = null,
@@ -39,7 +40,10 @@ data class StyledVisualSpec(
     val boxShadowColor: RgbaColor? = null,
     val boxShadowBlurPx: Float? = null,
     val focusRingColor: RgbaColor? = null,
-    val focusRingWidthPx: Float? = null
+    val focusRingWidthPx: Float? = null,
+    val backdropBlurPx: Float? = null,
+    val backdropFilter: CssFilter? = null,
+    val filter: CssFilter? = null
 ) {
     val hasCustomBackground: Boolean
         get() = backgroundColor != null || backgroundGradient != null
@@ -49,6 +53,9 @@ data class StyledVisualSpec(
 
     val hasFocusRing: Boolean
         get() = (focusRingWidthPx ?: 0f) > 0f && focusRingColor != null
+
+    val hasBackdropBlur: Boolean
+        get() = (backdropBlurPx ?: 0f) > 0f || (backdropFilter?.blur?.resolvePx() ?: 0f) > 0f
 
     /**
      * Merges [overrideSpec] on top of this [StyledVisualSpec], preferring non-null properties from [overrideSpec].
@@ -73,12 +80,47 @@ data class StyledVisualSpec(
             boxShadowColor = overrideSpec.boxShadowColor ?: boxShadowColor,
             boxShadowBlurPx = overrideSpec.boxShadowBlurPx ?: boxShadowBlurPx,
             focusRingColor = overrideSpec.focusRingColor ?: focusRingColor,
-            focusRingWidthPx = overrideSpec.focusRingWidthPx ?: focusRingWidthPx
+            focusRingWidthPx = overrideSpec.focusRingWidthPx ?: focusRingWidthPx,
+            backdropBlurPx = overrideSpec.backdropBlurPx ?: backdropBlurPx,
+            backdropFilter = overrideSpec.backdropFilter ?: backdropFilter,
+            filter = overrideSpec.filter ?: filter
+        )
+    }
+
+    /**
+     * Filters this [StyledVisualSpec] for the given [backendTarget]:
+     * - On `WEB`, `ANDROID`, and `IOS`, retains all properties including [backdropBlurPx] and [backdropFilter].
+     * - On Desktop targets (`WINDOWS`, `MACOS`, `GTK`, `QT`, `SWING`), strips [backdropBlurPx] and [backdropFilter]
+     *   while preserving alpha-translucent [backgroundColor], [backgroundGradient], borders, shadows, and geometry.
+     */
+    fun forBackend(backendTarget: LayoutBackendTarget): StyledVisualSpec = when (backendTarget) {
+        LayoutBackendTarget.WEB,
+        LayoutBackendTarget.ANDROID,
+        LayoutBackendTarget.IOS -> this
+        LayoutBackendTarget.WINDOWS,
+        LayoutBackendTarget.MACOS,
+        LayoutBackendTarget.GTK,
+        LayoutBackendTarget.QT,
+        LayoutBackendTarget.SWING -> copy(
+            backdropBlurPx = null,
+            backdropFilter = null
         )
     }
 
     companion object {
         val EMPTY = StyledVisualSpec()
+
+        private val BLUR_FN_REGEX = Regex("""blur\(\s*(\d+(?:\.\d+)?)\s*(?:px)?\s*\)""", RegexOption.IGNORE_CASE)
+
+        private fun parseBackdropBlurPx(filter: CssFilter?, rawBackdropCss: String?): Float? {
+            filter?.blur?.resolvePx()?.takeIf { it > 0f }?.let { return it }
+            if (!rawBackdropCss.isNullOrBlank()) {
+                val match = BLUR_FN_REGEX.find(rawBackdropCss)
+                val parsed = match?.groupValues?.getOrNull(1)?.toFloatOrNull()
+                if (parsed != null && parsed > 0f) return parsed
+            }
+            return null
+        }
 
         private fun resolveAbsolutePxInt(length: CssLength?): Int? {
             if (length == null || length.isAuto || length.isNone || length.unit == CssUnit.PERCENT) {
@@ -161,6 +203,17 @@ data class StyledVisualSpec(
             val parsedMinHeightPx = parseCssPxInt(computed.minHeight ?: computed.rawDeclarations["min-height"])
             val parsedGapPx = parseCssPxInt(computed.rawDeclarations["gap"] ?: computed.rawDeclarations["column-gap"])
 
+            val rawBackdropCss = computed.rawDeclarations["backdrop-filter"]
+                ?: computed.rawDeclarations["-webkit-backdrop-filter"]
+            val parsedBackdropFilter = CssFilter.parse(rawBackdropCss)
+            val parsedBackdropBlurPx = parseBackdropBlurPx(parsedBackdropFilter, rawBackdropCss)
+            val parsedFilter = computed.filter ?: CssFilter.parse(computed.rawDeclarations["filter"])
+
+            val rawBoxShadow = computed.boxShadow ?: computed.rawDeclarations["box-shadow"]
+            val parsedShadow = CssShadowList.parse(rawBoxShadow)?.shadows?.firstOrNull()
+            val parsedShadowColor = parsedShadow?.color
+            val parsedShadowBlurPx = parsedShadow?.blurRadius?.resolvePx()
+
             val hasAny = computed.backgroundColor != null ||
                 computed.backgroundGradient != null ||
                 computed.textColor != null ||
@@ -175,7 +228,12 @@ data class StyledVisualSpec(
                 parsedMinWidthPx != null ||
                 parsedMinHeightPx != null ||
                 parsedGapPx != null ||
-                parsedFocusRingColor != null
+                parsedFocusRingColor != null ||
+                parsedShadowColor != null ||
+                parsedShadowBlurPx != null ||
+                parsedBackdropBlurPx != null ||
+                parsedBackdropFilter != null ||
+                parsedFilter != null
             if (!hasAny) return null
             return StyledVisualSpec(
                 backgroundColor = computed.backgroundColor,
@@ -192,8 +250,13 @@ data class StyledVisualSpec(
                 minWidthPx = parsedMinWidthPx,
                 minHeightPx = parsedMinHeightPx,
                 gapPx = parsedGapPx,
+                boxShadowColor = parsedShadowColor,
+                boxShadowBlurPx = parsedShadowBlurPx,
                 focusRingColor = parsedFocusRingColor,
-                focusRingWidthPx = parsedFocusRingWidth
+                focusRingWidthPx = parsedFocusRingWidth,
+                backdropBlurPx = parsedBackdropBlurPx,
+                backdropFilter = parsedBackdropFilter,
+                filter = parsedFilter
             )
         }
 
@@ -277,7 +340,9 @@ data class StyledVisualSpec(
                 ?: parseCssPxInt(computedStyle?.rawDeclarations?.get("gap") ?: computedStyle?.rawDeclarations?.get("column-gap"))
                 ?: (snapshot?.gap ?: snapshot?.columnGap)?.toPixels()
 
+            val rawBoxShadow = computedStyle?.boxShadow ?: computedStyle?.rawDeclarations?.get("box-shadow")
             val firstShadow = componentStyle?.boxShadow?.shadows?.firstOrNull()
+                ?: CssShadowList.parse(rawBoxShadow)?.shadows?.firstOrNull()
             val snapshotShadowBlur = when (snapshot?.shadow) {
                 ShadowElevation.NONE -> 0f
                 ShadowElevation.SMALL -> 4f
@@ -288,6 +353,15 @@ data class StyledVisualSpec(
             val resolvedShadowColor = firstShadow?.color
                 ?: if ((snapshotShadowBlur ?: 0f) > 0f) RgbaColor(0, 0, 0, 0.35f) else null
             val resolvedShadowBlur = firstShadow?.blurRadius?.resolvePx() ?: snapshotShadowBlur
+
+            val rawBackdropCss = computedStyle?.rawDeclarations?.get("backdrop-filter")
+                ?: computedStyle?.rawDeclarations?.get("-webkit-backdrop-filter")
+            val resolvedBackdropFilter = componentStyle?.backdropFilter
+                ?: CssFilter.parse(rawBackdropCss)
+            val resolvedBackdropBlurPx = parseBackdropBlurPx(resolvedBackdropFilter, rawBackdropCss)
+            val resolvedFilter = componentStyle?.filter
+                ?: computedStyle?.filter
+                ?: CssFilter.parse(computedStyle?.rawDeclarations?.get("filter"))
 
             return StyledVisualSpec(
                 backgroundColor = resolvedBg,
@@ -305,7 +379,10 @@ data class StyledVisualSpec(
                 minHeightPx = resolvedMinHeightPx,
                 gapPx = resolvedGapPx,
                 boxShadowColor = resolvedShadowColor,
-                boxShadowBlurPx = resolvedShadowBlur
+                boxShadowBlurPx = resolvedShadowBlur,
+                backdropBlurPx = resolvedBackdropBlurPx,
+                backdropFilter = resolvedBackdropFilter,
+                filter = resolvedFilter
             )
         }
     }

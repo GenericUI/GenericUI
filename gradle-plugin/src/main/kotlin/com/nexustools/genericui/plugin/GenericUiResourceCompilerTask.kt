@@ -638,11 +638,9 @@ abstract class GenericUiResourceCompilerTask : DefaultTask() {
             }
         }
         for (st in styles) {
-            if (st.textContent != null) {
-                appendLine(
-                    "        table.registerRawText(ResourceID(0x${st.numericId.toString(16)}, ResourceType.STYLE, ${escapeKotlinString(st.name)}, ${escapeKotlinString(st.relativePath)}), ${escapeKotlinString(st.textContent)})"
-                )
-            }
+            appendLine(
+                "        table.registerResourceId(ResourceID(0x${st.numericId.toString(16)}, ResourceType.STYLE, ${escapeKotlinString(st.name)}, ${escapeKotlinString(st.relativePath)}))"
+            )
         }
         appendLine("    }")
         appendLine("}")

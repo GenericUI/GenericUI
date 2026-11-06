@@ -35,12 +35,14 @@ open class LazyList(
     val viewportTracker: LazyViewportTracker = LazyViewportTracker(overscanItems)
 
     private val activeHolders = linkedMapOf<Int, ViewHolder>()
+    private val cachedItemHolders = linkedMapOf<Int, ViewHolder>()
     private var isRefreshingViewport: Boolean = false
 
     var adapter: LazyAdapter<ViewHolder>? = null
         set(value) {
             field?.unregisterDataSetObserver(adapterObserver)
             unloadAllVisibleItems()
+            clearCachedItemHolders()
             field = value
             value?.registerDataSetObserver(adapterObserver)
             refreshLazyViewport()
@@ -54,8 +56,10 @@ open class LazyList(
     var scrollOffsetPx: Float = 0f
         private set
 
-    var viewportExtentPx: Float = 600f
+    var viewportExtentPx: Float = 840f
         private set
+
+    internal var pendingScrollIndex: Int? = null
 
     var activeViewportWindow: LazyViewportWindow = LazyViewportWindow.EMPTY
         private set
@@ -70,19 +74,32 @@ open class LazyList(
         refreshLazyViewport()
     }
 
+    private fun clearCachedItemHolders() {
+        for (holder in cachedItemHolders.values) {
+            holder.itemView.dispose()
+        }
+        cachedItemHolders.clear()
+    }
+
     /**
      * Configures the lazy list using a declarative item count and builder/unloader callbacks.
      */
     fun setItems(
         count: Int,
         onLoadItem: (index: Int) -> AbstractComponent,
-        onUnloadItem: ((index: Int, component: AbstractComponent) -> Unit)? = null
+        onUnloadItem: ((index: Int, component: AbstractComponent) -> Unit)? = null,
+        initialScrollIndex: Int? = null
     ): LazyList = apply {
         unloadAllVisibleItems()
+        clearCachedItemHolders()
         this.totalItemCount = count.coerceAtLeast(0)
         this.itemBuilder = onLoadItem
         this.itemUnloader = onUnloadItem
-        refreshLazyViewport()
+        if (initialScrollIndex != null && initialScrollIndex >= 0) {
+            scrollToIndex(initialScrollIndex)
+        } else {
+            refreshLazyViewport()
+        }
     }
 
     /**
@@ -92,15 +109,35 @@ open class LazyList(
     fun onViewportChanged(scrollOffsetPx: Float, viewportExtentPx: Float): LazyViewportWindow {
         val clampedScroll = scrollOffsetPx.coerceAtLeast(0f)
         val clampedExtent = viewportExtentPx.coerceAtLeast(1f)
+        val pending = pendingScrollIndex
+        if (pending != null && clampedScroll == 0f) {
+            pendingScrollIndex = null
+            val total = adapter?.getItemCount() ?: totalItemCount
+            val targetIdx = if (total > 0) pending.coerceIn(0, total - 1) else pending.coerceAtLeast(0)
+            val contextIdx = (targetIdx - 1).coerceAtLeast(0)
+            this.scrollOffsetPx = (contextIdx * estimatedItemExtentPx).coerceAtLeast(0f)
+            this.viewportExtentPx = clampedExtent
+            val window = refreshLazyViewport()
+            typedNative<LazyListNativeImpl<*>>()?.scrollToIndex(targetIdx)
+            return window
+        }
+        if (clampedScroll > 0f) {
+            pendingScrollIndex = null
+        }
         this.scrollOffsetPx = clampedScroll
         this.viewportExtentPx = clampedExtent
         return refreshLazyViewport()
     }
 
     fun scrollToIndex(index: Int) {
-        val targetOffset = (index.coerceAtLeast(0) * estimatedItemExtentPx)
-        onViewportChanged(targetOffset, viewportExtentPx)
-        typedNative<LazyListNativeImpl<*>>()?.scrollToIndex(index)
+        val total = adapter?.getItemCount() ?: totalItemCount
+        val targetIdx = if (total > 0) index.coerceIn(0, total - 1) else index.coerceAtLeast(0)
+        pendingScrollIndex = targetIdx
+        val contextIdx = (targetIdx - 1).coerceAtLeast(0)
+        val targetOffset = (contextIdx * estimatedItemExtentPx).coerceAtLeast(0f)
+        this.scrollOffsetPx = targetOffset
+        refreshLazyViewport()
+        typedNative<LazyListNativeImpl<*>>()?.scrollToIndex(targetIdx)
     }
 
     fun refreshLazyViewport(): LazyViewportWindow {
@@ -158,10 +195,38 @@ open class LazyList(
                     holder.itemView.ensureNativeImpl()
                         ?: (resolveActiveFactory() ?: com.nexustools.genericui.core.GenericUI.activeFactory)!!.createContainer("lazy-item")
                 }
+                if (scrollOffsetPx == 0f && adapter == null && itemUnloader == null && cachedItemHolders.isEmpty() && total > window.lastActiveIndex + 1) {
+                    val prewarmEnd = minOf(total - 1, window.lastActiveIndex + 28)
+                    prewarmOverscanHolders(window.lastActiveIndex + 1, prewarmEnd)
+                }
             }
             return window
         } finally {
             isRefreshingViewport = false
+        }
+    }
+
+    private fun prewarmOverscanHolders(startIdx: Int, endIdxInclusive: Int) {
+        val applyStyles = (resolveActiveFactory() ?: com.nexustools.genericui.core.GenericUI.activeFactory)?.isStyleSheetEngineEnabled != false
+        val sheets = if (applyStyles) Application.current?.getStyleSheets() else null
+        for (index in startIdx..endIdxInclusive) {
+            if (activeHolders.containsKey(index) || cachedItemHolders.containsKey(index)) continue
+            val view = itemBuilder?.invoke(index) ?: continue
+            val holder = ViewHolder(view, 0).also {
+                it.boundPosition = index
+                it.isBound = true
+            }
+            view.setAttribute("data-lazy-index", index.toString())
+            view.parent = this
+            if (applyStyles && sheets != null) {
+                for (sheet in sheets) {
+                    sheet.styleSheet.applyToTree(view)
+                }
+            }
+            view.ensureNativeImpl()
+            if (cachedItemHolders.size < 64) {
+                cachedItemHolders[index] = holder
+            }
         }
     }
 
@@ -172,6 +237,13 @@ open class LazyList(
 
     private fun bindHolderForIndex(index: Int): ViewHolder {
         val currentAdapter = adapter
+        val cached = if (currentAdapter == null && itemUnloader == null) cachedItemHolders.remove(index) else null
+        if (cached != null) {
+            val insertPos = activeHolders.keys.count { it < index }
+            activeHolders[index] = cached
+            addChild(cached.itemView, insertPos)
+            return cached
+        }
         val holder = if (currentAdapter != null) {
             val viewType = currentAdapter.getItemViewType(index)
             val pooled = viewHolderPool.acquire(viewType) ?: currentAdapter.onCreateViewHolder(viewType)
@@ -189,12 +261,13 @@ open class LazyList(
         holder.itemView.setAttribute("data-lazy-index", index.toString())
         val insertPos = activeHolders.keys.count { it < index }
         activeHolders[index] = holder
-        addChild(holder.itemView, insertPos)
+        holder.itemView.parent = this
         if ((resolveActiveFactory() ?: com.nexustools.genericui.core.GenericUI.activeFactory)?.isStyleSheetEngineEnabled != false) {
             Application.current?.getStyleSheets()?.forEach { sheet ->
                 sheet.styleSheet.applyToTree(holder.itemView)
             }
         }
+        addChild(holder.itemView, insertPos)
         return holder
     }
 
@@ -205,6 +278,14 @@ open class LazyList(
         removeChild(holder.itemView)
         if (adapter != null) {
             viewHolderPool.release(holder)
+        } else if (itemUnloader == null) {
+            if (cachedItemHolders.size >= 64) {
+                val eldestKey = cachedItemHolders.keys.firstOrNull()
+                if (eldestKey != null) {
+                    cachedItemHolders.remove(eldestKey)?.itemView?.dispose()
+                }
+            }
+            cachedItemHolders[index] = holder
         } else {
             holder.itemView.dispose()
         }
@@ -230,8 +311,14 @@ open class LazyList(
     internal override fun ensureNativeImpl(): com.nexustools.genericui.core.NativeImpl<*>? {
         val wasAlreadyCreated = (nativeImpl != null)
         val impl = super.ensureNativeImpl() ?: return null
-        if (wasAlreadyCreated) {
+        if (wasAlreadyCreated && activeHolders.isEmpty() && (adapter?.getItemCount() ?: totalItemCount) > 0) {
             refreshLazyViewport()
+        }
+        val pending = pendingScrollIndex
+        if (pending != null) {
+            val total = adapter?.getItemCount() ?: totalItemCount
+            val targetIdx = if (total > 0) pending.coerceIn(0, total - 1) else pending.coerceAtLeast(0)
+            (impl as? LazyListNativeImpl<*>)?.scrollToIndex(targetIdx)
         }
         return impl
     }
@@ -247,10 +334,17 @@ open class LazyList(
             }
         }
         refreshLazyViewport()
+        val pending = pendingScrollIndex
+        if (pending != null) {
+            val total = adapter?.getItemCount() ?: totalItemCount
+            val targetIdx = if (total > 0) pending.coerceIn(0, total - 1) else pending.coerceAtLeast(0)
+            impl.scrollToIndex(targetIdx)
+        }
     }
 
     override fun dispose() {
         unloadAllVisibleItems()
+        clearCachedItemHolders()
         viewHolderPool.clear()
         super.dispose()
     }

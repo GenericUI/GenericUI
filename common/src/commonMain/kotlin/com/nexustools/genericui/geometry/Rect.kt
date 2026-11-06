@@ -13,4 +13,8 @@ data class Rect(val x: Int, val y: Int, val width: Int, val height: Int) {
 
     fun contains(px: Int, py: Int): Boolean =
         px in x until right && py in y until bottom
+
+    companion object {
+        val ZERO = Rect(0, 0, 0, 0)
+    }
 }

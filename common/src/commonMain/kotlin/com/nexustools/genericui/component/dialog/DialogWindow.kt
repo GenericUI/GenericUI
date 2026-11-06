@@ -192,6 +192,7 @@ open class DialogWindow(
         private set
 
     override var isClosable: Boolean = true
+    var dismissOnBackdropClick: Boolean = true
     override val isMinimizable: Boolean = false
     override val isMaximizable: Boolean = false
     override var isResizable: Boolean = true

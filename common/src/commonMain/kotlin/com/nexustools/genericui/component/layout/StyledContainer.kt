@@ -100,8 +100,14 @@ open class StyledContainer(
         )
     }
 
+    private var lastSyncedVisualSpec: StyledVisualSpec? = null
+
     protected fun syncVisualsToNative() {
-        typedNative<StyledContainerNativeImpl<*>>()?.setStyledVisuals(resolveVisualSpec())
+        val impl = typedNative<StyledContainerNativeImpl<*>>() ?: return
+        val spec = resolveVisualSpec()
+        if (spec == lastSyncedVisualSpec) return
+        lastSyncedVisualSpec = spec
+        impl.setStyledVisuals(spec)
     }
 
     override fun applyComputedStyle(style: ComputedStyle) {
@@ -113,6 +119,7 @@ open class StyledContainer(
         factory.createStyledContainer(componentClassPrefix, htmlTag)
 
     override fun syncStateToNative() {
+        lastSyncedVisualSpec = null
         super.syncStateToNative()
         syncVisualsToNative()
     }

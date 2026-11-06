@@ -53,8 +53,11 @@ open class Tab(
             ownerNotifyUpdated?.invoke(this)
         }
 
-    var isSelected: Boolean = false
-        internal set(value) {
+    open val isSelectable: Boolean = true
+    open val supportsContent: Boolean = true
+
+    open var isSelected: Boolean = false
+        set(value) {
             field = value
             typedNative<TabNativeImpl<*>>()?.setSelectedNative(value)
         }
@@ -78,8 +81,14 @@ open class Tab(
     internal var ownerNotifyUpdated: ((Tab) -> Unit)? = null
     internal var ownerRequestClose: ((Tab) -> Boolean)? = null
 
+    internal val nativeTabImpl: TabNativeImpl<*>?
+        get() = typedNative<TabNativeImpl<*>>()
+
     init {
         htmlTag = "genericui:tab"
+        if (id.isNullOrEmpty()) {
+            id = tabId
+        }
         if (customComponent != null) {
             this.customComponent = customComponent
         }

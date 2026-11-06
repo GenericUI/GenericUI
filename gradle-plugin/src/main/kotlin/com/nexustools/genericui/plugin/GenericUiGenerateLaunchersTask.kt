@@ -459,7 +459,9 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
             val styleSheetPath = variantConfig.globalStyleSheet?.trim()?.takeIf { it.isNotEmpty() }
             if (styleSheetPath != null) {
                 appendLine("        globalStyleSheetPath = ${escapeKotlinString(styleSheetPath)},")
-                appendLine("        precompiledStyleSheetInstaller = { app -> app.addStyleSheet(${escapeKotlinString(styleSheetPath)}) },")
+                if (backendScope != GenericUiVariantScope.WEB) {
+                    appendLine("        precompiledStyleSheetInstaller = { app -> app.addStyleSheet(${escapeKotlinString(styleSheetPath)}) },")
+                }
             }
             appendLine("        mainFragmentClass = ${winningMain.qualifiedName}::class,")
             appendLine("        mainFragmentFactory = { _: com.nexustools.genericui.component.fragment.FragmentBundle? -> ${winningMain.qualifiedName}() },")

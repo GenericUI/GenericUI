@@ -2,6 +2,7 @@ package com.nexustools.genericui.nativeimpl.content
 
 import com.nexustools.genericui.core.NativeImpl
 import com.nexustools.genericui.enums.ui.ObjectFit
+import com.nexustools.genericui.image.ImageBuffer
 import com.nexustools.genericui.style.color.ImageTintMode
 import com.nexustools.genericui.style.color.RgbaColor
 import com.nexustools.genericui.style.css.CssFilter
@@ -9,6 +10,7 @@ import com.nexustools.genericui.style.css.CssFilter
 interface ImageNativeImpl<out W> : NativeImpl<W> {
     fun setSourceUrl(url: String?)
     fun getSourceUrl(): String?
+    fun setImageBuffer(buffer: ImageBuffer?) {}
     fun setPlaceholderUrl(url: String?) {}
     fun getPlaceholderUrl(): String? = null
     fun setFallbackText(fallback: String?)

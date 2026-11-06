@@ -54,6 +54,8 @@ open class LazyGrid(
     var viewportHeightPx: Float = 600f
         private set
 
+    internal var pendingScrollIndex: Int? = null
+
     var activeViewportWindow: LazyViewportWindow = LazyViewportWindow.EMPTY
         private set
 
@@ -70,25 +72,51 @@ open class LazyGrid(
     fun setItems(
         count: Int,
         onLoadItem: (index: Int) -> AbstractComponent,
-        onUnloadItem: ((index: Int, component: AbstractComponent) -> Unit)? = null
+        onUnloadItem: ((index: Int, component: AbstractComponent) -> Unit)? = null,
+        initialScrollIndex: Int? = null
     ): LazyGrid = apply {
         unloadAllVisibleItems()
         this.itemCount = count.coerceAtLeast(0)
         this.itemBuilder = onLoadItem
         this.itemUnloader = onUnloadItem
-        refreshLazyViewport()
+        if (initialScrollIndex != null && initialScrollIndex >= 0) {
+            scrollToIndex(initialScrollIndex)
+        } else {
+            refreshLazyViewport()
+        }
     }
 
     fun onViewportChanged(scrollOffsetPx: Float, viewportHeightPx: Float): LazyViewportWindow {
-        this.scrollOffsetPx = scrollOffsetPx.coerceAtLeast(0f)
-        this.viewportHeightPx = viewportHeightPx.coerceAtLeast(1f)
+        val clampedScroll = scrollOffsetPx.coerceAtLeast(0f)
+        val clampedExtent = viewportHeightPx.coerceAtLeast(1f)
+        val pending = pendingScrollIndex
+        if (pending != null && clampedScroll == 0f) {
+            pendingScrollIndex = null
+            val total = adapter?.getItemCount() ?: itemCount
+            val targetIdx = if (total > 0) pending.coerceIn(0, total - 1) else pending.coerceAtLeast(0)
+            val contextRow = ((targetIdx / columns) - 1).coerceAtLeast(0)
+            this.scrollOffsetPx = (contextRow * estimatedRowHeightPx).coerceAtLeast(0f)
+            this.viewportHeightPx = clampedExtent
+            val window = refreshLazyViewport()
+            typedNative<LazyGridNativeImpl<*>>()?.scrollToIndex(targetIdx)
+            return window
+        }
+        if (clampedScroll > 0f) {
+            pendingScrollIndex = null
+        }
+        this.scrollOffsetPx = clampedScroll
+        this.viewportHeightPx = clampedExtent
         return refreshLazyViewport()
     }
 
     fun scrollToIndex(index: Int) {
-        val row = index.coerceAtLeast(0) / columns
-        onViewportChanged(row * estimatedRowHeightPx, viewportHeightPx)
-        typedNative<LazyGridNativeImpl<*>>()?.scrollToIndex(index)
+        val total = adapter?.getItemCount() ?: itemCount
+        val targetIdx = if (total > 0) index.coerceIn(0, total - 1) else index.coerceAtLeast(0)
+        pendingScrollIndex = targetIdx
+        val contextRow = ((targetIdx / columns) - 1).coerceAtLeast(0)
+        this.scrollOffsetPx = (contextRow * estimatedRowHeightPx).coerceAtLeast(0f)
+        refreshLazyViewport()
+        typedNative<LazyGridNativeImpl<*>>()?.scrollToIndex(targetIdx)
     }
 
     fun refreshLazyViewport(): LazyViewportWindow {
@@ -219,6 +247,12 @@ open class LazyGrid(
         if (wasAlreadyCreated) {
             refreshLazyViewport()
         }
+        val pending = pendingScrollIndex
+        if (pending != null) {
+            val total = adapter?.getItemCount() ?: itemCount
+            val targetIdx = if (total > 0) pending.coerceIn(0, total - 1) else pending.coerceAtLeast(0)
+            (impl as? LazyGridNativeImpl<*>)?.scrollToIndex(targetIdx)
+        }
         return impl
     }
 
@@ -233,6 +267,12 @@ open class LazyGrid(
             }
         }
         refreshLazyViewport()
+        val pending = pendingScrollIndex
+        if (pending != null) {
+            val total = adapter?.getItemCount() ?: itemCount
+            val targetIdx = if (total > 0) pending.coerceIn(0, total - 1) else pending.coerceAtLeast(0)
+            impl.scrollToIndex(targetIdx)
+        }
     }
 
     override fun dispose() {

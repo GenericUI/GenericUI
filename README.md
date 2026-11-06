@@ -97,14 +97,14 @@ Every `.kt` file across all modules strictly adheres to the **1 Public Class / I
 | **`:extensions:imageprocessing`** | **Project-of-Projects** (`:common`, `:systemCommon`, `:web`) | `:extensions:gpu` | Offscreen in-memory GPU-accelerated image manipulation & filter pipelines (`GpuImageProcessor`, `GpuImageFilterChain`, `GpuImageKernel`, `GpuHistogramAnalyzer`) operating on `:common`'s `ImageBuffer`. |
 | **`:extensions:overlay`** | **Single KMP Project** (+ `:extensions:overlay:dsl`) | `:common` | Domain-agnostic customizable overlay architecture (`OverlayHost`, `OverlayHostBox`, `AbstractOverlay`, `PresetOverlay`, `MobileOverlayPreset`, `WebSystemOverlayPreset`, `AutoHideController`, `TrackSeekBar`, `SliderSeekBar`). |
 | **`:extensions:canvas2d`** | **Project-of-Projects** (`:common`, `:systemCommon`, `:desktop:*`, `:mobile:*`, `:web` + `:dsl`) | `:extensions:imageprocessing`, `:extensions:overlay` | Dedicated 2D vector/raster canvas (`Canvas2D`, `ScrollCanvas2D`, `Canvas2DContext`, `CurveEditor`, `Canvas2DOverlayHost`). |
-| **`:extensions:canvas3d`** | **Project-of-Projects** (`:common`, `:systemCommon`, `:desktop:*`, `:mobile:*`, `:web` + `:dsl`) | `:extensions:gpu`, `:extensions:canvas2d`, `:extensions:overlay` | Dedicated OpenGL ES 3.0+ (`GLCanvas` with ANGLE on Windows) and Vulkan 1.2+ (`VKCanvas` with MoltenVK on Apple) interactive GPU surfaces. |
+| **`:extensions:canvas3d`** | **Project-of-Projects** (`:common`, `:systemCommon`, `:desktop:*`, `:mobile:*`, `:web` + `:dsl`) | `:extensions:gpu`, `:extensions:canvas2d`, `:extensions:overlay` | Unified `Canvas3D` (`Canvas3DConfig`, `Canvas3DRegistry`) & `ScrollCanvas3D` interactive GPU surfaces supporting OpenGL ES 3.0+ (`GLContext` with ANGLE on Windows) and Vulkan 1.2+ (`VKContext` with MoltenVK on Apple & WebGPU on Web). |
 | **`:extensions:media`** | **Project-of-Projects** (`:common`, `:systemCommon`, `:desktop:*`, `:mobile:*`, `:web` + `:dsl`) | `:extensions:overlay` | `VideoPlayer` (with uniform codec reporting & `VideoOverlayHost`), `AudioPlayer`, `AudioAnalyzer`, `WebVttSrtParser`, native **`libvlc` bindings** in `:extensions:media:desktop:nativeCommon`, and **`libvlcj`** in `:extensions:media:desktop:swing`. |
 | **`:extensions:mediacontrols`** | **Project-of-Projects** (`:common`, `:systemCommon`, `:desktop:*`, `:mobile:*`, `:web` + `:dsl`) | `:common` **only** | Standalone OS media session & hardware media key hooks (`MediaControlsSession`, `MediaControlMetadata`, Windows `ITaskbarList3` thumbnail buttons + SMTC + `WM_APPCOMMAND`, macOS `MPRemoteCommandCenter` + `MPNowPlayingInfoCenter`, Linux MPRIS2, Web `navigator.mediaSession`). |
 | **`:extensions:webview`** | **Project-of-Projects** (`:common`, `:systemCommon`, `:desktop:*`, `:mobile:*`, `:web` + `:dsl`) | `:common` (plus `lib/NJS` on Desktop/Swing only) | Dedicated `WebView` extension (`WebView`, `WebViewController`, `WebViewJsBridge`). Uses **Chromium (`ChromiumBlinkEngine`) + `NJS` (`lib/NJS` AsmJit/SLJIT Native JIT Engine)** on Desktop, and native `android.webkit.WebView` (`:android`), `WKWebView` (`:ios`), and `<iframe>` (`:web`) — **never using `NJS` on Mobile or Web**. |
 | **`:extensions:alien`** | **Project-of-Projects** (`:common`, `:systemCommon`, `:web` + `:dsl`) | `:extensions:canvas2d` | Self-rendered Bootstrap 5.3 `Canvas2D` UI engine (`AlienContainer`, `AlienFragment`, `AlienScrollFragment`, `AlienFragmentHostFragment`, `UnalienContainer`, using `<genericui:fragment>` across all Alien fragment subclasses) with precompiled `AlienPrecompiledBootstrapStyleSheet`, `IAlien` (`IAlien.BOOTSTRAP_STYLE_SHEET_ID`, `insertApplicationStyleSheets = 1` default or `-1` to disable application stylesheets), and 100% CSS property & transition support. |
 | **`:extensions:codeeditor`** | **Single KMP Project** (+ `:dsl`) | `:extensions:canvas2d` | Extension-only IDE-style code editor (`IdeCodeEditor`) with syntax highlighting, line numbers, code folding, minimap, autocomplete, diagnostics, and `Ctrl+Click` Go-To-Definition. |
 | **`:extensions:aichat`** | **Single KMP Project** (+ `:dsl`) | `:extensions:codeeditor` ($\rightarrow$ `canvas2d`) | Reusable AI Assistant UI & orchestration suite (`AiChatContainer`, `AIChatDrawer`, `AIChatConversationList`, `AIChatMessageView`, `AIChatPromptComposer`, `AIChatAgentOrchestrator`). |
-| **`:extensions:threejs`** | **Single KMP Project** (+ `:dsl`) | `:extensions:gpu`, `:extensions:canvas3d` | Three.js-inspired 3D scene graph (`ThreeSceneCanvas`, `ThreeGLCanvas`, `ThreeVKCanvas`, `ThreeCamera`, `ThreeMesh`, `ThreeGeometry`, `ThreeMaterial`, `ThreeLight`, `ThreeOrbitControls`). |
+| **`:extensions:threejs`** | **Single KMP Project** (+ `:dsl`) | `:extensions:gpu`, `:extensions:canvas3d` | Three.js-inspired 3D scene graph (`Scene`, `PerspectiveCamera`, `WebGLRenderer`, `Mesh`, `BufferGeometry`, `MeshStandardMaterial`, `DirectionalLight`, `OrbitControls`, `Canvas3D`). |
 | **`:extensions:box2d`** | **Single KMP Project** (+ `:dsl`) | `:extensions:canvas2d`, `:extensions:canvas3d` ($\rightarrow$ `gpu`) | Pure KMP 2D rigid-body & particle physics engine (`Box2DWorld`, `Box2DBody`, `Box2DCollider`, `Box2DJoint`, `Box2DCanvas`). |
 | **`:extensions:box3d`** | **Single KMP Project** (+ `:dsl`) | `:extensions:canvas3d`, `:extensions:threejs` ($\rightarrow$ `gpu`) | Pure KMP 3D rigid-body physics engine (`Box3DWorld`, `Box3DBody`, `Box3DCollider`, `Box3DConstraint`, `Box3DThreeJsBridge`). |
 | **`:extensions:dsl`** | **Single KMP Project** (+ 12 `:extensions:<name>:dsl` submodules) | `:common` | Declarative Kotlin UI, hybrid layout ([`HybridLayoutDsl.kt`](./extensions/dsl/src/commonMain/kotlin/com/nexustools/genericui/ext/dsl/HybridLayoutDsl.kt)), and style/Bootstrap DSL builders ([`DslStyleAndBootstrapBuilders.kt`](./extensions/dsl/src/commonMain/kotlin/com/nexustools/genericui/ext/dsl/DslStyleAndBootstrapBuilders.kt): `style { ... }`, `bootstrap { ... }`, `important { ... }`, strictly isolated to `:extensions:dsl`). |
@@ -400,12 +400,16 @@ val encodedPngBytes = ImageLoader.encode(outputBuffer, ImageFormat.PNG)
 
 ---
 
-### 4. `:extensions:canvas2d` (`Canvas2D`) & `:extensions:canvas3d` (`GLCanvas`, `VKCanvas`) with `registerVBlankRender(deltaMs)`
+### 4. `:extensions:canvas2d` (`Canvas2D`) & `:extensions:canvas3d` (`Canvas3D`) with `registerVBlankRender(deltaMs)`
 
 ```kotlin
 import com.nexustools.genericui.component.media.Canvas2D
-import com.nexustools.genericui.component.media.GLCanvas
-import com.nexustools.genericui.component.media.VKCanvas
+import com.nexustools.genericui.component.media.Canvas3D
+import com.nexustools.genericui.component.media.GLClearBuffer
+import com.nexustools.genericui.component.media.GLContextAttributes
+import com.nexustools.genericui.component.media.VKDeviceAttributes
+import com.nexustools.genericui.component.media.VKRenderPassDescriptor
+import com.nexustools.genericui.ext.gpu.GpuAccelerationPolicy
 
 // 1. 2D Vector/Raster Canvas (:extensions:canvas2d)
 val canvas2d = Canvas2D(width = 800, height = 600).apply {
@@ -416,17 +420,20 @@ val canvas2d = Canvas2D(width = 800, height = 600).apply {
     }
 }
 
-// 2. OpenGL ES 3.0+ Canvas (:extensions:canvas3d + :extensions:gpu, Google ANGLE -> D3D11 on Windows)
-val glCanvas = GLCanvas(width = 1280, height = 720, preferES31 = true).apply {
-    registerVBlankRender { deltaMs ->
-        glContext?.clearColorBuffer(0.08f, 0.09f, 0.12f, 1.0f)
+// 2. Unified 3D Canvas (:extensions:canvas3d + :extensions:gpu — OpenGL ES 3.0+ / ANGLE or Vulkan 1.2+ / MoltenVK / WebGPU)
+val glCanvas = Canvas3D(width = 1280, height = 720, accelerationPolicy = GpuAccelerationPolicy.PREFER_HARDWARE).apply {
+    val gl = getContext(GLContextAttributes(preferAngleOnWindows = true))
+    registerVBlankRender { _ ->
+        gl.clearColor(0.08f, 0.09f, 0.12f, 1.0f)
+        gl.clear(setOf(GLClearBuffer.COLOR, GLClearBuffer.DEPTH))
     }
 }
 
-// 3. Vulkan 1.2+ Canvas (:extensions:canvas3d + :extensions:gpu, MoltenVK -> Metal on macOS & iOS)
-val vkCanvas = VKCanvas(width = 1280, height = 720, enableValidation = true).apply {
-    registerVBlankRender { deltaMs ->
-        // Record command buffer for current swapchain image...
+val vkCanvas = Canvas3D(width = 1280, height = 720, accelerationPolicy = GpuAccelerationPolicy.PREFER_HARDWARE).apply {
+    val vk = getContext(VKDeviceAttributes(enableValidation = true))
+    registerVBlankRender { _ ->
+        vk.beginRenderPass(VKRenderPassDescriptor(clearR = 0.05f, clearG = 0.07f, clearB = 0.12f, clearA = 1.0f))
+        vk.endRenderPass()
     }
 }
 ```

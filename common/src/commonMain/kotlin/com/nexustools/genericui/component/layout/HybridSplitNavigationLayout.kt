@@ -2,6 +2,7 @@ package com.nexustools.genericui.component.layout
 
 import com.nexustools.genericui.component.navigation.BottomNavigationBar
 import com.nexustools.genericui.component.tabs.BadgeTab
+import com.nexustools.genericui.component.tabs.ButtonTab
 import com.nexustools.genericui.component.tabs.Tab
 import com.nexustools.genericui.component.tabs.TabContainer
 import com.nexustools.genericui.component.tabs.TabPosition
@@ -42,17 +43,51 @@ open class HybridSplitNavigationLayout(
         var title: String,
         var icon: String?,
         var badge: String?,
-        val content: AbstractComponent,
+        val content: AbstractComponent?,
         val tab: Tab
     )
 
     private val sections = linkedMapOf<String, SectionEntry>()
     private var suppressNavCallbacks: Boolean = false
     private var inColumnModeState: Boolean = inColumnMode
+    private var hasSyncedNavigationChrome: Boolean = false
 
     val topTabLayout: TabContainer = TabContainer()
-    val headerSlot: Container = Container("div", "gui-split-nav-header")
-    val contentHost: Container = Container("div", "gui-split-nav-content")
+    val headerSlot: Container = object : Container("div", "gui-split-nav-header") {
+        override fun onAttachNative(impl: com.nexustools.genericui.core.NativeImpl<*>) {
+            super.onAttachNative(impl)
+            prewarmHeaderChildren()
+        }
+
+        override fun applyStyleSheet(
+            styleSheet: com.nexustools.genericui.style.css.CssStyleSheet,
+            viewportWidthPx: Int
+        ) {
+            super.applyStyleSheet(styleSheet, viewportWidthPx)
+            prewarmHeaderChildren()
+        }
+    }
+    val contentHost: Container = object : Container("div", "gui-split-nav-content") {
+        override fun onAttachNative(impl: com.nexustools.genericui.core.NativeImpl<*>) {
+            super.onAttachNative(impl)
+            prewarmInactiveSections()
+        }
+
+        override fun applyStyleSheet(
+            styleSheet: com.nexustools.genericui.style.css.CssStyleSheet,
+            viewportWidthPx: Int
+        ) {
+            super.applyStyleSheet(styleSheet, viewportWidthPx)
+            for (entry in sections.values) {
+                val sectionContent = entry.content ?: continue
+                if (!children.contains(sectionContent)) {
+                    sectionContent.parent = this
+                    sectionContent.applyStyleSheet(styleSheet, viewportWidthPx)
+                }
+            }
+            prewarmInactiveSections()
+        }
+    }
     val bottomNavigationBar: BottomNavigationBar = BottomNavigationBar()
 
     var selectedSectionId: String? = null
@@ -63,7 +98,7 @@ open class HybridSplitNavigationLayout(
     var inColumnMode: Boolean
         get() = inColumnModeState
         set(value) {
-            inColumnModeState = value
+            if (inColumnModeState == value && hasSyncedNavigationChrome) return
             impl.syncNavigationChrome(value)
         }
 
@@ -189,6 +224,107 @@ open class HybridSplitNavigationLayout(
             selectSection(id)
         } else {
             syncActiveSelectionToBars()
+            if (contentHost.nativeImpl != null) {
+                prewarmSectionEntry(entry)
+            }
+        }
+    }
+
+    /**
+     * Registers an action-only [ButtonTab] section with [id], [title], optional [icon], and [onClick].
+     * Clicking this item in either [topTabLayout] or [bottomNavigationBar] invokes [onClick] without
+     * changing [selectedSectionId] or swapping [contentHost].
+     */
+    fun addButtonSection(
+        id: String,
+        title: String,
+        icon: String? = null,
+        onClick: () -> Unit = {}
+    ): ButtonTab {
+        val buttonTab = ButtonTab(
+            title = title,
+            id = id,
+            icon = icon,
+            onClick = onClick
+        )
+        return addButtonSection(buttonTab)
+    }
+
+    /**
+     * Registers an existing [ButtonTab] as an action-only section in both [topTabLayout] and [bottomNavigationBar].
+     */
+    fun addButtonSection(tab: ButtonTab): ButtonTab {
+        val sectionId = tab.id?.takeIf { it.isNotEmpty() } ?: tab.tabId
+        if (sections.containsKey(sectionId)) {
+            removeSection(sectionId)
+        }
+        val entry = SectionEntry(
+            id = sectionId,
+            title = tab.title,
+            icon = tab.icon,
+            badge = null,
+            content = null,
+            tab = tab
+        )
+        sections[sectionId] = entry
+
+        suppressNavCallbacks = true
+        try {
+            topTabLayout.addButtonTab(tab)
+            syncBottomNavigationItems()
+        } finally {
+            suppressNavCallbacks = false
+        }
+        syncActiveSelectionToBars()
+        return tab
+    }
+
+    private fun prewarmHeaderChildren() {
+        if (headerSlot.nativeImpl == null) return
+        val sheet = headerSlot.lastAppliedStyleSheet ?: host.lastAppliedStyleSheet
+        val vw = headerSlot.lastStyleSheetViewportWidthPx
+        for (child in headerSlot.children) {
+            if (sheet != null && child.lastAppliedStyleSheet !== sheet) {
+                child.applyStyleSheet(sheet, vw)
+            }
+            if (!child.isVisible && child.nativeImpl == null) {
+                child.isVisible = true
+                child.ensureNativeImpl()
+                child.isVisible = false
+            }
+        }
+    }
+
+    private fun prewarmSectionEntry(entry: SectionEntry) {
+        if (contentHost.nativeImpl == null) return
+        val content = entry.content ?: return
+        if (content.parent == null) {
+            content.parent = contentHost
+        }
+        val sheet = contentHost.lastAppliedStyleSheet ?: host.lastAppliedStyleSheet
+        val vw = contentHost.lastStyleSheetViewportWidthPx
+        if (sheet != null && content.lastAppliedStyleSheet !== sheet) {
+            content.applyStyleSheet(sheet, vw)
+        }
+        if (content.nativeImpl == null) {
+            if (!content.isVisible) {
+                content.isVisible = true
+                content.ensureNativeImpl()
+                content.isVisible = false
+            } else {
+                content.ensureNativeImpl()
+            }
+        }
+        refreshLazyListsInSubtree(content)
+    }
+
+    private fun prewarmInactiveSections() {
+        if (contentHost.nativeImpl == null) return
+        for (entry in sections.values) {
+            val sectionContent = entry.content ?: continue
+            if (!contentHost.children.contains(sectionContent)) {
+                prewarmSectionEntry(entry)
+            }
         }
     }
 
@@ -197,8 +333,10 @@ open class HybridSplitNavigationLayout(
      */
     fun removeSection(id: String): Boolean {
         val removed = sections.remove(id) ?: return false
-        if (contentHost.children.contains(removed.content)) {
-            contentHost.removeChild(removed.content)
+        removed.content?.let { sectionContent ->
+            if (contentHost.children.contains(sectionContent)) {
+                contentHost.removeChild(sectionContent)
+            }
         }
         suppressNavCallbacks = true
         try {
@@ -209,7 +347,7 @@ open class HybridSplitNavigationLayout(
         }
 
         if (selectedSectionId == id) {
-            val nextId = sections.keys.firstOrNull()
+            val nextId = sections.values.firstOrNull { it.tab.isSelectable && it.content != null }?.id
             if (nextId != null) {
                 selectSection(nextId)
             } else {
@@ -228,14 +366,26 @@ open class HybridSplitNavigationLayout(
      */
     fun selectSection(id: String): Boolean {
         val entry = sections[id] ?: return false
+        if (!entry.tab.isSelectable || entry.content == null) {
+            (entry.tab as? ButtonTab)?.performClick()
+            syncActiveSelectionToBars()
+            return false
+        }
+        val sectionContent = entry.content
         val changed = (selectedSectionId != id)
         selectedSectionId = id
 
-        if (contentHost.children.size != 1 || contentHost.children.firstOrNull() !== entry.content) {
+        if (contentHost.children.size != 1 || contentHost.children.firstOrNull() !== sectionContent) {
+            val previousChildren = contentHost.children.toList()
             contentHost.clearChildren()
-            contentHost.addChild(entry.content)
+            for (prev in previousChildren) {
+                if (prev !== sectionContent && sections.values.any { it.content === prev }) {
+                    prev.parent = contentHost
+                }
+            }
+            contentHost.addChild(sectionContent)
         }
-        refreshLazyListsInSubtree(entry.content)
+        refreshLazyListsInSubtree(sectionContent)
 
         syncActiveSelectionToBars()
         if (changed) {
@@ -246,7 +396,12 @@ open class HybridSplitNavigationLayout(
 
     private fun refreshLazyListsInSubtree(component: AbstractComponent) {
         when (component) {
-            is com.nexustools.genericui.component.lazy.LazyList -> component.refreshLazyViewport()
+            is com.nexustools.genericui.component.lazy.LazyList -> {
+                val total = component.adapter?.getItemCount() ?: component.totalItemCount
+                if (component.loadedItemCount == 0 && total > 0) {
+                    component.refreshLazyViewport()
+                }
+            }
             is com.nexustools.genericui.component.lazy.LazyGrid -> component.refreshLazyViewport()
             is com.nexustools.genericui.component.lazy.TreeView<*> -> component.refreshLazyViewport()
             is AbstractContainer -> {
@@ -290,6 +445,7 @@ open class HybridSplitNavigationLayout(
         if (component != null) {
             headerSlot.addChild(component)
             headerSlot.isVisible = true
+            prewarmHeaderChildren()
         } else {
             headerSlot.isVisible = false
         }
@@ -343,24 +499,38 @@ open class HybridSplitNavigationLayout(
      * Applies the evaluated [inColumnMode] navigation chrome to [topTabLayout], [bottomNavigationBar], and [host].
      */
     fun applyNavigationChrome(inColumnMode: Boolean) {
+        val changed = !hasSyncedNavigationChrome || inColumnModeState != inColumnMode
         inColumnModeState = inColumnMode
-        if (inColumnMode) {
-            topTabLayout.tabPosition = TabPosition.TOP
-            topTabLayout.isVisible = true
-            bottomNavigationBar.isVisible = false
-            host.addClass("gui-split-nav-column-mode")
-            host.removeClass("gui-split-nav-compact-mode")
-        } else {
-            topTabLayout.tabPosition = TabPosition.BOTTOM
-            topTabLayout.isVisible = false
-            bottomNavigationBar.isVisible = true
-            host.addClass("gui-split-nav-compact-mode")
-            host.removeClass("gui-split-nav-column-mode")
+        hasSyncedNavigationChrome = true
+        if (changed) {
+            if (inColumnMode) {
+                topTabLayout.tabPosition = TabPosition.TOP
+                topTabLayout.isVisible = true
+                bottomNavigationBar.isVisible = false
+                host.addClass("gui-split-nav-column-mode")
+                host.removeClass("gui-split-nav-compact-mode")
+            } else {
+                topTabLayout.tabPosition = TabPosition.BOTTOM
+                topTabLayout.isVisible = false
+                bottomNavigationBar.isVisible = true
+                host.addClass("gui-split-nav-compact-mode")
+                host.removeClass("gui-split-nav-column-mode")
+            }
+            syncActiveSelectionToBars()
         }
-        syncActiveSelectionToBars()
     }
 
     private fun syncBottomNavigationItems() {
+        val actionMap = linkedMapOf<String, () -> Unit>()
+        for (entry in sections.values) {
+            val btnTab = entry.tab as? ButtonTab
+            if (btnTab != null || !entry.tab.isSelectable) {
+                actionMap[entry.id] = {
+                    (entry.tab as? ButtonTab)?.performClick()
+                }
+            }
+        }
+        bottomNavigationBar.setActionCallbacks(actionMap)
         bottomNavigationBar.setItems(
             sections.values.map { entry ->
                 Triple(entry.id, entry.title, entry.icon)

@@ -208,6 +208,15 @@ open class Window(
     private fun installNativeWindowResizeForwarder(wImpl: WindowNativeImpl<*>) {
         wImpl.setOnWindowResize { config ->
             sizeState = Size(config.widthPx, config.heightPx)
+            if (!config.isFullscreen && (fullscreenState || fullscreenElement != null)) {
+                val prev = fullscreenElement
+                fullscreenElement = null
+                fullscreenState = false
+                prev?.updateFullscreenElementState(false, cutoutModeState)
+                updateFullscreenElementState(false, cutoutModeState)
+                syncNavBarToNative(wImpl)
+                syncBottomNavToNative(wImpl)
+            }
             fragmentContainer?.onResize(config.widthPx, config.heightPx)
             fragmentContainer?.onConfigurationChanged(config)
             onResizeListener?.invoke(config)
@@ -341,9 +350,9 @@ open class Window(
         }
         winImpl?.let { impl ->
             val elImpl = if (element === this) impl else element.ensureNativeImpl()
-            impl.setFullscreenElement(elImpl, cutoutMode)
             syncNavBarToNative(impl)
             syncBottomNavToNative(impl)
+            impl.setFullscreenElement(elImpl, cutoutMode)
         }
     }
 
@@ -354,9 +363,9 @@ open class Window(
         prev?.updateFullscreenElementState(false, cutoutModeState)
         updateFullscreenElementState(false, cutoutModeState)
         winImpl?.let { impl ->
-            impl.setFullscreenElement(null, cutoutModeState)
             syncNavBarToNative(impl)
             syncBottomNavToNative(impl)
+            impl.setFullscreenElement(null, cutoutModeState)
         }
     }
 

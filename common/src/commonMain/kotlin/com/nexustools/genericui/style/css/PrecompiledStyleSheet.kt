@@ -44,6 +44,12 @@ interface PrecompiledStyleSheet {
         get() = emptyList()
 
     /**
+     * Optional `@keyframes` map generated at build time.
+     */
+    val keyframes: Map<String, Map<String, Map<String, String>>>
+        get() = emptyMap()
+
+    /**
      * Optional hook invoked when this stylesheet is attached to an [com.nexustools.genericui.component.shell.IApplication].
      */
     fun applyTo(application: com.nexustools.genericui.component.shell.IApplication) {}

@@ -51,7 +51,7 @@ To keep `:common` and core backend modules 100% free of extension-specific logic
    - **`:extensions:gpu`**: Unified Vulkan 1.2+ (`VKContext` primary with SPIR-V & MoltenVK) and OpenGL ES 3.0+ (`GLContext` fallback with Google ANGLE on Windows) device, shader, and offscreen context foundation.
    - **`:extensions:imageprocessing`**: Offscreen GPU-accelerated image filters and layer compositing (`GpuImageProcessor`, `GpuImageFilterChain`, `GpuImageKernel`).
    - **`:extensions:canvas2d`**: Hardware-accelerated 2D canvas (`Canvas2D`, `ScrollCanvas2D`, `CurveEditor`, `Canvas2DOverlayHost`).
-   - **`:extensions:canvas3d`**: Hardware-accelerated 3D/shader canvases (`GLCanvas`, `VKCanvas`, `ScrollCanvas3D`, `Canvas3DOverlayHost`).
+   - **`:extensions:canvas3d`**: Unified hardware-accelerated 3D/shader canvas (`Canvas3D`, `Canvas3DConfig`, `Canvas3DRegistry`, `ScrollCanvas3D`, `Canvas3DOverlayHost`).
    - **`:extensions:media`**: `VideoPlayer` (with `VideoOverlayHost`), `AudioPlayer`, `AudioAnalyzer`, `WebVttSrtParser`, native `libvlc` in `:extensions:media:desktop:nativeCommon`, and `libvlcj` in `:extensions:media:desktop:swing`.
    - **`:extensions:mediacontrols`**: Standalone OS media transport controls and hardware keyboard media key hooks (`MediaControlsSession` — depends **only on `:common`**).
    - **`:extensions:webview`**: Chromium (`ChromiumBlinkEngine`) + `NJS` (`lib/NJS` AsmJit/SLJIT Native JIT Engine) on Desktop/Swing, and native `android.webkit.WebView` / `WKWebView` / `<iframe>` on Mobile/Web.

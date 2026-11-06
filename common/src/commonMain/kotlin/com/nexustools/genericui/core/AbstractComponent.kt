@@ -3,10 +3,12 @@ package com.nexustools.genericui.core
 import com.nexustools.genericui.component.shell.ContextMenu
 import com.nexustools.genericui.enums.bootstrap.*
 import com.nexustools.genericui.enums.window.DisplayCutoutMode
+import com.nexustools.genericui.event.InputFocusManager
 import com.nexustools.genericui.event.KeyEvent
 import com.nexustools.genericui.event.PointerDragManager
 import com.nexustools.genericui.event.PointerDragSession
 import com.nexustools.genericui.event.PointerEvent
+import com.nexustools.genericui.event.PopupMouseCaptureManager
 import com.nexustools.genericui.event.WheelEvent
 import com.nexustools.genericui.geometry.EdgeInsets
 import com.nexustools.genericui.geometry.Rect
@@ -16,6 +18,8 @@ import com.nexustools.genericui.style.color.RgbaColor
 import com.nexustools.genericui.style.css.ComponentStyle
 import com.nexustools.genericui.style.css.ComputedStyle
 import com.nexustools.genericui.style.css.CssCursorValue
+import com.nexustools.genericui.style.css.CssLength
+import com.nexustools.genericui.style.css.CssProperty
 import com.nexustools.genericui.style.css.CssStyleSheet
 import com.nexustools.genericui.style.css.PrecompiledStyleSheet
 import com.nexustools.genericui.style.gradient.Gradient.Gradient
@@ -38,8 +42,57 @@ abstract class AbstractComponent(
 ) : Disposable {
 
     private val initialHtmlTag: String = htmlTag.trim().ifEmpty { "genericui:component" }
-    private var lastAppliedStyleSheet: CssStyleSheet? = null
-    private var lastStyleSheetViewportWidthPx: Int = 1280
+    internal var lastAppliedStyleSheet: CssStyleSheet? = null
+    internal var lastStyleSheetViewportWidthPx: Int = 1280
+    private var lastStyleSheetMediaBucket: Int = Int.MIN_VALUE
+    private var lastStyleSheetDarkTheme: Boolean? = null
+    private var cachedSheetBaseStyle: ComputedStyle? = null
+    var cachedSheetHasMediaRules: Boolean = true
+    var cachedSelectorClasses: LinkedHashSet<String>? = null
+    private var suppressComponentStyleCallback: Boolean = false
+
+    internal fun invalidateCachedSheetBaseStyle() {
+        cachedSheetBaseStyle = null
+        cachedSheetHasMediaRules = true
+        cachedSelectorClasses = null
+        if (this is AbstractContainer) {
+            for (child in children) {
+                child.invalidateCachedSheetBaseStyle()
+            }
+        }
+    }
+
+    internal fun invalidateCachedSheetBaseStyleForClasses(changedClasses: List<String>) {
+        cachedSelectorClasses = null
+        val sheet = lastAppliedStyleSheet
+        if (sheet == null) {
+            invalidateCachedSheetBaseStyle()
+            return
+        }
+        var affectsSelf = false
+        var affectsDescendants = false
+        for (cls in changedClasses) {
+            if (sheet.isClassReferencedInSubject(cls)) affectsSelf = true
+            if (sheet.isClassReferencedInAncestor(cls)) affectsDescendants = true
+        }
+        if (affectsSelf || affectsDescendants) {
+            cachedSheetBaseStyle = null
+            cachedSheetHasMediaRules = true
+        }
+        if (affectsDescendants && this is AbstractContainer) {
+            for (child in children) {
+                child.invalidateCachedSheetBaseStyle()
+            }
+        }
+    }
+
+    private fun resolveOrGetCachedSheetBaseStyle(): ComputedStyle? {
+        val sheet = lastAppliedStyleSheet ?: return null
+        cachedSheetBaseStyle?.let { return it }
+        return sheet.resolveSheetStyleForComponent(this, viewportWidthPx = lastStyleSheetViewportWidthPx).also {
+            cachedSheetBaseStyle = it
+        }
+    }
 
     protected open fun defaultHtmlTag(): String = initialHtmlTag
 
@@ -48,6 +101,7 @@ abstract class AbstractComponent(
             val normalized = value.trim().ifEmpty { defaultHtmlTag() }
             if (field == normalized) return
             field = normalized
+            invalidateCachedSheetBaseStyle()
             nativeImpl?.setAttribute("data-genericui-tag", normalized)
             val sheet = lastAppliedStyleSheet
             if (sheet != null) {
@@ -55,6 +109,12 @@ abstract class AbstractComponent(
             }
         }
     open var id: String? = null
+        set(value) {
+            if (field == value) return
+            field = value
+            invalidateCachedSheetBaseStyle()
+            nativeImpl?.setAttribute("id", value)
+        }
     var parent: AbstractComponent? = null
         internal set
 
@@ -71,6 +131,31 @@ abstract class AbstractComponent(
 
     open val activeFactory: NativeFactory?
         get() = resolveActiveFactory()
+
+    open val isTextInputComponent: Boolean
+        get() = false
+
+    var ignoreKeyEventsWhenTypingInTextInput: Boolean = true
+
+    var hookMouseWhenPopupVisible: Boolean = false
+        set(value) {
+            if (field == value) return
+            field = value
+            syncPopupMouseCaptureRegistration()
+        }
+
+    var onPopupOutsideClickDismiss: (() -> Unit)? = null
+
+    private fun syncPopupMouseCaptureRegistration() {
+        if (hookMouseWhenPopupVisible && visibleState) {
+            PopupMouseCaptureManager.registerPopup(this) {
+                isVisible = false
+                onPopupOutsideClickDismiss?.invoke()
+            }
+        } else {
+            PopupMouseCaptureManager.unregisterPopup(this)
+        }
+    }
 
     // Lightweight pre-attachment Kotlin state
     private var visibleState: Boolean = true
@@ -105,22 +190,22 @@ abstract class AbstractComponent(
     var minWidthPx: Int? = null
         set(value) {
             field = value
-            if (value != null) setStyleProperty("min-width", "${value}px") else removeStyleProperty("min-width")
+            componentStyleInstance.setMinWidth(value?.let { CssLength.px(it) })
         }
     var minHeightPx: Int? = null
         set(value) {
             field = value
-            if (value != null) setStyleProperty("min-height", "${value}px") else removeStyleProperty("min-height")
+            componentStyleInstance.setMinHeight(value?.let { CssLength.px(it) })
         }
     var maxWidthPx: Int? = null
         set(value) {
             field = value
-            if (value != null) setStyleProperty("max-width", "${value}px") else removeStyleProperty("max-width")
+            componentStyleInstance.setMaxWidth(value?.let { CssLength.px(it) })
         }
     var maxHeightPx: Int? = null
         set(value) {
             field = value
-            if (value != null) setStyleProperty("max-height", "${value}px") else removeStyleProperty("max-height")
+            componentStyleInstance.setMaxHeight(value?.let { CssLength.px(it) })
         }
 
     var padding: EdgeInsets = EdgeInsets.ZERO
@@ -136,7 +221,8 @@ abstract class AbstractComponent(
     private var styleSnapshot: BootstrapStyleSnapshot = BootstrapStyleSnapshot(componentPrefix = componentClassPrefix)
 
     private val componentStyleInstance: ComponentStyle = ComponentStyle(
-        onChange = { onComponentStyleChanged() }
+        onChange = { onComponentStyleChanged() },
+        onPropertyChange = { prop -> onSingleInlineStylePropertyMutated(prop) }
     )
 
     private val componentBootstrapInstance: ComponentBootstrap = ComponentBootstrap(
@@ -144,12 +230,42 @@ abstract class AbstractComponent(
         onChange = { onComponentBootstrapChanged(it) }
     )
 
+    private fun onSingleInlineStylePropertyMutated(prop: CssProperty) {
+        if (suppressComponentStyleCallback) return
+        val cssVal = componentStyleInstance.getSinglePropertyCssString(prop)
+        onSingleInlineStylePropertyMutated(prop, prop.cssName, cssVal)
+    }
+
+    open fun onSingleInlineStylePropertyMutated(
+        property: CssProperty,
+        cssPropertyName: String,
+        cssValue: String?
+    ) {
+        val activeFactory = resolveActiveFactory() ?: GenericUI.activeFactory
+        val engineEnabled = activeFactory?.isStyleSheetEngineEnabled ?: true
+        val sheetBase = if (engineEnabled) resolveOrGetCachedSheetBaseStyle() else null
+        val currentBase = computedStyleState ?: sheetBase ?: ComputedStyle.EMPTY
+        val updated = componentStyleInstance.applySinglePropertyToComputed(property, currentBase, sheetBase)
+        if (cssValue != null) {
+            inlineStyleMap[cssPropertyName] = if (componentStyleInstance.isImportant(property)) "$cssValue !important" else cssValue
+        } else {
+            inlineStyleMap.remove(cssPropertyName)
+        }
+        applyComputedStyle(updated)
+        nativeImpl?.applyComponentStyle(componentStyleInstance)
+        if (property == CssProperty.BACKGROUND_IMAGE) {
+            nativeImpl?.setBackgroundGradient(updated.backgroundGradient)
+        } else if (property == CssProperty.CURSOR) {
+            nativeImpl?.setCustomCursor(updated.customCursor)
+        }
+    }
+
     private fun onComponentStyleChanged() {
+        if (suppressComponentStyleCallback) return
         val activeFactory = resolveActiveFactory() ?: GenericUI.activeFactory
         val engineEnabled = activeFactory?.isStyleSheetEngineEnabled ?: true
         val base = if (engineEnabled) {
-            lastAppliedStyleSheet?.resolveStyleForComponent(this, viewportWidthPx = lastStyleSheetViewportWidthPx)
-                ?: computedStyleState
+            resolveOrGetCachedSheetBaseStyle() ?: computedStyleState
         } else {
             computedStyleState
         }
@@ -161,7 +277,11 @@ abstract class AbstractComponent(
     }
 
     private fun onComponentBootstrapChanged(bootstrap: ComponentBootstrap) {
-        styleSnapshot = bootstrap.applyToSnapshot(styleSnapshot)
+        val nextSnapshot = bootstrap.applyToSnapshot(styleSnapshot)
+        if (nextSnapshot != styleSnapshot) {
+            styleSnapshot = nextSnapshot
+            invalidateCachedSheetBaseStyle()
+        }
         notifyParentCacheDirty()
         val impl = nativeImpl
         if (impl != null) {
@@ -212,8 +332,23 @@ abstract class AbstractComponent(
     var onClick: (() -> Unit)? = null
         set(value) {
             field = value
-            nativeImpl?.setOnClick(value)
+            nativeImpl?.setOnClick(buildEffectiveClickListener())
         }
+
+    private fun buildEffectiveClickListener(): (() -> Unit)? {
+        val raw = onClick ?: return null
+        return {
+            if (!PopupMouseCaptureManager.interceptClick(target = this)) {
+                raw()
+            }
+        }
+    }
+
+    fun triggerClick() {
+        if (!isEnabled) return
+        if (PopupMouseCaptureManager.interceptClick(target = this)) return
+        onClick?.invoke()
+    }
     var onDoubleClick: (() -> Unit)? = null
         set(value) {
             field = value
@@ -301,14 +436,36 @@ abstract class AbstractComponent(
         }
     var onKeyDown: ((KeyEvent) -> Unit)? = null
         set(value) {
-            field = value
-            nativeImpl?.setOnKeyDown(value)
+            val wrapped: ((KeyEvent) -> Unit)? = if (value == null) null else { ev ->
+                if (!InputFocusManager.shouldIgnoreShortcutKeyEvent(ev, this)) {
+                    value(ev)
+                }
+            }
+            field = wrapped
+            nativeImpl?.setOnKeyDown(wrapped)
         }
     var onKeyUp: ((KeyEvent) -> Unit)? = null
         set(value) {
-            field = value
-            nativeImpl?.setOnKeyUp(value)
+            val wrapped: ((KeyEvent) -> Unit)? = if (value == null) null else { ev ->
+                if (!InputFocusManager.shouldIgnoreShortcutKeyEvent(ev, this)) {
+                    value(ev)
+                }
+            }
+            field = wrapped
+            nativeImpl?.setOnKeyUp(wrapped)
         }
+
+    fun triggerKeyDown(ev: KeyEvent) {
+        if (!isEnabled) return
+        if (InputFocusManager.shouldIgnoreShortcutKeyEvent(ev, this)) return
+        onKeyDown?.invoke(ev)
+    }
+
+    fun triggerKeyUp(ev: KeyEvent) {
+        if (!isEnabled) return
+        if (InputFocusManager.shouldIgnoreShortcutKeyEvent(ev, this)) return
+        onKeyUp?.invoke(ev)
+    }
 
     private val activeComponentTimerIds = linkedSetOf<Int>()
 
@@ -424,8 +581,13 @@ abstract class AbstractComponent(
         val factory = resolveActiveFactory() ?: return null
         val created = createNativeImpl(factory)
         nativeImpl = created
-        onAttachNative(created)
-        syncStateToNative()
+        created.beginBatchAttach()
+        try {
+            onAttachNative(created)
+            syncStateToNative()
+        } finally {
+            created.endBatchAttach()
+        }
         return created
     }
 
@@ -447,21 +609,26 @@ abstract class AbstractComponent(
             impl.setAttribute(attrKey, attrVal)
         }
         impl.setPreferredSize(preferredSizeState)
-        minWidthPx?.let {
-            inlineStyleMap["min-width"] = "${it}px"
-            componentStyleInstance.setRawDeclaration("min-width", "${it}px")
-        }
-        minHeightPx?.let {
-            inlineStyleMap["min-height"] = "${it}px"
-            componentStyleInstance.setRawDeclaration("min-height", "${it}px")
-        }
-        maxWidthPx?.let {
-            inlineStyleMap["max-width"] = "${it}px"
-            componentStyleInstance.setRawDeclaration("max-width", "${it}px")
-        }
-        maxHeightPx?.let {
-            inlineStyleMap["max-height"] = "${it}px"
-            componentStyleInstance.setRawDeclaration("max-height", "${it}px")
+        suppressComponentStyleCallback = true
+        try {
+            minWidthPx?.let {
+                inlineStyleMap["min-width"] = "${it}px"
+                componentStyleInstance.setRawDeclaration("min-width", "${it}px")
+            }
+            minHeightPx?.let {
+                inlineStyleMap["min-height"] = "${it}px"
+                componentStyleInstance.setRawDeclaration("min-height", "${it}px")
+            }
+            maxWidthPx?.let {
+                inlineStyleMap["max-width"] = "${it}px"
+                componentStyleInstance.setRawDeclaration("max-width", "${it}px")
+            }
+            maxHeightPx?.let {
+                inlineStyleMap["max-height"] = "${it}px"
+                componentStyleInstance.setRawDeclaration("max-height", "${it}px")
+            }
+        } finally {
+            suppressComponentStyleCallback = false
         }
         impl.setPadding(padding)
         impl.setMargin(margin)
@@ -474,7 +641,7 @@ abstract class AbstractComponent(
             impl.applyComponentStyle(componentStyleInstance)
         }
         impl.applyComponentBootstrap(componentBootstrapInstance)
-        impl.setOnClick(onClick)
+        impl.setOnClick(buildEffectiveClickListener())
         impl.setOnDoubleClick(onDoubleClick)
         impl.setOnContextMenu(buildEffectiveContextMenuListener())
         impl.setOnPointerDown(onPointerDown)
@@ -514,8 +681,8 @@ abstract class AbstractComponent(
 
     private fun syncStyleSnapshotToNative(impl: NativeImpl<*>) {
         syncBootstrapEnumsToNative(impl)
-        for (custom in styleSnapshot.customClasses) {
-            impl.addClass(custom)
+        if (styleSnapshot.customClasses.isNotEmpty()) {
+            impl.setClass(styleSnapshot.customClasses.joinToString(" "))
         }
     }
 
@@ -530,9 +697,36 @@ abstract class AbstractComponent(
 
     fun getClasses(): Set<String> = styleSnapshot.customClasses.toSet()
 
+    private fun splitClassTokens(className: String): List<String> {
+        val trimmed = className.trim()
+        if (trimmed.isEmpty()) return emptyList()
+        if (!trimmed.contains(' ') && !trimmed.contains('\t') && !trimmed.contains('\n')) {
+            return listOf(trimmed)
+        }
+        val out = ArrayList<String>(4)
+        var start = -1
+        for (i in trimmed.indices) {
+            val ch = trimmed[i]
+            if (ch.isWhitespace()) {
+                if (start >= 0) {
+                    out.add(trimmed.substring(start, i))
+                    start = -1
+                }
+            } else if (start < 0) {
+                start = i
+            }
+        }
+        if (start >= 0) {
+            out.add(trimmed.substring(start))
+        }
+        return out
+    }
+
     fun setClass(className: String) {
-        val customSet = className.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }.toSet()
+        val customSet = splitClassTokens(className).toSet()
+        if (styleSnapshot.customClasses == customSet) return
         styleSnapshot = styleSnapshot.copy(customClasses = customSet)
+        invalidateCachedSheetBaseStyle()
         notifyParentCacheDirty()
         nativeImpl?.setClass(customSet.joinToString(" "))
     }
@@ -540,12 +734,16 @@ abstract class AbstractComponent(
     fun getClass(): String = styleSnapshot.customClasses.joinToString(" ")
 
     fun addClass(className: String) {
-        val tokens = className.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
+        val tokens = splitClassTokens(className)
         if (tokens.isEmpty()) return
         val updated = LinkedHashSet(styleSnapshot.customClasses)
-        updated.addAll(tokens)
+        if (!updated.addAll(tokens)) return
         styleSnapshot = styleSnapshot.copy(customClasses = updated)
-        notifyParentCacheDirty()
+        invalidateCachedSheetBaseStyleForClasses(tokens)
+        val sheet = lastAppliedStyleSheet
+        if (sheet == null || tokens.any { sheet.isClassReferencedInSubject(it) || sheet.isClassReferencedInAncestor(it) }) {
+            notifyParentCacheDirty()
+        }
         for (tok in tokens) {
             nativeImpl?.addClass(tok)
         }
@@ -558,12 +756,20 @@ abstract class AbstractComponent(
     }
 
     fun removeClass(className: String) {
-        val tokens = className.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
+        val tokens = splitClassTokens(className)
         if (tokens.isEmpty()) return
         val updated = LinkedHashSet(styleSnapshot.customClasses)
-        updated.removeAll(tokens.toSet())
+        var changed = false
+        for (tok in tokens) {
+            if (updated.remove(tok)) changed = true
+        }
+        if (!changed) return
         styleSnapshot = styleSnapshot.copy(customClasses = updated)
-        notifyParentCacheDirty()
+        invalidateCachedSheetBaseStyleForClasses(tokens)
+        val sheet = lastAppliedStyleSheet
+        if (sheet == null || tokens.any { sheet.isClassReferencedInSubject(it) || sheet.isClassReferencedInAncestor(it) }) {
+            notifyParentCacheDirty()
+        }
         for (tok in tokens) {
             nativeImpl?.removeClass(tok)
         }
@@ -576,7 +782,7 @@ abstract class AbstractComponent(
     }
 
     fun hasClass(className: String): Boolean {
-        val tokens = className.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
+        val tokens = splitClassTokens(className)
         if (tokens.isEmpty()) return false
         return styleSnapshot.customClasses.containsAll(tokens)
     }
@@ -846,7 +1052,12 @@ abstract class AbstractComponent(
     open var isVisible: Boolean
         get() = visibleState
         set(value) {
+            val prevVisible = visibleState
             visibleState = value
+            if (hookMouseWhenPopupVisible || !value) {
+                syncPopupMouseCaptureRegistration()
+            }
+            if (prevVisible == value && (!value || nativeImpl != null)) return
             if (value) {
                 val wasUnrealized = (nativeImpl == null)
                 val impl = ensureNativeImpl()
@@ -874,6 +1085,7 @@ abstract class AbstractComponent(
                 hoveredState = false
                 focusedState = false
                 activePressedState = false
+                InputFocusManager.onComponentFocusChanged(this, false)
                 nativeImpl?.setHoveredState(false)
                 nativeImpl?.setFocusedState(false)
                 nativeImpl?.setActivePressedState(false)
@@ -895,6 +1107,7 @@ abstract class AbstractComponent(
         set(value) {
             val coerced = if (!enabledState) false else value
             focusedState = coerced
+            InputFocusManager.onComponentFocusChanged(this, coerced)
             nativeImpl?.setFocusedState(coerced)
             notifyParentCacheDirty()
         }
@@ -912,7 +1125,14 @@ abstract class AbstractComponent(
         get() = opacityState
         set(value) {
             val clamped = value.coerceIn(0f, 1f)
+            if (kotlin.math.abs(opacityState - clamped) < 1e-4f && computedStyleState != null && componentStyleInstance.opacity == clamped) return
             if (clamped >= 1.0f) inlineStyleMap.remove("opacity") else inlineStyleMap["opacity"] = clamped.toString()
+            suppressComponentStyleCallback = true
+            try {
+                componentStyleInstance.setOpacity(clamped)
+            } finally {
+                suppressComponentStyleCallback = false
+            }
             val prevStyle = computedStyleState ?: ComputedStyle(opacity = opacityState)
             opacityState = clamped
             nativeImpl?.setOpacity(opacityState)
@@ -922,6 +1142,7 @@ abstract class AbstractComponent(
             )
             computedStyleState = nextStyle
             transitionController.onStyleChanged(prevStyle, nextStyle)
+            nativeImpl?.applyComputedStyle(nextStyle)
         }
 
     var tooltipText: String?
@@ -932,11 +1153,14 @@ abstract class AbstractComponent(
         }
 
     open fun setAttribute(name: String, value: String) {
+        if (customAttributesState[name] == value) return
         customAttributesState[name] = value
         nativeImpl?.setAttribute(name, value)
     }
 
     fun getAttribute(name: String): String? = customAttributesState[name]
+
+    fun getAttributes(): Map<String, String> = customAttributesState.toMap()
 
     fun removeAttribute(name: String) {
         customAttributesState.remove(name)
@@ -950,7 +1174,20 @@ abstract class AbstractComponent(
 
     fun getPreferredSize(): Size? = preferredSizeState
 
-    fun getBounds(): Rect = nativeImpl?.getBounds() ?: Rect(0, 0, preferredSizeState?.width ?: 0, preferredSizeState?.height ?: 0)
+    private var boundsState: Rect? = null
+
+    fun getBounds(): Rect = nativeImpl?.getBounds() ?: boundsState ?: Rect(0, 0, preferredSizeState?.width ?: 0, preferredSizeState?.height ?: 0)
+
+    fun setBounds(rect: Rect) {
+        boundsState = rect
+        setPreferredSize(Size(rect.width, rect.height))
+    }
+
+    @get:kotlin.jvm.JvmName("obtainBoundsRect")
+    @set:kotlin.jvm.JvmName("assignBoundsRect")
+    var bounds: Rect
+        get() = getBounds()
+        set(value) = setBounds(value)
 
     @kotlin.jvm.JvmName("assignPadding")
     fun setPadding(padding: EdgeInsets) {
@@ -966,6 +1203,10 @@ abstract class AbstractComponent(
 
     open fun applyComputedStyle(style: ComputedStyle) {
         val previous = computedStyleState
+        if (previous === style || previous == style) {
+            computedStyleState = style
+            return
+        }
         computedStyleState = style
         opacityState = style.opacity.coerceIn(0f, 1f)
         nativeImpl?.setOpacity(opacityState)
@@ -994,26 +1235,31 @@ abstract class AbstractComponent(
         set(value) {
             val previousKeys = (inlineStyleMap.keys + componentStyleInstance.toCssPropertyMap().keys).toSet()
             inlineStyleMap.clear()
-            componentStyleInstance.clear()
-            var cleanedBase = computedStyleState
-            if (cleanedBase != null) {
-                for (oldKey in previousKeys) {
-                    cleanedBase = removeKeyFromComputedStyle(cleanedBase!!, oldKey)
+            suppressComponentStyleCallback = true
+            try {
+                componentStyleInstance.clear()
+                var cleanedBase = computedStyleState
+                if (cleanedBase != null) {
+                    for (oldKey in previousKeys) {
+                        cleanedBase = removeKeyFromComputedStyle(cleanedBase!!, oldKey)
+                    }
+                    computedStyleState = cleanedBase
                 }
-                computedStyleState = cleanedBase
-            }
-            if (value.isNotBlank()) {
-                for (decl in value.split(';')) {
-                    val colon = decl.indexOf(':')
-                    if (colon > 0) {
-                        val k = decl.substring(0, colon).trim().lowercase()
-                        val v = decl.substring(colon + 1).trim()
-                        if (k.isNotEmpty() && v.isNotEmpty()) {
-                            inlineStyleMap[k] = v
-                            componentStyleInstance.setRawDeclaration(k, v)
+                if (value.isNotBlank()) {
+                    for (decl in value.split(';')) {
+                        val colon = decl.indexOf(':')
+                        if (colon > 0) {
+                            val k = decl.substring(0, colon).trim().lowercase()
+                            val v = decl.substring(colon + 1).trim()
+                            if (k.isNotEmpty() && v.isNotEmpty()) {
+                                inlineStyleMap[k] = v
+                                componentStyleInstance.setRawDeclaration(k, v)
+                            }
                         }
                     }
                 }
+            } finally {
+                suppressComponentStyleCallback = false
             }
             rebuildComputedStyleFromInlineMap()
         }
@@ -1021,13 +1267,35 @@ abstract class AbstractComponent(
     fun setStyleProperty(property: String, value: String) {
         val key = property.trim().lowercase()
         val trimmedValue = value.trim()
+        val propEnum = CssProperty.fromCssName(key)
         if (trimmedValue.isEmpty()) {
+            if (key !in inlineStyleMap && (propEnum == null || componentStyleInstance.getSinglePropertyCssString(propEnum) == null) && key !in componentStyleInstance.toCssPropertyMap()) return
             inlineStyleMap.remove(key)
-            componentStyleInstance.setRawDeclaration(key, null)
+            if (propEnum != null) {
+                componentStyleInstance.setRawDeclaration(key, null)
+                return
+            }
+            suppressComponentStyleCallback = true
+            try {
+                componentStyleInstance.setRawDeclaration(key, null)
+            } finally {
+                suppressComponentStyleCallback = false
+            }
             computedStyleState = computedStyleState?.let { removeKeyFromComputedStyle(it, key) }
         } else {
+            if (inlineStyleMap[key] == trimmedValue) return
             inlineStyleMap[key] = trimmedValue
-            componentStyleInstance.setRawDeclaration(key, trimmedValue)
+            if (propEnum != null) {
+                componentStyleInstance.setRawDeclaration(key, trimmedValue)
+                inlineStyleMap[key] = trimmedValue
+                return
+            }
+            suppressComponentStyleCallback = true
+            try {
+                componentStyleInstance.setRawDeclaration(key, trimmedValue)
+            } finally {
+                suppressComponentStyleCallback = false
+            }
         }
         rebuildComputedStyleFromInlineMap()
     }
@@ -1039,14 +1307,25 @@ abstract class AbstractComponent(
     fun getStyleProperty(property: String): String? {
         val key = property.trim().lowercase()
         inlineStyleMap[key]?.let { return it }
+        val propEnum = CssProperty.fromCssName(key)
+        if (propEnum != null) {
+            val cssVal = componentStyleInstance.getSinglePropertyCssString(propEnum) ?: return null
+            return if (componentStyleInstance.isImportant(propEnum)) "$cssVal !important" else cssVal
+        }
         val pair = componentStyleInstance.toCssPropertyMap()[key] ?: return null
         return if (pair.second) "${pair.first} !important" else pair.first
     }
 
     fun clearStyleProperties() {
+        if (inlineStyleMap.isEmpty() && componentStyleInstance.isEmpty()) return
         val previousKeys = (inlineStyleMap.keys + componentStyleInstance.toCssPropertyMap().keys).toSet()
         inlineStyleMap.clear()
-        componentStyleInstance.clear()
+        suppressComponentStyleCallback = true
+        try {
+            componentStyleInstance.clear()
+        } finally {
+            suppressComponentStyleCallback = false
+        }
         var cleanedBase = computedStyleState
         if (cleanedBase != null) {
             for (oldKey in previousKeys) {
@@ -1061,10 +1340,7 @@ abstract class AbstractComponent(
         val activeFactory = resolveActiveFactory() ?: GenericUI.activeFactory
         val engineEnabled = activeFactory?.isStyleSheetEngineEnabled ?: true
         val sheetBase = if (engineEnabled) {
-            lastAppliedStyleSheet?.resolveStyleForComponent(
-                this,
-                viewportWidthPx = lastStyleSheetViewportWidthPx
-            )
+            resolveOrGetCachedSheetBaseStyle()
         } else {
             null
         }
@@ -1349,10 +1625,30 @@ abstract class AbstractComponent(
     open fun applyStyleSheet(styleSheet: CssStyleSheet, viewportWidthPx: Int = 1280) {
         val activeFactory = resolveActiveFactory() ?: GenericUI.activeFactory
         if (activeFactory != null && !activeFactory.isStyleSheetEngineEnabled) return
-        lastAppliedStyleSheet = styleSheet
-        lastStyleSheetViewportWidthPx = viewportWidthPx
-        val resolved = styleSheet.resolveStyleForComponent(this, viewportWidthPx = viewportWidthPx)
-        applyComputedStyle(resolved)
+        val mediaBucket = styleSheet.resolveMediaQueryBucket(viewportWidthPx)
+        val isDark = com.nexustools.genericui.component.shell.Application.current?.getResolvedTheme() ==
+            com.nexustools.genericui.enums.ui.ThemeMode.DARK
+        if (lastAppliedStyleSheet !== styleSheet ||
+            cachedSheetBaseStyle == null ||
+            lastStyleSheetDarkTheme != isDark ||
+            (lastStyleSheetMediaBucket != mediaBucket && cachedSheetHasMediaRules)
+        ) {
+            lastAppliedStyleSheet = styleSheet
+            lastStyleSheetViewportWidthPx = viewportWidthPx
+            lastStyleSheetMediaBucket = mediaBucket
+            lastStyleSheetDarkTheme = isDark
+            val resolved = styleSheet.resolveSheetStyleForComponent(this, viewportWidthPx = viewportWidthPx)
+            cachedSheetBaseStyle = resolved
+            val effective = if (componentStyleInstance.isEmpty()) {
+                resolved
+            } else {
+                componentStyleInstance.toComputedStyle(resolved)
+            }
+            applyComputedStyle(effective)
+        } else {
+            lastStyleSheetViewportWidthPx = viewportWidthPx
+            lastStyleSheetMediaBucket = mediaBucket
+        }
         if (this is AbstractContainer) {
             for (child in children) {
                 child.applyStyleSheet(styleSheet, viewportWidthPx)
@@ -1527,6 +1823,8 @@ abstract class AbstractComponent(
         if (PointerDragManager.isDragging(this)) {
             PointerDragManager.cancelActiveDrag()
         }
+        PopupMouseCaptureManager.unregisterPopup(this)
+        InputFocusManager.onComponentFocusChanged(this, false)
         clearAllTimers()
         nativeImpl?.dispose()
         nativeImpl = null

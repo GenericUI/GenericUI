@@ -13,6 +13,13 @@ open class TextField(
     protected val multilineMode: Boolean = false,
     protected val passwordMode: Boolean = false
 ) : AbstractComponent(htmlTag = if (multilineMode) "textarea" else "input") {
+    override val isTextInputComponent: Boolean
+        get() = true
+
+    init {
+        ignoreKeyEventsWhenTypingInTextInput = false
+    }
+
     var value: String = value
         set(newVal) {
             if (field == newVal) return

@@ -10,7 +10,9 @@ data class CompiledStyleRule(
     val style: ComponentStyle = ComponentStyle(),
     val declarations: Map<String, String> = emptyMap(),
     val specificity: Int = CssRule.computeSpecificity(selector),
-    val pseudoClass: String? = segments.lastOrNull()?.pseudoClass,
+    val sourceOrder: Int = 0,
+    val pseudoClass: String? = segments.lastOrNull()?.let { it.pseudoClass ?: it.pseudoClasses.firstOrNull() }
+        ?: segments.firstNotNullOfOrNull { it.pseudoClass ?: it.pseudoClasses.firstOrNull() },
     val mediaMinWidthPx: Int? = null,
     val mediaMaxWidthPx: Int? = null
 ) {

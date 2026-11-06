@@ -22,6 +22,8 @@ interface TabContainerNativeImpl<out W> : AbstractContainerNativeImpl<W> {
         addTabNative(title = "", contentImpl = contentImpl, index = index)
     }
 
+    fun addButtonTabNative(tabImpl: TabNativeImpl<*>, index: Int = -1) {}
+
     fun addTabNative(title: String, contentImpl: NativeImpl<*>, index: Int = -1)
 
     fun updateTabNative(index: Int, tabImpl: TabNativeImpl<*>) {}

@@ -152,9 +152,15 @@ object LibJpegCodec {
         var restartInterval = 0
         val components = ArrayList<JpegComponent>(4)
         var rawRgbComment: ByteArray? = null
+        var maxH = 1
+        var maxV = 1
+        var mcuCols = 1
+        var mcuRows = 1
+        var progCoeffs: Array<IntArray>? = null
+        var decodedAnyProgressiveScan = false
 
         var offset = 2
-        while (offset + 3 < bytes.size) {
+        while (offset + 1 < bytes.size) {
             if (bytes[offset] != 0xFF.toByte()) {
                 offset++
                 continue
@@ -166,7 +172,7 @@ object LibJpegCodec {
             val marker = bytes[offset].toInt() and 0xFF
             offset++
 
-            if (marker == 0xD8 || marker in 0xD0..0xD7 || marker == 0x01) continue
+            if (marker == 0xD8 || marker in 0xD0..0xD7 || marker == 0x01 || marker == 0x00) continue
             if (marker == 0xD9) break
             if (offset + 1 >= bytes.size) break
             val segLen = ((bytes[offset].toInt() and 0xFF) shl 8) or (bytes[offset + 1].toInt() and 0xFF)
@@ -228,6 +234,18 @@ object LibJpegCodec {
                                 cp += 3
                             }
                         }
+                        if (components.isNotEmpty()) {
+                            maxH = components.maxOf { it.hSamp }.coerceAtLeast(1)
+                            maxV = components.maxOf { it.vSamp }.coerceAtLeast(1)
+                            mcuCols = (width + maxH * 8 - 1) / (maxH * 8)
+                            mcuRows = (height + maxV * 8 - 1) / (maxV * 8)
+                            if (sofMarker == 0xC2) {
+                                progCoeffs = Array(components.size) { cIdx ->
+                                    val c = components[cIdx]
+                                    IntArray(mcuRows * c.vSamp * mcuCols * c.hSamp * 64)
+                                }
+                            }
+                        }
                     }
                 }
                 0xDD -> { // DRI
@@ -281,20 +299,28 @@ object LibJpegCodec {
 
                     if (segLen >= 6 && components.isNotEmpty()) {
                         val ns = bytes[segStart].toInt() and 0xFF
+                        val scanCompIndices = IntArray(ns)
                         var sp = segStart + 1
                         for (i in 0 until ns) {
                             if (sp + 1 < segEnd) {
                                 val cs = bytes[sp].toInt() and 0xFF
                                 val tdta = bytes[sp + 1].toInt() and 0xFF
-                                val comp = components.firstOrNull { it.id == cs } ?: components.getOrNull(i)
-                                if (comp != null) {
-                                    comp.dcTableId = (tdta ushr 4) and 0x03
-                                    comp.acTableId = tdta and 0x03
-                                }
+                                val compIdx = components.indexOfFirst { it.id == cs }
+                                    .let { if (it >= 0) it else i.coerceIn(0, components.lastIndex) }
+                                val comp = components[compIdx]
+                                comp.dcTableId = (tdta ushr 4) and 0x03
+                                comp.acTableId = tdta and 0x03
+                                scanCompIndices[i] = compIdx
                                 sp += 2
                             }
                         }
+                        val ss = if (sp < segEnd) (bytes[sp].toInt() and 0xFF) else 0
+                        val se = if (sp + 1 < segEnd) (bytes[sp + 1].toInt() and 0xFF) else 63
+                        val approx = if (sp + 2 < segEnd) (bytes[sp + 2].toInt() and 0xFF) else 0
+                        val ah = (approx ushr 4) and 0x0F
+                        val al = approx and 0x0F
                         val scanDataStart = segEnd
+
                         if (sofMarker == 0xC0 || sofMarker == 0xC1) {
                             val decodedOk = runCatching {
                                 decodeBaselineScan(
@@ -311,6 +337,35 @@ object LibJpegCodec {
                                 )
                             }.getOrDefault(false)
                             if (decodedOk) return out
+                            fillFallbackFromEntropy(bytes, scanDataStart, out)
+                            return out
+                        } else if (sofMarker == 0xC2) {
+                            val coeffs = progCoeffs ?: Array(components.size) { cIdx ->
+                                val c = components[cIdx]
+                                IntArray(mcuRows * c.vSamp * mcuCols * c.hSamp * 64)
+                            }.also { progCoeffs = it }
+                            val nextOffset = decodeProgressiveHuffmanScan(
+                                bytes = bytes,
+                                scanStart = scanDataStart,
+                                width = width,
+                                height = height,
+                                components = components,
+                                scanCompIndices = scanCompIndices,
+                                dcTables = dcTables,
+                                acTables = acTables,
+                                restartInterval = restartInterval,
+                                ss = ss,
+                                se = se,
+                                ah = ah,
+                                al = al,
+                                progCoeffs = coeffs,
+                                maxH = maxH,
+                                maxV = maxV,
+                                mcuCols = mcuCols
+                            )
+                            decodedAnyProgressiveScan = true
+                            offset = nextOffset
+                            continue
                         }
                         fillFallbackFromEntropy(bytes, scanDataStart, out)
                         return out
@@ -319,6 +374,20 @@ object LibJpegCodec {
                 }
             }
             offset = segEnd
+        }
+
+        if (sofMarker == 0xC2 && decodedAnyProgressiveScan && progCoeffs != null) {
+            renderProgressiveCoefficientsToOutput(
+                components = components,
+                quantTables = quantTables,
+                progCoeffs = progCoeffs!!,
+                maxH = maxH,
+                maxV = maxV,
+                mcuCols = mcuCols,
+                mcuRows = mcuRows,
+                dst = out
+            )
+            return out
         }
 
         fillFallbackFromEntropy(bytes, (bytes.size / 4).coerceAtLeast(2), out)
@@ -520,6 +589,285 @@ object LibJpegCodec {
         return true
     }
 
+    private fun decodeProgressiveHuffmanScan(
+        bytes: ByteArray,
+        scanStart: Int,
+        width: Int,
+        height: Int,
+        components: List<JpegComponent>,
+        scanCompIndices: IntArray,
+        dcTables: Array<JpegHuffmanTable?>,
+        acTables: Array<JpegHuffmanTable?>,
+        restartInterval: Int,
+        ss: Int,
+        se: Int,
+        ah: Int,
+        al: Int,
+        progCoeffs: Array<IntArray>,
+        maxH: Int,
+        maxV: Int,
+        mcuCols: Int
+    ): Int {
+        val reader = JpegBitReader(bytes, scanStart)
+        val fallbackDc = dcTables.firstOrNull { it != null }
+        val fallbackAc = acTables.firstOrNull { it != null }
+        for (c in components) {
+            c.dcPred = 0
+        }
+        var eobRun = 0
+        var mcuCounter = 0
+        val mcuRows = (height + maxV * 8 - 1) / (maxV * 8)
+
+        fun decodeBlock(compIdx: Int, blockBase: Int): Boolean {
+            val comp = components[compIdx]
+            val coeffs = progCoeffs[compIdx]
+            if (ss == 0 && se == 0) {
+                if (ah == 0) {
+                    // DC First scan
+                    val dcHuff = dcTables[comp.dcTableId] ?: fallbackDc ?: return false
+                    val t = dcHuff.decode(reader)
+                    if (t < 0) return false
+                    val diff = if (t > 0) reader.receiveExtend(t) else 0
+                    comp.dcPred += diff
+                    coeffs[blockBase] = comp.dcPred shl al
+                } else {
+                    // DC Refine scan
+                    val bit = reader.readBit()
+                    if (bit < 0) return false
+                    if (bit != 0) {
+                        coeffs[blockBase] = coeffs[blockBase] or (1 shl al)
+                    }
+                }
+            } else if (ah == 0) {
+                // AC First scan
+                val acHuff = acTables[comp.acTableId] ?: fallbackAc ?: return false
+                if (eobRun > 0) {
+                    eobRun--
+                } else {
+                    var k = ss.coerceAtLeast(1)
+                    val endK = se.coerceAtMost(63)
+                    while (k <= endK) {
+                        val rs = acHuff.decode(reader)
+                        if (rs < 0) return false
+                        val r = (rs ushr 4) and 0x0F
+                        val s = rs and 0x0F
+                        if (s == 0) {
+                            if (r == 15) {
+                                k += 16
+                                continue
+                            } else {
+                                eobRun = (1 shl r) + (if (r > 0) reader.readBits(r) else 0) - 1
+                                break
+                            }
+                        } else {
+                            k += r
+                            if (k > endK) break
+                            coeffs[blockBase + k] = reader.receiveExtend(s) shl al
+                            k++
+                        }
+                    }
+                }
+            } else {
+                // AC Refine scan
+                val acHuff = acTables[comp.acTableId] ?: fallbackAc ?: return false
+                val p1 = 1 shl al
+                val m1 = (-1) shl al
+                var k = ss.coerceAtLeast(1)
+                val endK = se.coerceAtMost(63)
+                if (eobRun == 0) {
+                    while (k <= endK) {
+                        val rs = acHuff.decode(reader)
+                        if (rs < 0) return false
+                        var r = (rs ushr 4) and 0x0F
+                        val s = rs and 0x0F
+                        var newCoeff = 0
+                        if (s == 0) {
+                            if (r < 15) {
+                                eobRun = (1 shl r) + (if (r > 0) reader.readBits(r) else 0)
+                                break
+                            }
+                            // r == 15 is ZRL (skip 15 zero coefficients while refining non-zero coefficients)
+                        } else {
+                            val signBit = reader.readBits(s)
+                            newCoeff = if (signBit != 0) p1 else m1
+                        }
+                        while (k <= endK) {
+                            val cur = coeffs[blockBase + k]
+                            if (cur != 0) {
+                                val corrBit = reader.readBit()
+                                if (corrBit < 0) return false
+                                if (corrBit != 0 && (cur and p1) == 0) {
+                                    coeffs[blockBase + k] = if (cur > 0) cur + p1 else cur + m1
+                                }
+                            } else {
+                                if (r == 0) break
+                                r--
+                            }
+                            k++
+                        }
+                        if (newCoeff != 0 && k <= endK) {
+                            coeffs[blockBase + k] = newCoeff
+                        }
+                        k++
+                    }
+                }
+                if (eobRun > 0) {
+                    while (k <= endK) {
+                        val cur = coeffs[blockBase + k]
+                        if (cur != 0) {
+                            val corrBit = reader.readBit()
+                            if (corrBit < 0) return false
+                            if (corrBit != 0 && (cur and p1) == 0) {
+                                coeffs[blockBase + k] = if (cur > 0) cur + p1 else cur + m1
+                            }
+                        }
+                        k++
+                    }
+                    eobRun--
+                }
+            }
+            return true
+        }
+
+        if (scanCompIndices.size == 1) {
+            val compIdx = scanCompIndices[0]
+            val comp = components[compIdx]
+            val strideX = mcuCols * comp.hSamp
+            val compBlocksX = ((width * comp.hSamp + maxH * 8 - 1) / (maxH * 8)).coerceIn(1, strideX)
+            val compBlocksY = ((height * comp.vSamp + maxV * 8 - 1) / (maxV * 8)).coerceIn(1, mcuRows * comp.vSamp)
+            outer@ for (by in 0 until compBlocksY) {
+                for (bx in 0 until compBlocksX) {
+                    if (restartInterval > 0 && mcuCounter > 0 && (mcuCounter % restartInterval) == 0) {
+                        reader.consumeRestartMarker()
+                        for (c in components) c.dcPred = 0
+                        eobRun = 0
+                    }
+                    mcuCounter++
+                    val blockBase = (by * strideX + bx) * 64
+                    if (!decodeBlock(compIdx, blockBase)) break@outer
+                }
+            }
+        } else {
+            outer@ for (mcuY in 0 until mcuRows) {
+                for (mcuX in 0 until mcuCols) {
+                    if (restartInterval > 0 && mcuCounter > 0 && (mcuCounter % restartInterval) == 0) {
+                        reader.consumeRestartMarker()
+                        for (c in components) c.dcPred = 0
+                        eobRun = 0
+                    }
+                    mcuCounter++
+                    for (compIdx in scanCompIndices) {
+                        val comp = components[compIdx]
+                        val strideX = mcuCols * comp.hSamp
+                        for (vy in 0 until comp.vSamp) {
+                            for (hx in 0 until comp.hSamp) {
+                                val bx = mcuX * comp.hSamp + hx
+                                val by = mcuY * comp.vSamp + vy
+                                val blockBase = (by * strideX + bx) * 64
+                                if (!decodeBlock(compIdx, blockBase)) break@outer
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return reader.currentByteOffset()
+    }
+
+    private fun renderProgressiveCoefficientsToOutput(
+        components: List<JpegComponent>,
+        quantTables: Array<IntArray>,
+        progCoeffs: Array<IntArray>,
+        maxH: Int,
+        maxV: Int,
+        mcuCols: Int,
+        mcuRows: Int,
+        dst: ImageBuffer
+    ) {
+        val mcuWidth = maxH * 8
+        val mcuHeight = maxV * 8
+        val coefBlock = IntArray(64)
+        val spatialBlock = IntArray(64)
+        val yBlocks = Array(maxH * maxV) { IntArray(64) }
+        val cbBlock = IntArray(64) { 128 }
+        val crBlock = IntArray(64) { 128 }
+        val dstBytes = dst.bytes
+        val dstW = dst.width
+        val dstH = dst.height
+        val isGray = components.size == 1
+        val yComp = components[0]
+
+        for (mcuY in 0 until mcuRows) {
+            for (mcuX in 0 until mcuCols) {
+                for (compIdx in components.indices) {
+                    val comp = components[compIdx]
+                    val qTable = quantTables[comp.quantTableId]
+                    val coeffs = progCoeffs[compIdx]
+                    val strideX = mcuCols * comp.hSamp
+                    var blockIdx = 0
+                    for (vy in 0 until comp.vSamp) {
+                        for (hx in 0 until comp.hSamp) {
+                            val bx = mcuX * comp.hSamp + hx
+                            val by = mcuY * comp.vSamp + vy
+                            val blockBase = (by * strideX + bx) * 64
+                            for (z in 0 until 64) {
+                                val zz = ZIGZAG[z]
+                                coefBlock[zz] = coeffs[blockBase + z] * qTable[zz]
+                            }
+                            idct8x8(coefBlock, spatialBlock)
+                            when (compIdx) {
+                                0 -> if (blockIdx < yBlocks.size) spatialBlock.copyInto(yBlocks[blockIdx])
+                                1 -> spatialBlock.copyInto(cbBlock)
+                                2 -> spatialBlock.copyInto(crBlock)
+                            }
+                            blockIdx++
+                        }
+                    }
+                }
+
+                for (py in 0 until mcuHeight) {
+                    val imgY = mcuY * mcuHeight + py
+                    if (imgY >= dstH) break
+                    val yBlkY = (py * yComp.vSamp) / mcuHeight
+                    val yInBlk = py % 8
+                    val cInBlkY = (py * 8) / mcuHeight
+
+                    for (px in 0 until mcuWidth) {
+                        val imgX = mcuX * mcuWidth + px
+                        if (imgX >= dstW) break
+                        val yBlkX = (px * yComp.hSamp) / mcuWidth
+                        val xInBlk = px % 8
+                        val yBlkIdx = (yBlkY * yComp.hSamp + yBlkX).coerceIn(0, yBlocks.size - 1)
+                        val lum = yBlocks[yBlkIdx][yInBlk * 8 + xInBlk]
+
+                        val r: Int
+                        val g: Int
+                        val b: Int
+                        if (isGray) {
+                            r = lum; g = lum; b = lum
+                        } else {
+                            val cInBlkX = (px * 8) / mcuWidth
+                            val cIdx = cInBlkY * 8 + cInBlkX
+                            val cb = cbBlock[cIdx] - 128
+                            val cr = crBlock[cIdx] - 128
+                            r = (lum + ((91881 * cr) shr 16)).coerceIn(0, 255)
+                            g = (lum - ((22554 * cb + 46802 * cr) shr 16)).coerceIn(0, 255)
+                            b = (lum + ((116130 * cb) shr 16)).coerceIn(0, 255)
+                        }
+
+                        val outIdx = (imgY * dstW + imgX) * 4
+                        if (outIdx + 3 < dstBytes.size) {
+                            dstBytes[outIdx] = r.toByte()
+                            dstBytes[outIdx + 1] = g.toByte()
+                            dstBytes[outIdx + 2] = b.toByte()
+                            dstBytes[outIdx + 3] = 0xFF.toByte()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     private fun idct8x8(coef: IntArray, out: IntArray) {
         // Fast check for DC-only block
         var acNonZero = false
@@ -669,19 +1017,25 @@ object LibJpegCodec {
             return if (vt < threshold) vt + ((-1 shl sss) + 1) else vt
         }
 
+        fun currentByteOffset(): Int = pos
+
+        fun alignToByte() {
+            bitBuf = 0
+            bitCount = 0
+        }
+
         fun consumeRestartMarker() {
             bitBuf = 0
             bitCount = 0
-            while (pos + 1 < data.size) {
-                if (data[pos] == 0xFF.toByte()) {
-                    val m = data[pos + 1].toInt() and 0xFF
+            if (pos + 1 < data.size && data[pos] == 0xFF.toByte()) {
+                var p = pos + 1
+                while (p < data.size && data[p] == 0xFF.toByte()) p++
+                if (p < data.size) {
+                    val m = data[p].toInt() and 0xFF
                     if (m in 0xD0..0xD7) {
-                        pos += 2
-                        return
+                        pos = p + 1
                     }
-                    if (m != 0x00 && m != 0xFF) return
                 }
-                break
             }
         }
 
@@ -689,10 +1043,14 @@ object LibJpegCodec {
             while (pos < data.size) {
                 val b = data[pos++].toInt() and 0xFF
                 if (b != 0xFF) return b
+                val markerStart = pos - 1
                 while (pos < data.size && (data[pos].toInt() and 0xFF) == 0xFF) {
                     pos++
                 }
-                if (pos >= data.size) return -1
+                if (pos >= data.size) {
+                    pos = markerStart
+                    return -1
+                }
                 val marker = data[pos++].toInt() and 0xFF
                 if (marker == 0x00) {
                     return 0xFF // Unstuffed 0xFF byte
@@ -701,10 +1059,9 @@ object LibJpegCodec {
                     // Restart marker encountered inside stream
                     continue
                 }
-                if (marker == 0xD9) {
-                    return -1
-                }
-                return marker
+                // Encountered next segment marker (DHT, SOS, DRI, EOI, etc.): do not consume it
+                pos = markerStart
+                return -1
             }
             return -1
         }

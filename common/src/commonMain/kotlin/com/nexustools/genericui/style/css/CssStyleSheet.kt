@@ -10,6 +10,12 @@ import com.nexustools.genericui.style.gradient.Gradient.Gradient
  * Cross-platform CSS parser and cascade engine for resolving custom classes, compound/descendant selectors,
  * `@media` responsive queries, `@keyframes` animations, `:hover`/`:focus`/`:active` pseudo-classes,
  * `!important` declarations, and inline styles.
+ *
+ * Modeled after Chromium Blink's `RuleSet` + `ElementRuleCollector` + `MatchedPropertiesCache`:
+ * - Rules are indexed at construction time into rightmost-compound-selector hash buckets
+ *   ([idRules], [classRules], [tagRules], [universalRules]).
+ * - Selector matching inspects only the candidate buckets for the element's `id`, `classes`, `tagName`,
+ *   and `universalRules` using pre-parsed [CssRule] selector tokens with zero runtime `Regex` allocations.
  */
 class CssStyleSheet(
     val rules: List<CssRule> = emptyList(),
@@ -19,6 +25,89 @@ class CssStyleSheet(
 ) {
     private val sortedRules: List<CssRule> =
         if (isPrecompiled) rules else rules.sortedBy { it.specificity }
+
+    // Blink-style RuleSet buckets storing indices into sortedRules (preserving specificity + source cascade order)
+    private val idBuckets: Map<String, IntArray>
+    private val classBuckets: Map<String, IntArray>
+    private val tagBuckets: Map<String, IntArray>
+    private val universalBucket: IntArray
+
+    // Public/internal RuleSet views modeled after Blink's RuleSet
+    internal val idRules: Map<String, List<CssRule>>
+    internal val classRules: Map<String, List<CssRule>>
+    internal val tagRules: Map<String, List<CssRule>>
+    internal val universalRules: List<CssRule>
+    private val mediaBreakpoints: IntArray
+    private val subjectClasses: Set<String>
+    private val ancestorClasses: Set<String>
+
+    init {
+        val idIndexMap = linkedMapOf<String, ArrayList<Int>>()
+        val classIndexMap = linkedMapOf<String, ArrayList<Int>>()
+        val tagIndexMap = linkedMapOf<String, ArrayList<Int>>()
+        val universalIndices = ArrayList<Int>()
+        val breakpointsSet = linkedSetOf<Int>()
+        val subjectClassesSet = linkedSetOf<String>()
+        val ancestorClassesSet = linkedSetOf<String>()
+
+        for (i in sortedRules.indices) {
+            val rule = sortedRules[i]
+            rule.mediaMinWidthPx?.let { if (it > 0) breakpointsSet.add(it) }
+            rule.mediaMaxWidthPx?.let { if (it in 1 until Int.MAX_VALUE) breakpointsSet.add(it) }
+            if (rule.chainTokens.isEmpty()) continue
+            subjectClassesSet.addAll(rule.subjectRequiredClasses)
+            for (ancClasses in rule.ancestorRequiredClasses) {
+                ancestorClassesSet.addAll(ancClasses)
+            }
+            val subjectId = rule.subjectRequiredId
+            if (subjectId != null) {
+                idIndexMap.getOrPut(subjectId) { ArrayList(4) }.add(i)
+                continue
+            }
+            val firstClass = rule.subjectRequiredClasses.firstOrNull()
+            if (firstClass != null) {
+                classIndexMap.getOrPut(firstClass) { ArrayList(8) }.add(i)
+                continue
+            }
+            val subjectTag = rule.subjectLeadingTag
+            if (subjectTag.isNotEmpty()) {
+                tagIndexMap.getOrPut(subjectTag) { ArrayList(8) }.add(i)
+                continue
+            }
+            universalIndices.add(i)
+        }
+
+        idBuckets = idIndexMap.mapValues { (_, list) -> list.toIntArray() }
+        classBuckets = classIndexMap.mapValues { (_, list) -> list.toIntArray() }
+        tagBuckets = tagIndexMap.mapValues { (_, list) -> list.toIntArray() }
+        universalBucket = universalIndices.toIntArray()
+        mediaBreakpoints = breakpointsSet.sorted().toIntArray()
+        subjectClasses = subjectClassesSet
+        ancestorClasses = ancestorClassesSet
+
+        idRules = idIndexMap.mapValues { (_, list) -> list.map { sortedRules[it] } }
+        classRules = classIndexMap.mapValues { (_, list) -> list.map { sortedRules[it] } }
+        tagRules = tagIndexMap.mapValues { (_, list) -> list.map { sortedRules[it] } }
+        universalRules = universalIndices.map { sortedRules[it] }
+    }
+
+    internal fun isClassReferencedInSubject(cls: String): Boolean = cls in subjectClasses
+
+    internal fun isClassReferencedInAncestor(cls: String): Boolean = cls in ancestorClasses
+
+    fun resolveMediaQueryBucket(viewportWidthPx: Int): Int {
+        systemMediaQueryBucketHook?.invoke(this, viewportWidthPx)?.let { return it }
+        if (mediaBreakpoints.isEmpty()) return 0
+        var hash = 1
+        for (bp in mediaBreakpoints) {
+            hash = hash * 31 + when {
+                viewportWidthPx < bp -> 0
+                viewportWidthPx == bp -> 1
+                else -> 2
+            }
+        }
+        return hash
+    }
 
     private val styleLookupCache = linkedMapOf<String, ComputedStyle>()
 
@@ -36,9 +125,10 @@ class CssStyleSheet(
         val isDarkTheme = Application.current?.getResolvedTheme() == ThemeMode.DARK ||
             "bs-theme-dark" in classes ||
             ancestorChain.any { "bs-theme-dark" in it }
+        val mediaBucket = resolveMediaQueryBucket(viewportWidthPx)
         val cacheKey = buildString {
             append(if (isDarkTheme) "dark|" else "light|")
-            append(tagName).append('|').append(id ?: "").append('|').append(viewportWidthPx).append('|')
+            append(tagName).append('|').append(id ?: "").append('|').append(mediaBucket).append('|')
             append(classes.joinToString(",")).append('|')
             for (anc in ancestorChain) {
                 append(anc.joinToString(",")).append('>')
@@ -46,69 +136,72 @@ class CssStyleSheet(
         }
         styleLookupCache[cacheKey]?.let { return it }
 
-        val matchingRules = sortedRules.filter { rule ->
-            rule.matchesMediaQuery(viewportWidthPx) &&
-                matchesFullSelector(rule.baseSelectorWithoutPseudo, classes, tagName, id, ancestorChain)
-        }
+        val matchingRules = collectMatchingRules(classes, tagName, id, ancestorChain, viewportWidthPx)
 
-        val baseRules = matchingRules.filter { it.pseudoClass == null }
-        val hoverRules = matchingRules.filter { it.pseudoClass == "hover" }
-        val focusRules = matchingRules.filter { it.pseudoClass == "focus" || it.pseudoClass == "focus-visible" }
-        val activeRules = matchingRules.filter { it.pseudoClass == "active" }
-        val disabledRules = matchingRules.filter { it.pseudoClass == "disabled" }
-        val checkedRules = matchingRules.filter { it.pseudoClass == "checked" }
+        val baseRules = ArrayList<CssRule>(matchingRules.size)
+        var hoverRules: ArrayList<CssRule>? = null
+        var focusRules: ArrayList<CssRule>? = null
+        var activeRules: ArrayList<CssRule>? = null
+        var disabledRules: ArrayList<CssRule>? = null
+        var checkedRules: ArrayList<CssRule>? = null
+
+        for (rule in matchingRules) {
+            when (rule.pseudoClass) {
+                null -> baseRules.add(rule)
+                "hover" -> (hoverRules ?: ArrayList<CssRule>(4).also { hoverRules = it }).add(rule)
+                "focus", "focus-visible" -> (focusRules ?: ArrayList<CssRule>(4).also { focusRules = it }).add(rule)
+                "active" -> (activeRules ?: ArrayList<CssRule>(4).also { activeRules = it }).add(rule)
+                "disabled" -> (disabledRules ?: ArrayList<CssRule>(4).also { disabledRules = it }).add(rule)
+                "checked" -> (checkedRules ?: ArrayList<CssRule>(4).also { checkedRules = it }).add(rule)
+            }
+        }
 
         val baseDecls = mergeRuleDeclarations(baseRules)
         val baseImportantProps = collectImportantProperties(baseRules)
-        val hoverStyle = if (hoverRules.isNotEmpty()) {
+        val hoverStyle = hoverRules?.let { rulesList ->
+            val combined = baseRules + rulesList
             buildComputedStyleFromDeclarations(
-                mergeRuleDeclarations(baseRules + hoverRules),
-                importantProperties = collectImportantProperties(baseRules + hoverRules),
+                mergeRuleDeclarations(combined),
+                importantProperties = collectImportantProperties(combined),
                 isDarkTheme = isDarkTheme,
                 classes = classes
             )
-        } else {
-            null
         }
-        val focusStyle = if (focusRules.isNotEmpty()) {
+        val focusStyle = focusRules?.let { rulesList ->
+            val combined = baseRules + rulesList
             buildComputedStyleFromDeclarations(
-                mergeRuleDeclarations(baseRules + focusRules),
-                importantProperties = collectImportantProperties(baseRules + focusRules),
+                mergeRuleDeclarations(combined),
+                importantProperties = collectImportantProperties(combined),
                 isDarkTheme = isDarkTheme,
                 classes = classes
             )
-        } else {
-            null
         }
-        val activeStyle = if (activeRules.isNotEmpty()) {
+        val activeStyle = activeRules?.let { rulesList ->
+            val combined = baseRules + rulesList
             buildComputedStyleFromDeclarations(
-                mergeRuleDeclarations(baseRules + activeRules),
-                importantProperties = collectImportantProperties(baseRules + activeRules),
+                mergeRuleDeclarations(combined),
+                importantProperties = collectImportantProperties(combined),
                 isDarkTheme = isDarkTheme,
                 classes = classes
             )
-        } else {
-            null
         }
-        val disabledStyle = if (disabledRules.isNotEmpty()) {
+        val disabledStyle = disabledRules?.let { rulesList ->
+            val combined = baseRules + rulesList
             buildComputedStyleFromDeclarations(
-                mergeRuleDeclarations(baseRules + disabledRules),
-                importantProperties = collectImportantProperties(baseRules + disabledRules),
+                mergeRuleDeclarations(combined),
+                importantProperties = collectImportantProperties(combined),
                 isDarkTheme = isDarkTheme,
                 classes = classes
             )
-        } else {
-            null
         }
-        val checkedStyle = if (checkedRules.isNotEmpty()) {
+        val checkedStyle = checkedRules?.let { rulesList ->
+            val combined = baseRules + rulesList
             buildComputedStyleFromDeclarations(
-                mergeRuleDeclarations(baseRules + checkedRules),
-                importantProperties = collectImportantProperties(baseRules + checkedRules),
+                mergeRuleDeclarations(combined),
+                importantProperties = collectImportantProperties(combined),
                 isDarkTheme = isDarkTheme,
                 classes = classes
             )
-        } else {
-            null
         }
 
         val computed = buildComputedStyleFromDeclarations(
@@ -129,6 +222,61 @@ class CssStyleSheet(
     }
 
     /**
+     * Blink-style `ElementRuleCollector`: inspects only the `RuleSet` buckets matching the element's
+     * [id], [classes], [tagName], and [universalBucket], returning matching rules in cascade order.
+     */
+    private fun collectMatchingRules(
+        classes: Set<String>,
+        tagName: String,
+        id: String?,
+        ancestorChain: List<Set<String>>,
+        viewportWidthPx: Int
+    ): List<CssRule> {
+        if (sortedRules.isEmpty()) return emptyList()
+        val normalizedTargetTag = normalizeTagName(tagName)
+        val matchedIndices = ArrayList<Int>(16)
+
+        fun checkBucket(bucket: IntArray?) {
+            if (bucket == null) return
+            for (ruleIdx in bucket) {
+                val rule = sortedRules[ruleIdx]
+                if (rule.matchesMediaQuery(viewportWidthPx) &&
+                    matchesRule(rule, classes, normalizedTargetTag, id, ancestorChain)
+                ) {
+                    matchedIndices.add(ruleIdx)
+                }
+            }
+        }
+
+        if (!id.isNullOrEmpty()) {
+            checkBucket(idBuckets[id])
+        }
+        for (cls in classes) {
+            if (cls.isNotEmpty()) {
+                checkBucket(classBuckets[cls])
+            }
+        }
+        if (normalizedTargetTag.isNotEmpty()) {
+            checkBucket(tagBuckets[normalizedTargetTag])
+        }
+        checkBucket(universalBucket)
+
+        if (matchedIndices.isEmpty()) return emptyList()
+        if (matchedIndices.size == 1) return listOf(sortedRules[matchedIndices[0]])
+
+        matchedIndices.sort()
+        val out = ArrayList<CssRule>(matchedIndices.size)
+        var lastIdx = -1
+        for (idx in matchedIndices) {
+            if (idx != lastIdx) {
+                out.add(sortedRules[idx])
+                lastIdx = idx
+            }
+        }
+        return out
+    }
+
+    /**
      * Builds the ordered ancestor token chain (from outermost root to immediate parent) for [component],
      * including each ancestor's CSS classes, `htmlTag`, and `#id`.
      */
@@ -141,7 +289,7 @@ class CssStyleSheet(
             pTokens.addAll(p.getClasses())
             pTokens.addAll(p.getBootstrap().toEnumClassSet(p.componentClassPrefix))
             if (p.componentClassPrefix.isNotBlank()) {
-                for (prefixCls in p.componentClassPrefix.split(Regex("\\s+"))) {
+                for (prefixCls in p.componentClassPrefix.split(WHITESPACE_REGEX)) {
                     if (prefixCls.isNotEmpty()) pTokens.add(prefixCls)
                 }
             }
@@ -185,155 +333,123 @@ class CssStyleSheet(
     }
 
     /**
-     * Resolves a [ComputedStyle] directly for a GenericUI [component] by walking its [AbstractComponent.parent]
-     * hierarchy to evaluate descendant (`.page .menu.step-wizard`, `header h1`, `genericui:menubar genericui:menuitem`)
-     * and child (`>`) combinators.
+     * Resolves only the stylesheet-matched [ComputedStyle] for [component] (without layering inline
+     * [ComponentStyle] properties), used by Blink-style `MatchedPropertiesCache` (`cachedSheetBaseStyle`)
+     * on [AbstractComponent].
      */
-    fun resolveStyleForComponent(
+    internal fun resolveSheetStyleForComponent(
         component: AbstractComponent,
         tagName: String = component.htmlTag.ifEmpty { "genericui:component" },
         viewportWidthPx: Int = 1280
     ): ComputedStyle {
+        systemStyleResolverHook?.invoke(this, component, tagName, viewportWidthPx)?.let { return it }
         val classes = linkedSetOf<String>()
         classes.addAll(component.getClasses())
         classes.addAll(component.getBootstrap().toEnumClassSet(component.componentClassPrefix))
         if (component.componentClassPrefix.isNotBlank()) {
-            for (prefixCls in component.componentClassPrefix.split(Regex("\\s+"))) {
+            for (prefixCls in component.componentClassPrefix.split(WHITESPACE_REGEX)) {
                 if (prefixCls.isNotEmpty()) classes.add(prefixCls)
             }
         }
         val orderedAncestors = buildAncestorChain(component)
-        var resolved = resolveStyleForClasses(
+        return resolveStyleForClasses(
             classes = classes,
             tagName = tagName,
             id = component.id,
             ancestorChain = orderedAncestors,
             viewportWidthPx = viewportWidthPx
         )
+    }
+
+    /**
+     * Resolves a [ComputedStyle] directly for a GenericUI [component] by walking its [AbstractComponent.parent]
+     * hierarchy to evaluate descendant (`.page .menu.step-wizard`, `header h1`, `genericui:menubar genericui:menuitem`)
+     * and child (`>`) combinators, then layering any inline [ComponentStyle] declarations on top.
+     */
+    fun resolveStyleForComponent(
+        component: AbstractComponent,
+        tagName: String = component.htmlTag.ifEmpty { "genericui:component" },
+        viewportWidthPx: Int = 1280
+    ): ComputedStyle {
+        var resolved = resolveSheetStyleForComponent(component, tagName, viewportWidthPx)
         val compStyle = component.getStyle()
         if (!compStyle.isEmpty()) {
             resolved = compStyle.toComputedStyle(resolved)
         }
-        val inlineStyleStr = component.inlineStyle
-        return if (inlineStyleStr.isNotBlank() && compStyle.isEmpty()) {
-            val inlineDecls = parseDeclarations(inlineStyleStr)
-            val filteredInline = inlineDecls.filter { (prop, rawVal) ->
-                val inlineIsImportant = rawVal.contains("!important", ignoreCase = true)
-                inlineIsImportant || prop !in resolved.importantProperties
-            }.mapValues { (_, v) ->
-                v.replace(Regex("!\\s*important", RegexOption.IGNORE_CASE), "").trim()
-            }
-            if (filteredInline.isEmpty()) {
-                resolved
-            } else {
-                resolved.mergeWith(buildComputedStyleFromDeclarations(filteredInline))
-            }
-        } else {
-            resolved
-        }
+        return resolved
     }
 
     private fun collectImportantProperties(sortedRules: List<CssRule>): Set<String> {
-        val important = linkedSetOf<String>()
+        var important: LinkedHashSet<String>? = null
         for (rule in sortedRules) {
-            for ((prop, rawVal) in rule.declarations) {
-                if (rawVal.contains("!important", ignoreCase = true)) {
-                    important.add(prop)
-                }
+            if (rule.importantProps.isNotEmpty()) {
+                val set = important ?: LinkedHashSet<String>().also { important = it }
+                set.addAll(rule.importantProps)
             }
         }
-        return important
+        return important ?: emptySet()
     }
 
     private fun mergeRuleDeclarations(sortedRules: List<CssRule>): Map<String, String> {
         val normalDecls = linkedMapOf<String, String>()
-        val importantDecls = linkedMapOf<String, String>()
+        var importantDecls: LinkedHashMap<String, String>? = null
         for (rule in sortedRules) {
-            for ((prop, rawVal) in rule.declarations) {
-                val isImportant = rawVal.contains("!important", ignoreCase = true)
-                val cleanVal = rawVal.replace(Regex("!\\s*important", RegexOption.IGNORE_CASE), "").trim()
-                if (isImportant) {
-                    importantDecls[prop] = cleanVal
-                } else if (prop !in importantDecls) {
+            val impProps = rule.importantProps
+            for ((prop, cleanVal) in rule.cleanedDeclarations) {
+                if (prop in impProps) {
+                    val impMap = importantDecls ?: LinkedHashMap<String, String>().also { importantDecls = it }
+                    impMap[prop] = cleanVal
+                } else if (importantDecls == null || prop !in importantDecls!!) {
                     normalDecls[prop] = cleanVal
                 }
             }
         }
-        normalDecls.putAll(importantDecls)
+        if (importantDecls != null) {
+            normalDecls.putAll(importantDecls!!)
+        }
         return normalDecls
     }
 
-    private fun matchesFullSelector(
-        selector: String,
+    private fun matchesRule(
+        rule: CssRule,
         classes: Set<String>,
-        tagName: String,
+        normalizedTargetTag: String,
         id: String?,
         ancestorChain: List<Set<String>>
     ): Boolean {
-        val normalized = selector.trim().replace(Regex("\\s*>\\s*"), " > ")
-        if (normalized.isEmpty()) return false
-        if (normalized == "*") return true
+        if (rule.chainTokens.isEmpty()) return false
+        if (rule.isUniversalStarOnly) return true
 
-        val parts = normalized.split(Regex("\\s+")).filter { it.isNotEmpty() }
-        if (parts.isEmpty()) return false
-
-        val chainTokens = mutableListOf<String>()
-        val directParentFlags = mutableListOf<Boolean>()
-        var idx = 0
-        while (idx < parts.size) {
-            val part = parts[idx]
-            if (part == ">") {
-                idx++
-                continue
-            }
-            chainTokens.add(part)
-            if (idx + 1 < parts.size && parts[idx + 1] == ">") {
-                directParentFlags.add(true)
-                idx += 2
-            } else {
-                if (idx + 1 < parts.size) {
-                    directParentFlags.add(false)
-                }
-                idx++
-            }
-        }
-        if (chainTokens.isEmpty()) return false
-
-        // Last token must match the target element itself
-        val targetToken = chainTokens.last()
-        if (!matchesCompoundToken(targetToken, classes, tagName, id)) {
+        if (!matchesSubjectToken(rule, classes, normalizedTargetTag, id)) {
             return false
         }
-        if (chainTokens.size == 1) return true
-
-        // Verify ancestor chain for multi-part selectors (e.g. ".page .menu.step-wizard", "header h1", "ul > li")
-        val ancestorTokens = chainTokens.dropLast(1)
+        val ancestorTokens = rule.ancestorTokens
         if (ancestorTokens.isEmpty()) return true
 
         if (ancestorChain.isEmpty()) {
-            // When resolving standalone class sets without a live parent tree, allow match if all classes in selector are present
-            // or if the target compound token explicitly matched a unique class/id and ancestor tokens only constrain classes.
-            val targetHasClassOrId = targetToken.contains(".") || targetToken.contains("#")
-            return targetHasClassOrId && ancestorTokens.all { tok ->
-                val reqTag = extractTagFromToken(tok)
-                val reqClasses = extractClassesFromToken(tok)
-                reqTag.isEmpty() && (reqClasses.all { it in classes } || reqClasses.isNotEmpty())
+            if (!rule.subjectHasClassOrId) return false
+            for (i in ancestorTokens.indices) {
+                val reqTag = rule.ancestorLeadingTags[i]
+                val reqClasses = rule.ancestorRequiredClasses[i]
+                if (reqTag.isNotEmpty()) return false
+                if (reqClasses.isEmpty()) return false
             }
+            return true
         }
 
+        val flags = rule.directParentFlags
         var ancestorIdx = ancestorChain.lastIndex
         for (i in ancestorTokens.indices.reversed()) {
-            val tok = ancestorTokens[i]
-            val requireDirect = directParentFlags.getOrElse(i) { false }
+            val requireDirect = if (i < flags.size) flags[i] else false
             if (requireDirect) {
-                if (ancestorIdx < 0 || !matchesAncestorEntry(tok, ancestorChain[ancestorIdx])) {
+                if (ancestorIdx < 0 || !matchesPreparsedAncestor(rule, i, ancestorChain[ancestorIdx])) {
                     return false
                 }
                 ancestorIdx--
             } else {
                 var found = false
                 while (ancestorIdx >= 0) {
-                    if (matchesAncestorEntry(tok, ancestorChain[ancestorIdx])) {
+                    if (matchesPreparsedAncestor(rule, i, ancestorChain[ancestorIdx])) {
                         found = true
                         ancestorIdx--
                         break
@@ -346,114 +462,86 @@ class CssStyleSheet(
         return true
     }
 
-    private fun normalizeTagName(tag: String): String =
-        normalizeCustomGenericUiTagSelector(tag.trim().replace("\\:", ":").lowercase())
+    private fun matchesSubjectToken(
+        rule: CssRule,
+        classes: Set<String>,
+        normalizedTargetTag: String,
+        id: String?
+    ): Boolean {
+        if (rule.subjectToken == "*") return true
 
-    internal fun normalizeCustomGenericUiTagSelector(rawTag: String): String {
-        val cleaned = rawTag.trim().replace("\\:", ":").lowercase()
-        return when (cleaned) {
-            "app", "genericui:app" -> "genericui:app"
-            "fragment", "genericui:fragment" -> "genericui:fragment"
-            else -> cleaned
+        val reqIds = rule.subjectRequiredIds
+        if (reqIds.isNotEmpty() && (id == null || reqIds.any { it != id })) {
+            return false
         }
+
+        val reqClasses = rule.subjectRequiredClasses
+        if (reqClasses.isNotEmpty() && !classes.containsAll(reqClasses)) {
+            return false
+        }
+
+        val normalizedLeadingTag = rule.subjectLeadingTag
+        if (normalizedLeadingTag.isNotEmpty()) {
+            if (normalizedLeadingTag != normalizedTargetTag) return false
+        }
+
+        return reqIds.isNotEmpty() || reqClasses.isNotEmpty() || normalizedLeadingTag.isNotEmpty()
     }
 
-    private fun extractTagFromToken(token: String): String {
-        val clean = token.trim().replace("\\:", ":")
-        if (clean.isEmpty() || clean.startsWith(".") || clean.startsWith("#") || clean.startsWith("[") || clean.startsWith("*")) {
-            return ""
-        }
-        val sb = StringBuilder()
-        var i = 0
-        while (i < clean.length) {
-            val ch = clean[i]
-            if (ch == '.' || ch == '#' || ch == '[') break
-            if (ch == ':') {
-                val rest = clean.substring(i + 1)
-                val nextSegment = rest.takeWhile { it != '.' && it != '#' && it != '[' && it != ':' }
-                if (sb.toString().equals("genericui", ignoreCase = true) && nextSegment.isNotEmpty()) {
-                    sb.append(':').append(nextSegment)
-                    i += 1 + nextSegment.length
-                    continue
-                }
-                break
-            }
-            sb.append(ch)
-            i++
-        }
-        return sb.toString().trim().lowercase()
-    }
+    private fun matchesPreparsedAncestor(
+        rule: CssRule,
+        ancestorStepIndex: Int,
+        ancestorEntry: Set<String>
+    ): Boolean {
+        val tok = rule.ancestorTokens[ancestorStepIndex]
+        if (tok == "*") return true
 
-    private fun extractClassesFromToken(token: String): Set<String> =
-        Regex("\\.([a-zA-Z0-9_-]+)").findAll(token).map { it.groupValues[1] }.toSet()
-
-    private fun matchesAncestorEntry(token: String, ancestorEntry: Set<String>): Boolean {
-        val clean = token.trim()
-        if (clean == "*") return true
-
-        val idMatches = Regex("#([a-zA-Z0-9_-]+)").findAll(clean).map { it.groupValues[1] }.toList()
+        val idMatches = rule.ancestorRequiredIds[ancestorStepIndex]
         if (idMatches.isNotEmpty() && idMatches.any { "#$it" !in ancestorEntry && it !in ancestorEntry }) {
             return false
         }
 
-        val reqClasses = extractClassesFromToken(clean)
+        val reqClasses = rule.ancestorRequiredClasses[ancestorStepIndex]
         if (reqClasses.isNotEmpty() && !ancestorEntry.containsAll(reqClasses)) {
             return false
         }
 
-        val reqTag = extractTagFromToken(clean)
-        if (reqTag.isNotEmpty()) {
-            val normalizedReqTag = normalizeCustomGenericUiTagSelector(reqTag)
-            val matchedTag = "tag:$reqTag" in ancestorEntry ||
-                "tag:$normalizedReqTag" in ancestorEntry ||
-                ancestorEntry.any {
-                    it.equals(reqTag, ignoreCase = true) ||
-                        it.equals(normalizedReqTag, ignoreCase = true)
-                }
+        val normalizedReqTag = rule.ancestorLeadingTags[ancestorStepIndex]
+        if (normalizedReqTag.isNotEmpty()) {
+            val matchedTag = "tag:$normalizedReqTag" in ancestorEntry ||
+                normalizedReqTag in ancestorEntry ||
+                ancestorEntry.any { it.equals(normalizedReqTag, ignoreCase = true) }
             if (!matchedTag) return false
         }
 
-        return idMatches.isNotEmpty() || reqClasses.isNotEmpty() || reqTag.isNotEmpty()
+        return idMatches.isNotEmpty() || reqClasses.isNotEmpty() || normalizedReqTag.isNotEmpty()
     }
 
-    private fun matchesCompoundToken(
-        token: String,
-        classes: Set<String>,
-        tagName: String,
-        id: String?
-    ): Boolean {
-        val clean = token.trim()
-        if (clean == "*") return true
+    private fun normalizeTagName(tag: String): String =
+        normalizeCustomGenericUiTagSelector(tag)
 
-        val idMatches = Regex("#([a-zA-Z0-9_-]+)").findAll(clean).map { it.groupValues[1] }.toList()
-        if (idMatches.isNotEmpty() && (id == null || idMatches.any { it != id })) {
-            return false
-        }
-
-        val classMatches = extractClassesFromToken(clean)
-        if (classMatches.isNotEmpty() && !classes.containsAll(classMatches)) {
-            return false
-        }
-
-        val leadingTag = extractTagFromToken(clean)
-        val normalizedTargetTag = normalizeTagName(tagName)
-        if (leadingTag.isNotEmpty()) {
-            val normalizedLeadingTag = normalizeCustomGenericUiTagSelector(leadingTag)
-            val isAppSelector = normalizedLeadingTag == "app" || normalizedLeadingTag == "genericui:app"
-            val isAppTarget = normalizedTargetTag == "app" || normalizedTargetTag == "genericui:app"
-            val isFragmentSelector = normalizedLeadingTag == "fragment" || normalizedLeadingTag == "genericui:fragment"
-            val isFragmentTarget = normalizedTargetTag == "fragment" || normalizedTargetTag == "genericui:fragment"
-            when {
-                isAppSelector -> if (!isAppTarget) return false
-                isFragmentSelector -> if (!isFragmentTarget) return false
-                normalizedLeadingTag != normalizedTargetTag -> return false
-            }
-        }
-
-        return idMatches.isNotEmpty() || classMatches.isNotEmpty() || leadingTag.isNotEmpty()
-    }
+    internal fun normalizeCustomGenericUiTagSelector(rawTag: String): String =
+        CssRule.normalizeSelectorTag(rawTag)
 
     companion object {
+        var systemStyleResolverHook: ((
+            sheet: CssStyleSheet,
+            component: AbstractComponent,
+            tagName: String,
+            viewportWidthPx: Int
+        ) -> ComputedStyle?)? = null
+
+        var systemMediaQueryBucketHook: ((
+            sheet: CssStyleSheet,
+            viewportWidthPx: Int
+        ) -> Int?)? = null
+
+        private val WHITESPACE_REGEX = Regex("\\s+")
+        private val COMMENT_REGEX = Regex("/\\*[\\s\\S]*?\\*/")
+        private val KEYFRAMES_PREFIX_REGEX = Regex("^@keyframes\\s+", RegexOption.IGNORE_CASE)
+        private val MIN_WIDTH_REGEX = Regex("min-width\\s*:\\s*(\\d+)px", RegexOption.IGNORE_CASE)
+        private val MAX_WIDTH_REGEX = Regex("max-width\\s*:\\s*(\\d+)px", RegexOption.IGNORE_CASE)
+        private val URL_REGEX = Regex("url\\(\\s*['\"]?([^'\")]+)['\"]?\\s*\\)", RegexOption.IGNORE_CASE)
 
         /**
          * Constructs a precompiled [CssStyleSheet] from build-time pre-parsed and specificity-sorted
@@ -482,7 +570,7 @@ class CssStyleSheet(
         fun parseInlineStyle(inlineCss: String): ComputedStyle {
             val decls = parseDeclarations(inlineCss)
             val cleaned = decls.mapValues { (_, v) ->
-                v.replace(Regex("!\\s*important", RegexOption.IGNORE_CASE), "").trim()
+                v.replace(CssRule.IMPORTANT_STRIP_REGEX, "").trim()
             }
             return buildComputedStyleFromDeclarations(cleaned)
         }
@@ -629,7 +717,7 @@ class CssStyleSheet(
             )
         }
 
-        private fun resolveCssColorValue(rawValue: String, isDarkTheme: Boolean): RgbaColor? {
+        internal fun resolveCssColorValue(rawValue: String, isDarkTheme: Boolean): RgbaColor? {
             val trimmed = rawValue.trim()
             if (trimmed.isEmpty()) return null
             if (trimmed.startsWith("var(", ignoreCase = true) && trimmed.endsWith(")")) {
@@ -695,7 +783,7 @@ class CssStyleSheet(
             return RgbaColor.fromCss(trimmed)
         }
 
-        private fun extractColorFromBackgroundShorthand(value: String, isDarkTheme: Boolean = false): RgbaColor? {
+        internal fun extractColorFromBackgroundShorthand(value: String, isDarkTheme: Boolean = false): RgbaColor? {
             if (Gradient.fromCss(value) != null && resolveCssColorValue(value, isDarkTheme) == null) {
                 for (token in splitPreservingParens(value)) {
                     if (!token.lowercase().contains("gradient(")) {
@@ -713,12 +801,12 @@ class CssStyleSheet(
             return null
         }
 
-        private fun extractUrlFromCssValue(value: String): String? {
-            val match = Regex("url\\(\\s*['\"]?([^'\")]+)['\"]?\\s*\\)", RegexOption.IGNORE_CASE).find(value)
+        internal fun extractUrlFromCssValue(value: String): String? {
+            val match = URL_REGEX.find(value)
             return match?.groupValues?.get(1)?.trim()
         }
 
-        private fun parseAspectRatio(raw: String): Float? {
+        internal fun parseAspectRatio(raw: String): Float? {
             val clean = raw.trim()
             if (clean.contains("/")) {
                 val parts = clean.split("/").map { it.trim().toFloatOrNull() }
@@ -729,7 +817,7 @@ class CssStyleSheet(
             return clean.toFloatOrNull()
         }
 
-        private fun splitPreservingParens(input: String): List<String> {
+        internal fun splitPreservingParens(input: String): List<String> {
             val result = mutableListOf<String>()
             val current = StringBuilder()
             var depth = 0
@@ -776,7 +864,7 @@ class CssStyleSheet(
         fun parse(cssText: String): CssStyleSheet {
             val rules = mutableListOf<CssRule>()
             val keyframes = linkedMapOf<String, Map<String, Map<String, String>>>()
-            val cleaned = cssText.replace(Regex("/\\*[\\s\\S]*?\\*/"), "")
+            val cleaned = cssText.replace(COMMENT_REGEX, "")
 
             var i = 0
             val n = cleaned.length
@@ -800,7 +888,7 @@ class CssStyleSheet(
 
                 when {
                     header.startsWith("@keyframes", ignoreCase = true) -> {
-                        val animName = header.replace(Regex("^@keyframes\\s+", RegexOption.IGNORE_CASE), "").trim()
+                        val animName = header.replace(KEYFRAMES_PREFIX_REGEX, "").trim()
                         val frames = linkedMapOf<String, Map<String, String>>()
                         val subSheet = parse(body)
                         for (r in subSheet.rules) {
@@ -811,10 +899,8 @@ class CssStyleSheet(
                         }
                     }
                     header.startsWith("@media", ignoreCase = true) -> {
-                        val minW = Regex("min-width\\s*:\\s*(\\d+)px", RegexOption.IGNORE_CASE)
-                            .find(header)?.groupValues?.get(1)?.toIntOrNull()
-                        val maxW = Regex("max-width\\s*:\\s*(\\d+)px", RegexOption.IGNORE_CASE)
-                            .find(header)?.groupValues?.get(1)?.toIntOrNull()
+                        val minW = MIN_WIDTH_REGEX.find(header)?.groupValues?.get(1)?.toIntOrNull()
+                        val maxW = MAX_WIDTH_REGEX.find(header)?.groupValues?.get(1)?.toIntOrNull()
                         val innerSheet = parse(body)
                         for (innerRule in innerSheet.rules) {
                             rules.add(
@@ -828,7 +914,8 @@ class CssStyleSheet(
                     header.isNotEmpty() -> {
                         val decls = parseDeclarations(body)
                         val selectors = header.split(",").map { it.trim() }.filter { it.isNotEmpty() }
-                        for (sel in selectors) {
+                        for (rawSel in selectors) {
+                            val sel = CssRule.sanitizeSelectorOrNull(rawSel) ?: continue
                             rules.add(CssRule(sel, decls))
                         }
                     }

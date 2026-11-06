@@ -674,7 +674,7 @@ open class DockWorkspace(
     }
 
     /**
-     * Sets a full-bleed background component (e.g., a Three.js 3D `GLCanvas` / `VKCanvas` or 2D map)
+     * Sets a full-bleed background component (e.g., an interactive viewport or map)
      * underneath the workspace's dock areas and enables [overlayMode] so dock panels float on top
      * of the background component while passing pointer events through uncovered regions.
      */

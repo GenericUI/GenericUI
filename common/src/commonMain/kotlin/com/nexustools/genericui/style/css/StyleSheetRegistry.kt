@@ -12,6 +12,8 @@ object StyleSheetRegistry {
     private val byPath = linkedMapOf<String, PrecompiledStyleSheet>()
     private val byResourceId = linkedMapOf<Int, PrecompiledStyleSheet>()
 
+    var onStyleSheetRegistered: ((PrecompiledStyleSheet) -> Unit)? = null
+
     fun register(
         name: String,
         path: String,
@@ -37,6 +39,7 @@ object StyleSheetRegistry {
         if (resourceId != null) {
             byResourceId[resourceId.id] = sheet
         }
+        onStyleSheetRegistered?.invoke(sheet)
     }
 
     fun register(sheet: PrecompiledStyleSheet) {

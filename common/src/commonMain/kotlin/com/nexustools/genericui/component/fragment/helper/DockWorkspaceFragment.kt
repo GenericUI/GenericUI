@@ -29,7 +29,7 @@ import com.nexustools.genericui.window.WindowConfiguration
  *   automatically updating [activeDocument] when any document window gains focus, while each [DockPanel] is
  *   detached into its own standalone native utility [PanelWindow]!
  * - **Overlay Mode ([setBackgroundComponent] / [overlayPanelsOverBackground])**:
- *   Mounts a full-viewport [backgroundComponent] (such as a Three.js 3D `GLCanvas`/`VKCanvas` or 2D viewport)
+ *   Mounts a full-viewport [backgroundComponent] (such as an interactive 3D or 2D viewport)
  *   as the base layer and positions all [DockArea]s and [DockPanel]s on top of it (`z-index: 10`), passing
  *   pointer/wheel events through uncovered regions directly to the background component.
  */

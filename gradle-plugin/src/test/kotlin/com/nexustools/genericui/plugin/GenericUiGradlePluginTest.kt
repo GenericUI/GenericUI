@@ -182,17 +182,21 @@ class GenericUiGradlePluginTest {
             stylesheetName = "style"
         )
         assertTrue(generatedKt.contains("package com.example.styles"))
-        assertTrue(generatedKt.contains("object StylePrecompiledStyleSheet : PrecompiledStyleSheet"))
+        assertTrue(generatedKt.contains("object StylePrecompiledStyleSheet : BlinkStyleSheet()"))
         assertTrue(generatedKt.contains("override val cssResourcePath: String = \"style.css\""))
+        assertTrue(generatedKt.contains("override val rawCss: String = \"\""))
         assertTrue(generatedKt.contains("override val compiledRules: List<CompiledStyleRule>"))
+        assertTrue(generatedKt.contains("override val ruleSet: BlinkRuleBucketMap = BlinkRuleBucketMap.fromCompiledStyleRules(compiledRules)"))
         assertTrue(generatedKt.contains("CompiledStyleRule("))
+        assertTrue(generatedKt.contains("CompiledSelectorSegment("))
         assertTrue(generatedKt.contains("ComponentStyle().apply"))
+        assertTrue(generatedKt.contains("BlinkStyleEngine.registerStyleSheet(this)"))
         assertTrue(generatedKt.contains("StyleSheetRegistry.register(name, cssResourcePath, this)"))
-        assertTrue(generatedKt.contains("CssStyleSheet.precompiled("))
         assertTrue(generatedKt.contains("selector = \".page\""))
         assertTrue(generatedKt.contains("selector = \".page .menu\""))
         assertTrue(generatedKt.contains("selector = \".page .menu:hover\""))
-        assertTrue(generatedKt.contains("\"background-color\" to \"#713b15\""))
+        assertTrue(generatedKt.contains("setBackgroundColor(RgbaColor(113, 59, 21, 255), false)"))
+        assertFalse(generatedKt.contains("setRawDeclaration"))
     }
 
     @Test

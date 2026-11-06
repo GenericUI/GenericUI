@@ -36,11 +36,11 @@ class GenericUiTargetCheckboxPanel(
             }
         }
 
-    val swingLwjglGlCheckbox: JCheckBox = JCheckBox("Swing: Enable LWJGL OpenGL / OpenGL ES (GLCanvas)", true).apply {
+    val swingLwjglGlCheckbox: JCheckBox = JCheckBox("Swing: Enable LWJGL OpenGL / OpenGL ES (Canvas3D GL)", true).apply {
         name = "swing_lwjgl_gl"
     }
 
-    val swingVulkanCheckbox: JCheckBox = JCheckBox("Swing: Enable LWJGL Vulkan & MoltenVK (VKCanvas)", true).apply {
+    val swingVulkanCheckbox: JCheckBox = JCheckBox("Swing: Enable LWJGL Vulkan & MoltenVK (Canvas3D VK)", true).apply {
         name = "swing_vulkan"
     }
 

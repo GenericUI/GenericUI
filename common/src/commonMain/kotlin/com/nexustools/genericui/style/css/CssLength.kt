@@ -11,7 +11,8 @@ import com.nexustools.genericui.resources.ResourceResolver
  */
 data class CssLength(
     val value: Float = 0f,
-    val unit: CssUnit = CssUnit.PX
+    val unit: CssUnit = CssUnit.PX,
+    val secondaryPxOffset: Float = 0f
 ) : CssValue {
 
     val isAuto: Boolean
@@ -21,7 +22,7 @@ data class CssLength(
         get() = unit == CssUnit.NONE
 
     val isZero: Boolean
-        get() = !isAuto && !isNone && value == 0f
+        get() = !isAuto && !isNone && value == 0f && secondaryPxOffset == 0f
 
     /**
      * Resolves this length to pixels (`Float`), or `null` when [isAuto] or [isNone].
@@ -35,7 +36,7 @@ data class CssLength(
     ): Float? = when (unit) {
         CssUnit.AUTO, CssUnit.NONE -> null
         CssUnit.PX, CssUnit.DP -> value
-        CssUnit.PERCENT -> (value / 100f) * referencePx
+        CssUnit.PERCENT -> (referencePx * (value / 100f)) + secondaryPxOffset
         CssUnit.REM -> value * rootFontSizePx
         CssUnit.EM -> value * parentFontSizePx
         CssUnit.VW -> (value / 100f) * viewportWidthPx
@@ -48,21 +49,37 @@ data class CssLength(
     override fun toCssString(): String {
         if (unit == CssUnit.AUTO) return "auto"
         if (unit == CssUnit.NONE) return "none"
-        val formatted = if (value == value.toInt().toFloat()) {
-            value.toInt().toString()
-        } else {
-            value.toString()
+        if (unit == CssUnit.PERCENT && secondaryPxOffset != 0f) {
+            val op = if (secondaryPxOffset >= 0f) "+" else "-"
+            val absOffset = kotlin.math.abs(secondaryPxOffset)
+            return "calc(${formatNumber(value)}% $op ${formatNumber(absOffset)}px)"
         }
-        return "$formatted${unit.symbol}"
+        return "${formatNumber(value)}${unit.symbol}"
     }
 
     companion object {
         val ZERO = CssLength(0f, CssUnit.PX)
         val AUTO = CssLength(0f, CssUnit.AUTO)
         val NONE = CssLength(0f, CssUnit.NONE)
+        val PERCENT_100 = CssLength(100f, CssUnit.PERCENT)
+        val PERCENT_50 = CssLength(50f, CssUnit.PERCENT)
+
+        private val CALC_PERCENT_PX_REGEX = Regex(
+            "^calc\\(\\s*([+-]?[0-9]*\\.?[0-9]+)%\\s*([+-])\\s*([0-9]*\\.?[0-9]+)px\\s*\\)$",
+            RegexOption.IGNORE_CASE
+        )
+
+        private fun formatNumber(num: Float): String =
+            if (num == num.toInt().toFloat()) {
+                num.toInt().toString()
+            } else {
+                num.toString()
+            }
 
         fun px(value: Number): CssLength = CssLength(value.toFloat(), CssUnit.PX)
         fun percent(value: Number): CssLength = CssLength(value.toFloat(), CssUnit.PERCENT)
+        fun calcPercentPx(percent: Float, offsetPx: Float): CssLength =
+            CssLength(percent, CssUnit.PERCENT, offsetPx)
         fun rem(value: Number): CssLength = CssLength(value.toFloat(), CssUnit.REM)
         fun em(value: Number): CssLength = CssLength(value.toFloat(), CssUnit.EM)
         fun vw(value: Number): CssLength = CssLength(value.toFloat(), CssUnit.VW)
@@ -86,6 +103,17 @@ data class CssLength(
             if (cleaned == "auto") return AUTO
             if (cleaned == "none") return NONE
             if (cleaned == "0") return ZERO
+
+            if (cleaned.startsWith("calc(")) {
+                val calcMatch = CALC_PERCENT_PX_REGEX.matchEntire(cleaned)
+                if (calcMatch != null) {
+                    val pct = calcMatch.groupValues[1].toFloatOrNull() ?: return null
+                    val op = calcMatch.groupValues[2]
+                    val pxOffset = calcMatch.groupValues[3].toFloatOrNull() ?: return null
+                    val signedPx = if (op == "-") -pxOffset else pxOffset
+                    return calcPercentPx(pct, signedPx)
+                }
+            }
 
             if (cleaned.startsWith("@dimen/") || cleaned.startsWith("res://dimen/")) {
                 val name = cleaned.removePrefix("@dimen/").removePrefix("res://dimen/")

@@ -100,7 +100,7 @@ abstract class AbstractContainer(
             val containerImpl = impl as? AbstractContainerNativeImpl<*>
             if (containerImpl != null) {
                 for ((idx, child) in _children.withIndex()) {
-                    if (child.isVisible) {
+                    if (child.isVisible && child.nativeImpl == null) {
                         val childImpl = child.ensureNativeImpl()
                         if (childImpl != null) {
                             containerImpl.addChildNative(childImpl, idx)

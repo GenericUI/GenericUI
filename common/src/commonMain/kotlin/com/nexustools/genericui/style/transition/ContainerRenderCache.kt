@@ -64,8 +64,8 @@ class ContainerRenderCache {
      */
     fun ensurePrerenderedBuffer(container: AbstractContainer): ImageBuffer {
         val bounds = container.getBounds()
-        val targetW = (container.widthPx ?: bounds.width.takeIf { it > 0 } ?: 256).coerceAtLeast(1)
-        val targetH = (container.heightPx ?: bounds.height.takeIf { it > 0 } ?: 128).coerceAtLeast(1)
+        val targetW = (container.widthPx ?: bounds.width.takeIf { it > 0 }?.coerceAtMost(128) ?: 128).coerceAtLeast(1)
+        val targetH = (container.heightPx ?: bounds.height.takeIf { it > 0 }?.coerceAtMost(128) ?: 128).coerceAtLeast(1)
 
         val existing = cachedBuffer
         if (existing != null && !isDirty && existing.width == targetW && existing.height == targetH) {
@@ -74,7 +74,7 @@ class ContainerRenderCache {
 
         val nativeCapture = (container.nativeImpl as? AbstractContainerNativeImpl<*>)
             ?.captureOffscreenBuffer(targetW, targetH)
-        val buffer = nativeCapture ?: rasterizeContainerTree(container, targetW, targetH)
+        val buffer = nativeCapture ?: rasterizeContainerTree(container, targetW, targetH, existing)
 
         cachedBuffer = buffer
         isDirty = false
@@ -96,7 +96,13 @@ class ContainerRenderCache {
 
         val outW = (frameState.widthPx?.roundToInt() ?: source.width).coerceAtLeast(1)
         val outH = (frameState.heightPx?.roundToInt() ?: source.height).coerceAtLeast(1)
-        val out = ImageBuffer(outW, outH)
+        val prevOut = lastCompositedBuffer
+        val out = if (prevOut != null && prevOut.width == outW && prevOut.height == outH) {
+            prevOut.bytes.fill(0)
+            prevOut
+        } else {
+            ImageBuffer(outW, outH)
+        }
 
         val sx = frameState.transform.scaleX
         val sy = frameState.transform.scaleY
@@ -136,8 +142,17 @@ class ContainerRenderCache {
         return out
     }
 
-    private fun rasterizeContainerTree(container: AbstractContainer, width: Int, height: Int): ImageBuffer {
-        val buffer = ImageBuffer(width, height)
+    private fun rasterizeContainerTree(
+        container: AbstractContainer,
+        width: Int,
+        height: Int,
+        reuseBuffer: ImageBuffer? = null
+    ): ImageBuffer {
+        val buffer = if (reuseBuffer != null && reuseBuffer.width == width && reuseBuffer.height == height) {
+            reuseBuffer
+        } else {
+            ImageBuffer(width, height)
+        }
         val bg = container.customBackgroundColor ?: RgbaColor(80, 80, 80, 191)
         // Paint representative border & interior regions for the container and its visible children
         val sampleStepY = if (height > 64) (height / 32).coerceAtLeast(1) else 1

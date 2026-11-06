@@ -11,7 +11,8 @@ data class KeyEvent(
     val ctrlKey: Boolean = false,
     val altKey: Boolean = false,
     val metaKey: Boolean = false,
-    val isRepeat: Boolean = false
+    val isRepeat: Boolean = false,
+    val isTargetTextInput: Boolean = false
 ) {
     val isCommandOrCtrl: Boolean
         get() = ctrlKey || metaKey

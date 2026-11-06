@@ -120,6 +120,29 @@ object ImageLoader {
     }
 
     /**
+     * Registers an in-memory [ImageBuffer] under a synthetic `"memory://imagebuffer/..."` URI so
+     * [load], [loadAsync], [launchLoad], and [probeMetadata] resolve it immediately across all backends.
+     */
+    fun registerMemoryBuffer(uri: String, buffer: ImageBuffer) {
+        trackWeakImageReference(uri, buffer)
+    }
+
+    /**
+     * Resolves an in-memory [ImageBuffer] previously registered via [registerMemoryBuffer] for a
+     * `"memory://..."` URI, or returns `null` if not found or garbage-collected.
+     */
+    fun resolveMemoryBuffer(uri: String?): ImageBuffer? {
+        val clean = uri?.trim() ?: return null
+        if (!clean.startsWith("memory://", ignoreCase = true)) return null
+        getWeakImageReference(clean)?.let { return it }
+        val baseKey = clean.substringBefore("@_crop:")
+        if (baseKey != clean) {
+            getWeakImageReference(baseKey)?.let { return it }
+        }
+        return null
+    }
+
+    /**
      * Sweeps any [WeakReference] entries whose [ImageBuffer] has been garbage-collected.
      */
     fun pruneClearedWeakReferences(): Int = withWeakRefLock {
@@ -239,13 +262,14 @@ object ImageLoader {
      * Probes the dimensions and [ImageMetadata] of an [ImageSource] without decoding the full pixel payload.
      */
     fun probeMetadata(source: ImageSource): ImageMetadata {
-        source.memoryBuffer?.let { buf ->
+        val memBuf = source.memoryBuffer ?: resolveMemoryBuffer(source.uriOrPath)
+        if (memBuf != null) {
             return ImageMetadata(
-                width = buf.width,
-                height = buf.height,
+                width = memBuf.width,
+                height = memBuf.height,
                 format = ImageFormat.RAW_RGBA,
-                pixelFormat = buf.pixelFormat,
-                colorSpace = buf.colorSpace
+                pixelFormat = memBuf.pixelFormat,
+                colorSpace = memBuf.colorSpace
             )
         }
 
@@ -295,6 +319,9 @@ object ImageLoader {
     ): ImageBuffer {
         source.memoryBuffer?.let { existing ->
             return applyPostDecodeOptions(existing.copy(), options)
+        }
+        resolveMemoryBuffer(source.uriOrPath)?.let { memBuf ->
+            return applyPostDecodeOptions(memBuf, options)
         }
 
         val uri = source.uriOrPath?.trim()
@@ -379,6 +406,9 @@ object ImageLoader {
     ): ImageBuffer {
         source.memoryBuffer?.let { existing ->
             return applyPostDecodeOptions(existing.copy(), options)
+        }
+        resolveMemoryBuffer(source.uriOrPath)?.let { memBuf ->
+            return applyPostDecodeOptions(memBuf, options)
         }
 
         val uri = source.uriOrPath?.trim()
@@ -535,6 +565,14 @@ object ImageLoader {
         source.memoryBuffer?.let { existing ->
             try {
                 onLoaded(applyPostDecodeOptions(existing.copy(), options))
+            } catch (t: Throwable) {
+                onError(t)
+            }
+            return null
+        }
+        resolveMemoryBuffer(source.uriOrPath)?.let { memBuf ->
+            try {
+                onLoaded(applyPostDecodeOptions(memBuf, options))
             } catch (t: Throwable) {
                 onError(t)
             }

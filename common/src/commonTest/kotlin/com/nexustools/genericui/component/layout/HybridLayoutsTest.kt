@@ -906,4 +906,88 @@ class HybridLayoutsTest {
         assertFalse(spec.shouldUseWideColumns(viewportWidthDp = 500, viewportHeightDp = 900, backendTarget = BackendTarget.Web))
         assertTrue(spec.shouldUseWideColumns(viewportWidthDp = 900, viewportHeightDp = 500, backendTarget = BackendTarget.Web))
     }
+
+    @Test
+    fun testHybridColumnLayoutClearsFlexGrowInColumnsMode() {
+        val hybrid = HybridColumnLayout(foldMode = HybridFoldMode.PIN_FIRST_COLUMN_TOP)
+        val col0 = Container("div", "media-column").apply {
+            getBootstrap().flexGrow = com.nexustools.genericui.enums.bootstrap.BootstrapFlexGrow.GROW_1
+            addClass("flex-grow-1")
+            addClass("w-100")
+        }
+        val col1 = Container("div", "library-column").apply {
+            getBootstrap().flexGrow = com.nexustools.genericui.enums.bootstrap.BootstrapFlexGrow.GROW_1
+            addClass("flex-grow-1")
+            addClass("w-100")
+        }
+        hybrid.addColumn(id = "media", title = "Media", weight = 1.8f, colMd = 7, component = col0)
+        hybrid.addColumn(id = "library", title = "Library", weight = 1.0f, colMd = 5, component = col1)
+
+        // Transition to wide COLUMNS mode (1280x800)
+        hybrid.updateViewport(viewportWidthDp = 1280, viewportHeightDp = 800, smallestScreenWidthDp = 800)
+        assertEquals(HybridLayoutMode.COLUMNS, hybrid.layoutMode)
+        assertNull(col0.getBootstrap().flexGrow)
+        assertFalse(col0.hasClass("flex-grow-1"))
+        assertFalse(col0.hasClass("w-100"))
+        assertNull(col1.getBootstrap().flexGrow)
+        assertFalse(col1.hasClass("flex-grow-1"))
+        assertFalse(col1.hasClass("w-100"))
+        assertEquals(1.8f, hybrid.columnsRow.getChildWeight(col0))
+        assertEquals(1.0f, hybrid.columnsRow.getChildWeight(col1))
+    }
+
+    @Test
+    fun testTabContainerAndHybridSplitNavigationWithFiveContentTabsAndButtonTab() {
+        var searchClickedCount = 0
+        val splitNav = HybridSplitNavigationContainer(inColumnMode = true)
+        val moviesPane = Container("div", "movies-pane")
+        val showsPane = Container("div", "shows-pane")
+        val musicPane = Container("div", "music-pane")
+        val radioPane = Container("div", "radio-pane")
+        val podcastsPane = Container("div", "podcasts-pane")
+
+        splitNav.addSection("movies", "Movies", icon = "bi-film", content = moviesPane)
+        splitNav.addSection("shows", "TV Shows", icon = "bi-tv", content = showsPane)
+        splitNav.addSection("music", "Music", icon = "bi-music-note-beamed", content = musicPane)
+        splitNav.addSection("radio", "Radio", icon = "bi-broadcast", content = radioPane)
+        splitNav.addSection("podcasts", "Podcast", icon = "bi-mic", content = podcastsPane)
+        splitNav.addButtonSection("search", "Search", icon = "bi-search") {
+            searchClickedCount += 1
+        }
+
+        val tabContainer = splitNav.topTabLayout
+        assertEquals(6, tabContainer.entries.size)
+        // All 6 tab headers must be visible
+        for (i in 0 until 6) {
+            assertTrue(tabContainer.entries[i].tab.isVisible, "Tab header at index $i must be visible")
+        }
+        // Only the active tab (index 0) content slot in tabContainer is visible; unselected tab slots are hidden
+        assertTrue(tabContainer.entries[0].content?.isVisible == true)
+        for (i in 1..4) {
+            assertFalse(tabContainer.entries[i].content?.isVisible == true, "Tab slot at index $i must be hidden")
+        }
+        assertNull(tabContainer.entries[5].content)
+        assertFalse(tabContainer.entries[5].tab.isSelectable)
+        assertEquals(listOf<com.nexustools.genericui.core.AbstractComponent>(moviesPane), splitNav.contentHost.children)
+
+        // Clicking or selecting the ButtonTab invokes onClick without changing the active content tab
+        assertFalse(tabContainer.selectTab("search"))
+        assertEquals(1, searchClickedCount)
+        assertEquals(0, tabContainer.selectedIndex)
+        assertEquals("movies", splitNav.selectedSectionId)
+
+        // Selecting each of the 5 content tabs updates visibility and selectedIndex
+        assertTrue(splitNav.selectSection("podcasts"))
+        assertEquals(4, tabContainer.selectedIndex)
+        assertFalse(tabContainer.entries[0].content?.isVisible == true)
+        assertTrue(tabContainer.entries[4].content?.isVisible == true)
+        assertEquals(listOf<com.nexustools.genericui.core.AbstractComponent>(podcastsPane), splitNav.contentHost.children)
+
+        // Clicking ButtonTab via selectedIndex setter keeps "podcasts" (index 4) selected
+        tabContainer.selectedIndex = 5
+        assertEquals(2, searchClickedCount)
+        assertEquals(4, tabContainer.selectedIndex)
+        assertTrue(tabContainer.entries[4].content?.isVisible == true)
+        assertEquals(listOf<com.nexustools.genericui.core.AbstractComponent>(podcastsPane), splitNav.contentHost.children)
+    }
 }

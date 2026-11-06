@@ -185,9 +185,22 @@ open class ImageBuffer(
     }
 
     /**
+     * Optional platform-native surface/image peer (such as a browser `HTMLCanvasElement` or `HTMLImageElement`)
+     * backing this buffer for hardware-accelerated blitting without CPU pixel readback.
+     */
+    open val nativeSurfacePeer: Any?
+        get() = null
+
+    /**
+     * Returns a `data:` URL representation of this buffer when a fast native encoder (such as
+     * `HTMLCanvasElement.toDataURL(mimeType)`) is available, or `null` to fall back to standard codec encoding.
+     */
+    open fun toDataUrl(mimeType: String = "image/png"): String? = null
+
+    /**
      * Returns a deep copy of this [ImageBuffer].
      */
-    fun copy(): ImageBuffer = ImageBuffer(
+    open fun copy(): ImageBuffer = ImageBuffer(
         width = width,
         height = height,
         pixelFormat = pixelFormat,
@@ -198,7 +211,7 @@ open class ImageBuffer(
     /**
      * Converts this buffer to [PixelFormat.RGBA_8888] (or returns a copy if already RGBA_8888).
      */
-    fun toRgba8888(): ImageBuffer {
+    open fun toRgba8888(): ImageBuffer {
         if (pixelFormat == PixelFormat.RGBA_8888) return copy()
         val dst = ImageBuffer(width, height, PixelFormat.RGBA_8888, colorSpace)
         for (y in 0 until height) {

@@ -1,6 +1,7 @@
 package com.nexustools.genericui.component.layout
 
 import com.nexustools.genericui.component.navigation.BottomNavigationBar
+import com.nexustools.genericui.component.tabs.ButtonTab
 import com.nexustools.genericui.component.tabs.TabContainer
 import com.nexustools.genericui.core.AbstractComponent
 import com.nexustools.genericui.window.WindowConfiguration
@@ -75,6 +76,15 @@ open class HybridSplitNavigationContainer(
     ): HybridSplitNavigationContainer = apply {
         layout.addSection(id, title, icon, badge, content)
     }
+
+    fun addButtonSection(
+        id: String,
+        title: String,
+        icon: String? = null,
+        onClick: () -> Unit = {}
+    ): ButtonTab = layout.addButtonSection(id, title, icon, onClick)
+
+    fun addButtonSection(tab: ButtonTab): ButtonTab = layout.addButtonSection(tab)
 
     fun removeSection(id: String): Boolean = layout.removeSection(id)
 

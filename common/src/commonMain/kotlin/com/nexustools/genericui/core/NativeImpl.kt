@@ -136,6 +136,8 @@ interface NativeImpl<out W> : Disposable {
     fun applyComponentStyle(style: ComponentStyle) {}
     fun applyComponentBootstrap(bootstrap: ComponentBootstrap) {}
     fun setCustomCursor(cursor: CssCursorValue?) {}
+    fun beginBatchAttach() {}
+    fun endBatchAttach() {}
 
     fun setBackgroundGradient(gradient: Gradient?) {}
     fun getBackgroundGradient(): Gradient? = null
@@ -161,6 +163,8 @@ interface NativeImpl<out W> : Disposable {
     ): Boolean = false
 
     fun scheduleDelayed(delayMs: Int, action: () -> Unit): Boolean = false
+
+    fun setOnBeforeTargetFramePresent(listener: ((frameSwapCount: Long, timestampMs: Double?) -> Unit)?) {}
 
     // Event Listeners
     fun setOnClick(listener: (() -> Unit)?)

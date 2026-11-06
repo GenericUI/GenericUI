@@ -8,10 +8,10 @@ import com.nexustools.genericui.core.AbstractComponent
  */
 data class TabEntry(
     val tab: Tab,
-    val content: AbstractComponent
+    val content: AbstractComponent? = null
 ) {
     val id: String
-        get() = tab.tabId
+        get() = tab.id?.takeIf { it.isNotEmpty() } ?: tab.tabId
 
     val tabId: String
         get() = tab.tabId

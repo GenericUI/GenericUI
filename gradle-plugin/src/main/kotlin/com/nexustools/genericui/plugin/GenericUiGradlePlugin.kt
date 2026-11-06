@@ -26,8 +26,11 @@ class GenericUiGradlePlugin : Plugin<Project> {
 
         val angleTask = project.tasks.register("bundleGenericUiAngle", AngleNativeBundleTask::class.java) {
             group = TASK_GROUP
-            description = "Stages Google ANGLE (libEGL.dll, libGLESv2.dll, d3dcompiler_47.dll) runtime metadata for Windows OpenGL ES targets."
+            description = "Stages Google ANGLE (libEGL, libGLESv2, d3dcompiler_47) and optional SwiftShader runtime metadata for OpenGL ES targets."
             bundleAngleOnWindows.set(project.provider { extension.graphics.bundleAngleOnWindows })
+            bundleAngleOnApple.set(project.provider { extension.graphics.bundleAngleOnApple })
+            bundleSoftwareFallback.set(project.provider { extension.graphics.bundleSoftwareFallback })
+            compileShaders.set(project.provider { extension.graphics.compileShaders })
             angleBackendRenderer.set(project.provider { extension.graphics.angleBackendRenderer })
             preferOpenGLES31.set(project.provider { extension.graphics.preferOpenGLES31 })
             targetClassifiers.set(project.provider {
@@ -38,7 +41,7 @@ class GenericUiGradlePlugin : Plugin<Project> {
 
         val vulkanTask = project.tasks.register("bundleGenericUiVulkan", VulkanNativeBundleTask::class.java) {
             group = TASK_GROUP
-            description = "Stages Vulkan loader, MoltenVK ICD, and Shaderc configuration metadata for VKCanvas targets."
+            description = "Stages Vulkan loader, MoltenVK ICD, and Shaderc configuration metadata for Canvas3D targets."
             bundleMoltenVkOnApple.set(project.provider { extension.graphics.bundleMoltenVkOnApple })
             bundleShaderc.set(project.provider { extension.graphics.bundleShaderc })
             enableValidationLayersInDebug.set(project.provider { extension.graphics.enableVulkanValidationLayersInDebug })
@@ -969,7 +972,7 @@ class GenericUiGradlePlugin : Plugin<Project> {
         val version = swing.lwjglVersion
         val classifiers = swing.targetClassifiers.ifEmpty { setOf(OsArchClassifier.detectHost()) }
 
-        // Core LWJGL + JAWT bridge are shared by both GLCanvas and VKCanvas on Swing/AWT
+        // Core LWJGL + JAWT bridge are shared by both GLContext and VKContext on Swing/AWT
         project.dependencies.add(jvmImplConfig, "org.lwjgl:lwjgl:$version")
         project.dependencies.add(jvmImplConfig, "org.lwjgl:lwjgl-jawt:$version")
         for (target in classifiers) {
@@ -1037,7 +1040,10 @@ class GenericUiGradlePlugin : Plugin<Project> {
                     it.name == "getSourceSets" && it.parameterCount == 0
                 }
                 val sourceSetsContainer = getSourceSets?.invoke(kotlinExt) as? org.gradle.api.NamedDomainObjectContainer<*>
-                val targetSourceSet = sourceSetsContainer?.findByName("commonMain")
+                val targetSourceSet = sourceSetsContainer?.findByName("systemMain")
+                    ?: sourceSetsContainer?.findByName("systemCommon")
+                    ?: sourceSetsContainer?.findByName("systemCommonMain")
+                    ?: sourceSetsContainer?.findByName("commonMain")
                     ?: sourceSetsContainer?.findByName("main")
                 if (targetSourceSet != null) {
                     val getKotlin = targetSourceSet.javaClass.methods.firstOrNull {

@@ -705,7 +705,7 @@ object GenericUiMultiplatformConfigurator {
         val resolvedBaseName = app.baseName.trim().ifEmpty { project.name }
 
         if (mingwTarget != null) {
-            val winLinkerOpts = mutableListOf(
+            val baseWinLibs = listOf(
                 "-lgdi32",
                 "-luser32",
                 "-lcomdlg32",
@@ -714,6 +714,25 @@ object GenericUiMultiplatformConfigurator {
                 "-ldwmapi",
                 "-luxtheme"
             )
+            runCatching {
+                val binaries = invokeNoArg(mingwTarget, "getBinaries") as? org.gradle.api.DomainObjectCollection<*>
+                binaries?.all(Action<Any> {
+                    val bin = this
+                    val existingOpts = invokeNoArg(bin, "getLinkerOpts") as? MutableCollection<*>
+                    val missingOpts = if (existingOpts != null) {
+                        baseWinLibs.filter { it !in existingOpts }
+                    } else {
+                        baseWinLibs
+                    }
+                    if (missingOpts.isNotEmpty()) {
+                        bin.javaClass.methods.firstOrNull {
+                            it.name == "linkerOpts" && it.parameterCount == 1 &&
+                                Iterable::class.java.isAssignableFrom(it.parameterTypes[0])
+                        }?.invoke(bin, missingOpts)
+                    }
+                })
+            }
+            val winLinkerOpts = baseWinLibs.toMutableList()
             if (!app.consoleApplication) {
                 winLinkerOpts.add("-Wl,--subsystem,windows")
             }

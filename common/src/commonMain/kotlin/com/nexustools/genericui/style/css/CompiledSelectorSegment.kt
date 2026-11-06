@@ -8,11 +8,16 @@ data class CompiledSelectorSegment(
     val id: String? = null,
     val classes: Set<String> = emptySet(),
     val pseudoClass: String? = null,
+    val pseudoClasses: Set<String> = if (pseudoClass != null) setOf(pseudoClass) else emptySet(),
+    val combinatorToLeft: CssCombinator? = null,
     val combinatorToNext: CssCombinator? = null
 ) {
     companion object {
         fun parseChain(selector: String): List<CompiledSelectorSegment> {
-            val cleaned = selector.trim()
+            val cleaned = selector
+                .replace(CssRule.NOT_DISABLED_REGEX, "")
+                .replace(CssRule.NOT_PSEUDO_REGEX, "")
+                .trim()
             if (cleaned.isEmpty()) return emptyList()
 
             val tokens = tokenizeSelectorChain(cleaned)
@@ -56,13 +61,24 @@ data class CompiledSelectorSegment(
         }
 
         private fun parseCompoundSegment(raw: String, combinator: CssCombinator?): CompiledSelectorSegment {
-            var working = raw.trim()
+            var working = raw
+                .replace(CssRule.NOT_DISABLED_REGEX, "")
+                .replace(CssRule.NOT_PSEUDO_REGEX, "")
+                .trim()
             var pseudo: String? = null
+            if (CssRule.DISABLED_ATTR_REGEX.containsMatchIn(working)) {
+                pseudo = "disabled"
+                working = working.replace(CssRule.DISABLED_ATTR_REGEX, "").trim()
+            }
             val colonIdx = working.indexOf(':')
             if (colonIdx >= 0) {
-                pseudo = working.substring(colonIdx + 1).trim().lowercase().takeIf { it.isNotEmpty() }
+                val extractedPseudo = working.substring(colonIdx + 1).trim().lowercase().takeIf { it.isNotEmpty() }
+                if (extractedPseudo != null) {
+                    pseudo = extractedPseudo
+                }
                 working = working.substring(0, colonIdx).trim()
             }
+            working = working.replace(Regex("\\[[^]]*]"), "").trim()
 
             var tagName: String? = null
             var id: String? = null

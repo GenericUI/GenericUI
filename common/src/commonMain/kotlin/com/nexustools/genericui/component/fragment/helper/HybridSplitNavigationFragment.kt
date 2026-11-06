@@ -7,6 +7,7 @@ import com.nexustools.genericui.component.layout.HybridBreakpointSpec
 import com.nexustools.genericui.component.layout.HybridSplitNavigationContainer
 import com.nexustools.genericui.component.layout.HybridSplitNavigationLayout
 import com.nexustools.genericui.component.layout.HybridSplitNavigationLayoutImpl
+import com.nexustools.genericui.component.tabs.ButtonTab
 import com.nexustools.genericui.core.AbstractComponent
 import com.nexustools.genericui.window.WindowConfiguration
 
@@ -121,6 +122,35 @@ open class HybridSplitNavigationFragment(
             badge = badge,
             content = host
         )
+    }
+
+    /**
+     * Registers an action-only [ButtonTab] section with [id], [title], optional [icon], and [onClick].
+     */
+    fun addButtonSection(
+        id: String,
+        title: String,
+        icon: String? = null,
+        onClick: () -> Unit = {}
+    ): ButtonTab {
+        sectionFragments.remove(id)
+        sectionFragmentContainers.remove(id)?.dispose()
+        return layout.addButtonSection(
+            id = id,
+            title = title,
+            icon = icon,
+            onClick = onClick
+        )
+    }
+
+    /**
+     * Registers an existing [ButtonTab] as an action-only section.
+     */
+    fun addButtonSection(tab: ButtonTab): ButtonTab {
+        val sectionId = tab.id?.takeIf { it.isNotEmpty() } ?: tab.tabId
+        sectionFragments.remove(sectionId)
+        sectionFragmentContainers.remove(sectionId)?.dispose()
+        return layout.addButtonSection(tab)
     }
 
     /**

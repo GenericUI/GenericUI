@@ -184,8 +184,11 @@ open class HybridColumnLayout(
     var isInPictureInPictureMode: Boolean
         get() = fullscreenController?.isInPictureInPictureMode ?: internalPipState
         set(value) {
-            internalPipState = value
             val controller = fullscreenController
+            if (internalPipState == value && (controller == null || controller.isInPictureInPictureMode == value)) {
+                return
+            }
+            internalPipState = value
             if (controller != null) {
                 controller.setPictureInPictureMode(value)
             }
@@ -473,9 +476,20 @@ open class HybridColumnLayout(
         smallestScreenWidthDp: Int = min(viewportWidthDp, viewportHeightDp),
         isMobileTarget: Boolean? = null
     ) {
-        this.viewportWidthDp = viewportWidthDp.coerceAtLeast(1)
-        this.viewportHeightDp = viewportHeightDp.coerceAtLeast(1)
-        this.smallestScreenWidthDp = smallestScreenWidthDp.coerceAtLeast(1)
+        val nextW = viewportWidthDp.coerceAtLeast(1)
+        val nextH = viewportHeightDp.coerceAtLeast(1)
+        val nextS = smallestScreenWidthDp.coerceAtLeast(1)
+        if (!structureDirty &&
+            lastAppliedMode != null &&
+            this.viewportWidthDp == nextW &&
+            this.viewportHeightDp == nextH &&
+            this.smallestScreenWidthDp == nextS
+        ) {
+            return
+        }
+        this.viewportWidthDp = nextW
+        this.viewportHeightDp = nextH
+        this.smallestScreenWidthDp = nextS
 
         val controller = fullscreenController
         if (controller != null && controller.isEnabled) {
@@ -890,11 +904,14 @@ open class HybridColumnLayout(
             reg.appliedGridClasses.add(cls)
         }
 
-        // Ensure .w-100 (width: 100% !important) is removed when entering side-by-side column mode
+        // Ensure .w-100 (width: 100% !important) and .flex-grow-1 (flex-grow: 1 !important)
+        // are removed when entering side-by-side column mode so weighted column ratios apply cleanly
         if (comp.getBootstrap().width == com.nexustools.genericui.enums.bootstrap.BootstrapWidth.W_100) {
             comp.getBootstrap().width = null
         }
+        comp.getBootstrap().flexGrow = null
         comp.removeClass("w-100")
+        comp.removeClass("flex-grow-1")
         comp.removeStyleProperty("width")
 
         comp.setFlexGrow(spec.weight)

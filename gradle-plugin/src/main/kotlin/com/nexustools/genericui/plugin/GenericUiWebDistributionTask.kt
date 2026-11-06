@@ -3118,6 +3118,48 @@ genericui\:toolpalette { display: grid; box-sizing: border-box; }"""
         return record;
     }
 
+    function preloadRecordImageElement(record) {
+        if (!record || !record.mimeType || record.mimeType.indexOf("image/") !== 0 || !record.dataUrl || typeof global.Image !== "function") {
+            return Promise.resolve(record);
+        }
+        if (record.imageElement && record.imageElement.complete) {
+            return Promise.resolve(record);
+        }
+        var img = new global.Image();
+        record.imageElement = img;
+        return new Promise(function (resolve) {
+            var settled = false;
+            var timer = typeof global.setTimeout === "function"
+                ? global.setTimeout(function () {
+                    if (!settled) {
+                        settled = true;
+                        record.naturalWidth = img.naturalWidth || 0;
+                        record.naturalHeight = img.naturalHeight || 0;
+                        resolve(record);
+                    }
+                }, 3000)
+                : null;
+            function finish() {
+                if (settled) {
+                    return;
+                }
+                settled = true;
+                if (timer !== null && typeof global.clearTimeout === "function") {
+                    global.clearTimeout(timer);
+                }
+                record.naturalWidth = img.naturalWidth || 0;
+                record.naturalHeight = img.naturalHeight || 0;
+                resolve(record);
+            }
+            img.onload = finish;
+            img.onerror = finish;
+            img.src = record.dataUrl;
+            if (img.complete && img.naturalWidth > 0) {
+                finish();
+            }
+        });
+    }
+
     function getPreloadedResource(key) {
         var store = global.__GENERICUI_PRELOADED_RESOURCES__;
         if (!store || !key) {
@@ -3324,13 +3366,13 @@ genericui\:toolpalette { display: grid; box-sizing: border-box; }"""
         if (entry.bytes instanceof Uint8Array) {
             var recBytes = registerPreloadedResourceEntry(entry, entry.bytes);
             advanceInlineBytes(entry.bytes.byteLength);
-            return Promise.resolve(recBytes);
+            return preloadRecordImageElement(recBytes);
         }
         if (Array.isArray(entry.bytes)) {
             var arrBytes = new Uint8Array(entry.bytes);
             var recArr = registerPreloadedResourceEntry(entry, arrBytes);
             advanceInlineBytes(arrBytes.byteLength);
-            return Promise.resolve(recArr);
+            return preloadRecordImageElement(recArr);
         }
         if (typeof entry.dataUrl === "string" && entry.dataUrl.indexOf("data:") === 0) {
             var commaIdx = entry.dataUrl.indexOf(",");
@@ -3340,13 +3382,13 @@ genericui\:toolpalette { display: grid; box-sizing: border-box; }"""
                 : utf8ToBytes(decodeURIComponent(payload));
             var recDataUrl = registerPreloadedResourceEntry(entry, decoded);
             advanceInlineBytes(decoded.byteLength);
-            return Promise.resolve(recDataUrl);
+            return preloadRecordImageElement(recDataUrl);
         }
         if (typeof entry.base64 === "string" && entry.base64.length > 0) {
             var b64Bytes = base64ToBytes(entry.base64);
             var recB64 = registerPreloadedResourceEntry(entry, b64Bytes);
             advanceInlineBytes(b64Bytes.byteLength);
-            return Promise.resolve(recB64);
+            return preloadRecordImageElement(recB64);
         }
         if (typeof entry.text === "string") {
             var txtBytes = utf8ToBytes(entry.text);
@@ -3366,6 +3408,7 @@ genericui\:toolpalette { display: grid; box-sizing: border-box; }"""
             .then(function (downloadedBytes) {
                 return registerPreloadedResourceEntry(entry, downloadedBytes);
             })
+            .then(preloadRecordImageElement)
             .catch(function (err) {
                 if (config && config.requireResourceManifest === true) {
                     throw err;

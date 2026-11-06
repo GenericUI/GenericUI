@@ -49,8 +49,8 @@ All canvases inherit from `:common`'s `AbstractCanvas` (`registerVBlankRender { 
 | Extension & Classes | Windows (`:desktop:windows`) | macOS (`:desktop:macos`) | Linux (`:desktop:gtk` / `:qt`) | JVM (`:desktop:swing`) | Android (`:mobile:android`) | iOS (`:mobile:ios`) | Web (`:web`) |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | **`:extensions:canvas2d`**<br/>`Canvas2D`, `ScrollCanvas2D`, `CurveEditor` | Direct2D (`ID2D1RenderTarget`) | CoreGraphics (`CGContext`) | Cairo / `QPainter` | `Java2D` (`Graphics2D`) | `android.graphics.Canvas` | CoreGraphics (`CGContext`) | HTML5 `CanvasRenderingContext2D` |
-| **`:extensions:canvas3d`**<br/>`GLCanvas`, `ScrollGLCanvas` | **Google ANGLE** (`libEGL.dll` + `libGLESv2.dll` $\rightarrow$ D3D11) | AppKit OpenGL / Metal GLES | Native EGL + `libGLESv2.so` / `QOpenGLWidget` | LWJGL 3 `JAWT` + `EGL` / `GLES` (`useLwjglGL`) | `EGLSurfaceView` (`GLES30`/`GLES31`) | `EAGLContext` (`CAEAGLLayer`) | `WebGL2RenderingContext` |
-| **`:extensions:canvas3d`**<br/>`VKCanvas`, `ScrollVKCanvas` | Native `vulkan-1.dll` (`VK_KHR_win32_surface`) | **MoltenVK** (`libMoltenVK.dylib` $\rightarrow$ Metal) | Native `libvulkan.so.1` / `QVulkanWindow` | LWJGL 3 `JAWT` + `lwjgl-vulkan` (`useVulkan`) | Native `libvulkan.so` (`VK_KHR_android_surface`) | **MoltenVK** (`VK_EXT_metal_surface`) | `WebGPU` (`GPUCanvasContext`) |
+| **`:extensions:canvas3d`**<br/>`Canvas3D` (`GLContext`), `ScrollCanvas3D` | **Google ANGLE** (`libEGL.dll` + `libGLESv2.dll` $\rightarrow$ D3D11) | AppKit OpenGL / Metal GLES | Native EGL + `libGLESv2.so` / `QOpenGLWidget` | LWJGL 3 `JAWT` + `EGL` / `GLES` (`useLwjglGL`) | `EGLSurfaceView` (`GLES30`/`GLES31`) | `EAGLContext` (`CAEAGLLayer`) | `WebGL2RenderingContext` |
+| **`:extensions:canvas3d`**<br/>`Canvas3D` (`VKContext`), `ScrollCanvas3D` | Native `vulkan-1.dll` (`VK_KHR_win32_surface`) | **MoltenVK** (`libMoltenVK.dylib` $\rightarrow$ Metal) | Native `libvulkan.so.1` / `QVulkanWindow` | LWJGL 3 `JAWT` + `lwjgl-vulkan` (`useVulkan`) | Native `libvulkan.so` (`VK_KHR_android_surface`) | **MoltenVK** (`VK_EXT_metal_surface`) | `WebGPU` (`GPUCanvasContext`) |
 
 ---
 
