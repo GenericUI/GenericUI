@@ -9,7 +9,7 @@ open class GenericUiAndroidManifestConfig {
     var configChanges: String = "orientation|screenSize|screenLayout|keyboardHidden|uiMode|density"
     var supportsPictureInPicture: Boolean = false
     var applicationClass: String = ""
-    var theme: String = "@style/Theme.AppCompat.DayNight.NoActionBar"
+    var theme: String = "@style/Theme.GenericUI.App"
     var minSdk: Int = 24
     var compileSdk: Int = 35
     var targetSdk: Int = 35

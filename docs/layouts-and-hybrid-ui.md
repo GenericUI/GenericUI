@@ -59,7 +59,7 @@ val root = buildDiv {
         destination(id = "player", label = "Now Playing", icon = "bi-play-circle") {
             hybridColumnLayout(foldMode = HybridFoldMode.PIN_FIRST_COLUMN_TOP) {
                 column(id = "video", title = "Video", weight = 1.8f, colMd = 7, compactAspectRatio = 16f / 9f) {
-                    style { borderRadius = CssCornerRadii.all(8f) }
+                    bootstrap { backgroundType = BootstrapType.DARK }
                     +"Primary Video / Visualizer Surface"
                 }
                 column(id = "queue", title = "Up Next", weight = 1.0f, colMd = 5, scrollableInSingleMode = true) {
@@ -80,3 +80,13 @@ val root = buildDiv {
     }
 }
 ```
+
+---
+
+## 4. System Backend Typography vs. Aesthetic Style Restraints in Layouts
+
+When styling layout containers and child components across all 8 targets:
+- **Zero String-Keyed Style APIs**: `GenericUI` does not expose `setStyleProperty(String, String)` or raw CSS maps; all styling uses strongly-typed `ComponentStyle` (`getStyle()` / `style { ... }`) and `ComponentBootstrap` (`getBootstrap()` / `bootstrap { ... }`), translated to DOM CSS strings only on `:web` via `WebCssStyleTranslator`.
+- **Standard Containers & Controls on System Backends (`Windows`, `MacOS`, `Gtk`, `Qt`, `Swing`, `Android`, `IOS`)**: Layout/geometry properties (`width`, `height`, `minWidth`, `maxWidth`, `padding`, `margin`, `gap`, `flexGrow`, `flexWrap`, `cursor`) are honored on all containers and controls, whereas aesthetic skinning overrides on `ComponentStyle` (`backgroundColor`, `background`, `borderColor`, `borderWidth`, `borderRadius`, `boxShadow`) and font overrides on controls are **silently ignored** on standard `Container`, `VStack`, `HStack`, `Card`, `Button`, `TextField`, `Select`, etc. Standard containers/controls can only be tinted via `BootstrapType` (`bootstrap.type`, `bootstrap.backgroundType`, `bootstrap.borderType`).
+- **Text / Typography Elements (`Label`, `Text`, `Heading`, `Badge`, `Blockquote`, `CodeBlock`, `MarkdownView`)**: Honor full typography and text-color properties (`color` / `textColor`, `fontFamily`, `fontSize`, `fontWeight`, `fontStyle`, `lineHeight`, `letterSpacing`, `textAlign`, `textDecoration`, `textTransform`, `textOverflow`, `whiteSpace`, `wordBreak`) on all 8 backends.
+- **`StyledContainer`, `StyledButton`, & `:extensions:alien`**: Use [`StyledContainer`](../common/src/commonMain/kotlin/com/nexustools/genericui/component/container/StyledContainer.kt), [`StyledButton`](../common/src/commonMain/kotlin/com/nexustools/genericui/component/action/StyledButton.kt), or `:extensions:alien` when custom `ComponentStyle` aesthetic skinning (custom backgrounds, gradients, rounded borders, or shadows) is desired on system backends.

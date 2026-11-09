@@ -3,6 +3,7 @@ package com.nexustools.genericui.component.layout
 import com.nexustools.genericui.enums.bootstrap.DisplayMode
 import com.nexustools.genericui.enums.bootstrap.FlexDirection
 import com.nexustools.genericui.enums.bootstrap.FlexWrap
+import com.nexustools.genericui.style.css.CssLength
 
 /**
  * Default responsive Bootstrap 5 12-column grid implementation of [ColumnLayoutImpl].
@@ -36,28 +37,35 @@ open class ResponsiveColumnLayoutImpl(
 
             when {
                 isAuto -> {
-                    col.setStyleProperty("flex-grow", "0")
-                    col.setStyleProperty("flex-shrink", "0")
-                    col.setStyleProperty("flex-basis", "auto")
-                    col.setStyleProperty("width", "auto")
-                    col.removeStyleProperty("max-width")
+                    col.getStyle().apply {
+                        setFlexGrow(0f)
+                        setFlexShrink(0f)
+                        setFlexBasis(CssLength.AUTO)
+                        setWidth(CssLength.AUTO)
+                        setMaxWidth(null)
+                    }
                 }
                 effectiveSpan != null -> {
                     val clamped = effectiveSpan.coerceIn(1, 12)
                     val pct = (clamped * 100.0) / 12.0
-                    val roundedPct = ((pct * 10000.0).toInt() / 10000.0).toString() + "%"
-                    col.setStyleProperty("flex-grow", "0")
-                    col.setStyleProperty("flex-shrink", "0")
-                    col.setStyleProperty("flex-basis", roundedPct)
-                    col.setStyleProperty("width", roundedPct)
-                    col.setStyleProperty("max-width", roundedPct)
+                    val roundedPct = ((pct * 10000.0).toInt() / 10000.0).toFloat()
+                    val pctLen = CssLength.percent(roundedPct)
+                    col.getStyle().apply {
+                        setFlexGrow(0f)
+                        setFlexShrink(0f)
+                        setFlexBasis(pctLen)
+                        setWidth(pctLen)
+                        setMaxWidth(pctLen)
+                    }
                 }
                 else -> {
-                    col.setStyleProperty("flex-grow", "1")
-                    col.setStyleProperty("flex-shrink", "0")
-                    col.setStyleProperty("flex-basis", "0%")
-                    col.removeStyleProperty("width")
-                    col.removeStyleProperty("max-width")
+                    col.getStyle().apply {
+                        setFlexGrow(1f)
+                        setFlexShrink(0f)
+                        setFlexBasis(CssLength.percent(0))
+                        setWidth(null)
+                        setMaxWidth(null)
+                    }
                 }
             }
         }

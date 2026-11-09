@@ -7,4 +7,5 @@ interface TableNativeImpl<out W> : AbstractContainerNativeImpl<W> {
     fun setRows(rows: List<List<String>>)
     fun setStriped(striped: Boolean)
     fun setHoverable(hoverable: Boolean)
+    fun setColumnWeights(weights: FloatArray) {}
 }

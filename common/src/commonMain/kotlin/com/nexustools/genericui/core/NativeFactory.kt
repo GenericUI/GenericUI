@@ -42,6 +42,8 @@ import com.nexustools.genericui.nativeimpl.shell.*
 import com.nexustools.genericui.nativeimpl.system.*
 import com.nexustools.genericui.nativeimpl.typography.MarkdownViewNativeImpl
 import com.nexustools.genericui.nativeimpl.typography.TextNativeImpl
+import com.nexustools.genericui.threading.DefaultUiThreadDispatcherNativeImpl
+import com.nexustools.genericui.threading.UiThreadDispatcherNativeImpl
 
 /**
  * Abstract factory interface implemented by all 8 platform backends (`:qt`, `:gtk`, `:windows`, `:macos`,
@@ -139,6 +141,14 @@ interface NativeFactory {
     fun finishWebSplash() {}
 
     // Shell & Window
+    /**
+     * Whether standard (non-`Styled*`) components ignore aesthetic skinning styles (`background*`,
+     * `border*`, `boxShadow`, `filter`, `backdropFilter`) and non-text components ignore typography
+     * styles. Defaults to `true` on system backends; Web and Alien override this to `false`.
+     */
+    val ignoresAestheticStylesOnStandardComponents: Boolean
+        get() = true
+
     fun createApplication(): ApplicationNativeImpl<*>
     fun createWindow(): WindowNativeImpl<*>
     fun createMenuBar(): MenuBarNativeImpl<*>
@@ -201,6 +211,7 @@ interface NativeFactory {
     fun createTreeView(): TreeViewNativeImpl<*>
 
     // System Services & Async I/O / Database
+    fun createUiThreadDispatcher(): UiThreadDispatcherNativeImpl = DefaultUiThreadDispatcherNativeImpl()
     fun createUiTimerScheduler(): UiTimerNativeImpl = DefaultUiTimerNativeImpl()
     fun createPermissionManager(): PermissionManagerNativeImpl
     fun createSystemTray(): SystemTrayNativeImpl

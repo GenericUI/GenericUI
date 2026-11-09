@@ -51,6 +51,33 @@ open class Window(
     internal var ExplicitFactory: NativeFactory? = null
     final override var isWindowShown: Boolean = false
         private set
+    private var windowVisibleState: Boolean = true
+    private var hideRequestedBeforeInitialShow: Boolean = false
+
+    override var isVisible: Boolean
+        get() = windowVisibleState
+        set(value) {
+            if (value) {
+                if (!windowVisibleState) {
+                    windowVisibleState = true
+                    hideRequestedBeforeInitialShow = false
+                    if (isWindowShown || ExplicitFactory != null || GenericUI.activeFactory != null) {
+                        val impl = ensureNativeImpl() as? WindowNativeImpl<*>
+                        if (impl != null) {
+                            if (fullscreenState || fullscreenElement != null) {
+                                val target = fullscreenElement ?: contentContainer ?: this
+                                val elImpl = if (target === this) impl else target.ensureNativeImpl()
+                                impl.setFullscreenElement(elImpl, cutoutModeState)
+                            }
+                            impl.setVisible(true)
+                            impl.showWindow()
+                        }
+                    }
+                }
+            } else {
+                hide()
+            }
+        }
 
     private var titleState: String = title
     private var windowIconState: String? = null
@@ -173,7 +200,7 @@ open class Window(
     }
 
     override fun resolveActiveFactory(): NativeFactory? {
-        if (!isWindowShown || !isVisible) return null
+        if (!isWindowShown && ExplicitFactory == null) return null
         return ExplicitFactory ?: GenericUI.activeFactory
     }
 
@@ -182,6 +209,7 @@ open class Window(
 
     protected override fun onAttachNative(impl: NativeImpl<*>) {
         super.onAttachNative(impl)
+        impl.setVisible(windowVisibleState)
         val wImpl = impl as? WindowNativeImpl<*> ?: return
         wImpl.setTitle(titleState)
         minWindowSizeState?.let { wImpl.setMinWindowSize(it) }
@@ -459,6 +487,24 @@ open class Window(
         return created
     }
 
+    fun setFragment(fragment: com.nexustools.genericui.component.fragment.Fragment) {
+        getOrCreateFragmentContainer().setFragment(fragment)
+    }
+
+    fun pushFragment(fragment: com.nexustools.genericui.component.fragment.Fragment) {
+        getOrCreateFragmentContainer().pushFragment(fragment)
+    }
+
+    fun popFragment(): Boolean =
+        fragmentContainer?.popFragment() ?: false
+
+    fun goForward(): Boolean =
+        fragmentContainer?.goForward() ?: false
+
+    fun replaceFragment(fragment: com.nexustools.genericui.component.fragment.Fragment) {
+        getOrCreateFragmentContainer().replaceFragment(fragment)
+    }
+
     fun enterPictureInPicture(config: PipConfig = PipConfig()): Boolean =
         winImpl?.enterPictureInPicture(config) ?: false
 
@@ -472,6 +518,11 @@ open class Window(
     open override fun show(factory: NativeFactory?) {
         if (factory != null) {
             ExplicitFactory = factory
+        }
+        val startHiddenOnInitialRealize = !isWindowShown && factory != null && hideRequestedBeforeInitialShow
+        hideRequestedBeforeInitialShow = false
+        if (!startHiddenOnInitialRealize) {
+            windowVisibleState = true
         }
         val hasAnyContent = children.isNotEmpty() ||
             contentContainer != null ||
@@ -487,6 +538,9 @@ open class Window(
                 "Cannot show Window '$titleState' with no content: add a root component or Fragment before calling show()."
             )
         }
+        if (factory == null && ExplicitFactory == null && GenericUI.activeFactory == null) {
+            return
+        }
         isWindowShown = true
         val impl = ensureNativeImpl() as? WindowNativeImpl<*>
             ?: throw IllegalStateException(
@@ -494,21 +548,67 @@ open class Window(
             )
         installNativeWindowResizeForwarder(impl)
         titleBarInstructions?.setHostEmbedsComponents(titleCapabilities.canEmbedComponentsInTitleBar)
-        impl.showWindow()
-        frontOrderSequence = nextFrontSequence()
-        for (panelWin in _attachedPanelWindows.toList()) {
-            panelWin.syncToolModalAttachmentToNative()
-            if (panelWin.isVisible) {
-                panelWin.bringToFront()
-            }
+        fragmentContainer?.ensureActiveFragmentStartedAndResumed()
+        if (fullscreenState || fullscreenElement != null) {
+            val target = fullscreenElement ?: contentContainer ?: this
+            val elImpl = if (target === this) impl else target.ensureNativeImpl()
+            impl.setFullscreenElement(elImpl, cutoutModeState)
         }
-        if (_attachedDialogWindows.isNotEmpty()) {
-            bringAttachedDialogWindowsToFront()
+        if (windowVisibleState) {
+            impl.setVisible(true)
+            impl.showWindow()
+            frontOrderSequence = nextFrontSequence()
+            for (panelWin in _attachedPanelWindows.toList()) {
+                panelWin.syncToolModalAttachmentToNative()
+                if (panelWin.isVisible) {
+                    panelWin.bringToFront()
+                }
+            }
+            if (_attachedDialogWindows.isNotEmpty()) {
+                bringAttachedDialogWindowsToFront()
+            }
+        } else {
+            impl.setVisible(false)
+            impl.showWindow()
         }
     }
 
     open override fun hide() {
-        isVisible = false
+        if (!isWindowShown) {
+            hideRequestedBeforeInitialShow = true
+        }
+        windowVisibleState = false
+        winImpl?.setVisible(false)
+    }
+
+    override fun triggerKeyDown(ev: com.nexustools.genericui.event.KeyEvent) {
+        super.triggerKeyDown(ev)
+        dispatchKeyDownToDescendants(this, ev)
+    }
+
+    override fun triggerKeyUp(ev: com.nexustools.genericui.event.KeyEvent) {
+        super.triggerKeyUp(ev)
+        dispatchKeyUpToDescendants(this, ev)
+    }
+
+    private fun dispatchKeyDownToDescendants(parent: AbstractContainer, ev: com.nexustools.genericui.event.KeyEvent) {
+        for (child in parent.children.toList()) {
+            if (!child.isVisible || !child.isEnabled || child.isDisposed) continue
+            child.triggerKeyDown(ev)
+            if (child is AbstractContainer) {
+                dispatchKeyDownToDescendants(child, ev)
+            }
+        }
+    }
+
+    private fun dispatchKeyUpToDescendants(parent: AbstractContainer, ev: com.nexustools.genericui.event.KeyEvent) {
+        for (child in parent.children.toList()) {
+            if (!child.isVisible || !child.isEnabled || child.isDisposed) continue
+            child.triggerKeyUp(ev)
+            if (child is AbstractContainer) {
+                dispatchKeyUpToDescendants(child, ev)
+            }
+        }
     }
 
     open override fun minimize() {

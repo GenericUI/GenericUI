@@ -117,19 +117,23 @@ open class CollapsibleBottomDockLayout(
         host.addClass("gui-collapsible-bottom-dock")
         host.setDisplay(DisplayMode.FLEX)
         host.setFlexDirection(FlexDirection.COLUMN)
-        host.setStyleProperty("width", "100%")
-        host.setStyleProperty("height", "100%")
-        host.setStyleProperty("min-height", "0")
-        host.setStyleProperty("flex-grow", "1")
-        host.setStyleProperty("overflow", "hidden")
+        host.getStyle().apply {
+            setWidth(com.nexustools.genericui.style.css.CssLength.PERCENT_100)
+            setHeight(com.nexustools.genericui.style.css.CssLength.PERCENT_100)
+            setMinHeight(com.nexustools.genericui.style.css.CssLength.ZERO)
+            setFlexGrow(1f)
+            setOverflow(com.nexustools.genericui.enums.bootstrap.OverflowBehavior.HIDDEN)
+        }
 
         mainContentHost.setDisplay(DisplayMode.FLEX)
         mainContentHost.setFlexDirection(FlexDirection.COLUMN)
-        mainContentHost.setStyleProperty("width", "100%")
-        mainContentHost.setStyleProperty("height", "100%")
-        mainContentHost.setStyleProperty("min-height", "0")
-        mainContentHost.setStyleProperty("flex-grow", "1")
-        mainContentHost.setStyleProperty("overflow", "hidden")
+        mainContentHost.getStyle().apply {
+            setWidth(com.nexustools.genericui.style.css.CssLength.PERCENT_100)
+            setHeight(com.nexustools.genericui.style.css.CssLength.PERCENT_100)
+            setMinHeight(com.nexustools.genericui.style.css.CssLength.ZERO)
+            setFlexGrow(1f)
+            setOverflow(com.nexustools.genericui.enums.bootstrap.OverflowBehavior.HIDDEN)
+        }
 
         bottomDockContainer.setDisplay(DisplayMode.FLEX)
         bottomDockContainer.setFlexDirection(FlexDirection.COLUMN)

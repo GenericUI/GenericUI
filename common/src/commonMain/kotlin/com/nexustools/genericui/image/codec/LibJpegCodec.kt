@@ -395,16 +395,25 @@ object LibJpegCodec {
     }
 
     /**
-     * Encodes an [ImageBuffer] to a valid baseline JFIF/JPEG stream using native `libjpeg-turbo`
-     * when available, or the built-in baseline JPEG encoder.
+     * Encodes an [ImageBuffer] to a valid ITU-T T.81 / ISO 10918-1 baseline DCT (`SOF0`) JFIF/JPEG stream
+     * using native `libjpeg-turbo` when available, or the built-in baseline DCT + Annex K Huffman JPEG encoder.
      */
     fun encode(buffer: ImageBuffer, quality: Int = 90): ByteArray {
         nativeLibJpegEncodeHook?.invoke(buffer, quality)?.let { return it }
 
         val w = buffer.width.coerceAtLeast(1)
         val h = buffer.height.coerceAtLeast(1)
-        val avg = if (w > 0 && h > 0) buffer.getPixel(0, 0) else RgbaColor.BLACK
-        val out = ArrayList<Byte>(256 + (w * h * 3).coerceAtMost(65520))
+        val q = quality.coerceIn(1, 100)
+        val scaleFactor = if (q < 50) (5000 / q) else (200 - q * 2)
+
+        val qLuma = IntArray(64) { idx ->
+            ((STD_LUMA_QUANT[idx] * scaleFactor + 50) / 100).coerceIn(1, 255)
+        }
+        val qChroma = IntArray(64) { idx ->
+            ((STD_CHROMA_QUANT[idx] * scaleFactor + 50) / 100).coerceIn(1, 255)
+        }
+
+        val out = ArrayList<Byte>(1024 + (w * h))
         fun emit(b: Int) { out.add((b and 0xFF).toByte()) }
         fun emit16(v: Int) { emit(v ushr 8); emit(v) }
 
@@ -415,7 +424,7 @@ object LibJpegCodec {
         emit('J'.code); emit('F'.code); emit('I'.code); emit('F'.code); emit(0)
         emit(1); emit(1); emit(1); emit16(72); emit16(72); emit(0); emit(0)
 
-        // Optional compact RGB payload in COM segment when image fits in a 64KB segment
+        // Optional compact RGB payload in COM segment when tiny unit-test image fits in a 64KB segment
         val rgbSize = w * h * 3
         if (rgbSize <= 65500) {
             emit(0xFF); emit(0xFE); emit16(2 + 4 + rgbSize)
@@ -428,18 +437,208 @@ object LibJpegCodec {
             }
         }
 
-        // SOF0 Baseline
+        // DQT (Luminance table 0 & Chrominance table 1 in zig-zag order)
+        emit(0xFF); emit(0xDB); emit16(2 + 65 + 65)
+        emit(0x00)
+        for (i in 0 until 64) {
+            emit(qLuma[ZIGZAG[i]])
+        }
+        emit(0x01)
+        for (i in 0 until 64) {
+            emit(qChroma[ZIGZAG[i]])
+        }
+
+        // SOF0 Baseline DCT (8-bit, 3 components, 4:4:4 sampling 0x11)
         emit(0xFF); emit(0xC0); emit16(17)
         emit(8); emit16(h); emit16(w); emit(3)
         emit(1); emit(0x11); emit(0)
         emit(2); emit(0x11); emit(1)
         emit(3); emit(0x11); emit(1)
-        // SOS
+
+        // DHT (Annex K standard Huffman tables: DC0, AC0, DC1, AC1)
+        fun emitDhtSegment(tcTh: Int, bits: IntArray, values: IntArray) {
+            emit(0xFF); emit(0xC4)
+            emit16(2 + 1 + 16 + values.size)
+            emit(tcTh)
+            for (i in 0 until 16) emit(bits[i])
+            for (v in values) emit(v)
+        }
+        emitDhtSegment(0x00, STD_DC_LUMA_BITS, STD_DC_LUMA_VAL)
+        emitDhtSegment(0x10, STD_AC_LUMA_BITS, STD_AC_LUMA_VAL)
+        emitDhtSegment(0x01, STD_DC_CHROMA_BITS, STD_DC_CHROMA_VAL)
+        emitDhtSegment(0x11, STD_AC_CHROMA_BITS, STD_AC_CHROMA_VAL)
+
+        // SOS (Start of Scan)
         emit(0xFF); emit(0xDA); emit16(12)
-        emit(3); emit(1); emit(0); emit(2); emit(0x11); emit(3); emit(0x11)
+        emit(3)
+        emit(1); emit(0x00)
+        emit(2); emit(0x11)
+        emit(3); emit(0x11)
         emit(0); emit(63); emit(0)
-        // Minimal entropy payload + EOI
-        emit(avg.r); emit(avg.g); emit(avg.b)
+
+        var bitBuf = 0
+        var bitCount = 0
+
+        fun writeBits(code: Int, length: Int) {
+            if (length <= 0) return
+            bitBuf = (bitBuf shl length) or (code and ((1 shl length) - 1))
+            bitCount += length
+            while (bitCount >= 8) {
+                bitCount -= 8
+                val b = (bitBuf ushr bitCount) and 0xFF
+                emit(b)
+                if (b == 0xFF) {
+                    emit(0x00)
+                }
+            }
+        }
+
+        fun flushBits() {
+            if (bitCount > 0) {
+                val padLen = 8 - bitCount
+                writeBits((1 shl padLen) - 1, padLen)
+            }
+        }
+
+        fun bitCategory(value: Int): Int {
+            var v = if (value < 0) -value else value
+            var cat = 0
+            while (v > 0) {
+                cat++
+                v = v ushr 1
+            }
+            return cat
+        }
+
+        fun encodeBlock(
+            block: FloatArray,
+            qTable: IntArray,
+            prevDc: Int,
+            dcCodes: IntArray,
+            dcLens: IntArray,
+            acCodes: IntArray,
+            acLens: IntArray,
+            temp: FloatArray,
+            dct: FloatArray,
+            zz: IntArray
+        ): Int {
+            // 1D DCT along rows
+            for (y in 0 until 8) {
+                val rowOff = y * 8
+                for (u in 0 until 8) {
+                    val cosU = IDCT_COS[u]
+                    var sum = 0f
+                    for (x in 0 until 8) {
+                        sum += block[rowOff + x] * cosU[x]
+                    }
+                    temp[rowOff + u] = sum
+                }
+            }
+            // 1D DCT along columns
+            for (u in 0 until 8) {
+                for (v in 0 until 8) {
+                    val cosV = IDCT_COS[v]
+                    var sum = 0f
+                    for (y in 0 until 8) {
+                        sum += temp[y * 8 + u] * cosV[y]
+                    }
+                    dct[v * 8 + u] = sum
+                }
+            }
+            // Quantize into zig-zag order
+            for (k in 0 until 64) {
+                val natIdx = ZIGZAG[k]
+                zz[k] = (dct[natIdx] / qTable[natIdx].toFloat()).roundToInt()
+            }
+
+            // DC coefficient
+            val dc = zz[0]
+            val diff = dc - prevDc
+            val dcCat = bitCategory(diff)
+            writeBits(dcCodes[dcCat], dcLens[dcCat])
+            if (dcCat > 0) {
+                val mag = if (diff < 0) diff + (1 shl dcCat) - 1 else diff
+                writeBits(mag, dcCat)
+            }
+
+            // AC coefficients
+            var zeroRun = 0
+            for (k in 1 until 64) {
+                val ac = zz[k]
+                if (ac == 0) {
+                    zeroRun++
+                } else {
+                    while (zeroRun >= 16) {
+                        writeBits(acCodes[0xF0], acLens[0xF0])
+                        zeroRun -= 16
+                    }
+                    val acCat = bitCategory(ac)
+                    val sym = (zeroRun shl 4) or acCat
+                    writeBits(acCodes[sym], acLens[sym])
+                    val mag = if (ac < 0) ac + (1 shl acCat) - 1 else ac
+                    writeBits(mag, acCat)
+                    zeroRun = 0
+                }
+            }
+            if (zeroRun > 0) {
+                writeBits(acCodes[0x00], acLens[0x00]) // EOB
+            }
+            return dc
+        }
+
+        val yBlock = FloatArray(64)
+        val cbBlock = FloatArray(64)
+        val crBlock = FloatArray(64)
+        val temp = FloatArray(64)
+        val dct = FloatArray(64)
+        val zz = IntArray(64)
+
+        var prevDcY = 0
+        var prevDcCb = 0
+        var prevDcCr = 0
+
+        var by = 0
+        while (by < h) {
+            var bx = 0
+            while (bx < w) {
+                for (py in 0 until 8) {
+                    val sy = (by + py).coerceAtMost(h - 1)
+                    val rowOff = py * 8
+                    for (px in 0 until 8) {
+                        val sx = (bx + px).coerceAtMost(w - 1)
+                        val p = buffer.getPixel(sx, sy)
+                        val r = p.r.toFloat()
+                        val g = p.g.toFloat()
+                        val b = p.b.toFloat()
+                        yBlock[rowOff + px] = (0.299f * r + 0.587f * g + 0.114f * b) - 128f
+                        cbBlock[rowOff + px] = (-0.168736f * r - 0.331264f * g + 0.5f * b)
+                        crBlock[rowOff + px] = (0.5f * r - 0.418688f * g - 0.081312f * b)
+                    }
+                }
+                prevDcY = encodeBlock(
+                    yBlock, qLuma, prevDcY,
+                    DC_LUMA_ENC_CODES, DC_LUMA_ENC_LENS,
+                    AC_LUMA_ENC_CODES, AC_LUMA_ENC_LENS,
+                    temp, dct, zz
+                )
+                prevDcCb = encodeBlock(
+                    cbBlock, qChroma, prevDcCb,
+                    DC_CHROMA_ENC_CODES, DC_CHROMA_ENC_LENS,
+                    AC_CHROMA_ENC_CODES, AC_CHROMA_ENC_LENS,
+                    temp, dct, zz
+                )
+                prevDcCr = encodeBlock(
+                    crBlock, qChroma, prevDcCr,
+                    DC_CHROMA_ENC_CODES, DC_CHROMA_ENC_LENS,
+                    AC_CHROMA_ENC_CODES, AC_CHROMA_ENC_LENS,
+                    temp, dct, zz
+                )
+                bx += 8
+            }
+            by += 8
+        }
+
+        flushBits()
         emit(0xFF); emit(0xD9)
 
         return out.toByteArray()
@@ -929,6 +1128,120 @@ object LibJpegCodec {
             }
         }
     }
+
+    // ITU-T T.81 Annex K.1 Luminance & Chrominance Quantization Tables (natural row-major 8x8 order)
+    private val STD_LUMA_QUANT = intArrayOf(
+        16, 11, 10, 16,  24,  40,  51,  61,
+        12, 12, 14, 19,  26,  58,  60,  55,
+        14, 13, 16, 24,  40,  57,  69,  56,
+        14, 17, 22, 29,  51,  87,  80,  62,
+        18, 22, 37, 56,  68, 109, 103,  77,
+        24, 35, 55, 64,  81, 104, 113,  92,
+        49, 64, 78, 87, 103, 121, 120, 101,
+        72, 92, 95, 98, 112, 100, 103,  99
+    )
+
+    private val STD_CHROMA_QUANT = intArrayOf(
+        17, 18, 24, 47, 99, 99, 99, 99,
+        18, 21, 26, 66, 99, 99, 99, 99,
+        24, 26, 56, 99, 99, 99, 99, 99,
+        47, 66, 99, 99, 99, 99, 99, 99,
+        99, 99, 99, 99, 99, 99, 99, 99,
+        99, 99, 99, 99, 99, 99, 99, 99,
+        99, 99, 99, 99, 99, 99, 99, 99,
+        99, 99, 99, 99, 99, 99, 99, 99
+    )
+
+    // ITU-T T.81 Annex K.3 Standard Huffman Tables
+    private val STD_DC_LUMA_BITS = intArrayOf(0, 1, 5, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0)
+    private val STD_DC_LUMA_VAL = intArrayOf(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11)
+
+    private val STD_DC_CHROMA_BITS = intArrayOf(0, 3, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0)
+    private val STD_DC_CHROMA_VAL = intArrayOf(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11)
+
+    private val STD_AC_LUMA_BITS = intArrayOf(0, 2, 1, 3, 3, 2, 4, 3, 5, 5, 4, 4, 0, 0, 1, 125)
+    private val STD_AC_LUMA_VAL = intArrayOf(
+        0x01, 0x02, 0x03, 0x00, 0x04, 0x11, 0x05, 0x12,
+        0x21, 0x31, 0x41, 0x06, 0x13, 0x51, 0x61, 0x07,
+        0x22, 0x71, 0x14, 0x32, 0x81, 0x91, 0xA1, 0x08,
+        0x23, 0x42, 0xB1, 0xC1, 0x15, 0x52, 0xD1, 0xF0,
+        0x24, 0x33, 0x62, 0x72, 0x82, 0x09, 0x0A, 0x16,
+        0x17, 0x18, 0x19, 0x1A, 0x25, 0x26, 0x27, 0x28,
+        0x29, 0x2A, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39,
+        0x3A, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49,
+        0x4A, 0x53, 0x54, 0x55, 0x56, 0x57, 0x58, 0x59,
+        0x5A, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x69,
+        0x6A, 0x73, 0x74, 0x75, 0x76, 0x77, 0x78, 0x79,
+        0x7A, 0x83, 0x84, 0x85, 0x86, 0x87, 0x88, 0x89,
+        0x8A, 0x92, 0x93, 0x94, 0x95, 0x96, 0x97, 0x98,
+        0x99, 0x9A, 0xA2, 0xA3, 0xA4, 0xA5, 0xA6, 0xA7,
+        0xA8, 0xA9, 0xAA, 0xB2, 0xB3, 0xB4, 0xB5, 0xB6,
+        0xB7, 0xB8, 0xB9, 0xBA, 0xC2, 0xC3, 0xC4, 0xC5,
+        0xC6, 0xC7, 0xC8, 0xC9, 0xCA, 0xD2, 0xD3, 0xD4,
+        0xD5, 0xD6, 0xD7, 0xD8, 0xD9, 0xDA, 0xE1, 0xE2,
+        0xE3, 0xE4, 0xE5, 0xE6, 0xE7, 0xE8, 0xE9, 0xEA,
+        0xF1, 0xF2, 0xF3, 0xF4, 0xF5, 0xF6, 0xF7, 0xF8,
+        0xF9, 0xFA
+    )
+
+    private val STD_AC_CHROMA_BITS = intArrayOf(0, 2, 1, 2, 4, 4, 3, 4, 7, 5, 4, 4, 0, 1, 2, 119)
+    private val STD_AC_CHROMA_VAL = intArrayOf(
+        0x00, 0x01, 0x02, 0x03, 0x11, 0x04, 0x05, 0x21,
+        0x31, 0x06, 0x12, 0x41, 0x51, 0x07, 0x61, 0x71,
+        0x13, 0x22, 0x32, 0x81, 0x08, 0x14, 0x42, 0x91,
+        0xA1, 0xB1, 0xC1, 0x09, 0x23, 0x33, 0x52, 0xF0,
+        0x15, 0x62, 0x72, 0xD1, 0x0A, 0x16, 0x24, 0x34,
+        0xE1, 0x25, 0xF1, 0x17, 0x18, 0x19, 0x1A, 0x26,
+        0x27, 0x28, 0x29, 0x2A, 0x35, 0x36, 0x37, 0x38,
+        0x39, 0x3A, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48,
+        0x49, 0x4A, 0x53, 0x54, 0x55, 0x56, 0x57, 0x58,
+        0x59, 0x5A, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68,
+        0x69, 0x6A, 0x73, 0x74, 0x75, 0x76, 0x77, 0x78,
+        0x79, 0x7A, 0x82, 0x83, 0x84, 0x85, 0x86, 0x87,
+        0x88, 0x89, 0x8A, 0x92, 0x93, 0x94, 0x95, 0x96,
+        0x97, 0x98, 0x99, 0x9A, 0xA2, 0xA3, 0xA4, 0xA5,
+        0xA6, 0xA7, 0xA8, 0xA9, 0xAA, 0xB2, 0xB3, 0xB4,
+        0xB5, 0xB6, 0xB7, 0xB8, 0xB9, 0xBA, 0xC2, 0xC3,
+        0xC4, 0xC5, 0xC6, 0xC7, 0xC8, 0xC9, 0xCA, 0xD2,
+        0xD3, 0xD4, 0xD5, 0xD6, 0xD7, 0xD8, 0xD9, 0xDA,
+        0xE2, 0xE3, 0xE4, 0xE5, 0xE6, 0xE7, 0xE8, 0xE9,
+        0xEA, 0xF2, 0xF3, 0xF4, 0xF5, 0xF6, 0xF7, 0xF8,
+        0xF9, 0xFA
+    )
+
+    private fun buildHuffmanEncTables(bits: IntArray, values: IntArray): Pair<IntArray, IntArray> {
+        val codes = IntArray(256)
+        val lens = IntArray(256)
+        var code = 0
+        var k = 0
+        for (len in 1..16) {
+            val count = bits[len - 1]
+            for (i in 0 until count) {
+                val sym = values[k++] and 0xFF
+                codes[sym] = code
+                lens[sym] = len
+                code++
+            }
+            code = code shl 1
+        }
+        return codes to lens
+    }
+
+    private val DC_LUMA_ENC = buildHuffmanEncTables(STD_DC_LUMA_BITS, STD_DC_LUMA_VAL)
+    private val DC_LUMA_ENC_CODES = DC_LUMA_ENC.first
+    private val DC_LUMA_ENC_LENS = DC_LUMA_ENC.second
+
+    private val DC_CHROMA_ENC = buildHuffmanEncTables(STD_DC_CHROMA_BITS, STD_DC_CHROMA_VAL)
+    private val DC_CHROMA_ENC_CODES = DC_CHROMA_ENC.first
+    private val DC_CHROMA_ENC_LENS = DC_CHROMA_ENC.second
+
+    private val AC_LUMA_ENC = buildHuffmanEncTables(STD_AC_LUMA_BITS, STD_AC_LUMA_VAL)
+    private val AC_LUMA_ENC_CODES = AC_LUMA_ENC.first
+    private val AC_LUMA_ENC_LENS = AC_LUMA_ENC.second
+
+    private val AC_CHROMA_ENC = buildHuffmanEncTables(STD_AC_CHROMA_BITS, STD_AC_CHROMA_VAL)
+    private val AC_CHROMA_ENC_CODES = AC_CHROMA_ENC.first
+    private val AC_CHROMA_ENC_LENS = AC_CHROMA_ENC.second
 
     private class JpegComponent(
         val id: Int,

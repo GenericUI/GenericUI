@@ -32,6 +32,73 @@ class GenericUiLaunchSequenceAndResourceTest {
 
     private class SecondaryDetailFragment : Fragment()
 
+    private class HiddenReceiverApplication : com.nexustools.genericui.component.shell.Application() {
+        var onCreateMainFragmentCalls: Int = 0
+        var lastReceivedArgs: List<String> = emptyList()
+
+        override fun onCreateMainFragment(args: FragmentBundle?): Fragment? {
+            onCreateMainFragmentCalls++
+            lastReceivedArgs = args?.getCommandLineArgs().orEmpty()
+            val fragment = super.createMainFragment(args) ?: CliAwareMainFragment()
+            setFragment(fragment)
+            mainWindow.hide()
+            return fragment
+        }
+    }
+
+    @Test
+    fun `Desktop Application overrides onCreateMainFragment while Web ignores applicationFactory and Window supports non-destructive hide and show`() {
+        val descriptor = GenericUiAppDescriptor(
+            appId = "com.example.receiver",
+            appName = "ReceiverApp",
+            windowTitle = "Episode Caster Receiver",
+            windowWidth = 1280,
+            windowHeight = 720,
+            mainFragmentClass = CliAwareMainFragment::class,
+            mainFragmentFactory = { _ -> CliAwareMainFragment() },
+            applicationFactory = { _ -> HiddenReceiverApplication() }
+        )
+
+        val desktopApp = GenericUiLaunchSequence.prepareApplication(
+            factory = null,
+            args = arrayOf("--port", "8009"),
+            descriptor = descriptor,
+            isSystemTarget = true
+        ) as HiddenReceiverApplication
+
+        assertEquals(1, desktopApp.onCreateMainFragmentCalls)
+        assertEquals(listOf("--port", "8009"), desktopApp.lastReceivedArgs)
+        val mainFrag = desktopApp.currentFragment as? CliAwareMainFragment
+        assertNotNull(mainFrag)
+        assertFalse(desktopApp.mainWindow.isVisible, "Expected mainWindow to start hidden when mainWindow.hide() is called in onCreateMainFragment")
+        assertFalse(mainFrag.isWindowVisible)
+
+        // Show window when casting starts, toggle fullscreen, then hide again when casting stops
+        mainFrag.setFullscreen(true)
+        assertTrue(mainFrag.isFullscreen())
+        assertTrue(desktopApp.mainWindow.isFullscreen())
+
+        mainFrag.showWindow()
+        assertTrue(desktopApp.mainWindow.isVisible)
+        assertTrue(mainFrag.isWindowVisible)
+        assertTrue(desktopApp.mainWindow.isFullscreen())
+
+        mainFrag.hideWindow()
+        assertFalse(desktopApp.mainWindow.isVisible)
+        assertFalse(mainFrag.isWindowVisible)
+        assertEquals(com.nexustools.genericui.enums.fragment.FragmentState.CREATED, mainFrag.state)
+
+        // Verify Web / non-desktop target ignores applicationFactory
+        val webApp = GenericUiLaunchSequence.prepareApplication(
+            factory = null,
+            args = emptyArray(),
+            descriptor = descriptor,
+            isSystemTarget = false
+        )
+        assertFalse(webApp is HiddenReceiverApplication, "Non-desktop target must not instantiate custom Application override")
+        assertNotNull(webApp.mainWindow.activeFragment as? CliAwareMainFragment)
+    }
+
     @Test
     fun `GenericUiLaunchSequence injects command line args on system targets and omits on web`() {
         var resourceInstalled = false

@@ -306,10 +306,6 @@ val rootView = buildDiv {
                     }
                     style {
                         cursor = CssCursor.POINTER
-                        accentColor = RgbaColor.fromHex("#2A80FF")
-                        important {
-                            borderRadius = CssCornerRadii.all(10f)
-                        }
                     }
                     h4("Live Stream Stage")
                 }
@@ -344,3 +340,18 @@ val rootView = buildDiv {
     }
 }
 ```
+
+---
+
+## 11. Core Container & Data Layout Enhancements (`FlexWrap.WRAP`, `MdiContainer.tileWindows`, `Table.setColumnWeights`, & `LazyGrid.minColumnWidthPx`)
+
+In addition to the 7 hybrid layout helpers, GenericUI provides four layout enhancements across all 8 backends to prevent horizontal overflow, MDI window overlap, and column truncation:
+
+1. **Multi-Line Flex Wrapping (`FlexWrap.WRAP` in `HStack` & `FlexBox`)**:
+   - When `flexBox.wrap == FlexWrap.WRAP` or `hstack.getBootstrap().flexWrap == FlexWrap.WRAP` (or `hstack.getStyle().flexWrap == FlexWrap.WRAP`), `HStack` and `FlexBox` automatically wrap child controls onto multiple horizontal lines whenever their cumulative width plus `gapPx` exceeds `availableWidth`, and compute total wrapped height during container measurement.
+2. **Non-Overlapping MDI Window Tiling (`MdiContainer.tileWindows` & `autoTileInitialWindows`)**:
+   - [`MdiContainer`](../common/src/commonMain/kotlin/com/nexustools/genericui/component/mdi/MdiContainer.kt) provides `tileWindows(columns: Int = 2, paddingPx: Int = 12, gapPx: Int = 12)` and `autoTileInitialWindows: Boolean = true`. Whenever MDI windows are added at default `(0, 0)` coordinates or when `tileWindows(...)` is invoked, `MdiContainer` arranges all non-minimized child `MdiWindow`s into a clean, non-overlapping grid inside the MDI workspace.
+3. **Proportional Table Column Weights (`Table.setColumnWeights` & `getColumnWeights`)**:
+   - [`Table`](../common/src/commonMain/kotlin/com/nexustools/genericui/component/data/Table.kt) provides `setColumnWeights(vararg weights: Float)` and `getColumnWeights(): FloatArray`. When column weights are specified (for example `table.setColumnWeights(0.7f, 1.3f, 1.0f, 3.0f)`), all backends distribute available table width proportionally across columns (`weight / totalWeight`) instead of dividing width equally.
+4. **Responsive Auto-Fit Grid Columns (`LazyGrid.minColumnWidthPx`)**:
+   - [`LazyGrid`](../common/src/commonMain/kotlin/com/nexustools/genericui/component/lazy/LazyGrid.kt) exposes `var minColumnWidthPx: Int = 0`. When `minColumnWidthPx > 0`, `LazyGrid` dynamically computes `effectiveCols = min(columns, max(1, (availableWidth - gapPx) / (minColumnWidthPx + gapPx)))` so grid cards automatically reduce column count on narrower viewports instead of squashing below `minColumnWidthPx`.

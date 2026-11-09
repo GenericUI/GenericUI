@@ -33,7 +33,6 @@ open class OptionsDialog(
 
     val optionsStack: VStack = VStack().apply {
         getBootstrap().width = BootstrapWidth.W_100
-        setStyleProperty("width", "max-content")
         getStyle().setMinWidth(CssLength.percent(100))
     }
 
@@ -66,7 +65,7 @@ open class OptionsDialog(
             outline = item.outline
         ).apply {
             getBootstrap().width = BootstrapWidth.W_100
-            setStyleProperty("white-space", "nowrap")
+            getStyle().setWhiteSpace(com.nexustools.genericui.enums.css.CssWhiteSpace.NOWRAP)
             onClick = {
                 item.onClick()
                 if (item.closeOnClick) {

@@ -17,8 +17,8 @@ class GenericUiGradlePlugin : Plugin<Project> {
         val extension = project.extensions.create("genericui", GenericUiExtension::class.java)
         extension.onConfiguredCallback = {
             GenericUiMultiplatformConfigurator.configureMultiplatform(project, extension)
+            GenericUiMultiplatformConfigurator.registerBuildTargetTasks(project, extension)
         }
-        GenericUiMultiplatformConfigurator.registerBuildTargetTasks(project, extension)
         project.tasks.withType(org.gradle.api.tasks.testing.AbstractTestTask::class.java).configureEach {
             val secs = extension.testing.testTimeoutSeconds.coerceAtLeast(10L)
             timeout.set(java.time.Duration.ofSeconds(secs))
@@ -52,6 +52,29 @@ class GenericUiGradlePlugin : Plugin<Project> {
             outputDirectory.set(project.layout.buildDirectory.dir("generated/genericui/vulkan"))
         }
 
+        val vlcTask = if (project.tasks.findByName("bundleGenericUiVlc") != null) {
+            project.tasks.named("bundleGenericUiVlc", VlcNativeBundleTask::class.java)
+        } else {
+            project.tasks.register("bundleGenericUiVlc", VlcNativeBundleTask::class.java) {
+                group = TASK_GROUP
+                description = "Stages LibVLC native runtime libraries (libvlc, libvlccore, plugins/) for desktop media targets."
+                bundleVlcOnDesktop.set(project.provider { GenericUiMultiplatformConfigurator.isMediaExtensionEnabled(extension) })
+                outputDirectory.set(project.layout.buildDirectory.dir("generated/genericui/nativeBundle/vlc"))
+            }
+        }
+
+        val webViewProcessTask = if (project.tasks.findByName("bundleGenericUiWebViewProcess") != null) {
+            project.tasks.named("bundleGenericUiWebViewProcess", WebViewNativeProcessBundleTask::class.java)
+        } else {
+            project.tasks.register("bundleGenericUiWebViewProcess", WebViewNativeProcessBundleTask::class.java) {
+                group = TASK_GROUP
+                description = "Stages the desktop WebView out-of-process helper executable (genericui-webview-process)."
+                webViewEnabled.set(project.provider { GenericUiMultiplatformConfigurator.isWebViewExtensionEnabled(extension) })
+                genericUiRootPath.set(project.projectDir.absolutePath)
+                outputDirectory.set(project.layout.buildDirectory.dir("generated/genericui/nativeBundle/webview"))
+            }
+        }
+
         val sassTask = project.tasks.register("compileGenericUiSass", GenericUiSassCompileTask::class.java) {
             group = TASK_GROUP
             description = "Compiles GenericUI .scss and .sass stylesheets into normalized .css bundles for the Web target and precompiled .kt PrecompiledStyleSheet objects."
@@ -60,13 +83,7 @@ class GenericUiGradlePlugin : Plugin<Project> {
             webCssBundleFileName.set(project.provider { extension.styles.webCssBundleFileName })
             precompileToKotlin.set(project.provider { extension.styles.precompileToKotlin })
             kotlinPackageName.set(project.provider {
-                val configured = extension.styles.kotlinPackageName.trim()
-                if (configured.isNotEmpty() && configured != "com.nexustools.genericui.generated.styles") {
-                    configured
-                } else {
-                    val grp = project.group.toString().trim()
-                    if (grp.isNotEmpty()) "$grp.styles" else "com.nexustools.genericui.generated.styles"
-                }
+                resolveStylesKotlinPackageName(project, extension)
             })
             minify.set(project.provider { extension.styles.minify })
             includeBootstrapVariables.set(project.provider { extension.styles.includeBootstrapVariables })
@@ -101,9 +118,17 @@ class GenericUiGradlePlugin : Plugin<Project> {
                 resolveUpstreamResourceManifestPaths(project)
             })
             translateForAllBackends.set(project.provider { extension.resources.translateForAllBackends })
-            themeColor.set(project.provider { extension.application.desktop.themeColor })
+            themeColor.set(project.provider {
+                resolveAndroidVariant(project, extension).themeColor
+            })
             themeMode.set(project.provider {
-                extension.themeConfig.mode.trim().ifEmpty { "auto" }
+                resolveAndroidVariant(project, extension).themeMode.trim().ifEmpty { "auto" }
+            })
+            lightThemeColors.set(project.provider {
+                resolveAndroidVariant(project, extension).lightThemeColors
+            })
+            darkThemeColors.set(project.provider {
+                resolveAndroidVariant(project, extension).darkThemeColors
             })
             appName.set(project.provider {
                 extension.application.desktop.appName.trim().ifEmpty {
@@ -175,7 +200,7 @@ class GenericUiGradlePlugin : Plugin<Project> {
                 }
             })
             enabledBackendIds.set(project.provider {
-                GenericUiGenerateLaunchersTask.enabledLauncherBackendScopes(extension.backends).map { it.id }
+                GenericUiGenerateLaunchersTask.enabledAllBackendScopes(extension.backends).map { it.id }
             })
             generatedPackageName.set(project.provider {
                 val discovered = GenericUiFragmentScanner.scanProject(project.projectDir)
@@ -231,6 +256,15 @@ class GenericUiGradlePlugin : Plugin<Project> {
             backendThemeColors.set(project.provider {
                 resolveBackendVariantMap(project, extension) { it.themeColor }
             })
+            backendLightThemeColors.set(project.provider {
+                resolveBackendVariantMap(project, extension) { it.lightThemeColors }
+            })
+            backendDarkThemeColors.set(project.provider {
+                resolveBackendVariantMap(project, extension) { it.darkThemeColors }
+            })
+            backendHasCustomThemeOverrides.set(project.provider {
+                resolveBackendVariantMap(project, extension) { it.hasCustomThemeOverrides }
+            })
             backendIconPaths.set(project.provider {
                 resolveBackendVariantMap(project, extension) { it.iconPath ?: "" }
             })
@@ -242,7 +276,32 @@ class GenericUiGradlePlugin : Plugin<Project> {
                     extension.extensions.providerInstallerCallsForBackend(resolved.targetScope, resolved.extensionOverrides)
                 }
             })
+            precompiledStyleSheetObjectFqns.set(project.provider {
+                if (!extension.styles.compileSass || !extension.styles.precompileToKotlin) {
+                    emptyList()
+                } else {
+                    val stylesDir = resolveStylesSourceDir(project, extension.styles.sourceDir)
+                    val pkg = resolveStylesKotlinPackageName(project, extension)
+                    val fqns = LinkedHashSet<String>()
+                    if (stylesDir != null && stylesDir.isDirectory) {
+                        stylesDir.walkTopDown()
+                            .filter {
+                                it.isFile &&
+                                    !it.name.startsWith("_") &&
+                                    it.extension.lowercase() in setOf("scss", "sass", "css")
+                            }
+                            .sortedBy { it.relativeTo(stylesDir).invariantSeparatorsPath }
+                            .forEach { file ->
+                                val objName = GenericUiSassCompileTask.toPascalIdentifier(file.nameWithoutExtension) +
+                                    "PrecompiledStyleSheet"
+                                fqns.add(if (pkg.isNotEmpty()) "$pkg.$objName" else objName)
+                            }
+                    }
+                    fqns.toList()
+                }
+            })
             generateVisualWindowsTestHelper.set(project.provider { extension.testing.visualOnWindows })
+            testingEnabled.set(project.provider { extension.testing.enabled })
             outputDirectory.set(project.layout.buildDirectory.dir("generated/genericui/launchers"))
         }
 
@@ -272,8 +331,23 @@ class GenericUiGradlePlugin : Plugin<Project> {
             fullscreen.set(project.provider { resolveAndroidVariant(project, extension).fullscreen })
             themeMode.set(project.provider { resolveAndroidVariant(project, extension).themeMode })
             themeColor.set(project.provider { resolveAndroidVariant(project, extension).themeColor })
+            lightThemeColors.set(project.provider { resolveAndroidVariant(project, extension).lightThemeColors })
+            darkThemeColors.set(project.provider { resolveAndroidVariant(project, extension).darkThemeColors })
+            hasCustomThemeOverrides.set(project.provider { resolveAndroidVariant(project, extension).hasCustomThemeOverrides })
             iconPath.set(project.provider { resolveAndroidVariant(project, extension).iconPath ?: "" })
             globalStyleSheet.set(project.provider { resolveAndroidVariant(project, extension).globalStyleSheet ?: "" })
+            precompiledStyleSheetObjectFqn.set(project.provider {
+                val styleSheet = resolveAndroidVariant(project, extension).globalStyleSheet?.trim().orEmpty()
+                if (styleSheet.isEmpty() || !extension.styles.precompileToKotlin) {
+                    ""
+                } else {
+                    val fileName = styleSheet.substringAfterLast('/').substringAfterLast('\\')
+                    val stem = fileName.substringBeforeLast('.')
+                    val objName = GenericUiSassCompileTask.toPascalIdentifier(stem) + "PrecompiledStyleSheet"
+                    val pkg = resolveStylesKotlinPackageName(project, extension)
+                    if (pkg.isNotEmpty()) "$pkg.$objName" else objName
+                }
+            })
             providerInstallers.set(project.provider {
                 val resolved = resolveAndroidVariant(project, extension)
                 extension.extensions.providerInstallerCallsForBackend(GenericUiVariantScope.ANDROID, resolved.extensionOverrides)
@@ -419,56 +493,7 @@ class GenericUiGradlePlugin : Plugin<Project> {
             variant: String,
             outputRelPath: String
         ) {
-            task.group = TASK_GROUP
-            task.description = "Packages the unified GenericUI Web ($variant) distribution with Wasm primary + JS IR fallback, splash screen icon, favicon, optional PWA manifest.webmanifest & installable WebApp tags, loader.js, and SHA-1 cache-busting hashes into build/$outputRelPath."
-            task.projectRootPath.set(project.projectDir.absolutePath)
-            task.projectBuildPath.set(project.layout.buildDirectory.asFile.map { it.absolutePath })
-            task.baseName.set(project.provider {
-                extension.application.baseName.trim().ifEmpty { project.name }
-            })
-            task.appName.set(project.provider {
-                extension.application.desktop.appName.trim().ifEmpty {
-                    extension.application.baseName.trim().ifEmpty { project.name }
-                }
-            })
-            task.appDescription.set(project.provider { extension.application.desktop.description })
-            task.themeColor.set(project.provider { extension.application.desktop.themeColor })
-            task.themeMode.set(project.provider { resolveWebVariant(project, extension).themeMode })
-            task.webIconPath.set(project.provider { extension.application.desktop.webIcon })
-            task.fallbackIconPath.set(project.provider { extension.application.desktop.icon })
-            task.linuxIconPath.set(project.provider { extension.application.desktop.linuxIcon })
-            task.macIconPath.set(project.provider { extension.application.desktop.macIcon })
-            task.windowsIconPath.set(project.provider { extension.application.desktop.windowsIcon })
-            task.webCssBundleFileName.set(project.provider { extension.styles.webCssBundleFileName })
-            task.globalStyleSheet.set(project.provider {
-                extension.styles.globalStyleSheet?.trim()?.takeIf { it.isNotEmpty() }
-                    ?: resolveWebVariant(project, extension).globalStyleSheet
-                    ?: ""
-            })
-            task.manifestEnabled.set(project.provider { extension.application.desktop.webManifest.enabled })
-            task.allowInstallAsWebApp.set(project.provider { extension.application.desktop.webManifest.allowInstallAsWebApp })
-            task.manifestFileName.set(project.provider { extension.application.desktop.webManifest.fileName })
-            task.manifestId.set(project.provider { extension.application.desktop.webManifest.id })
-            task.manifestName.set(project.provider { extension.application.desktop.webManifest.name })
-            task.manifestShortName.set(project.provider { extension.application.desktop.webManifest.shortName })
-            task.manifestDescription.set(project.provider { extension.application.desktop.webManifest.description })
-            task.manifestStartUrl.set(project.provider { extension.application.desktop.webManifest.startUrl })
-            task.manifestScope.set(project.provider { extension.application.desktop.webManifest.scope })
-            task.manifestDisplay.set(project.provider { extension.application.desktop.webManifest.display })
-            task.manifestDisplayOverride.set(project.provider { extension.application.desktop.webManifest.displayOverride.toList() })
-            task.manifestOrientation.set(project.provider { extension.application.desktop.webManifest.orientation })
-            task.manifestThemeColor.set(project.provider { extension.application.desktop.webManifest.themeColor })
-            task.manifestBackgroundColor.set(project.provider { extension.application.desktop.webManifest.backgroundColor })
-            task.manifestLang.set(project.provider { extension.application.desktop.webManifest.lang })
-            task.manifestDir.set(project.provider { extension.application.desktop.webManifest.dir })
-            task.manifestCategories.set(project.provider { extension.application.desktop.webManifest.categories.toList() })
-            task.manifestPreferRelatedApplications.set(project.provider { extension.application.desktop.webManifest.preferRelatedApplications })
-            task.manifestAppleStatusBarStyle.set(project.provider { extension.application.desktop.webManifest.appleStatusBarStyle })
-            task.manifestIcons.set(project.provider { extension.application.desktop.webManifest.icons.toList() })
-            task.manifestShortcuts.set(project.provider { extension.application.desktop.webManifest.shortcuts.toList() })
-            task.buildVariant.set(variant)
-            task.outputDirectory.set(project.layout.buildDirectory.dir(outputRelPath))
-            task.outputs.upToDateWhen { false }
+            configureWebDistributionTaskInstance(project, extension, task, variant, outputRelPath)
         }
 
         val webDistTask = project.tasks.register(
@@ -491,6 +516,244 @@ class GenericUiGradlePlugin : Plugin<Project> {
         ) {
             configureWebDistTask(this, variant = "production", outputRelPath = "dist/web/production")
         }
+
+        fun configureAndroidApkTask(
+            task: GenericUiPackageAndroidApkTask,
+            variant: String,
+            outputRelPath: String,
+            secondaryOutputRelPath: String? = null,
+            abi: String = ""
+        ) {
+            task.group = TASK_GROUP
+            val abiLabel = if (abi.isBlank()) "DEX universal" else abi
+            task.description = "Packages and signs the GenericUI Android ($abiLabel $variant) APK using aapt2, d8, zipalign, and apksigner into build/$outputRelPath."
+            task.androidEnabled.set(project.provider { extension.backends.androidEnabled })
+            task.projectRootPath.set(project.projectDir.absolutePath)
+            task.baseName.set(project.provider {
+                extension.application.baseName.trim().ifEmpty { project.name }
+            })
+            task.appId.set(project.provider { resolveAndroidVariant(project, extension).appId })
+            task.appVersion.set(project.provider { resolveAndroidVariant(project, extension).appVersion })
+            task.minSdk.set(project.provider {
+                extension.android.manifestConfig.minSdk.takeIf { it > 0 } ?: extension.application.androidMinSdk
+            })
+            task.compileSdk.set(project.provider {
+                extension.android.manifestConfig.compileSdk.takeIf { it > 0 } ?: extension.application.androidCompileSdk
+            })
+            task.targetSdk.set(project.provider {
+                extension.android.manifestConfig.targetSdk.takeIf { it > 0 }
+                    ?: extension.android.manifestConfig.compileSdk.takeIf { it > 0 }
+                    ?: extension.application.androidCompileSdk
+            })
+            task.buildVariant.set(variant)
+            task.targetAbi.set(abi)
+            task.enabledGenericUiModulePaths.set(project.provider {
+                resolveEnabledAndroidGenericUiModulePaths(project, extension)
+            })
+            task.includedBuildRootPaths.set(project.provider {
+                val roots = LinkedHashSet<String>()
+                runCatching {
+                    project.gradle.includedBuilds.forEach { ib ->
+                        roots.add(ib.projectDir.absolutePath)
+                    }
+                }
+                listOfNotNull(
+                    File(project.rootProject.projectDir, "lib/GenericUI"),
+                    File(project.projectDir, "lib/GenericUI"),
+                    project.rootProject.projectDir.parentFile?.let { File(it, "GenericUI") }
+                ).forEach { candidate ->
+                    if (candidate.isDirectory) {
+                        roots.add(candidate.absolutePath)
+                    }
+                }
+                if (project.rootProject.name.equals("GenericUI", ignoreCase = true) ||
+                    File(project.rootProject.projectDir, "mobile/android/build.gradle.kts").isFile
+                ) {
+                    roots.add(project.rootProject.projectDir.absolutePath)
+                }
+                roots.toList()
+            })
+            task.manifestFile.set(generateAndroidManifestTask.flatMap { it.outputManifestFile })
+            task.generatedAndroidResDir.set(project.layout.buildDirectory.dir("generated/genericui/resources/backends/android/res"))
+            task.outputDirectory.set(project.layout.buildDirectory.dir(outputRelPath))
+            if (secondaryOutputRelPath != null) {
+                task.secondaryOutputDirectory.set(project.layout.buildDirectory.dir(secondaryOutputRelPath))
+            }
+            task.outputs.upToDateWhen { false }
+        }
+
+        val androidDevApkTask = project.tasks.register(
+            "packageGenericUiAndroidDevelopmentApk",
+            GenericUiPackageAndroidApkTask::class.java
+        ) {
+            configureAndroidApkTask(
+                task = this,
+                variant = "development",
+                outputRelPath = "dist/android/dex/development",
+                secondaryOutputRelPath = "dist/android/development"
+            )
+        }
+
+        val androidProdApkTask = project.tasks.register(
+            "packageGenericUiAndroidProductionApk",
+            GenericUiPackageAndroidApkTask::class.java
+        ) {
+            configureAndroidApkTask(
+                task = this,
+                variant = "production",
+                outputRelPath = "dist/android/dex/production",
+                secondaryOutputRelPath = "dist/android/production"
+            )
+        }
+
+        val androidX32DevApkTask = project.tasks.register(
+            "packageGenericUiAndroidX32DevelopmentApk",
+            GenericUiPackageAndroidApkTask::class.java
+        ) {
+            configureAndroidApkTask(this, variant = "development", outputRelPath = "dist/android/x32/development", abi = "x86")
+        }
+
+        val androidX32ProdApkTask = project.tasks.register(
+            "packageGenericUiAndroidX32ProductionApk",
+            GenericUiPackageAndroidApkTask::class.java
+        ) {
+            configureAndroidApkTask(this, variant = "production", outputRelPath = "dist/android/x32/production", abi = "x86")
+        }
+
+        val androidX64DevApkTask = project.tasks.register(
+            "packageGenericUiAndroidX64DevelopmentApk",
+            GenericUiPackageAndroidApkTask::class.java
+        ) {
+            configureAndroidApkTask(this, variant = "development", outputRelPath = "dist/android/x64/development", abi = "x86_64")
+        }
+
+        val androidX64ProdApkTask = project.tasks.register(
+            "packageGenericUiAndroidX64ProductionApk",
+            GenericUiPackageAndroidApkTask::class.java
+        ) {
+            configureAndroidApkTask(this, variant = "production", outputRelPath = "dist/android/x64/production", abi = "x86_64")
+        }
+
+        val androidArm32DevApkTask = project.tasks.register(
+            "packageGenericUiAndroidArm32DevelopmentApk",
+            GenericUiPackageAndroidApkTask::class.java
+        ) {
+            configureAndroidApkTask(this, variant = "development", outputRelPath = "dist/android/arm32/development", abi = "armeabi-v7a")
+        }
+
+        val androidArm32ProdApkTask = project.tasks.register(
+            "packageGenericUiAndroidArm32ProductionApk",
+            GenericUiPackageAndroidApkTask::class.java
+        ) {
+            configureAndroidApkTask(this, variant = "production", outputRelPath = "dist/android/arm32/production", abi = "armeabi-v7a")
+        }
+
+        val androidArm64DevApkTask = project.tasks.register(
+            "packageGenericUiAndroidArm64DevelopmentApk",
+            GenericUiPackageAndroidApkTask::class.java
+        ) {
+            configureAndroidApkTask(this, variant = "development", outputRelPath = "dist/android/arm64/development", abi = "arm64-v8a")
+        }
+
+        val androidArm64ProdApkTask = project.tasks.register(
+            "packageGenericUiAndroidArm64ProductionApk",
+            GenericUiPackageAndroidApkTask::class.java
+        ) {
+            configureAndroidApkTask(this, variant = "production", outputRelPath = "dist/android/arm64/production", abi = "arm64-v8a")
+        }
+
+        val androidApkTaskProviders = listOf(
+            androidDevApkTask,
+            androidProdApkTask,
+            androidX32DevApkTask,
+            androidX32ProdApkTask,
+            androidX64DevApkTask,
+            androidX64ProdApkTask,
+            androidArm32DevApkTask,
+            androidArm32ProdApkTask,
+            androidArm64DevApkTask,
+            androidArm64ProdApkTask
+        )
+
+        fun configureSwingJarTask(
+            task: GenericUiPackageSwingJarTask,
+            variant: String,
+            outputRelPath: String
+        ) {
+            task.group = TASK_GROUP
+            task.description = "Packages all classes, resources, GenericUI modules, and JVM runtime libraries into a single executable Swing ($variant) fat JAR in build/$outputRelPath."
+            task.swingEnabled.set(project.provider { extension.backends.swingConfig.enabled })
+            task.projectRootPath.set(project.projectDir.absolutePath)
+            task.baseName.set(project.provider {
+                extension.application.baseName.trim().ifEmpty { project.name }
+            })
+            task.appName.set(project.provider {
+                resolveVariantWithProjectFallbacks(project, extension, GenericUiVariantScope.SWING).appName
+            })
+            task.appVersion.set(project.provider {
+                resolveVariantWithProjectFallbacks(project, extension, GenericUiVariantScope.SWING).appVersion
+            })
+            task.mainClass.set(project.provider {
+                extension.application.mainClass.trim()
+            })
+            task.generatedLauncherPackage.set(project.provider {
+                val discovered = GenericUiFragmentScanner.scanProject(project.projectDir)
+                GenericUiGenerateLaunchersTask.resolveGeneratedLauncherPackage(
+                    extension = extension,
+                    projectGroup = project.group.toString(),
+                    discoveredFragments = discovered
+                )
+            })
+            task.buildVariant.set(variant)
+            task.enabledGenericUiModulePaths.set(project.provider {
+                resolveEnabledSwingGenericUiModulePaths(project, extension)
+            })
+            task.includedBuildRootPaths.set(project.provider {
+                val roots = LinkedHashSet<String>()
+                runCatching {
+                    project.gradle.includedBuilds.forEach { ib ->
+                        roots.add(ib.projectDir.absolutePath)
+                    }
+                }
+                listOfNotNull(
+                    File(project.rootProject.projectDir, "lib/GenericUI"),
+                    File(project.projectDir, "lib/GenericUI"),
+                    project.rootProject.projectDir.parentFile?.let { File(it, "GenericUI") },
+                    project.projectDir.parentFile?.parentFile?.parentFile?.takeIf { File(it, "desktop/swing/build.gradle.kts").isFile }
+                ).forEach { candidate ->
+                    if (candidate.isDirectory) {
+                        roots.add(candidate.absolutePath)
+                    }
+                }
+                if (project.rootProject.name.equals("GenericUI", ignoreCase = true) ||
+                    File(project.rootProject.projectDir, "desktop/swing/build.gradle.kts").isFile
+                ) {
+                    roots.add(project.rootProject.projectDir.absolutePath)
+                }
+                roots.toList()
+            })
+            task.outputDirectory.set(project.layout.buildDirectory.dir(outputRelPath))
+            task.outputs.upToDateWhen { false }
+        }
+
+        val swingDevJarTask = project.tasks.register(
+            "packageGenericUiSwingDevelopmentJar",
+            GenericUiPackageSwingJarTask::class.java
+        ) {
+            configureSwingJarTask(this, variant = "development", outputRelPath = "dist/swing/development")
+        }
+
+        val swingProdJarTask = project.tasks.register(
+            "packageGenericUiSwingProductionJar",
+            GenericUiPackageSwingJarTask::class.java
+        ) {
+            configureSwingJarTask(this, variant = "production", outputRelPath = "dist/swing/production")
+        }
+
+        val swingJarTaskProviders = listOf(
+            swingDevJarTask,
+            swingProdJarTask
+        )
 
         val projectPath = project.path
         project.tasks.register("windowsVisualTest", GenericUiVisualTestTask::class.java) {
@@ -522,6 +785,7 @@ class GenericUiGradlePlugin : Plugin<Project> {
 
         project.afterEvaluate {
             GenericUiMultiplatformConfigurator.configureMultiplatform(project, extension)
+            GenericUiMultiplatformConfigurator.registerBuildTargetTasks(project, extension)
             GenericUiMultiplatformConfigurator.applySourceSetDependencies(project, extension)
             sassTask.configure {
                 val resolvedAfterEval = resolveStylesSourceDir(project, extension.styles.sourceDir)
@@ -550,23 +814,281 @@ class GenericUiGradlePlugin : Plugin<Project> {
             val webDistTaskNames = setOf(
                 "packageGenericUiWebDistribution",
                 "packageGenericUiWebDevelopmentDistribution",
-                "packageGenericUiWebProductionDistribution"
+                "packageGenericUiWebProductionDistribution",
+                "packageGenericUiWebTestDistribution"
             )
-            for (distProvider in listOf(webDistTask, webDevDistTask, webProdDistTask)) {
-                distProvider.configure {
+            project.tasks.withType(GenericUiWebDistributionTask::class.java).configureEach {
+                mustRunAfter(
+                    project.tasks.matching { t ->
+                        t.name == "compileGenericUiSass" ||
+                            t.name.endsWith("ProcessResources") ||
+                            (t.name.startsWith("compile") && (t.name.contains("KotlinWasmJs") || t.name.contains("KotlinJs"))) ||
+                            t.name.endsWith("CompileSync") ||
+                            t.name.endsWith("Webpack") ||
+                            (t.name.endsWith("Distribution") && t.name !in webDistTaskNames)
+                    }
+                )
+            }
+            for (apkTaskProvider in androidApkTaskProviders) {
+                apkTaskProvider.configure {
+                    if (extension.backends.androidEnabled) {
+                        dependsOn(
+                            sassTask,
+                            resourcesTask,
+                            generateAndroidManifestTask,
+                            generateAndroidActivitiesTask
+                        )
+                        listOf(
+                            "compileAndroidMain",
+                            "bundleAndroidMainClassesToRuntimeJar",
+                            "bundleAndroidMainClassesToCompileJar",
+                            "compileDebugKotlinAndroid",
+                            "compileReleaseKotlinAndroid"
+                        ).forEach { taskName ->
+                            project.tasks.findByName(taskName)?.let { dependsOn(it) }
+                        }
+                        val artifactTypeAttr = org.gradle.api.attributes.Attribute.of("artifactType", String::class.java)
+                        listOf(
+                            "androidRuntimeClasspath",
+                            "androidCompileClasspath",
+                            "debugRuntimeClasspath",
+                            "releaseRuntimeClasspath"
+                        ).forEach { cfgName ->
+                            val cfg = project.configurations.findByName(cfgName)
+                            if (cfg != null && cfg.isCanBeResolved) {
+                                for (artType in listOf("android-classes-jar", "jar")) {
+                                    runCatching {
+                                        dependsOn(
+                                            cfg.incoming.artifactView {
+                                                lenient(true)
+                                                attributes {
+                                                    attribute(artifactTypeAttr, artType)
+                                                }
+                                            }.files
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        val androidModules = resolveEnabledAndroidGenericUiModulePaths(project, extension)
+                        for (modPath in androidModules) {
+                            project.rootProject.findProject(modPath)?.let { subProj ->
+                                subProj.tasks.findByName("bundleAndroidMainClassesToRuntimeJar")?.let { dependsOn(it) }
+                                subProj.tasks.findByName("bundleAndroidMainClassesToCompileJar")?.let { dependsOn(it) }
+                                subProj.tasks.findByName("compileAndroidMain")?.let { dependsOn(it) }
+                            }
+                            runCatching {
+                                project.gradle.includedBuilds.forEach { ib ->
+                                    val relModDir = File(ib.projectDir, modPath.removePrefix(":").replace(':', '/'))
+                                    if (relModDir.isDirectory && File(relModDir, "build.gradle.kts").isFile) {
+                                        dependsOn(ib.task("$modPath:bundleAndroidMainClassesToRuntimeJar"))
+                                        dependsOn(ib.task("$modPath:bundleAndroidMainClassesToCompileJar"))
+                                    }
+                                }
+                            }
+                        }
+                    }
                     mustRunAfter(
                         project.tasks.matching { t ->
                             t.name == "compileGenericUiSass" ||
-                                t.name.endsWith("ProcessResources") ||
-                                (t.name.startsWith("compile") && (t.name.contains("KotlinWasmJs") || t.name.contains("KotlinJs"))) ||
-                                t.name.endsWith("CompileSync") ||
-                                t.name.endsWith("Webpack") ||
-                                (t.name.endsWith("Distribution") && t.name !in webDistTaskNames)
+                                t.name == "compileGenericUiResources" ||
+                                t.name == "generateGenericUiAndroidManifest" ||
+                                t.name == "generateGenericUiAndroidActivities" ||
+                                t.name == "compileAndroidMain" ||
+                                t.name == "bundleAndroidMainClassesToRuntimeJar" ||
+                                t.name == "bundleAndroidMainClassesToCompileJar" ||
+                                t.name == "compileDebugKotlinAndroid" ||
+                                t.name == "compileReleaseKotlinAndroid" ||
+                                (t.name.startsWith("compile") && t.name.contains("Android")) ||
+                                (t.name.startsWith("link") && t.name.contains("AndroidNative"))
+                        }
+                    )
+                }
+            }
+            for (swingJarTaskProvider in swingJarTaskProviders) {
+                swingJarTaskProvider.configure {
+                    if (extension.backends.swingConfig.enabled) {
+                        dependsOn(
+                            sassTask,
+                            resourcesTask,
+                            desktopResourcesTask,
+                            validateAppTask,
+                            generateLaunchersTask
+                        )
+                        listOf(
+                            "compileKotlinJvm",
+                            "jvmProcessResources",
+                            "jvmMainClasses",
+                            "jvmJar",
+                            "compileKotlin",
+                            "processResources",
+                            "classes",
+                            "jar"
+                        ).forEach { taskName ->
+                            project.tasks.findByName(taskName)?.let { dependsOn(it) }
+                        }
+                        val artifactTypeAttr = org.gradle.api.attributes.Attribute.of("artifactType", String::class.java)
+                        listOf(
+                            "jvmRuntimeClasspath",
+                            "jvmCompileClasspath",
+                            "runtimeClasspath",
+                            "compileClasspath"
+                        ).forEach { cfgName ->
+                            val cfg = project.configurations.findByName(cfgName)
+                            if (cfg != null && cfg.isCanBeResolved) {
+                                runCatching {
+                                    dependsOn(
+                                        cfg.incoming.artifactView {
+                                            lenient(true)
+                                            attributes {
+                                                attribute(artifactTypeAttr, "jar")
+                                            }
+                                        }.files
+                                    )
+                                }
+                            }
+                        }
+                        val swingModules = resolveEnabledSwingGenericUiModulePaths(project, extension)
+                        for (modPath in swingModules) {
+                            project.rootProject.findProject(modPath)?.let { subProj ->
+                                subProj.tasks.findByName("jvmJar")?.let { dependsOn(it) }
+                                subProj.tasks.findByName("jar")?.let { dependsOn(it) }
+                                subProj.tasks.findByName("compileKotlinJvm")?.let { dependsOn(it) }
+                                subProj.tasks.findByName("compileKotlin")?.let { dependsOn(it) }
+                                subProj.tasks.findByName("jvmProcessResources")?.let { dependsOn(it) }
+                            }
+                            runCatching {
+                                project.gradle.includedBuilds.forEach { ib ->
+                                    val relModDir = File(ib.projectDir, modPath.removePrefix(":").replace(':', '/'))
+                                    val buildScript = File(relModDir, "build.gradle.kts")
+                                    if (relModDir.isDirectory && buildScript.isFile) {
+                                        val scriptText = buildScript.readText()
+                                        if (scriptText.contains("kotlinJvm") || scriptText.contains("kotlin(\"jvm\")")) {
+                                            dependsOn(ib.task("$modPath:jar"))
+                                        } else {
+                                            dependsOn(ib.task("$modPath:jvmJar"))
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    mustRunAfter(
+                        project.tasks.matching { t ->
+                            t.name == "compileGenericUiSass" ||
+                                t.name == "compileGenericUiResources" ||
+                                t.name == "prepareGenericUiDesktopResources" ||
+                                t.name == "generateGenericUiLaunchers" ||
+                                t.name == "genericuiValidateApp" ||
+                                t.name == "compileKotlinJvm" ||
+                                t.name == "jvmProcessResources" ||
+                                t.name == "jvmMainClasses" ||
+                                t.name == "jvmJar" ||
+                                t.name == "compileKotlin" ||
+                                t.name == "classes" ||
+                                t.name == "jar"
                         }
                     )
                 }
             }
         }
+    }
+
+    private fun resolveEnabledSwingGenericUiModulePaths(
+        project: Project,
+        extension: GenericUiExtension
+    ): List<String> {
+        val paths = LinkedHashSet<String>()
+        val backends = extension.backends
+        if (extension.includeCommon) {
+            paths.add(":common")
+        }
+        if (backends.requiresSystemCommonModule) {
+            paths.add(":systemCommon")
+        }
+        if (backends.requiresDesktopCommonModule) {
+            paths.add(":desktop:common")
+        }
+        if (backends.swingConfig.enabled) {
+            paths.add(":desktop:swing")
+        }
+        for (extPath in extension.extensions.enabledExtensionModulePaths()) {
+            val isProjectOfProjects = extPath in PROJECT_OF_PROJECTS_EXTENSIONS ||
+                project.rootProject.findProject("$extPath:common") != null
+            if (isProjectOfProjects) {
+                paths.add("$extPath:common")
+                if (backends.requiresSystemCommonModule) {
+                    paths.add("$extPath:systemCommon")
+                }
+                if (backends.requiresDesktopCommonModule) {
+                    paths.add("$extPath:desktop:common")
+                }
+                if (backends.swingConfig.enabled) {
+                    paths.add("$extPath:desktop:swing")
+                }
+            } else {
+                paths.add(extPath)
+            }
+        }
+        return paths.toList()
+    }
+
+    private fun resolveEnabledAndroidGenericUiModulePaths(
+        project: Project,
+        extension: GenericUiExtension
+    ): List<String> {
+        val paths = LinkedHashSet<String>()
+        val backends = extension.backends
+        if (extension.includeCommon) {
+            paths.add(":common")
+        }
+        if (backends.requiresSystemCommonModule) {
+            paths.add(":systemCommon")
+        }
+        if (backends.requiresMobileCommonModule) {
+            paths.add(":mobile:common")
+        }
+        if (backends.androidEnabled) {
+            paths.add(":mobile:android")
+        }
+        for (extPath in extension.extensions.enabledExtensionModulePaths()) {
+            val isProjectOfProjects = extPath in PROJECT_OF_PROJECTS_EXTENSIONS ||
+                project.rootProject.findProject("$extPath:common") != null
+            if (isProjectOfProjects) {
+                paths.add("$extPath:common")
+                if (backends.requiresSystemCommonModule) {
+                    paths.add("$extPath:systemCommon")
+                }
+                if (backends.requiresMobileCommonModule) {
+                    paths.add("$extPath:mobile:common")
+                }
+                if (backends.androidEnabled) {
+                    paths.add("$extPath:mobile:android")
+                }
+            } else {
+                paths.add(extPath)
+            }
+        }
+        return paths.toList()
+    }
+
+    private fun resolveStylesKotlinPackageName(
+        project: Project,
+        extension: GenericUiExtension
+    ): String {
+        val configured = extension.styles.kotlinPackageName.trim()
+        if (configured.isNotEmpty() && configured != "com.nexustools.genericui.generated.styles") {
+            return configured
+        }
+        val grp = project.group.toString().trim()
+        if (grp.isNotEmpty() && grp != "unspecified") {
+            return "$grp.styles"
+        }
+        val appPkg = extension.app.packageName.trim().ifEmpty { extension.app.id.trim() }
+        if (appPkg.isNotEmpty() && appPkg != "com.nexustools.genericui.app") {
+            return "$appPkg.styles"
+        }
+        return "com.nexustools.genericui.generated.styles"
     }
 
     private fun wireGeneratedLauncherAndAndroidSources(
@@ -886,13 +1408,22 @@ class GenericUiGradlePlugin : Plugin<Project> {
             addTestDepIfConfigExists(
                 ":tests:mobile:common",
                 "mobileCommonTestImplementation",
+                "mobileTestImplementation",
+                "androidTestImplementation",
                 "androidUnitTestImplementation",
+                "androidHostTestImplementation",
                 "iosArm64TestImplementation",
                 "iosSimulatorArm64TestImplementation"
             )
         }
         if (backends.androidEnabled) {
-            addTestDepIfConfigExists(":tests:mobile:android", "androidUnitTestImplementation", "androidInstrumentedTestImplementation")
+            addTestDepIfConfigExists(
+                ":tests:mobile:android",
+                "androidTestImplementation",
+                "androidUnitTestImplementation",
+                "androidHostTestImplementation",
+                "androidInstrumentedTestImplementation"
+            )
         }
         if (backends.iosEnabled) {
             addTestDepIfConfigExists(":tests:mobile:ios", "iosTestImplementation", "iosArm64TestImplementation", "iosSimulatorArm64TestImplementation")
@@ -1355,6 +1886,109 @@ class GenericUiGradlePlugin : Plugin<Project> {
         const val TASK_GROUP: String = "genericui"
         const val BASE_GROUP: String = "com.nexustools.genericui"
         const val DEFAULT_VERSION: String = "0.1.0-SNAPSHOT"
+
+        internal fun configureWebDistributionTaskInstance(
+            project: Project,
+            extension: GenericUiExtension,
+            task: GenericUiWebDistributionTask,
+            variant: String,
+            outputRelPath: String
+        ) {
+            task.group = TASK_GROUP
+            task.description = "Packages the unified GenericUI Web ($variant) distribution with Wasm primary + JS IR fallback, splash screen icon, favicon, optional PWA manifest.webmanifest & installable WebApp tags, loader.js, and SHA-1 cache-busting hashes into build/$outputRelPath."
+            task.projectRootPath.set(project.projectDir.absolutePath)
+            task.projectBuildPath.set(project.layout.buildDirectory.asFile.map { it.absolutePath })
+            task.baseName.set(project.provider {
+                extension.application.baseName.trim().ifEmpty { project.name }
+            })
+            task.appName.set(project.provider {
+                extension.application.desktop.appName.trim().ifEmpty {
+                    extension.application.baseName.trim().ifEmpty { project.name }
+                }
+            })
+            task.appDescription.set(project.provider { extension.application.desktop.description })
+            task.themeColor.set(project.provider {
+                resolveVariantWithProjectFallbacksStatic(project, extension, GenericUiVariantScope.WEB).themeColor
+            })
+            task.themeMode.set(project.provider {
+                resolveVariantWithProjectFallbacksStatic(project, extension, GenericUiVariantScope.WEB).themeMode
+            })
+            task.lightThemeColors.set(project.provider {
+                resolveVariantWithProjectFallbacksStatic(project, extension, GenericUiVariantScope.WEB).lightThemeColors
+            })
+            task.darkThemeColors.set(project.provider {
+                resolveVariantWithProjectFallbacksStatic(project, extension, GenericUiVariantScope.WEB).darkThemeColors
+            })
+            task.hasCustomThemeOverrides.set(project.provider {
+                resolveVariantWithProjectFallbacksStatic(project, extension, GenericUiVariantScope.WEB).hasCustomThemeOverrides
+            })
+            task.webIconPath.set(project.provider { extension.application.desktop.webIcon })
+            task.fallbackIconPath.set(project.provider { extension.application.desktop.icon })
+            task.linuxIconPath.set(project.provider { extension.application.desktop.linuxIcon })
+            task.macIconPath.set(project.provider { extension.application.desktop.macIcon })
+            task.windowsIconPath.set(project.provider { extension.application.desktop.windowsIcon })
+            task.webCssBundleFileName.set(project.provider { extension.styles.webCssBundleFileName })
+            task.globalStyleSheet.set(project.provider {
+                extension.styles.globalStyleSheet?.trim()?.takeIf { it.isNotEmpty() }
+                    ?: resolveVariantWithProjectFallbacksStatic(project, extension, GenericUiVariantScope.WEB).globalStyleSheet
+                    ?: ""
+            })
+            task.manifestEnabled.set(project.provider { extension.application.desktop.webManifest.enabled })
+            task.allowInstallAsWebApp.set(project.provider { extension.application.desktop.webManifest.allowInstallAsWebApp })
+            task.manifestFileName.set(project.provider { extension.application.desktop.webManifest.fileName })
+            task.manifestId.set(project.provider { extension.application.desktop.webManifest.id })
+            task.manifestName.set(project.provider { extension.application.desktop.webManifest.name })
+            task.manifestShortName.set(project.provider { extension.application.desktop.webManifest.shortName })
+            task.manifestDescription.set(project.provider { extension.application.desktop.webManifest.description })
+            task.manifestStartUrl.set(project.provider { extension.application.desktop.webManifest.startUrl })
+            task.manifestScope.set(project.provider { extension.application.desktop.webManifest.scope })
+            task.manifestDisplay.set(project.provider { extension.application.desktop.webManifest.display })
+            task.manifestDisplayOverride.set(project.provider { extension.application.desktop.webManifest.displayOverride.toList() })
+            task.manifestOrientation.set(project.provider { extension.application.desktop.webManifest.orientation })
+            task.manifestThemeColor.set(project.provider { extension.application.desktop.webManifest.themeColor })
+            task.manifestBackgroundColor.set(project.provider { extension.application.desktop.webManifest.backgroundColor })
+            task.manifestLang.set(project.provider { extension.application.desktop.webManifest.lang })
+            task.manifestDir.set(project.provider { extension.application.desktop.webManifest.dir })
+            task.manifestCategories.set(project.provider { extension.application.desktop.webManifest.categories.toList() })
+            task.manifestPreferRelatedApplications.set(project.provider { extension.application.desktop.webManifest.preferRelatedApplications })
+            task.manifestAppleStatusBarStyle.set(project.provider { extension.application.desktop.webManifest.appleStatusBarStyle })
+            task.manifestIcons.set(project.provider { extension.application.desktop.webManifest.icons.toList() })
+            task.manifestShortcuts.set(project.provider { extension.application.desktop.webManifest.shortcuts.toList() })
+            task.buildVariant.set(variant)
+            task.outputDirectory.set(project.layout.buildDirectory.dir(outputRelPath))
+            task.outputs.upToDateWhen { false }
+        }
+
+        private fun resolveVariantWithProjectFallbacksStatic(
+            project: Project,
+            extension: GenericUiExtension,
+            backend: GenericUiVariantScope
+        ): GenericUiResolvedVariantConfig {
+            val base = GenericUiVariantResolver.resolve(extension, backend)
+            val projectGroup = project.group.toString().trim().takeIf { it.isNotEmpty() && it != "unspecified" }
+            val projectVersion = project.version.toString().trim().takeIf { it.isNotEmpty() && it != "unspecified" }
+            val fallbackAppId = if (base.appId == "com.nexustools.genericui.app" && projectGroup != null) {
+                projectGroup
+            } else {
+                base.appId
+            }
+            val fallbackAppName = if (base.appName == "GenericUI" && project.name.isNotBlank()) {
+                project.name
+            } else {
+                base.appName
+            }
+            val fallbackVersion = if (base.appVersion == "1.0.0" && projectVersion != null) {
+                projectVersion
+            } else {
+                base.appVersion
+            }
+            return base.copy(
+                appId = fallbackAppId,
+                appName = fallbackAppName,
+                appVersion = fallbackVersion,
+                packageName = base.packageName.ifBlank { fallbackAppId }
+            )
+        }
 
         /**
          * Converts a GenericUI Gradle module path (e.g. `":common"`, `":desktop:windows"`,

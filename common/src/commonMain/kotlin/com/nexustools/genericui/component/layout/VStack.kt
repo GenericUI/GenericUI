@@ -5,6 +5,9 @@ import com.nexustools.genericui.enums.bootstrap.AlignSelf
 import com.nexustools.genericui.enums.bootstrap.DisplayMode
 import com.nexustools.genericui.enums.bootstrap.FlexDirection
 import com.nexustools.genericui.enums.bootstrap.SpacingScale
+import com.nexustools.genericui.enums.css.CssDisplay
+import com.nexustools.genericui.style.css.CssAspectRatio
+import com.nexustools.genericui.style.css.CssLength
 import kotlin.math.abs
 
 /**
@@ -27,15 +30,15 @@ open class VStack(gap: SpacingScale? = null) : Container("genericui:vstack", "d-
     var gapPx: Int = 8
         set(value) {
             field = value.coerceAtLeast(0)
-            setStyleProperty("gap", "${field}px")
+            getStyle().setGap(CssLength.px(field))
         }
 
     init {
         setDisplay(DisplayMode.FLEX)
         setFlexDirection(FlexDirection.COLUMN)
         addClass("flex-column")
-        setStyleProperty("display", "flex")
-        setStyleProperty("flex-direction", "column")
+        getStyle().setDisplay(CssDisplay.FLEX)
+        getStyle().setFlexDirection(FlexDirection.COLUMN)
         if (gap != null) {
             getBootstrap().gap = gap
         }
@@ -130,11 +133,11 @@ open class VStack(gap: SpacingScale? = null) : Container("genericui:vstack", "d-
         val weight = constraint.weight
         val shrink = constraint.flexShrink ?: if ((weight ?: 0f) > 0f) 1f else 0f
         val basis = constraint.flexBasis ?: if ((weight ?: 0f) > 0f) "0%" else "auto"
+        val parsedBasis = CssLength.parse(basis) ?: if ((weight ?: 0f) > 0f) CssLength.percent(0) else CssLength.AUTO
 
         if (weight != null) {
             val coercedWeight = weight.coerceAtLeast(0f)
-            child.setStyleProperty("flex-grow", formatFloat(coercedWeight))
-            child.setStyleProperty("flex", "${formatFloat(coercedWeight)} ${formatFloat(shrink)} $basis")
+            child.getStyle().setFlex(coercedWeight, shrink, parsedBasis)
             child.setAttribute("data-stack-weight", formatFloat(coercedWeight))
             if (coercedWeight > 0f) {
                 child.addClass("flex-grow-1")
@@ -142,47 +145,46 @@ open class VStack(gap: SpacingScale? = null) : Container("genericui:vstack", "d-
                 child.removeClass("flex-grow-1")
             }
         } else {
-            child.removeStyleProperty("flex-grow")
-            child.removeStyleProperty("flex")
+            child.getStyle().setFlexGrow(null)
             child.removeAttribute("data-stack-weight")
             child.removeClass("flex-grow-1")
         }
 
-        child.setStyleProperty("flex-shrink", formatFloat(shrink))
+        child.getStyle().setFlexShrink(shrink)
         if (shrink == 0f) {
             child.addClass("flex-shrink-0")
         } else {
             child.removeClass("flex-shrink-0")
         }
 
-        child.setStyleProperty("flex-basis", basis)
+        child.getStyle().setFlexBasis(parsedBasis)
 
         val ratio = constraint.aspectRatio
         if (ratio != null && ratio > 0f) {
-            val cssRatio = formatAspectRatioCss(ratio)
+            val cssRatio = parseAspectRatioObject(ratio)
             child.aspectRatio = ratio
-            child.setStyleProperty("aspect-ratio", cssRatio)
+            child.getStyle().setAspectRatio(cssRatio)
             child.setAttribute("data-stack-aspect-ratio", formatFloat(ratio))
         } else {
-            child.removeStyleProperty("aspect-ratio")
+            child.getStyle().setAspectRatio(null)
             child.removeAttribute("data-stack-aspect-ratio")
         }
 
         if (constraint.shrinkCrossAxis) {
             child.setAttribute("data-stack-shrink-cross", "true")
             child.setAlignSelf(constraint.alignSelf ?: AlignSelf.STRETCH)
-            child.setStyleProperty("width", "0px")
-            child.setStyleProperty("min-width", "100%")
-            child.setStyleProperty("max-width", "100%")
+            child.getStyle().setWidth(CssLength.ZERO)
+            child.getStyle().setMinWidth(CssLength.PERCENT_100)
+            child.getStyle().setMaxWidth(CssLength.PERCENT_100)
             if (constraint.heightPx == null && (weight ?: 0f) <= 0f) {
-                child.setStyleProperty("height", "auto")
+                child.getStyle().setHeight(CssLength.AUTO)
             }
         } else {
             child.removeAttribute("data-stack-shrink-cross")
             if (constraint.fillCrossAxis) {
                 child.setAlignSelf(constraint.alignSelf ?: AlignSelf.STRETCH)
                 if (constraint.widthPx == null) {
-                    child.setStyleProperty("width", "100%")
+                    child.getStyle().setWidth(CssLength.PERCENT_100)
                 }
             } else if (constraint.alignSelf != null) {
                 child.setAlignSelf(constraint.alignSelf)
@@ -216,16 +218,15 @@ open class VStack(gap: SpacingScale? = null) : Container("genericui:vstack", "d-
 
     private fun resetChildConstraintStyles(child: AbstractComponent) {
         val hadShrinkCross = child.getAttribute("data-stack-shrink-cross") == "true"
-        child.removeStyleProperty("flex")
-        child.removeStyleProperty("flex-grow")
-        child.removeStyleProperty("flex-shrink")
-        child.removeStyleProperty("flex-basis")
-        child.removeStyleProperty("aspect-ratio")
+        child.getStyle().setFlexGrow(null)
+        child.getStyle().setFlexShrink(null)
+        child.getStyle().setFlexBasis(null)
+        child.getStyle().setAspectRatio(null)
         if (hadShrinkCross) {
-            child.removeStyleProperty("width")
-            child.removeStyleProperty("min-width")
-            child.removeStyleProperty("max-width")
-            child.removeStyleProperty("height")
+            child.getStyle().setWidth(null)
+            child.getStyle().setMinWidth(null)
+            child.getStyle().setMaxWidth(null)
+            child.getStyle().setHeight(null)
         }
         child.removeAttribute("data-stack-weight")
         child.removeAttribute("data-stack-aspect-ratio")
@@ -243,13 +244,13 @@ open class VStack(gap: SpacingScale? = null) : Container("genericui:vstack", "d-
         }
     }
 
-    private fun formatAspectRatioCss(ratio: Float): String {
+    private fun parseAspectRatioObject(ratio: Float): CssAspectRatio {
         return when {
-            abs(ratio - (16f / 9f)) < 0.01f -> "16 / 9"
-            abs(ratio - (4f / 3f)) < 0.01f -> "4 / 3"
-            abs(ratio - (21f / 9f)) < 0.01f -> "21 / 9"
-            abs(ratio - 1f) < 0.01f -> "1 / 1"
-            else -> formatFloat(ratio)
+            abs(ratio - (16f / 9f)) < 0.01f -> CssAspectRatio.RATIO_16_9
+            abs(ratio - (4f / 3f)) < 0.01f -> CssAspectRatio.RATIO_4_3
+            abs(ratio - (21f / 9f)) < 0.01f -> CssAspectRatio.RATIO_21_9
+            abs(ratio - 1f) < 0.01f -> CssAspectRatio.RATIO_1_1
+            else -> CssAspectRatio(ratio, 1f)
         }
     }
 }

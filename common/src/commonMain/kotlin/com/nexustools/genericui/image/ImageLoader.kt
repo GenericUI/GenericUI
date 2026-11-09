@@ -8,6 +8,10 @@ import com.nexustools.genericui.image.codec.LibPngCodec
 import com.nexustools.genericui.image.codec.LibWebpCodec
 import com.nexustools.genericui.io.FileSystem
 import com.nexustools.genericui.nativeimpl.image.ImageCodecNativeImpl
+import com.nexustools.genericui.res.Resources
+import com.nexustools.genericui.resources.ResourceID
+import com.nexustools.genericui.resources.ResourceResolver
+import com.nexustools.genericui.resources.ResourceType
 import com.nexustools.genericui.style.color.RgbaColor
 import com.nexustools.genericui.util.CacheDirectory
 import com.nexustools.genericui.util.WeakReference
@@ -311,6 +315,14 @@ object ImageLoader {
     }
 
     /**
+     * Loads and decodes a [ResourceID] into an in-memory [ImageBuffer].
+     */
+    fun load(
+        resId: ResourceID,
+        options: ImageDecodeOptions = ImageDecodeOptions()
+    ): ImageBuffer = load(ImageSource.fromResource(resId), options)
+
+    /**
      * Loads and decodes an [ImageSource] into an in-memory [ImageBuffer].
      */
     fun load(
@@ -325,9 +337,13 @@ object ImageLoader {
         }
 
         val uri = source.uriOrPath?.trim()
-        val hasCustomSize = options.targetWidth != null && options.targetHeight != null
+        val hasCustomSize = options.targetWidth != null || options.targetHeight != null
         val weakCacheKey = if (!uri.isNullOrEmpty()) {
-            if (hasCustomSize) "$uri@${options.targetWidth}x${options.targetHeight}:${options.antialiasing}" else uri
+            if (hasCustomSize) {
+                "$uri@${options.targetWidth ?: -1}x${options.targetHeight ?: -1}:${options.preserveAspectRatio}:${options.antialiasing}"
+            } else {
+                uri
+            }
         } else null
 
         if (!isWebBrowserManaged && weakCacheKey != null && source.encodedBytes == null) {
@@ -363,6 +379,18 @@ object ImageLoader {
             return result
         }
 
+        val resourceBytes = resolveResourceBytes(source, uri)
+        if (resourceBytes != null && resourceBytes.isNotEmpty()) {
+            val decoded = decodeBytesInternal(resourceBytes, options)
+            if (!isWebBrowserManaged) {
+                if (weakCacheKey != null) trackWeakImageReference(weakCacheKey, decoded)
+                if (!uri.isNullOrEmpty() && !hasCustomSize) {
+                    ImageCacheManager.putInCache(uri, resourceBytes, decoded)
+                }
+            }
+            return decoded
+        }
+
         if (isWebBrowserManaged && source.encodedBytes == null) {
             var syncWebBuffer: ImageBuffer? = null
             activeNativeCodec?.decodeAsync(
@@ -396,6 +424,14 @@ object ImageLoader {
     }
 
     /**
+     * Asynchronously loads and decodes a [ResourceID] into an [ImageBuffer].
+     */
+    suspend fun loadAsync(
+        resId: ResourceID,
+        options: ImageDecodeOptions = ImageDecodeOptions()
+    ): ImageBuffer = loadAsync(ImageSource.fromResource(resId), options)
+
+    /**
      * Asynchronously loads and decodes an [ImageSource] into an [ImageBuffer] using:
      * - On `:web`: an invisible `HTMLImageElement` with `src` and `onload` / `complete` check.
      * - On system backends: non-blocking Kotlin coroutines on [Dispatchers.Default] with bounded concurrency.
@@ -412,9 +448,13 @@ object ImageLoader {
         }
 
         val uri = source.uriOrPath?.trim()
-        val hasCustomSize = options.targetWidth != null && options.targetHeight != null
+        val hasCustomSize = options.targetWidth != null || options.targetHeight != null
         val weakCacheKey = if (!uri.isNullOrEmpty()) {
-            if (hasCustomSize) "$uri@${options.targetWidth}x${options.targetHeight}:${options.antialiasing}" else uri
+            if (hasCustomSize) {
+                "$uri@${options.targetWidth ?: -1}x${options.targetHeight ?: -1}:${options.preserveAspectRatio}:${options.antialiasing}"
+            } else {
+                uri
+            }
         } else null
 
         if (!isWebBrowserManaged && weakCacheKey != null && source.encodedBytes == null) {
@@ -489,6 +529,7 @@ object ImageLoader {
                 }
 
                 val bytes = source.encodedBytes
+                    ?: resolveResourceBytes(source, uri)
                     ?: uri?.let { pathOrUrl ->
                         ImageCacheManager.fetchAndCacheBuffer(pathOrUrl)?.toByteArray()
                             ?: ImageCacheManager.fetchAndCacheBytes(pathOrUrl)
@@ -535,6 +576,18 @@ object ImageLoader {
         encodedBytes: ByteArray,
         options: ImageDecodeOptions = ImageDecodeOptions()
     ): ImageBuffer = load(ImageSource.fromBytes(encodedBytes), options)
+
+    /**
+     * Asynchronously loads a [ResourceID] and delivers the decoded [ImageBuffer] to [onLoaded].
+     */
+    fun loadAsync(
+        resId: ResourceID,
+        options: ImageDecodeOptions = ImageDecodeOptions(),
+        onLoaded: (ImageBuffer) -> Unit,
+        onError: (Throwable) -> Unit = {}
+    ) {
+        launchLoad(ImageSource.fromResource(resId), options, onLoaded, onError)
+    }
 
     /**
      * Asynchronously loads an [ImageSource] and delivers the decoded [ImageBuffer] to [onLoaded].
@@ -599,9 +652,13 @@ object ImageLoader {
         }
 
         val uri = source.uriOrPath?.trim()
-        val hasCustomSize = options.targetWidth != null && options.targetHeight != null
+        val hasCustomSize = options.targetWidth != null || options.targetHeight != null
         val weakCacheKey = if (!uri.isNullOrEmpty()) {
-            if (hasCustomSize) "$uri@${options.targetWidth}x${options.targetHeight}:${options.antialiasing}" else uri
+            if (hasCustomSize) {
+                "$uri@${options.targetWidth ?: -1}x${options.targetHeight ?: -1}:${options.preserveAspectRatio}:${options.antialiasing}"
+            } else {
+                uri
+            }
         } else null
         if (!isWebBrowserManaged && weakCacheKey != null && source.encodedBytes == null) {
             getWeakImageReference(weakCacheKey)?.let { weakHit ->
@@ -719,6 +776,84 @@ object ImageLoader {
         return applyPostDecodeOptions(decoded, options)
     }
 
+    /**
+     * Computes target `(width, height)` for an image of source dimensions `([srcWidth] x [srcHeight])`
+     * according to [options] (`targetWidth`, `targetHeight`, and `preserveAspectRatio`).
+     */
+    fun resolveTargetDimensions(
+        srcWidth: Int,
+        srcHeight: Int,
+        options: ImageDecodeOptions
+    ): Pair<Int, Int> {
+        val sw = srcWidth.coerceAtLeast(1)
+        val sh = srcHeight.coerceAtLeast(1)
+        val reqW = options.targetWidth
+        val reqH = options.targetHeight
+        return when {
+            reqW == null && reqH == null -> sw to sh
+            reqW != null && reqH == null -> {
+                val w = reqW.coerceAtLeast(1)
+                val h = if (options.preserveAspectRatio) {
+                    ((sh.toDouble() * w.toDouble()) / sw.toDouble()).roundToInt().coerceAtLeast(1)
+                } else {
+                    sh
+                }
+                w to h
+            }
+            reqW == null && reqH != null -> {
+                val h = reqH.coerceAtLeast(1)
+                val w = if (options.preserveAspectRatio) {
+                    ((sw.toDouble() * h.toDouble()) / sh.toDouble()).roundToInt().coerceAtLeast(1)
+                } else {
+                    sw
+                }
+                w to h
+            }
+            else -> {
+                val wBox = reqW!!.coerceAtLeast(1)
+                val hBox = reqH!!.coerceAtLeast(1)
+                if (!options.preserveAspectRatio) {
+                    wBox to hBox
+                } else {
+                    val scale = min(wBox.toDouble() / sw.toDouble(), hBox.toDouble() / sh.toDouble())
+                    val w = (sw.toDouble() * scale).roundToInt().coerceIn(1, wBox)
+                    val h = (sh.toDouble() * scale).roundToInt().coerceIn(1, hBox)
+                    w to h
+                }
+            }
+        }
+    }
+
+    private fun resolveResourceBytes(source: ImageSource, uri: String?): ByteArray? {
+        source.resId?.let { id ->
+            ResourceResolver.getBytes(id)?.takeIf { it.isNotEmpty() }?.let { return it }
+            Resources.activeTable.getRawBytes(id)?.takeIf { it.isNotEmpty() }?.let { return it }
+        }
+        val clean = uri?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+        Resources.activeTable.findResourceId(ResourceType.DRAWABLE, clean)?.let { id ->
+            ResourceResolver.getBytes(id)?.takeIf { it.isNotEmpty() }?.let { return it }
+            Resources.activeTable.getRawBytes(id)?.takeIf { it.isNotEmpty() }?.let { return it }
+        }
+        val normalizedRel = clean
+            .removePrefix("res://")
+            .removePrefix("res/")
+            .removePrefix("assets/drawable/")
+            .removePrefix("drawable/")
+            .trimStart('/')
+        if (normalizedRel.isNotEmpty()) {
+            val matchedDrawable = Resources.activeTable.allDrawables().firstOrNull { d ->
+                val rel = d.resId.relativePath.replace('\\', '/').trimStart('/')
+                rel.equals(normalizedRel, ignoreCase = true) ||
+                    rel.substringAfterLast('/').equals(normalizedRel.substringAfterLast('/'), ignoreCase = true)
+            }
+            if (matchedDrawable != null) {
+                ResourceResolver.getBytes(matchedDrawable.resId)?.takeIf { it.isNotEmpty() }?.let { return it }
+                Resources.activeTable.getRawBytes(matchedDrawable.resId)?.takeIf { it.isNotEmpty() }?.let { return it }
+            }
+        }
+        return null
+    }
+
     private fun applyPostDecodeOptions(buffer: ImageBuffer, options: ImageDecodeOptions): ImageBuffer {
         var result = if (buffer.pixelFormat != options.preferredPixelFormat &&
             options.preferredPixelFormat == PixelFormat.RGBA_8888
@@ -728,10 +863,11 @@ object ImageLoader {
             buffer
         }
 
-        val targetW = options.targetWidth
-        val targetH = options.targetHeight
-        if (targetW != null && targetH != null && (targetW != result.width || targetH != result.height)) {
-            result = resize(result, targetW.coerceAtLeast(1), targetH.coerceAtLeast(1), options.antialiasing)
+        if (options.targetWidth != null || options.targetHeight != null) {
+            val (expectedW, expectedH) = resolveTargetDimensions(result.width, result.height, options)
+            if (expectedW != result.width || expectedH != result.height) {
+                result = resize(result, expectedW.coerceAtLeast(1), expectedH.coerceAtLeast(1), options.antialiasing)
+            }
         }
         return result
     }

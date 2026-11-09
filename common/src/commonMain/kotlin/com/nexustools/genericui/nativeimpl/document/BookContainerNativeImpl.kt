@@ -3,6 +3,7 @@ package com.nexustools.genericui.nativeimpl.document
 import com.nexustools.genericui.enums.document.PrintPageOrientation
 import com.nexustools.genericui.enums.document.PrintPageSize
 import com.nexustools.genericui.nativeimpl.layout.ContainerNativeImpl
+import com.nexustools.genericui.style.css.PrecompiledStyleSheet
 
 /**
  * Platform-native implementation contract for [com.nexustools.genericui.component.document.BookContainer].
@@ -17,6 +18,12 @@ interface BookContainerNativeImpl<out W> : ContainerNativeImpl<W> {
     fun setPageSize(pageSize: PrintPageSize, orientation: PrintPageOrientation, marginMm: Float)
 
     fun setDocumentTitle(title: String) {}
+
+    fun addStyleSheet(styleSheet: PrecompiledStyleSheet) {}
+
+    fun removeStyleSheet(styleSheet: PrecompiledStyleSheet) {}
+
+    fun clearStyleSheets() {}
 
     fun printBook(
         documentTitle: String,

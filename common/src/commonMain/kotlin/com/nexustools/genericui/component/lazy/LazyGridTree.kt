@@ -366,7 +366,7 @@ open class LazyGridTree<T>(
             cellContainer.setAttribute("data-tree-indent-px", indentPx.toString())
             if (indentPx > 0) {
                 cellContainer.setPadding(EdgeInsets(left = indentPx))
-                cellContainer.setStyleProperty("padding-left", "${indentPx}px")
+                cellContainer.getStyle().setPaddingLeft(com.nexustools.genericui.style.css.CssLength.px(indentPx))
             }
 
             if (node.hasBranchDisclosure) {

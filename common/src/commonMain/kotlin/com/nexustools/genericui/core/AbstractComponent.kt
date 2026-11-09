@@ -26,6 +26,7 @@ import com.nexustools.genericui.style.gradient.Gradient.Gradient
 import com.nexustools.genericui.style.mapper.BootstrapClassMapper
 import com.nexustools.genericui.style.mapper.BootstrapStyleSnapshot
 import com.nexustools.genericui.style.transition.CssTransitionController
+import com.nexustools.genericui.threading.GenericUiThreading
 
 /**
  * Base class for all GenericUI components (`AbstractComponent`).
@@ -56,8 +57,10 @@ abstract class AbstractComponent(
         cachedSheetHasMediaRules = true
         cachedSelectorClasses = null
         if (this is AbstractContainer) {
-            for (child in children) {
-                child.invalidateCachedSheetBaseStyle()
+            var i = 0
+            while (i < children.size) {
+                children.getOrNull(i)?.invalidateCachedSheetBaseStyle()
+                i++
             }
         }
     }
@@ -80,8 +83,10 @@ abstract class AbstractComponent(
             cachedSheetHasMediaRules = true
         }
         if (affectsDescendants && this is AbstractContainer) {
-            for (child in children) {
-                child.invalidateCachedSheetBaseStyle()
+            var i = 0
+            while (i < children.size) {
+                children.getOrNull(i)?.invalidateCachedSheetBaseStyle()
+                i++
             }
         }
     }
@@ -230,33 +235,75 @@ abstract class AbstractComponent(
         onChange = { onComponentBootstrapChanged(it) }
     )
 
-    private fun onSingleInlineStylePropertyMutated(prop: CssProperty) {
-        if (suppressComponentStyleCallback) return
-        val cssVal = componentStyleInstance.getSinglePropertyCssString(prop)
-        onSingleInlineStylePropertyMutated(prop, prop.cssName, cssVal)
+    open val acceptsTypographyComponentStyles: Boolean
+        get() = false
+
+    open val acceptsAestheticSkinComponentStyles: Boolean
+        get() = false
+
+    open fun isHostedInCustomStyleEngine(): Boolean {
+        val factory = resolveActiveFactory() ?: GenericUI.activeFactory
+        if (factory != null && !factory.ignoresAestheticStylesOnStandardComponents) {
+            return true
+        }
+        var curr = parent
+        while (curr != null) {
+            if (curr.isHostedInCustomStyleEngine()) return true
+            curr = curr.parent
+        }
+        return false
     }
 
-    open fun onSingleInlineStylePropertyMutated(
-        property: CssProperty,
-        cssPropertyName: String,
-        cssValue: String?
-    ) {
+    internal fun shouldFilterAestheticStylesForSystemBackend(): Boolean {
+        val factory = resolveActiveFactory() ?: GenericUI.activeFactory ?: return false
+        if (!factory.ignoresAestheticStylesOnStandardComponents) return false
+        return !isHostedInCustomStyleEngine()
+    }
+
+    internal fun effectiveComponentStyle(): ComponentStyle {
+        return if (shouldFilterAestheticStylesForSystemBackend()) {
+            componentStyleInstance.copyFilteredForSystemComponent(
+                allowTypography = acceptsTypographyComponentStyles,
+                allowAestheticSkin = acceptsAestheticSkinComponentStyles
+            )
+        } else {
+            componentStyleInstance
+        }
+    }
+
+    open fun onSingleInlineStylePropertyMutated(property: CssProperty) {
+        if (suppressComponentStyleCallback) return
         val activeFactory = resolveActiveFactory() ?: GenericUI.activeFactory
         val engineEnabled = activeFactory?.isStyleSheetEngineEnabled ?: true
-        val sheetBase = if (engineEnabled) resolveOrGetCachedSheetBaseStyle() else null
-        val currentBase = computedStyleState ?: sheetBase ?: ComputedStyle.EMPTY
-        val updated = componentStyleInstance.applySinglePropertyToComputed(property, currentBase, sheetBase)
-        if (cssValue != null) {
-            inlineStyleMap[cssPropertyName] = if (componentStyleInstance.isImportant(property)) "$cssValue !important" else cssValue
+        val rawSheetBase = if (engineEnabled) resolveOrGetCachedSheetBaseStyle() else null
+        val filterSystem = shouldFilterAestheticStylesForSystemBackend()
+        val sheetBase = if (filterSystem && rawSheetBase != null) {
+            rawSheetBase.copyFilteredForSystemComponent(
+                allowTypography = acceptsTypographyComponentStyles,
+                allowAestheticSkin = acceptsAestheticSkinComponentStyles
+            )
         } else {
-            inlineStyleMap.remove(cssPropertyName)
+            rawSheetBase
+        }
+        val effectiveStyle = effectiveComponentStyle()
+        val currentBase = computedStyleState ?: sheetBase ?: ComputedStyle.EMPTY
+        val updatedRaw = effectiveStyle.applySinglePropertyToComputed(property, currentBase, sheetBase)
+        val updated = if (filterSystem) {
+            updatedRaw.copyFilteredForSystemComponent(
+                allowTypography = acceptsTypographyComponentStyles,
+                allowAestheticSkin = acceptsAestheticSkinComponentStyles
+            )
+        } else {
+            updatedRaw
         }
         applyComputedStyle(updated)
-        nativeImpl?.applyComponentStyle(componentStyleInstance)
-        if (property == CssProperty.BACKGROUND_IMAGE) {
-            nativeImpl?.setBackgroundGradient(updated.backgroundGradient)
-        } else if (property == CssProperty.CURSOR) {
-            nativeImpl?.setCustomCursor(updated.customCursor)
+        runOnNativeUi {
+            it.applyComponentStyle(effectiveStyle)
+            if (property == CssProperty.BACKGROUND_IMAGE) {
+                it.setBackgroundGradient(updated.backgroundGradient)
+            } else if (property == CssProperty.CURSOR) {
+                it.setCustomCursor(updated.customCursor)
+            }
         }
     }
 
@@ -264,16 +311,28 @@ abstract class AbstractComponent(
         if (suppressComponentStyleCallback) return
         val activeFactory = resolveActiveFactory() ?: GenericUI.activeFactory
         val engineEnabled = activeFactory?.isStyleSheetEngineEnabled ?: true
-        val base = if (engineEnabled) {
+        val rawBase = if (engineEnabled) {
             resolveOrGetCachedSheetBaseStyle() ?: computedStyleState
         } else {
             computedStyleState
         }
-        val updated = componentStyleInstance.toComputedStyle(base)
+        val filterSystem = shouldFilterAestheticStylesForSystemBackend()
+        val base = if (filterSystem && rawBase != null) {
+            rawBase.copyFilteredForSystemComponent(
+                allowTypography = acceptsTypographyComponentStyles,
+                allowAestheticSkin = acceptsAestheticSkinComponentStyles
+            )
+        } else {
+            rawBase
+        }
+        val effectiveStyle = effectiveComponentStyle()
+        val updated = effectiveStyle.toComputedStyle(base)
         applyComputedStyle(updated)
-        nativeImpl?.applyComponentStyle(componentStyleInstance)
-        nativeImpl?.setBackgroundGradient(updated.backgroundGradient)
-        nativeImpl?.setCustomCursor(updated.customCursor)
+        runOnNativeUi {
+            it.applyComponentStyle(effectiveStyle)
+            it.setBackgroundGradient(updated.backgroundGradient)
+            it.setCustomCursor(updated.customCursor)
+        }
     }
 
     private fun onComponentBootstrapChanged(bootstrap: ComponentBootstrap) {
@@ -283,8 +342,7 @@ abstract class AbstractComponent(
             invalidateCachedSheetBaseStyle()
         }
         notifyParentCacheDirty()
-        val impl = nativeImpl
-        if (impl != null) {
+        runOnNativeUi { impl ->
             syncBootstrapEnumsToNative(impl)
             impl.applyComponentBootstrap(bootstrap)
         }
@@ -331,15 +389,24 @@ abstract class AbstractComponent(
     // Event listeners
     var onClick: (() -> Unit)? = null
         set(value) {
-            field = value
-            nativeImpl?.setOnClick(buildEffectiveClickListener())
+            val wrapped: (() -> Unit)? = if (value == null) null else {
+                {
+                    GenericUiThreading.runOnLogic {
+                        value()
+                    }
+                }
+            }
+            field = wrapped
+            runOnNativeUi { it.setOnClick(buildEffectiveClickListener()) }
         }
 
     private fun buildEffectiveClickListener(): (() -> Unit)? {
         val raw = onClick ?: return null
         return {
             if (!PopupMouseCaptureManager.interceptClick(target = this)) {
-                raw()
+                GenericUiThreading.runOnLogic {
+                    raw()
+                }
             }
         }
     }
@@ -347,16 +414,31 @@ abstract class AbstractComponent(
     fun triggerClick() {
         if (!isEnabled) return
         if (PopupMouseCaptureManager.interceptClick(target = this)) return
-        onClick?.invoke()
+        val raw = onClick ?: return
+        GenericUiThreading.runOnLogic {
+            raw()
+        }
     }
     var onDoubleClick: (() -> Unit)? = null
         set(value) {
-            field = value
-            nativeImpl?.setOnDoubleClick(value)
+            val wrapped: (() -> Unit)? = if (value == null) null else {
+                {
+                    GenericUiThreading.runOnLogic {
+                        value()
+                    }
+                }
+            }
+            field = wrapped
+            runOnNativeUi { it.setOnDoubleClick(wrapped) }
         }
     var onContextMenu: ((PointerEvent) -> Unit)? = null
         set(value) {
-            field = value
+            val wrapped: ((PointerEvent) -> Unit)? = if (value == null) null else { ev ->
+                GenericUiThreading.runOnLogic {
+                    value(ev)
+                }
+            }
+            field = wrapped
             syncContextMenuListener()
         }
 
@@ -384,7 +466,10 @@ abstract class AbstractComponent(
 
     fun dispatchContextMenu(event: PointerEvent = PointerEvent(0f, 0f)) {
         contextMenu?.showAt(this, event.x.toInt(), event.y.toInt())
-        onContextMenu?.invoke(event)
+        val handler = onContextMenu ?: return
+        GenericUiThreading.runOnLogic {
+            handler(event)
+        }
     }
 
     fun dispatchContextMenu(x: Float, y: Float) {
@@ -397,71 +482,110 @@ abstract class AbstractComponent(
         if (menu == null && userHandler == null) return null
         return { event ->
             contextMenu?.showAt(this, event.x.toInt(), event.y.toInt())
-            onContextMenu?.invoke(event)
+            val handler = onContextMenu
+            if (handler != null) {
+                GenericUiThreading.runOnLogic {
+                    handler(event)
+                }
+            }
         }
     }
 
     private fun syncContextMenuListener() {
-        nativeImpl?.setOnContextMenu(buildEffectiveContextMenuListener())
+        runOnNativeUi { it.setOnContextMenu(buildEffectiveContextMenuListener()) }
     }
     var onPointerDown: ((PointerEvent) -> Unit)? = null
         set(value) {
-            field = value
-            nativeImpl?.setOnPointerDown(value)
+            val wrapped: ((PointerEvent) -> Unit)? = if (value == null) null else { ev ->
+                GenericUiThreading.runOnLogic {
+                    value(ev)
+                }
+            }
+            field = wrapped
+            runOnNativeUi { it.setOnPointerDown(wrapped) }
         }
     var onPointerMove: ((PointerEvent) -> Unit)? = null
         set(value) {
-            field = value
-            nativeImpl?.setOnPointerMove(value)
+            val wrapped: ((PointerEvent) -> Unit)? = if (value == null) null else { ev ->
+                GenericUiThreading.runOnLogic {
+                    value(ev)
+                }
+            }
+            field = wrapped
+            runOnNativeUi { it.setOnPointerMove(wrapped) }
         }
     var onPointerUp: ((PointerEvent) -> Unit)? = null
         set(value) {
-            field = value
-            nativeImpl?.setOnPointerUp(value)
+            val wrapped: ((PointerEvent) -> Unit)? = if (value == null) null else { ev ->
+                GenericUiThreading.runOnLogic {
+                    value(ev)
+                }
+            }
+            field = wrapped
+            runOnNativeUi { it.setOnPointerUp(wrapped) }
         }
     var onPointerEnter: ((PointerEvent) -> Unit)? = null
         set(value) {
-            field = value
-            nativeImpl?.setOnPointerEnter(value)
+            val wrapped: ((PointerEvent) -> Unit)? = if (value == null) null else { ev ->
+                GenericUiThreading.runOnLogic {
+                    value(ev)
+                }
+            }
+            field = wrapped
+            runOnNativeUi { it.setOnPointerEnter(wrapped) }
         }
     var onPointerLeave: ((PointerEvent) -> Unit)? = null
         set(value) {
-            field = value
-            nativeImpl?.setOnPointerLeave(value)
+            val wrapped: ((PointerEvent) -> Unit)? = if (value == null) null else { ev ->
+                GenericUiThreading.runOnLogic {
+                    value(ev)
+                }
+            }
+            field = wrapped
+            runOnNativeUi { it.setOnPointerLeave(wrapped) }
         }
     var onWheel: ((WheelEvent) -> Unit)? = null
         set(value) {
-            field = value
-            nativeImpl?.setOnWheel(value)
+            val wrapped: ((WheelEvent) -> Unit)? = if (value == null) null else { ev ->
+                GenericUiThreading.runOnLogic {
+                    value(ev)
+                }
+            }
+            field = wrapped
+            runOnNativeUi { it.setOnWheel(wrapped) }
         }
     var onKeyDown: ((KeyEvent) -> Unit)? = null
         set(value) {
             val wrapped: ((KeyEvent) -> Unit)? = if (value == null) null else { ev ->
                 if (!InputFocusManager.shouldIgnoreShortcutKeyEvent(ev, this)) {
-                    value(ev)
+                    GenericUiThreading.runOnLogic {
+                        value(ev)
+                    }
                 }
             }
             field = wrapped
-            nativeImpl?.setOnKeyDown(wrapped)
+            runOnNativeUi { it.setOnKeyDown(wrapped) }
         }
     var onKeyUp: ((KeyEvent) -> Unit)? = null
         set(value) {
             val wrapped: ((KeyEvent) -> Unit)? = if (value == null) null else { ev ->
                 if (!InputFocusManager.shouldIgnoreShortcutKeyEvent(ev, this)) {
-                    value(ev)
+                    GenericUiThreading.runOnLogic {
+                        value(ev)
+                    }
                 }
             }
             field = wrapped
-            nativeImpl?.setOnKeyUp(wrapped)
+            runOnNativeUi { it.setOnKeyUp(wrapped) }
         }
 
-    fun triggerKeyDown(ev: KeyEvent) {
+    open fun triggerKeyDown(ev: KeyEvent) {
         if (!isEnabled) return
         if (InputFocusManager.shouldIgnoreShortcutKeyEvent(ev, this)) return
         onKeyDown?.invoke(ev)
     }
 
-    fun triggerKeyUp(ev: KeyEvent) {
+    open fun triggerKeyUp(ev: KeyEvent) {
         if (!isEnabled) return
         if (InputFocusManager.shouldIgnoreShortcutKeyEvent(ev, this)) return
         onKeyUp?.invoke(ev)
@@ -559,6 +683,17 @@ abstract class AbstractComponent(
 
     protected inline fun <reified T : NativeImpl<*>> typedNative(): T? = nativeImpl as? T
 
+    protected inline fun runOnNativeUi(crossinline block: (NativeImpl<*>) -> Unit) {
+        val impl = nativeImpl ?: return
+        if (GenericUiThreading.isOnLogicThread() && GenericUiThreading.isSplitThreadingEnabled) {
+            GenericUiThreading.runOnUi {
+                block(impl)
+            }
+        } else {
+            block(impl)
+        }
+    }
+
     open fun resolveActiveFactory(): NativeFactory? {
         if (!visibleState) return null
         return parent?.resolveChildFactory()
@@ -612,33 +747,38 @@ abstract class AbstractComponent(
         suppressComponentStyleCallback = true
         try {
             minWidthPx?.let {
-                inlineStyleMap["min-width"] = "${it}px"
-                componentStyleInstance.setRawDeclaration("min-width", "${it}px")
+                componentStyleInstance.setMinWidth(CssLength.px(it))
             }
             minHeightPx?.let {
-                inlineStyleMap["min-height"] = "${it}px"
-                componentStyleInstance.setRawDeclaration("min-height", "${it}px")
+                componentStyleInstance.setMinHeight(CssLength.px(it))
             }
             maxWidthPx?.let {
-                inlineStyleMap["max-width"] = "${it}px"
-                componentStyleInstance.setRawDeclaration("max-width", "${it}px")
+                componentStyleInstance.setMaxWidth(CssLength.px(it))
             }
             maxHeightPx?.let {
-                inlineStyleMap["max-height"] = "${it}px"
-                componentStyleInstance.setRawDeclaration("max-height", "${it}px")
+                componentStyleInstance.setMaxHeight(CssLength.px(it))
             }
         } finally {
             suppressComponentStyleCallback = false
         }
         impl.setPadding(padding)
         impl.setMargin(margin)
+        val filterSystem = shouldFilterAestheticStylesForSystemBackend()
         computedStyleState?.let {
-            impl.applyComputedStyle(it)
-            impl.setBackgroundGradient(it.backgroundGradient)
-            impl.setCustomCursor(it.customCursor)
+            val effectiveComputed = if (filterSystem) {
+                it.copyFilteredForSystemComponent(
+                    allowTypography = acceptsTypographyComponentStyles,
+                    allowAestheticSkin = acceptsAestheticSkinComponentStyles
+                )
+            } else {
+                it
+            }
+            impl.applyComputedStyle(effectiveComputed)
+            impl.setBackgroundGradient(effectiveComputed.backgroundGradient)
+            impl.setCustomCursor(effectiveComputed.customCursor)
         }
         if (!componentStyleInstance.isEmpty()) {
-            impl.applyComponentStyle(componentStyleInstance)
+            impl.applyComponentStyle(effectiveComponentStyle())
         }
         impl.applyComponentBootstrap(componentBootstrapInstance)
         impl.setOnClick(buildEffectiveClickListener())
@@ -728,7 +868,8 @@ abstract class AbstractComponent(
         styleSnapshot = styleSnapshot.copy(customClasses = customSet)
         invalidateCachedSheetBaseStyle()
         notifyParentCacheDirty()
-        nativeImpl?.setClass(customSet.joinToString(" "))
+        val joined = customSet.joinToString(" ")
+        runOnNativeUi { it.setClass(joined) }
     }
 
     fun getClass(): String = styleSnapshot.customClasses.joinToString(" ")
@@ -744,8 +885,10 @@ abstract class AbstractComponent(
         if (sheet == null || tokens.any { sheet.isClassReferencedInSubject(it) || sheet.isClassReferencedInAncestor(it) }) {
             notifyParentCacheDirty()
         }
-        for (tok in tokens) {
-            nativeImpl?.addClass(tok)
+        runOnNativeUi { impl ->
+            for (tok in tokens) {
+                impl.addClass(tok)
+            }
         }
     }
 
@@ -770,8 +913,10 @@ abstract class AbstractComponent(
         if (sheet == null || tokens.any { sheet.isClassReferencedInSubject(it) || sheet.isClassReferencedInAncestor(it) }) {
             notifyParentCacheDirty()
         }
-        for (tok in tokens) {
-            nativeImpl?.removeClass(tok)
+        runOnNativeUi { impl ->
+            for (tok in tokens) {
+                impl.removeClass(tok)
+            }
         }
     }
 
@@ -956,17 +1101,17 @@ abstract class AbstractComponent(
     @kotlin.jvm.JvmName("obtainFlexDirection")
     fun getFlexDirection(): FlexDirection? = componentBootstrapInstance.getFlexDirection()
 
+    @get:kotlin.jvm.JvmName("getFlexWrapProp")
+    @set:kotlin.jvm.JvmName("setFlexWrapProp")
     var flexWrap: FlexWrap?
         get() = getFlexWrap()
         set(value) = setFlexWrap(value)
 
-    @kotlin.jvm.JvmName("assignFlexWrap")
-    fun setFlexWrap(wrap: FlexWrap?) {
+    open fun setFlexWrap(wrap: FlexWrap?) {
         componentBootstrapInstance.setFlexWrap(wrap)
     }
 
-    @kotlin.jvm.JvmName("obtainFlexWrap")
-    fun getFlexWrap(): FlexWrap? = componentBootstrapInstance.getFlexWrap()
+    open fun getFlexWrap(): FlexWrap? = componentBootstrapInstance.getFlexWrap()
 
     var justifyContent: JustifyContent?
         get() = getJustifyContent()
@@ -1062,18 +1207,20 @@ abstract class AbstractComponent(
                 val wasUnrealized = (nativeImpl == null)
                 val impl = ensureNativeImpl()
                 if (impl != null) {
-                    impl.setVisible(true)
-                    if (wasUnrealized) {
-                        val parentContainer = parent as? AbstractContainer
-                        val parentImpl = parentContainer?.nativeImpl as? AbstractContainerNativeImpl<*>
-                        if (parentContainer != null && parentImpl != null) {
-                            val idx = parentContainer.children.indexOf(this)
-                            parentImpl.addChildNative(impl, idx)
+                    runOnNativeUi {
+                        impl.setVisible(true)
+                        if (wasUnrealized) {
+                            val parentContainer = parent as? AbstractContainer
+                            val parentImpl = parentContainer?.nativeImpl as? AbstractContainerNativeImpl<*>
+                            if (parentContainer != null && parentImpl != null) {
+                                val idx = parentContainer.children.indexOf(this)
+                                parentImpl.addChildNative(impl, idx)
+                            }
                         }
                     }
                 }
             } else {
-                nativeImpl?.setVisible(false)
+                runOnNativeUi { it.setVisible(false) }
             }
         }
 
@@ -1086,11 +1233,13 @@ abstract class AbstractComponent(
                 focusedState = false
                 activePressedState = false
                 InputFocusManager.onComponentFocusChanged(this, false)
-                nativeImpl?.setHoveredState(false)
-                nativeImpl?.setFocusedState(false)
-                nativeImpl?.setActivePressedState(false)
+                runOnNativeUi {
+                    it.setHoveredState(false)
+                    it.setFocusedState(false)
+                    it.setActivePressedState(false)
+                }
             }
-            nativeImpl?.setEnabled(value)
+            runOnNativeUi { it.setEnabled(value) }
         }
 
     var isHovered: Boolean
@@ -1098,7 +1247,7 @@ abstract class AbstractComponent(
         set(value) {
             val coerced = if (!enabledState) false else value
             hoveredState = coerced
-            nativeImpl?.setHoveredState(coerced)
+            runOnNativeUi { it.setHoveredState(coerced) }
             notifyParentCacheDirty()
         }
 
@@ -1108,7 +1257,7 @@ abstract class AbstractComponent(
             val coerced = if (!enabledState) false else value
             focusedState = coerced
             InputFocusManager.onComponentFocusChanged(this, coerced)
-            nativeImpl?.setFocusedState(coerced)
+            runOnNativeUi { it.setFocusedState(coerced) }
             notifyParentCacheDirty()
         }
 
@@ -1117,7 +1266,7 @@ abstract class AbstractComponent(
         set(value) {
             val coerced = if (!enabledState) false else value
             activePressedState = coerced
-            nativeImpl?.setActivePressedState(coerced)
+            runOnNativeUi { it.setActivePressedState(coerced) }
             notifyParentCacheDirty()
         }
 
@@ -1126,7 +1275,6 @@ abstract class AbstractComponent(
         set(value) {
             val clamped = value.coerceIn(0f, 1f)
             if (kotlin.math.abs(opacityState - clamped) < 1e-4f && computedStyleState != null && componentStyleInstance.opacity == clamped) return
-            if (clamped >= 1.0f) inlineStyleMap.remove("opacity") else inlineStyleMap["opacity"] = clamped.toString()
             suppressComponentStyleCallback = true
             try {
                 componentStyleInstance.setOpacity(clamped)
@@ -1135,27 +1283,28 @@ abstract class AbstractComponent(
             }
             val prevStyle = computedStyleState ?: ComputedStyle(opacity = opacityState)
             opacityState = clamped
-            nativeImpl?.setOpacity(opacityState)
             val nextStyle = prevStyle.copy(
-                opacity = clamped,
-                rawDeclarations = syncRawDeclarations(prevStyle, "opacity", if (clamped >= 1.0f) null else clamped.toString())
+                opacity = clamped
             )
             computedStyleState = nextStyle
             transitionController.onStyleChanged(prevStyle, nextStyle)
-            nativeImpl?.applyComputedStyle(nextStyle)
+            runOnNativeUi {
+                it.setOpacity(opacityState)
+                it.applyComputedStyle(nextStyle)
+            }
         }
 
     var tooltipText: String?
         get() = tooltipTextState
         set(value) {
             tooltipTextState = value
-            nativeImpl?.setTooltipText(value)
+            runOnNativeUi { it.setTooltipText(value) }
         }
 
     open fun setAttribute(name: String, value: String) {
         if (customAttributesState[name] == value) return
         customAttributesState[name] = value
-        nativeImpl?.setAttribute(name, value)
+        runOnNativeUi { it.setAttribute(name, value) }
     }
 
     fun getAttribute(name: String): String? = customAttributesState[name]
@@ -1164,12 +1313,12 @@ abstract class AbstractComponent(
 
     fun removeAttribute(name: String) {
         customAttributesState.remove(name)
-        nativeImpl?.setAttribute(name, null)
+        runOnNativeUi { it.setAttribute(name, null) }
     }
 
     open fun setPreferredSize(size: Size?) {
         preferredSizeState = size
-        nativeImpl?.setPreferredSize(size)
+        runOnNativeUi { it.setPreferredSize(size) }
     }
 
     fun getPreferredSize(): Size? = preferredSizeState
@@ -1192,13 +1341,13 @@ abstract class AbstractComponent(
     @kotlin.jvm.JvmName("assignPadding")
     fun setPadding(padding: EdgeInsets) {
         this.padding = padding
-        nativeImpl?.setPadding(padding)
+        runOnNativeUi { it.setPadding(padding) }
     }
 
     @kotlin.jvm.JvmName("assignMargin")
     fun setMargin(margin: EdgeInsets) {
         this.margin = margin
-        nativeImpl?.setMargin(margin)
+        runOnNativeUi { it.setMargin(margin) }
     }
 
     open fun applyComputedStyle(style: ComputedStyle) {
@@ -1209,192 +1358,35 @@ abstract class AbstractComponent(
         }
         computedStyleState = style
         opacityState = style.opacity.coerceIn(0f, 1f)
-        nativeImpl?.setOpacity(opacityState)
         if (style.transition != null) {
             transitionController.updateTransitionCss(style.transition)
         }
         transitionController.onStyleChanged(previous, style)
-        nativeImpl?.applyComputedStyle(style)
+        runOnNativeUi {
+            it.setOpacity(opacityState)
+            it.applyComputedStyle(style)
+        }
     }
 
     val computedStyle: ComputedStyle?
         get() = computedStyleState
 
-    private val inlineStyleMap = linkedMapOf<String, String>()
-
-    var inlineStyle: String
-        get() {
-            val combined = linkedMapOf<String, String>()
-            combined.putAll(inlineStyleMap)
-            for ((prop, pair) in componentStyleInstance.toCssPropertyMap()) {
-                val (v, imp) = pair
-                combined[prop] = if (imp) "$v !important" else v
-            }
-            return combined.entries.joinToString("; ") { "${it.key}: ${it.value}" }
-        }
-        set(value) {
-            val previousKeys = (inlineStyleMap.keys + componentStyleInstance.toCssPropertyMap().keys).toSet()
-            inlineStyleMap.clear()
-            suppressComponentStyleCallback = true
-            try {
-                componentStyleInstance.clear()
-                var cleanedBase = computedStyleState
-                if (cleanedBase != null) {
-                    for (oldKey in previousKeys) {
-                        cleanedBase = removeKeyFromComputedStyle(cleanedBase!!, oldKey)
-                    }
-                    computedStyleState = cleanedBase
-                }
-                if (value.isNotBlank()) {
-                    for (decl in value.split(';')) {
-                        val colon = decl.indexOf(':')
-                        if (colon > 0) {
-                            val k = decl.substring(0, colon).trim().lowercase()
-                            val v = decl.substring(colon + 1).trim()
-                            if (k.isNotEmpty() && v.isNotEmpty()) {
-                                inlineStyleMap[k] = v
-                                componentStyleInstance.setRawDeclaration(k, v)
-                            }
-                        }
-                    }
-                }
-            } finally {
-                suppressComponentStyleCallback = false
-            }
-            rebuildComputedStyleFromInlineMap()
-        }
-
-    fun setStyleProperty(property: String, value: String) {
-        val key = property.trim().lowercase()
-        val trimmedValue = value.trim()
-        val propEnum = CssProperty.fromCssName(key)
-        if (trimmedValue.isEmpty()) {
-            if (key !in inlineStyleMap && (propEnum == null || componentStyleInstance.getSinglePropertyCssString(propEnum) == null) && key !in componentStyleInstance.toCssPropertyMap()) return
-            inlineStyleMap.remove(key)
-            if (propEnum != null) {
-                componentStyleInstance.setRawDeclaration(key, null)
-                return
-            }
-            suppressComponentStyleCallback = true
-            try {
-                componentStyleInstance.setRawDeclaration(key, null)
-            } finally {
-                suppressComponentStyleCallback = false
-            }
-            computedStyleState = computedStyleState?.let { removeKeyFromComputedStyle(it, key) }
-        } else {
-            if (inlineStyleMap[key] == trimmedValue) return
-            inlineStyleMap[key] = trimmedValue
-            if (propEnum != null) {
-                componentStyleInstance.setRawDeclaration(key, trimmedValue)
-                inlineStyleMap[key] = trimmedValue
-                return
-            }
-            suppressComponentStyleCallback = true
-            try {
-                componentStyleInstance.setRawDeclaration(key, trimmedValue)
-            } finally {
-                suppressComponentStyleCallback = false
-            }
-        }
-        rebuildComputedStyleFromInlineMap()
-    }
-
-    fun removeStyleProperty(property: String) {
-        setStyleProperty(property, "")
-    }
-
-    fun getStyleProperty(property: String): String? {
-        val key = property.trim().lowercase()
-        inlineStyleMap[key]?.let { return it }
-        val propEnum = CssProperty.fromCssName(key)
-        if (propEnum != null) {
-            val cssVal = componentStyleInstance.getSinglePropertyCssString(propEnum) ?: return null
-            return if (componentStyleInstance.isImportant(propEnum)) "$cssVal !important" else cssVal
-        }
-        val pair = componentStyleInstance.toCssPropertyMap()[key] ?: return null
-        return if (pair.second) "${pair.first} !important" else pair.first
-    }
-
-    fun clearStyleProperties() {
-        if (inlineStyleMap.isEmpty() && componentStyleInstance.isEmpty()) return
-        val previousKeys = (inlineStyleMap.keys + componentStyleInstance.toCssPropertyMap().keys).toSet()
-        inlineStyleMap.clear()
-        suppressComponentStyleCallback = true
-        try {
-            componentStyleInstance.clear()
-        } finally {
-            suppressComponentStyleCallback = false
-        }
-        var cleanedBase = computedStyleState
-        if (cleanedBase != null) {
-            for (oldKey in previousKeys) {
-                cleanedBase = removeKeyFromComputedStyle(cleanedBase!!, oldKey)
-            }
-            computedStyleState = cleanedBase
-        }
-        rebuildComputedStyleFromInlineMap()
-    }
-
-    private fun rebuildComputedStyleFromInlineMap() {
-        val activeFactory = resolveActiveFactory() ?: GenericUI.activeFactory
-        val engineEnabled = activeFactory?.isStyleSheetEngineEnabled ?: true
-        val sheetBase = if (engineEnabled) {
-            resolveOrGetCachedSheetBaseStyle()
-        } else {
-            null
-        }
-        val parsed = CssStyleSheet.parseInlineStyle(inlineStyle)
-        val base = sheetBase ?: (computedStyleState ?: ComputedStyle())
-        val merged = componentStyleInstance.toComputedStyle(base.mergeWith(parsed))
-        applyComputedStyle(merged)
-        nativeImpl?.applyComponentStyle(componentStyleInstance)
-    }
-
-    private fun removeKeyFromComputedStyle(base: ComputedStyle, key: String): ComputedStyle {
-        val updatedRaw = base.rawDeclarations - key
-        val updatedImportant = base.importantProperties - key
-        return when (key) {
-            "width" -> base.copy(width = null, rawDeclarations = updatedRaw, importantProperties = updatedImportant)
-            "height" -> base.copy(height = null, rawDeclarations = updatedRaw, importantProperties = updatedImportant)
-            "min-width" -> base.copy(minWidth = null, rawDeclarations = updatedRaw, importantProperties = updatedImportant)
-            "min-height" -> base.copy(minHeight = null, rawDeclarations = updatedRaw, importantProperties = updatedImportant)
-            "max-width" -> base.copy(maxWidth = null, rawDeclarations = updatedRaw, importantProperties = updatedImportant)
-            "max-height" -> base.copy(maxHeight = null, rawDeclarations = updatedRaw, importantProperties = updatedImportant)
-            "flex" -> base.copy(
-                rawDeclarations = updatedRaw - "flex-grow" - "flex-shrink" - "flex-basis",
-                importantProperties = updatedImportant - "flex-grow" - "flex-shrink" - "flex-basis"
-            )
-            "aspect-ratio" -> base.copy(aspectRatio = null, rawDeclarations = updatedRaw, importantProperties = updatedImportant)
-            "display" -> base.copy(display = null, rawDeclarations = updatedRaw, importantProperties = updatedImportant)
-            "position" -> base.copy(position = null, rawDeclarations = updatedRaw, importantProperties = updatedImportant)
-            "left" -> base.copy(left = null, rawDeclarations = updatedRaw, importantProperties = updatedImportant)
-            "top" -> base.copy(top = null, rawDeclarations = updatedRaw, importantProperties = updatedImportant)
-            "right" -> base.copy(right = null, rawDeclarations = updatedRaw, importantProperties = updatedImportant)
-            "bottom" -> base.copy(bottom = null, rawDeclarations = updatedRaw, importantProperties = updatedImportant)
-            "z-index" -> base.copy(zIndex = null, rawDeclarations = updatedRaw, importantProperties = updatedImportant)
-            "overflow" -> base.copy(overflow = null, rawDeclarations = updatedRaw, importantProperties = updatedImportant)
-            "background-color" -> base.copy(backgroundColor = null, rawDeclarations = updatedRaw, importantProperties = updatedImportant)
-            "color" -> base.copy(textColor = null, rawDeclarations = updatedRaw, importantProperties = updatedImportant)
-            "border-color" -> base.copy(borderColor = null, rawDeclarations = updatedRaw, importantProperties = updatedImportant)
-            "border-radius" -> base.copy(borderRadiusPx = null, borderRadiusPercent = null, rawDeclarations = updatedRaw, importantProperties = updatedImportant)
-            else -> base.copy(rawDeclarations = updatedRaw, importantProperties = updatedImportant)
-        }
-    }
-
-    private fun syncRawDeclarations(base: ComputedStyle, cssKey: String, cssValue: String?): Map<String, String> =
-        if (cssValue.isNullOrBlank()) base.rawDeclarations - cssKey else base.rawDeclarations + (cssKey to cssValue)
-
     var customBackgroundColor: RgbaColor?
         get() = computedStyleState?.backgroundColor
         set(value) {
+            suppressComponentStyleCallback = true
+            try {
+                componentStyleInstance.setBackgroundColor(value)
+            } finally {
+                suppressComponentStyleCallback = false
+            }
             val base = computedStyleState ?: ComputedStyle()
             applyComputedStyle(
                 base.copy(
-                    backgroundColor = value,
-                    rawDeclarations = syncRawDeclarations(base, "background-color", value?.toCssRgbaString())
+                    backgroundColor = value
                 )
             )
+            runOnNativeUi { it.applyComponentStyle(effectiveComponentStyle()) }
         }
 
     /**
@@ -1407,8 +1399,7 @@ abstract class AbstractComponent(
             val base = computedStyleState ?: ComputedStyle()
             applyComputedStyle(
                 base.copy(
-                    backgroundGradient = value,
-                    rawDeclarations = syncRawDeclarations(base, "background-image", value?.toCssString())
+                    backgroundGradient = value
                 )
             )
             nativeImpl?.setBackgroundGradient(value)
@@ -1447,37 +1438,56 @@ abstract class AbstractComponent(
     var textColor: RgbaColor?
         get() = computedStyleState?.textColor
         set(value) {
+            suppressComponentStyleCallback = true
+            try {
+                componentStyleInstance.setColor(value)
+            } finally {
+                suppressComponentStyleCallback = false
+            }
             val base = computedStyleState ?: ComputedStyle()
             applyComputedStyle(
                 base.copy(
-                    textColor = value,
-                    rawDeclarations = syncRawDeclarations(base, "color", value?.toCssRgbaString())
+                    textColor = value
                 )
             )
+            runOnNativeUi { it.applyComponentStyle(effectiveComponentStyle()) }
         }
 
     var borderColor: RgbaColor?
         get() = computedStyleState?.borderColor
         set(value) {
+            suppressComponentStyleCallback = true
+            try {
+                componentStyleInstance.setBorderColor(value)
+            } finally {
+                suppressComponentStyleCallback = false
+            }
             val base = computedStyleState ?: ComputedStyle()
             applyComputedStyle(
                 base.copy(
-                    borderColor = value,
-                    rawDeclarations = syncRawDeclarations(base, "border-color", value?.toCssRgbaString())
+                    borderColor = value
                 )
             )
+            runOnNativeUi { it.applyComponentStyle(effectiveComponentStyle()) }
         }
 
     var borderRadiusPx: Float?
         get() = computedStyleState?.borderRadiusPx
         set(value) {
+            suppressComponentStyleCallback = true
+            try {
+                componentStyleInstance.setBorderRadius(value?.let { com.nexustools.genericui.style.css.CssCornerRadii.px(it) })
+            } finally {
+                suppressComponentStyleCallback = false
+            }
             val base = computedStyleState ?: ComputedStyle()
             applyComputedStyle(
                 base.copy(
                     borderRadiusPx = value,
-                    rawDeclarations = syncRawDeclarations(base, "border-radius", value?.let { "${it}px" })
+                    borderRadius = value?.let { com.nexustools.genericui.style.css.CssCornerRadii.px(it) }
                 )
             )
+            runOnNativeUi { it.applyComponentStyle(effectiveComponentStyle()) }
         }
 
     open var backgroundImageUrl: String?
@@ -1486,8 +1496,7 @@ abstract class AbstractComponent(
             val base = computedStyleState ?: ComputedStyle()
             applyComputedStyle(
                 base.copy(
-                    backgroundImageUrl = value,
-                    rawDeclarations = syncRawDeclarations(base, "background-image", value?.let { "url('$it')" })
+                    backgroundImageUrl = value
                 )
             )
         }
@@ -1498,8 +1507,7 @@ abstract class AbstractComponent(
             val base = computedStyleState ?: ComputedStyle()
             applyComputedStyle(
                 base.copy(
-                    textShadow = value,
-                    rawDeclarations = syncRawDeclarations(base, "text-shadow", value)
+                    textShadow = value
                 )
             )
         }
@@ -1510,8 +1518,7 @@ abstract class AbstractComponent(
             val base = computedStyleState ?: ComputedStyle()
             applyComputedStyle(
                 base.copy(
-                    boxShadow = value,
-                    rawDeclarations = syncRawDeclarations(base, "box-shadow", value)
+                    boxShadow = value
                 )
             )
         }
@@ -1519,103 +1526,156 @@ abstract class AbstractComponent(
     var transform: String?
         get() = computedStyleState?.transform
         set(value) {
-            if (value == null) inlineStyleMap.remove("transform") else inlineStyleMap["transform"] = value
+            val parsed = com.nexustools.genericui.style.transition.CssTransform2D.parse(value)
+            suppressComponentStyleCallback = true
+            try {
+                componentStyleInstance.setTransform(parsed)
+            } finally {
+                suppressComponentStyleCallback = false
+            }
             val base = computedStyleState ?: ComputedStyle()
             applyComputedStyle(
                 base.copy(
                     transform = value,
-                    rawDeclarations = syncRawDeclarations(base, "transform", value)
+                    transform2D = parsed
                 )
             )
+            runOnNativeUi { it.applyComponentStyle(effectiveComponentStyle()) }
         }
 
     var transition: String?
         get() = computedStyleState?.transition
         set(value) {
-            if (value == null) inlineStyleMap.remove("transition") else inlineStyleMap["transition"] = value
+            val parsed = value?.takeIf { it.isNotBlank() && !it.equals("none", ignoreCase = true) }
+                ?.let { com.nexustools.genericui.style.transition.CssTransitionSpec.parseList(it) }
+            suppressComponentStyleCallback = true
+            try {
+                componentStyleInstance.setTransitions(parsed)
+            } finally {
+                suppressComponentStyleCallback = false
+            }
             val base = computedStyleState ?: ComputedStyle()
             applyComputedStyle(
                 base.copy(
                     transition = value,
-                    rawDeclarations = syncRawDeclarations(base, "transition", value)
+                    transitions = parsed
                 )
             )
+            runOnNativeUi { it.applyComponentStyle(effectiveComponentStyle()) }
         }
 
     var zIndex: Int?
         get() = computedStyleState?.zIndex
         set(value) {
-            if (value == null) inlineStyleMap.remove("z-index") else inlineStyleMap["z-index"] = value.toString()
+            suppressComponentStyleCallback = true
+            try {
+                componentStyleInstance.setZIndex(value)
+            } finally {
+                suppressComponentStyleCallback = false
+            }
             val base = computedStyleState ?: ComputedStyle()
             applyComputedStyle(
                 base.copy(
-                    zIndex = value,
-                    rawDeclarations = syncRawDeclarations(base, "z-index", value?.toString())
+                    zIndex = value
                 )
             )
+            runOnNativeUi { it.applyComponentStyle(effectiveComponentStyle()) }
         }
 
     var aspectRatio: Float?
         get() = computedStyleState?.aspectRatio
         set(value) {
+            suppressComponentStyleCallback = true
+            try {
+                componentStyleInstance.setAspectRatio(value?.let { com.nexustools.genericui.style.css.CssAspectRatio(it, 1f) })
+            } finally {
+                suppressComponentStyleCallback = false
+            }
             val base = computedStyleState ?: ComputedStyle()
             applyComputedStyle(
                 base.copy(
-                    aspectRatio = value,
-                    rawDeclarations = syncRawDeclarations(base, "aspect-ratio", value?.toString())
+                    aspectRatio = value
                 )
             )
+            runOnNativeUi { it.applyComponentStyle(effectiveComponentStyle()) }
         }
 
     var pointerEventsEnabled: Boolean
         get() = computedStyleState?.pointerEventsEnabled ?: true
         set(value) {
-            if (value) inlineStyleMap.remove("pointer-events") else inlineStyleMap["pointer-events"] = "none"
+            suppressComponentStyleCallback = true
+            try {
+                componentStyleInstance.setPointerEvents(
+                    if (value) com.nexustools.genericui.enums.css.CssPointerEvents.AUTO
+                    else com.nexustools.genericui.enums.css.CssPointerEvents.NONE
+                )
+            } finally {
+                suppressComponentStyleCallback = false
+            }
             val base = computedStyleState ?: ComputedStyle()
             applyComputedStyle(
                 base.copy(
-                    pointerEventsEnabled = value,
-                    rawDeclarations = syncRawDeclarations(base, "pointer-events", if (value) null else "none")
+                    pointerEventsEnabled = value
                 )
             )
+            runOnNativeUi { it.applyComponentStyle(effectiveComponentStyle()) }
         }
 
     var cursor: String?
-        get() = computedStyleState?.cursor
+        get() = computedStyleState?.cursor ?: componentStyleInstance.cursor?.toCssString()
         set(value) {
+            val mappedCursor = com.nexustools.genericui.enums.css.CssCursor.fromCss(value)
+            suppressComponentStyleCallback = true
+            try {
+                componentStyleInstance.setCursor(mappedCursor)
+            } finally {
+                suppressComponentStyleCallback = false
+            }
             val base = computedStyleState ?: ComputedStyle()
             applyComputedStyle(
                 base.copy(
                     cursor = value,
-                    rawDeclarations = syncRawDeclarations(base, "cursor", value)
+                    customCursor = mappedCursor
                 )
             )
+            nativeImpl?.applyComponentStyle(effectiveComponentStyle())
+            nativeImpl?.setCustomCursor(mappedCursor)
         }
 
     var leftOffset: String?
         get() = computedStyleState?.left
         set(value) {
-            if (value == null) inlineStyleMap.remove("left") else inlineStyleMap["left"] = value
+            suppressComponentStyleCallback = true
+            try {
+                componentStyleInstance.setLeft(CssLength.parse(value))
+            } finally {
+                suppressComponentStyleCallback = false
+            }
             val base = computedStyleState ?: ComputedStyle()
             applyComputedStyle(
                 base.copy(
-                    left = value,
-                    rawDeclarations = syncRawDeclarations(base, "left", value)
+                    left = value
                 )
             )
+            runOnNativeUi { it.applyComponentStyle(effectiveComponentStyle()) }
         }
 
     var topOffset: String?
         get() = computedStyleState?.top
         set(value) {
-            if (value == null) inlineStyleMap.remove("top") else inlineStyleMap["top"] = value
+            suppressComponentStyleCallback = true
+            try {
+                componentStyleInstance.setTop(CssLength.parse(value))
+            } finally {
+                suppressComponentStyleCallback = false
+            }
             val base = computedStyleState ?: ComputedStyle()
             applyComputedStyle(
                 base.copy(
-                    top = value,
-                    rawDeclarations = syncRawDeclarations(base, "top", value)
+                    top = value
                 )
             )
+            runOnNativeUi { it.applyComponentStyle(effectiveComponentStyle()) }
         }
 
     /**
@@ -1637,12 +1697,22 @@ abstract class AbstractComponent(
             lastStyleSheetViewportWidthPx = viewportWidthPx
             lastStyleSheetMediaBucket = mediaBucket
             lastStyleSheetDarkTheme = isDark
-            val resolved = styleSheet.resolveSheetStyleForComponent(this, viewportWidthPx = viewportWidthPx)
-            cachedSheetBaseStyle = resolved
-            val effective = if (componentStyleInstance.isEmpty()) {
+            val rawResolved = styleSheet.resolveSheetStyleForComponent(this, viewportWidthPx = viewportWidthPx)
+            cachedSheetBaseStyle = rawResolved
+            val filterSystem = shouldFilterAestheticStylesForSystemBackend()
+            val resolved = if (filterSystem) {
+                rawResolved.copyFilteredForSystemComponent(
+                    allowTypography = acceptsTypographyComponentStyles,
+                    allowAestheticSkin = acceptsAestheticSkinComponentStyles
+                )
+            } else {
+                rawResolved
+            }
+            val effectiveStyle = effectiveComponentStyle()
+            val effective = if (effectiveStyle.isEmpty()) {
                 resolved
             } else {
-                componentStyleInstance.toComputedStyle(resolved)
+                effectiveStyle.toComputedStyle(resolved)
             }
             applyComputedStyle(effective)
         } else {

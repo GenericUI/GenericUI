@@ -1,6 +1,7 @@
 package com.nexustools.genericui.resources
 
 import com.nexustools.genericui.image.ImageBuffer
+import com.nexustools.genericui.image.ImageDecodeOptions
 import com.nexustools.genericui.io.ByteBuffer
 import com.nexustools.genericui.io.Readable
 import com.nexustools.genericui.res.DrawableResource
@@ -74,8 +75,8 @@ data class ResourceID(
         ResourceResolver.openReadable(this)
 
     /** Decodes this [ResourceID] into an [ImageBuffer] via [ResourceResolver.getImageBuffer]. */
-    fun getImageBuffer(): ImageBuffer? =
-        ResourceResolver.getImageBuffer(this)
+    fun getImageBuffer(options: ImageDecodeOptions = ImageDecodeOptions()): ImageBuffer? =
+        ResourceResolver.getImageBuffer(this, options)
 
     /** Resolves this [ResourceID] as a [DrawableResource] via [ResourceResolver.getDrawable]. */
     fun getDrawable(): DrawableResource? =

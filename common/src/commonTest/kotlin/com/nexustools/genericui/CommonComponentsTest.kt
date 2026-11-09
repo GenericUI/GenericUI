@@ -496,10 +496,10 @@ class CommonComponentsTest {
             com.nexustools.genericui.component.layout.StackConstraint.shrinkCrossAxis()
         )
         assertEquals("true", vChild.getAttribute("data-stack-shrink-cross"))
-        assertEquals("0px", vChild.getStyleProperty("width"))
-        assertEquals("100%", vChild.getStyleProperty("min-width"))
-        assertEquals("100%", vChild.getStyleProperty("max-width"))
-        assertEquals("auto", vChild.getStyleProperty("height"))
+        assertEquals("0px", vChild.getStyle().getWidth()?.toCssString())
+        assertEquals("100%", vChild.getStyle().getMinWidth()?.toCssString())
+        assertEquals("100%", vChild.getStyle().getMaxWidth()?.toCssString())
+        assertEquals("auto", vChild.getStyle().getHeight()?.toCssString())
 
         vstack.clearChildConstraint(vChild)
         assertEquals(null, vChild.getAttribute("data-stack-shrink-cross"))
@@ -511,9 +511,9 @@ class CommonComponentsTest {
             com.nexustools.genericui.component.layout.StackConstraint(shrinkCrossAxis = true)
         )
         assertEquals("true", hChild.getAttribute("data-stack-shrink-cross"))
-        assertEquals("0px", hChild.getStyleProperty("height"))
-        assertEquals("100%", hChild.getStyleProperty("min-height"))
-        assertEquals("100%", hChild.getStyleProperty("max-height"))
-        assertEquals("auto", hChild.getStyleProperty("width"))
+        assertEquals("0px", hChild.getStyle().getHeight()?.toCssString())
+        assertEquals("100%", hChild.getStyle().getMinHeight()?.toCssString())
+        assertEquals("100%", hChild.getStyle().getMaxHeight()?.toCssString())
+        assertEquals("auto", hChild.getStyle().getWidth()?.toCssString())
     }
 }

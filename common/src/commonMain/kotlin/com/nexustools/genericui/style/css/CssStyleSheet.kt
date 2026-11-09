@@ -5,6 +5,7 @@ import com.nexustools.genericui.core.AbstractComponent
 import com.nexustools.genericui.enums.ui.ThemeMode
 import com.nexustools.genericui.style.color.RgbaColor
 import com.nexustools.genericui.style.gradient.Gradient.Gradient
+import com.nexustools.genericui.style.sass.CssDeclarationApplyUtil
 
 /**
  * Cross-platform CSS parser and cascade engine for resolving custom classes, compound/descendant selectors,
@@ -162,7 +163,7 @@ class CssStyleSheet(
             val combined = baseRules + rulesList
             buildComputedStyleFromDeclarations(
                 mergeRuleDeclarations(combined),
-                importantProperties = collectImportantProperties(combined),
+                importantCssProperties = collectImportantProperties(combined),
                 isDarkTheme = isDarkTheme,
                 classes = classes
             )
@@ -171,7 +172,7 @@ class CssStyleSheet(
             val combined = baseRules + rulesList
             buildComputedStyleFromDeclarations(
                 mergeRuleDeclarations(combined),
-                importantProperties = collectImportantProperties(combined),
+                importantCssProperties = collectImportantProperties(combined),
                 isDarkTheme = isDarkTheme,
                 classes = classes
             )
@@ -180,7 +181,7 @@ class CssStyleSheet(
             val combined = baseRules + rulesList
             buildComputedStyleFromDeclarations(
                 mergeRuleDeclarations(combined),
-                importantProperties = collectImportantProperties(combined),
+                importantCssProperties = collectImportantProperties(combined),
                 isDarkTheme = isDarkTheme,
                 classes = classes
             )
@@ -189,7 +190,7 @@ class CssStyleSheet(
             val combined = baseRules + rulesList
             buildComputedStyleFromDeclarations(
                 mergeRuleDeclarations(combined),
-                importantProperties = collectImportantProperties(combined),
+                importantCssProperties = collectImportantProperties(combined),
                 isDarkTheme = isDarkTheme,
                 classes = classes
             )
@@ -198,7 +199,7 @@ class CssStyleSheet(
             val combined = baseRules + rulesList
             buildComputedStyleFromDeclarations(
                 mergeRuleDeclarations(combined),
-                importantProperties = collectImportantProperties(combined),
+                importantCssProperties = collectImportantProperties(combined),
                 isDarkTheme = isDarkTheme,
                 classes = classes
             )
@@ -211,7 +212,7 @@ class CssStyleSheet(
             activeStyle = activeStyle,
             disabledStyle = disabledStyle,
             checkedStyle = checkedStyle,
-            importantProperties = baseImportantProps,
+            importantCssProperties = baseImportantProps,
             isDarkTheme = isDarkTheme,
             classes = classes
         )
@@ -379,12 +380,14 @@ class CssStyleSheet(
         return resolved
     }
 
-    private fun collectImportantProperties(sortedRules: List<CssRule>): Set<String> {
-        var important: LinkedHashSet<String>? = null
+    private fun collectImportantProperties(sortedRules: List<CssRule>): Set<CssProperty> {
+        var important: LinkedHashSet<CssProperty>? = null
         for (rule in sortedRules) {
             if (rule.importantProps.isNotEmpty()) {
-                val set = important ?: LinkedHashSet<String>().also { important = it }
-                set.addAll(rule.importantProps)
+                val set = important ?: LinkedHashSet<CssProperty>().also { important = it }
+                for (propName in rule.importantProps) {
+                    CssProperty.fromCssName(propName)?.let { set.add(it) }
+                }
             }
         }
         return important ?: emptySet()
@@ -582,17 +585,23 @@ class CssStyleSheet(
             activeStyle: ComputedStyle? = null,
             disabledStyle: ComputedStyle? = null,
             checkedStyle: ComputedStyle? = null,
-            importantProperties: Set<String> = emptySet(),
+            importantCssProperties: Set<CssProperty> = emptySet(),
             isDarkTheme: Boolean = Application.current?.getResolvedTheme() == ThemeMode.DARK,
             classes: Set<String> = emptySet()
         ): ComputedStyle {
-            val accentColor = merged["accent-color"]?.let { resolveCssColorValue(it, isDarkTheme) }
+            val typedStyle = CssDeclarationApplyUtil.fromDeclarations(merged, isDarkTheme)
+            for (impProp in importantCssProperties) {
+                typedStyle.markImportant(impProp, true)
+            }
+            val baseComputed = typedStyle.toComputedStyle()
+
+            val accentColor = merged["accent-color"]?.let { resolveCssColorValue(it, isDarkTheme) } ?: baseComputed.accentColor
             val bgProp = merged["background-color"] ?: merged["background"]
-            val bgColor = bgProp?.let { extractColorFromBackgroundShorthand(it, isDarkTheme) }
+            val bgColor = bgProp?.let { extractColorFromBackgroundShorthand(it, isDarkTheme) } ?: baseComputed.backgroundColor
             val bgImageRaw = merged["background-image"] ?: merged["background"]
-            val bgGradient = bgImageRaw?.let { Gradient.fromCss(it) }
-            val bgImage = bgImageRaw?.let { extractUrlFromCssValue(it) }
-            var fgColor = merged["color"]?.let { resolveCssColorValue(it, isDarkTheme) }
+            val bgGradient = bgImageRaw?.let { Gradient.fromCss(it) } ?: baseComputed.backgroundGradient
+            val bgImage = bgImageRaw?.let { extractUrlFromCssValue(it) } ?: baseComputed.backgroundImageUrl
+            var fgColor = merged["color"]?.let { resolveCssColorValue(it, isDarkTheme) } ?: baseComputed.textColor
             if (isDarkTheme && fgColor != null &&
                 fgColor.r == 33 && fgColor.g == 37 && fgColor.b == 41 &&
                 "text-dark" !in classes && "text-black" !in classes
@@ -604,9 +613,9 @@ class CssStyleSheet(
                 }
             }
 
-            var borderColor = merged["border-color"]?.let { resolveCssColorValue(it, isDarkTheme) }
-            var borderWidthPx = merged["border-width"]?.removeSuffix("px")?.trim()?.toFloatOrNull()
-            var borderStyle = merged["border-style"]
+            var borderColor = merged["border-color"]?.let { resolveCssColorValue(it, isDarkTheme) } ?: baseComputed.borderColor
+            var borderWidthPx = merged["border-width"]?.removeSuffix("px")?.trim()?.toFloatOrNull() ?: baseComputed.borderWidthPx
+            var borderStyle = merged["border-style"] ?: baseComputed.borderStyle
             merged["border"]?.let { borderShorthand ->
                 if (borderShorthand.equals("none", ignoreCase = true) || borderShorthand == "0") {
                     borderStyle = "none"
@@ -627,39 +636,43 @@ class CssStyleSheet(
             val radiusRaw = merged["border-radius"]?.trim()
             val borderRadiusPx = radiusRaw?.takeIf { it.endsWith("px") }?.removeSuffix("px")?.toFloatOrNull()
                 ?: radiusRaw?.toFloatOrNull()
+                ?: baseComputed.borderRadiusPx
             val borderRadiusPercent = radiusRaw?.takeIf { it.endsWith("%") }?.removeSuffix("%")?.toFloatOrNull()
+                ?: baseComputed.borderRadiusPercent
 
             val fontSizeRaw = merged["font-size"]?.trim()
             val fontSizePx = when {
-                fontSizeRaw == null -> null
+                fontSizeRaw == null -> baseComputed.fontSizePx
                 fontSizeRaw.endsWith("px") -> fontSizeRaw.removeSuffix("px").toFloatOrNull()
                 fontSizeRaw.endsWith("em") -> (fontSizeRaw.removeSuffix("em").toFloatOrNull() ?: 1f) * 16f
                 fontSizeRaw.endsWith("rem") -> (fontSizeRaw.removeSuffix("rem").toFloatOrNull() ?: 1f) * 16f
-                else -> fontSizeRaw.toFloatOrNull()
+                else -> fontSizeRaw.toFloatOrNull() ?: baseComputed.fontSizePx
             }
             val fontSizePercent = fontSizeRaw?.takeIf { it.endsWith("%") }?.removeSuffix("%")?.toFloatOrNull()
+                ?: baseComputed.fontSizePercent
 
             val fontFamily = merged["font-family"]?.trim()?.removeSurrounding("\"")?.removeSurrounding("'")
+                ?: baseComputed.fontFamily
             val fontWeightRaw = merged["font-weight"]?.trim()?.lowercase()
             val fontWeightNumeric = when (fontWeightRaw) {
                 "normal" -> 400
                 "bold" -> 700
                 "lighter" -> 300
                 "bolder" -> 800
-                else -> fontWeightRaw?.toIntOrNull()
+                else -> fontWeightRaw?.toIntOrNull() ?: baseComputed.fontWeightNumeric
             }
 
-            val opacity = merged["opacity"]?.toFloatOrNull() ?: 1.0f
-            val boxShadow = merged["box-shadow"] ?: merged["-webkit-box-shadow"]
-            val textShadow = merged["text-shadow"]
-            val transform = merged["transform"]
-            val transition = merged["transition"]
-            val zIndex = merged["z-index"]?.toIntOrNull()
-            val aspectRatio = merged["aspect-ratio"]?.let { parseAspectRatio(it) }
-            val pointerEvents = merged["pointer-events"]?.let { !it.equals("none", ignoreCase = true) } ?: true
-            val filter = merged["filter"]?.let { CssFilter.parse(it) }
+            val opacity = merged["opacity"]?.toFloatOrNull() ?: baseComputed.opacity
+            val boxShadow = merged["box-shadow"] ?: merged["-webkit-box-shadow"] ?: baseComputed.boxShadow
+            val textShadow = merged["text-shadow"] ?: baseComputed.textShadow
+            val transform = merged["transform"] ?: baseComputed.transform
+            val transition = merged["transition"] ?: baseComputed.transition
+            val zIndex = merged["z-index"]?.toIntOrNull() ?: baseComputed.zIndex
+            val aspectRatio = merged["aspect-ratio"]?.let { parseAspectRatio(it) } ?: baseComputed.aspectRatio
+            val pointerEvents = merged["pointer-events"]?.let { !it.equals("none", ignoreCase = true) } ?: baseComputed.pointerEventsEnabled
+            val filter = merged["filter"]?.let { CssFilter.parse(it) } ?: baseComputed.filter
 
-            return ComputedStyle(
+            return baseComputed.copy(
                 backgroundColor = bgColor,
                 backgroundGradient = bgGradient,
                 textColor = fgColor,
@@ -675,10 +688,10 @@ class CssStyleSheet(
                 fontWeightNumeric = fontWeightNumeric,
                 opacity = opacity,
                 backgroundImageUrl = bgImage,
-                backgroundRepeat = merged["background-repeat"],
-                backgroundAttachment = merged["background-attachment"],
-                backgroundPosition = merged["background-position"],
-                backgroundSize = merged["background-size"],
+                backgroundRepeat = merged["background-repeat"] ?: baseComputed.backgroundRepeat,
+                backgroundAttachment = merged["background-attachment"] ?: baseComputed.backgroundAttachment,
+                backgroundPosition = merged["background-position"] ?: baseComputed.backgroundPosition,
+                backgroundSize = merged["background-size"] ?: baseComputed.backgroundSize,
                 textShadow = textShadow,
                 boxShadow = boxShadow,
                 transform = transform,
@@ -686,40 +699,48 @@ class CssStyleSheet(
                 zIndex = zIndex,
                 aspectRatio = aspectRatio,
                 pointerEventsEnabled = pointerEvents,
-                cursor = merged["cursor"],
-                customCursor = merged["cursor"]?.let { CssCustomCursor.parse(it) },
-                position = merged["position"],
-                display = merged["display"],
-                overflow = merged["overflow"],
-                textAlign = merged["text-align"],
-                verticalAlign = merged["vertical-align"],
-                whiteSpace = merged["white-space"],
-                floatSide = merged["float"],
-                clearSide = merged["clear"],
-                left = merged["left"],
-                top = merged["top"],
-                right = merged["right"],
-                bottom = merged["bottom"],
-                width = merged["width"],
-                height = merged["height"],
-                minWidth = merged["min-width"],
-                minHeight = merged["min-height"],
-                maxWidth = merged["max-width"],
-                maxHeight = merged["max-height"],
+                cursor = merged["cursor"] ?: baseComputed.cursor,
+                customCursor = merged["cursor"]?.let { CssCustomCursor.parse(it) } ?: baseComputed.customCursor,
+                position = merged["position"] ?: baseComputed.position,
+                display = merged["display"] ?: baseComputed.display,
+                overflow = merged["overflow"] ?: baseComputed.overflow,
+                textAlign = merged["text-align"] ?: baseComputed.textAlign,
+                verticalAlign = merged["vertical-align"] ?: baseComputed.verticalAlign,
+                whiteSpace = merged["white-space"] ?: baseComputed.whiteSpace,
+                floatSide = merged["float"] ?: baseComputed.floatSide,
+                clearSide = merged["clear"] ?: baseComputed.clearSide,
+                left = merged["left"] ?: baseComputed.left,
+                top = merged["top"] ?: baseComputed.top,
+                right = merged["right"] ?: baseComputed.right,
+                bottom = merged["bottom"] ?: baseComputed.bottom,
+                width = merged["width"] ?: baseComputed.width,
+                height = merged["height"] ?: baseComputed.height,
+                minWidth = merged["min-width"] ?: baseComputed.minWidth,
+                minHeight = merged["min-height"] ?: baseComputed.minHeight,
+                maxWidth = merged["max-width"] ?: baseComputed.maxWidth,
+                maxHeight = merged["max-height"] ?: baseComputed.maxHeight,
                 filter = filter,
                 hoverStyle = hoverStyle,
                 focusStyle = focusStyle,
                 activeStyle = activeStyle,
                 disabledStyle = disabledStyle,
-                checkedStyle = checkedStyle,
-                rawDeclarations = merged,
-                importantProperties = importantProperties
+                checkedStyle = checkedStyle
             )
         }
 
         internal fun resolveCssColorValue(rawValue: String, isDarkTheme: Boolean): RgbaColor? {
             val trimmed = rawValue.trim()
             if (trimmed.isEmpty()) return null
+            if (trimmed.startsWith("@color/") || trimmed.startsWith("res://color/")) {
+                val name = trimmed.removePrefix("@color/").removePrefix("res://color/")
+                val resId = com.nexustools.genericui.res.Resources.activeTable.findResourceId(
+                    com.nexustools.genericui.resources.ResourceType.COLOR,
+                    name
+                )
+                if (resId != null) {
+                    return com.nexustools.genericui.resources.ResourceResolver.getColor(resId)
+                }
+            }
             if (trimmed.startsWith("var(", ignoreCase = true) && trimmed.endsWith(")")) {
                 val inner = trimmed.substring(4, trimmed.length - 1).trim()
                 val commaIdx = inner.indexOf(',')

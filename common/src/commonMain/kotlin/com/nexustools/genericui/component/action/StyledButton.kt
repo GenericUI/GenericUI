@@ -45,6 +45,12 @@ open class StyledButton(
     classPrefix = styledClassPrefix
 ) {
 
+    override val acceptsTypographyComponentStyles: Boolean
+        get() = true
+
+    override val acceptsAestheticSkinComponentStyles: Boolean
+        get() = true
+
     constructor(
         text: String,
         type: BootstrapType?,
@@ -369,12 +375,28 @@ open class StyledButton(
     fun resolveBaseVisualSpec(): StyledVisualSpec {
         val isDark = Application.current?.getResolvedTheme() != ThemeMode.LIGHT
         val snapshot = getBootstrap().applyToSnapshot(BootstrapStyleSnapshot(componentPrefix = componentClassPrefix))
-        return StyledVisualSpec.fromComponentAndComputed(
+        val baseSpec = StyledVisualSpec.fromComponentAndComputed(
             componentStyle = getStyle(),
             computedStyle = computedStyle,
             snapshot = snapshot,
             darkTheme = isDark
         )
+        if (tintImageToTheme && image != null && getStyle().color == null && computedStyle?.textColor == null) {
+            val semantic = snapshot.type
+            if (semantic == null || semantic == BootstrapType.NONE || semantic == BootstrapType.LIGHT || semantic == BootstrapType.DARK) {
+                val themeIconColor = if (isDark) RgbaColor(242, 245, 250, 255) else RgbaColor(33, 37, 41, 255)
+                val themeBorderColor = if (snapshot.outline) {
+                    getStyle().borderColor ?: computedStyle?.borderColor ?: if (isDark) RgbaColor(222, 226, 230, 140) else RgbaColor(33, 37, 41, 120)
+                } else {
+                    baseSpec.borderColor
+                }
+                return baseSpec.copy(
+                    textColor = themeIconColor,
+                    borderColor = themeBorderColor
+                )
+            }
+        }
+        return baseSpec
     }
 
     fun resolveHoverVisualSpec(): StyledVisualSpec? {
@@ -489,6 +511,11 @@ open class StyledButton(
 
     override fun applyComputedStyle(style: ComputedStyle) {
         super.applyComputedStyle(style)
+        syncVisualsToNative()
+    }
+
+    internal override fun onThemeChanged() {
+        super.onThemeChanged()
         syncVisualsToNative()
     }
 

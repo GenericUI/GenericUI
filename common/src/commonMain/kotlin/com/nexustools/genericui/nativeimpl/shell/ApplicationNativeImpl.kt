@@ -4,6 +4,7 @@ import com.nexustools.genericui.core.Disposable
 import com.nexustools.genericui.enums.ui.ThemeMode
 import com.nexustools.genericui.style.css.PrecompiledStyleSheet
 import com.nexustools.genericui.style.theme.SystemThemeDetector
+import com.nexustools.genericui.style.theme.ThemeConfig
 
 interface ApplicationNativeImpl<out W> : Disposable {
     val nativeApplication: W
@@ -12,6 +13,8 @@ interface ApplicationNativeImpl<out W> : Disposable {
     fun detectSystemThemeMode(): ThemeMode = SystemThemeDetector.detectSystemTheme()
     fun setThemeColor(colorHex: String?) {}
     fun getThemeColor(): String? = null
+    fun setThemeConfig(config: ThemeConfig) {}
+    fun getThemeConfig(): ThemeConfig = ThemeConfig.DEFAULT
     fun addStyleSheet(styleSheet: PrecompiledStyleSheet) {}
     fun removeStyleSheet(styleSheet: PrecompiledStyleSheet) {}
     fun isOffline(): Boolean = false

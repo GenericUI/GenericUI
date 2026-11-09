@@ -85,11 +85,44 @@ Unlike web frameworks that render fake HTML titlebars inside the client area, Ge
 
 ---
 
-## 6. Dual-Mode Styling: Bootstrap Enums + SASS/CSS Cascade
+## 6. Strongly-Typed Zero-Allocation Styling, System Typography vs. Aesthetic Restraints, & Native Control Offscreen Tinting
 
-Stylesheets compiled by `compileGenericUiSass` cascade onto native widgets using deterministic specificity:
-1. **Bootstrap Enum Defaults** (`BootstrapType`, `BootstrapSize`, `SpacingScale`, `BorderRadiusStyle`, `ShadowElevation`)
-2. **Type / Tag Selectors** (`Button`, `Label`, `VStack`)
-3. **Class Selectors** (`.toolbar-btn`, `.panel-card`)
-4. **ID Selectors** (`#main-canvas-toolbar`)
-5. **Inline Style Properties** (`component.setStyle("background-color", "#1e222a")`)
+### 6.1 Zero String-Keyed Style APIs & Bitmask-Driven `ComponentStyle` / `ComputedStyle`
+
+GenericUI **never** exposes string-keyed style APIs (`setStyleProperty(String, String)`, `getStyleProperty`, `removeStyleProperty`, `clearStyleProperties`, `inlineStyle`, `setRawDeclaration`, `getRawDeclaration`, `fromDeclarations`, `rawDeclarations` are strictly prohibited in `:common`):
+- **Zero-Allocation 128-Bit Bitmasks on System Targets**: [`ComponentStyle`](../common/src/commonMain/kotlin/com/nexustools/genericui/style/css/ComponentStyle.kt) (`component.getStyle()`) and [`ComputedStyle`](../common/src/commonMain/kotlin/com/nexustools/genericui/style/css/ComputedStyle.kt) store 100% strongly-typed Kotlin fields (`RgbaColor?`, `Float?`, `CssDimension?`, `CssEdgeInsets?`, `CssCornerRadii?`, `CssFontWeight?`, etc.) tracked via two 64-bit `Long` bitmasks (`activePropertiesBitmaskLow` / `activePropertiesBitmaskHigh` and `importantBitmaskLow` / `importantBitmaskHigh` indexed by [`CssProperty.ordinal`](../common/src/commonMain/kotlin/com/nexustools/genericui/enums/css/CssProperty.kt)). All 7 non-web system backends evaluate styles using zero string formatting and zero `Map<String, String>` allocations.
+- **Transparent DOM CSS Translation on `:web` (`WebCssStyleTranslator`)**: Only `:web` formats CSS strings at the DOM boundary via [`WebCssStyleTranslator`](../web/src/commonMain/kotlin/com/nexustools/genericui/web/WebCssStyleTranslator.kt) (`translateStyleToCssDeclarationMap(style: ComponentStyle)` and `applyComponentStyleToElement(element, style, bootstrap)`).
+- **Specificity Cascade**: Stylesheets compiled by `compileGenericUiSass` into [`PrecompiledStyleSheet`](../common/src/commonMain/kotlin/com/nexustools/genericui/style/css/PrecompiledStyleSheet.kt) (`Resource.style.<name>`) cascade onto components using deterministic specificity:
+  1. **Bootstrap Enum Defaults** ([`ComponentBootstrap`](../common/src/commonMain/kotlin/com/nexustools/genericui/style/bootstrap/ComponentBootstrap.kt) — `BootstrapType`, `BootstrapSize`, `SpacingScale`, `BorderRadiusStyle`, `ShadowElevation`)
+  2. **Type / Tag Selectors** (`Button`, `Label`, `VStack`)
+  3. **Class Selectors** (`.toolbar-btn`, `.panel-card`)
+  4. **ID Selectors** (`#main-canvas-toolbar`)
+  5. **Inline `ComponentStyle` Properties** (`component.getStyle().setColor(RgbaColor.fromHex("#2A80FF"))` or `:extensions:dsl` `style { color = RgbaColor.fromHex("#2A80FF") }`)
+  6. **`!important` Overrides** (`important = true` / `importantBitmaskLow` & `High`)
+
+### 6.2 System Backend Typography vs. Aesthetic Style Restraints
+
+On all 7 non-web system targets (`:desktop:windows`, `:desktop:macos`, `:desktop:gtk`, `:desktop:qt`, `:desktop:swing`, `:mobile:android`, `:mobile:ios`), standard UI controls cannot have their aesthetic styles redesigned to look alien without `:extensions:alien` (or [`StyledContainer`](../common/src/commonMain/kotlin/com/nexustools/genericui/component/container/StyledContainer.kt) / [`StyledButton`](../common/src/commonMain/kotlin/com/nexustools/genericui/component/action/StyledButton.kt)):
+
+| Component Category | `acceptsTypographyStylesOnSystemBackend` | `acceptsAestheticSkinStylesOnSystemBackend` | System Backend Behavior (`Windows`, `MacOS`, `Gtk`, `Qt`, `Swing`, `Android`, `IOS`) |
+| :--- | :---: | :---: | :--- |
+| **Text / Typography Elements** (`Label`, `Text`, `Heading`, `Badge`, `Blockquote`, `CodeBlock`, `MarkdownView`) | `true` | `false` | Honor all typography & text-color properties on `ComponentStyle` (`color` / `textColor`, `fontFamily`, `fontSize`, `fontWeight`, `fontStyle`, `lineHeight`, `letterSpacing`, `textAlign`, `textDecoration`, `textTransform`, `textOverflow`, `whiteSpace`, `wordBreak`) and `ComponentBootstrap` (`textColorType`, `fontSize`, `fontWeight`, `textAlignment`). |
+| **Buttons, Inputs, Controls, & Standard Containers** (`Button`, `IconButton`, `ToggleButton`, `CheckBox`, `RadioButton`, `Switch`, `Select`, `DropdownButton`, `TextField`, `TextArea`, `RangeSlider`, `ProgressBar`, `Spinner`, `TabContainer`, `Tab`, `Container`, `Card`, `VStack`, `HStack`, `FlexBox`, etc.) | `false` | `false` | Aesthetic skinning and typography overrides on `ComponentStyle` (`backgroundColor`, `background`, `color`, `accentColor`, `borderColor`, `borderWidth`, `borderStyle`, `borderRadius`, `boxShadow`, `textShadow`, `filter`, `backdropFilter`, `fontFamily`, `fontSize`, `fontWeight`, `fontStyle`) are **silently ignored**. Standard components can **ONLY** be tinted via `BootstrapType` (`bootstrap.type`, `bootstrap.backgroundType`, `bootstrap.textColorType`, `bootstrap.borderType`, `bootstrap.outline`). Layout/geometry properties (`width`, `height`, `padding`, `margin`, `gap`, `flexGrow`, `cursor`) are honored on all components. |
+| **`StyledContainer` & `StyledButton` (and `:extensions:alien`)** | `true` | `true` | Explicitly opt-in custom-styled components that honor full `ComponentStyle` aesthetic (`backgroundColor`, `background` gradients, `borderColor`, `borderWidth`, `borderStyle`, `borderRadius`, `boxShadow`, `opacity`) and typography properties across all 8 backends. |
+
+### 6.3 Native Control Rendering (`BootstrapType.NONE`) vs. Offscreen Sprite + `ThemeConfig` Tint + Text Overlay (`BootstrapType != NONE`)
+
+On native desktop and mobile targets, standard controls never fall back to flat custom-painted rectangles:
+1. **When `BootstrapType == BootstrapType.NONE` (Default)**: Renders the **100% unmodified genuine native OS component** (`uxtheme.dll` / `comctl32.dll` / `user32.dll` on Windows, AppKit `NSButtonCell` / `NSControl` on macOS, GTK4 `GtkSnapshot` on GTK, Qt6 `QApplication::style()` `QStyle` on Qt, system Look-And-Feel on Swing, Material/AppCompat `defaultNativeBackground` on Android, and UIKit `UIControl` on iOS).
+2. **When `BootstrapType != BootstrapType.NONE` (`PRIMARY`, `SECONDARY`, `SUCCESS`, `DANGER`, `WARNING`, `INFO`, `LIGHT`, `DARK`)**:
+   - **Step 1 (Empty-Text Native Sprite)**: Renders the genuine native OS control **with NO text** into an offscreen ARGB pixel buffer (`DrawThemeBackground` on Win32, `NSButtonCell` with `title = ""` on macOS, `gtk_widget_snapshot` with empty label on GTK4, `QStyle::drawControl` with empty `QStyleOptionButton.text` on Qt6).
+   - **Step 2 (`ThemeConfig` Luminance-Preserving Pixel Tint)**: Color-tints the offscreen native control pixels using [`DesktopControlTintRenderUtil.tintNativeControlArgbBuffer`](../desktop/nativeCommon/src/commonMain/kotlin/com/nexustools/genericui/desktop/nativecommon/DesktopControlTintRenderUtil.kt) and the active [`ThemeConfig`](../common/src/commonMain/kotlin/com/nexustools/genericui/style/theme/ThemeConfig.kt) / [`BootstrapColorPalette`](../common/src/commonMain/kotlin/com/nexustools/genericui/style/bootstrap/BootstrapColorPalette.kt) color while preserving native 3D bevels, borders, rounded corners, specular highlights, and hover/pressed/disabled states.
+   - **Step 3 (Blit & Contrasting Text Overlay)**: Blits the tinted native control sprite onto the destination surface and renders the contrasting text label (`BootstrapColorPalette.resolveOnFillTextColor` / `ThemeConfig`) and icon cleanly on top afterward.
+
+### 6.4 Modular Per-Component `*NativeImpl` + Type-Grouped `*RenderUtil` Architecture
+
+Instead of monolithic tree renderers, every native desktop backend and the `JestElectricRunner` snapshot engine use a strictly modular **1-Class-Per-File** architecture:
+- **`:desktop:nativeCommon`**: [`DesktopRenderableNativeImpl`](../desktop/nativeCommon/src/commonMain/kotlin/com/nexustools/genericui/desktop/nativecommon/DesktopRenderableNativeImpl.kt) (`renderNativeComponent(...)`) and [`DesktopControlTintRenderUtil`](../desktop/nativeCommon/src/commonMain/kotlin/com/nexustools/genericui/desktop/nativecommon/DesktopControlTintRenderUtil.kt).
+- **`:desktop:windows`**: 36 per-component `Windows*NativeImpl` classes delegating to 12 type-grouped `Win32*RenderUtil` classes (`Win32RenderContext`, `Win32GdiPrimitiveRenderUtil`, `Win32ActionControlRenderUtil`, `Win32FormControlRenderUtil`, `Win32FeedbackRenderUtil`, `Win32TypographyRenderUtil`, `Win32SurfaceRenderUtil`, `Win32ContainerLayoutRenderUtil`, `Win32DockAndMdiRenderUtil`, `Win32NavigationAndShellRenderUtil`, `Win32DataAndLazyRenderUtil`, `Win32CanvasAndMediaRenderUtil`).
+- **`:desktop:macos`, `:desktop:gtk`, `:desktop:qt`**: Per-component `Macos*NativeImpl` + `MacosControlRenderUtil`, `Gtk*NativeImpl` + `GtkControlRenderUtil`, and `Qt*NativeImpl` + `QtControlRenderUtil`.
+- **`:tests:common`**: 12 modular `JestElectric*RenderUtil` classes (`JestElectricRenderContext`, `JestElectricPrimitiveRenderUtil`, `JestElectricControlTintRenderUtil`, `JestElectricActionControlRenderUtil`, `JestElectricFormControlRenderUtil`, `JestElectricFeedbackRenderUtil`, `JestElectricTypographyRenderUtil`, `JestElectricSurfaceRenderUtil`, `JestElectricContainerLayoutRenderUtil`, `JestElectricDockAndMdiRenderUtil`, `JestElectricNavigationAndShellRenderUtil`, `JestElectricDataAndLazyRenderUtil`).

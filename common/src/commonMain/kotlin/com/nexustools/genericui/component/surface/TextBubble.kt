@@ -82,9 +82,5 @@ open class TextBubble(
                 removeClass(cls)
             }
         }
-
-        setStyleProperty("--gui-bubble-pointer-offset", "${(pointerOffset * 100f)}%")
-        setStyleProperty("--gui-bubble-pointer-width", "${pointerWidthPx}px")
-        setStyleProperty("--gui-bubble-pointer-height", "${pointerHeightPx}px")
     }
 }

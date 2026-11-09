@@ -66,6 +66,7 @@ enum class CssProperty(val cssName: String) {
     FLEX_GROW("flex-grow"),
     FLEX_SHRINK("flex-shrink"),
     FLEX_BASIS("flex-basis"),
+    ORDER("order"),
     GAP("gap"),
     ROW_GAP("row-gap"),
     COLUMN_GAP("column-gap"),
@@ -85,7 +86,13 @@ enum class CssProperty(val cssName: String) {
     BACKDROP_FILTER("backdrop-filter"),
     BOX_SIZING("box-sizing"),
     FLOAT("float"),
-    CLEAR("clear");
+    CLEAR("clear"),
+    BACKGROUND("background"),
+    BORDER("border"),
+    OUTLINE("outline"),
+    OUTLINE_WIDTH("outline-width"),
+    OUTLINE_STYLE("outline-style"),
+    OUTLINE_COLOR("outline-color");
 
     companion object {
         private val BY_NAME: Map<String, CssProperty> = entries.associateBy { it.cssName }

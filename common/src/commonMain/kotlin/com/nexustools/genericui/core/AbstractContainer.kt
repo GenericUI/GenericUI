@@ -22,6 +22,8 @@ abstract class AbstractContainer(
     val children: List<AbstractComponent>
         get() = _children
 
+    private val unattachedRealizedChildren: HashSet<AbstractComponent> = HashSet()
+
     internal fun reorderChildrenInMemory(orderedChildren: List<AbstractComponent>) {
         _children = orderedChildren.toList()
         markRenderCacheDirty()
@@ -51,11 +53,18 @@ abstract class AbstractContainer(
         _children = next
         markRenderCacheDirty()
         val parentImpl = typedNative<AbstractContainerNativeImpl<*>>()
-        if (parentImpl != null && child.isVisible) {
-            val childImpl = child.ensureNativeImpl()
-            if (childImpl != null) {
-                parentImpl.addChildNative(childImpl, index)
+        if (parentImpl != null) {
+            if (child.isVisible) {
+                val childImpl = child.ensureNativeImpl()
+                if (childImpl != null) {
+                    unattachedRealizedChildren.remove(child)
+                    parentImpl.addChildNative(childImpl, index)
+                }
+            } else if (child.nativeImpl != null) {
+                unattachedRealizedChildren.add(child)
             }
+        } else if (child.nativeImpl != null) {
+            unattachedRealizedChildren.add(child)
         }
     }
 
@@ -74,6 +83,7 @@ abstract class AbstractContainer(
         if (removed) {
             _children = next
             child.parent = null
+            unattachedRealizedChildren.remove(child)
             markRenderCacheDirty()
             val childImpl = child.nativeImpl
             if (childImpl != null) {
@@ -86,6 +96,7 @@ abstract class AbstractContainer(
     open fun clearChildren() {
         val current = _children
         _children = emptyList()
+        unattachedRealizedChildren.clear()
         for (child in current) {
             child.parent = null
         }
@@ -100,9 +111,10 @@ abstract class AbstractContainer(
             val containerImpl = impl as? AbstractContainerNativeImpl<*>
             if (containerImpl != null) {
                 for ((idx, child) in _children.withIndex()) {
-                    if (child.isVisible && child.nativeImpl == null) {
+                    if (child.isVisible) {
+                        val needsAttach = (child.nativeImpl == null) || unattachedRealizedChildren.remove(child)
                         val childImpl = child.ensureNativeImpl()
-                        if (childImpl != null) {
+                        if (childImpl != null && needsAttach) {
                             containerImpl.addChildNative(childImpl, idx)
                         }
                     }
@@ -119,6 +131,7 @@ abstract class AbstractContainer(
             if (child.isVisible) {
                 val childImpl = child.ensureNativeImpl()
                 if (childImpl != null) {
+                    unattachedRealizedChildren.remove(child)
                     containerImpl.addChildNative(childImpl, -1)
                 }
             }
@@ -131,11 +144,12 @@ abstract class AbstractContainer(
             super.isVisible = value
             val containerImpl = typedNative<AbstractContainerNativeImpl<*>>()
             if (value && containerImpl != null) {
-                for (child in _children) {
-                    if (child.isVisible && child.nativeImpl == null) {
+                for ((idx, child) in _children.withIndex()) {
+                    if (child.isVisible) {
+                        val needsAttach = (child.nativeImpl == null) || unattachedRealizedChildren.remove(child)
                         val childImpl = child.ensureNativeImpl()
-                        if (childImpl != null) {
-                            containerImpl.addChildNative(childImpl, -1)
+                        if (childImpl != null && needsAttach) {
+                            containerImpl.addChildNative(childImpl, idx)
                         }
                     }
                 }
@@ -162,6 +176,7 @@ abstract class AbstractContainer(
     override fun dispose() {
         val current = _children
         _children = emptyList()
+        unattachedRealizedChildren.clear()
         for (child in current) {
             child.dispose()
         }

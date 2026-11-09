@@ -12,8 +12,10 @@ import com.nexustools.genericui.enums.fragment.FragmentLaunchMode
 import com.nexustools.genericui.enums.system.BackendTarget
 import com.nexustools.genericui.enums.ui.ThemeMode
 import com.nexustools.genericui.resources.ResourceID
+import com.nexustools.genericui.style.color.BootstrapColorPalette
 import com.nexustools.genericui.style.css.PrecompiledStyleSheet
 import com.nexustools.genericui.style.theme.SystemThemeDetector
+import com.nexustools.genericui.style.theme.ThemeConfig
 import com.nexustools.genericui.window.IWindow
 import com.nexustools.genericui.window.TitleBar
 import com.nexustools.genericui.window.TitleCapabilities
@@ -183,6 +185,8 @@ interface IApplication : Disposable {
     fun removeThemeChangeListener(listener: (ThemeMode) -> Unit) {}
     fun setThemeColor(colorHex: String?)
     fun getThemeColor(): String?
+    fun setThemeConfig(config: ThemeConfig) {}
+    fun getThemeConfig(): ThemeConfig = GenericUI.defaultThemeConfig
 
     /**
      * Registers and activates a global precompiled stylesheet by its source file path

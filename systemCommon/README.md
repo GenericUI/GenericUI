@@ -106,6 +106,16 @@ genericui {
 }
 ```
 
+### 4. System-Target Styling Invariants (Typography vs. Aesthetic Style Restraints & Zero String-Keyed Style APIs)
+
+All 7 non-web system targets (`Windows`, `MacOS`, `Gtk`, `Qt`, `Swing`, `Android`, and `IOS`) enforce strict native look-and-feel and zero-allocation styling rules:
+1. **Zero String-Keyed Style APIs**: `ComponentStyle` and `ComputedStyle` operate exclusively on strongly-typed Kotlin properties and two 64-bit bitmasks (`activePropertiesBitmaskLow` / `High`, `importantBitmaskLow` / `High`) with zero `Map<String, String>` allocations or CSS string formatting (`setStyleProperty(String, String)`, `getStyleProperty`, `removeStyleProperty`, `clearStyleProperties`, `inlineStyle`, `setRawDeclaration`, `getRawDeclaration`, `fromDeclarations`, `rawDeclarations` do not exist).
+2. **Text / Typography Elements (`Label`, `Text`, `Heading`, `Badge`, `Blockquote`, `CodeBlock`, `MarkdownView`)**: Honor typography and text-color properties (`color` / `textColor`, `fontFamily`, `fontSize`, `fontWeight`, `fontStyle`, `lineHeight`, `letterSpacing`, `textAlign`, `textDecoration`, `textTransform`, `textOverflow`, `whiteSpace`, `wordBreak`, plus `bootstrap.textColorType`, `bootstrap.fontSize`, `bootstrap.fontWeight`, `bootstrap.textAlignment`).
+3. **Buttons, Inputs, Controls, & Standard Containers (`Button`, `IconButton`, `ToggleButton`, `CheckBox`, `RadioButton`, `Switch`, `Select`, `DropdownButton`, `TextField`, `TextArea`, `RangeSlider`, `ProgressBar`, `Spinner`, `TabContainer`, `Tab`, `Container`, `Card`, etc.)**: Aesthetic skinning and typography overrides on `ComponentStyle` (`backgroundColor`, `background`, `color`, `accentColor`, `borderColor`, `borderWidth`, `borderStyle`, `borderRadius`, `boxShadow`, `textShadow`, `filter`, `backdropFilter`, `fontFamily`, `fontSize`, `fontWeight`, `fontStyle`) are **silently ignored** on all 7 system backends. Standard controls can **ONLY** be tinted via `BootstrapType` (`bootstrap.type`, `bootstrap.backgroundType`, `bootstrap.textColorType`, `bootstrap.borderType`, `bootstrap.outline`):
+   - `BootstrapType == BootstrapType.NONE`: Renders the 100% unmodified genuine native OS component.
+   - `BootstrapType != BootstrapType.NONE`: Renders the native OS control with **no text** into an offscreen ARGB buffer, color-tints the native control pixels via `DesktopControlTintRenderUtil` / `ThemeConfig` while preserving native 3D bevels, borders, and hover/pressed/disabled states, blits the tinted sprite, and renders contrasting text and icons on top afterward.
+4. **`StyledContainer`, `StyledButton`, & `:extensions:alien`**: Explicitly opt-in custom-styled components that honor full `ComponentStyle` aesthetic and typography properties across all 8 backends.
+
 ---
 
 ## Related Documentation

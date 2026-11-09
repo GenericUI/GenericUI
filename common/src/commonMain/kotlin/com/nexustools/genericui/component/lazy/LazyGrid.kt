@@ -29,6 +29,20 @@ open class LazyGrid(
             refreshLazyViewport()
         }
 
+    var minColumnWidthPx: Int = 0
+        set(value) {
+            field = value.coerceAtLeast(0)
+            typedNative<LazyGridNativeImpl<*>>()?.setMinColumnWidthPx(field)
+            refreshLazyViewport()
+        }
+
+    fun resolveEffectiveColumns(availableWidthPx: Int): Int {
+        if (minColumnWidthPx > 0 && availableWidthPx > 0) {
+            return maxOf(1, minOf(columns, availableWidthPx / minColumnWidthPx))
+        }
+        return columns
+    }
+
     val viewHolderPool: ViewHolderPool = ViewHolderPool()
     val viewportTracker: LazyViewportTracker = LazyViewportTracker(overscanRows)
 
@@ -260,6 +274,7 @@ open class LazyGrid(
         super.syncStateToNative()
         val impl = typedNative<LazyGridNativeImpl<*>>() ?: return
         impl.setColumns(columns)
+        impl.setMinColumnWidthPx(minColumnWidthPx)
         impl.setEstimatedRowExtent(estimatedRowHeightPx, viewportTracker.overscanItems)
         impl.setOnViewportScrollChanged { scrollPx, extentPx ->
             if (!isRefreshingViewport) {

@@ -1,5 +1,7 @@
 package com.nexustools.genericui.image
 
+import com.nexustools.genericui.resources.ResourceID
+
 /**
  * Describes the origin of an image to be loaded by [ImageLoader] or displayed in an `ImageView`.
  */
@@ -8,7 +10,8 @@ class ImageSource private constructor(
     val encodedBytes: ByteArray?,
     val memoryBuffer: ImageBuffer?,
     val formatHint: ImageFormat = ImageFormat.UNKNOWN,
-    val isResource: Boolean = false
+    val isResource: Boolean = false,
+    val resId: ResourceID? = null
 ) {
     companion object {
         fun fromFile(filePath: String): ImageSource =
@@ -35,6 +38,18 @@ class ImageSource private constructor(
                 formatHint = ImageFormat.fromExtension(resourcePath),
                 isResource = true
             )
+
+        fun fromResource(resId: ResourceID): ImageSource {
+            val hintPath = resId.relativePath.ifEmpty { resId.toResourceUri() }
+            return ImageSource(
+                uriOrPath = resId.toResourceUri(),
+                encodedBytes = null,
+                memoryBuffer = null,
+                formatHint = ImageFormat.fromExtension(hintPath),
+                isResource = true,
+                resId = resId
+            )
+        }
 
         fun fromBytes(bytes: ByteArray, formatHint: ImageFormat = ImageFormat.detectFromHeader(bytes)): ImageSource =
             ImageSource(

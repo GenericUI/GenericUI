@@ -3,6 +3,10 @@ package com.nexustools.genericui.component.layout
 import com.nexustools.genericui.core.AbstractComponent
 import com.nexustools.genericui.core.AbstractContainer
 import com.nexustools.genericui.enums.bootstrap.PositionMode
+import com.nexustools.genericui.enums.css.CssPointerEvents
+import com.nexustools.genericui.enums.css.CssPosition
+import com.nexustools.genericui.style.css.CssLength
+import com.nexustools.genericui.style.transition.CssTransform2D
 
 /**
  * Composite layout helper (`LayeredLayout`) that stacks child components in layers inside [host]
@@ -38,44 +42,46 @@ open class LayeredLayout(
         val parent = host.parent
         val isAspectRatioChild = parent is AspectRatioContainer || parent?.hasClass("ratio") == true
         val isLayeredChild = parent is LayeredContainer || host.hasClass("gui-layer-item")
-        val currentPos = host.getStyleProperty("position")?.trim()?.lowercase()
+        val currentPos = host.getStyle().getPosition()
         if (isAspectRatioChild) {
             if (host.positionMode == PositionMode.RELATIVE) {
                 host.positionMode = null
             }
-            host.setStyleProperty("position", "absolute")
-            host.setStyleProperty("top", "0")
-            host.setStyleProperty("left", "0")
-            host.setStyleProperty("width", "100%")
-            host.setStyleProperty("height", "100%")
+            host.getStyle().apply {
+                setPosition(CssPosition.ABSOLUTE)
+                setTop(CssLength.ZERO)
+                setLeft(CssLength.ZERO)
+                setWidth(CssLength.PERCENT_100)
+                setHeight(CssLength.PERCENT_100)
+            }
         } else if (
             isLayeredChild ||
-            currentPos == "absolute" ||
-            currentPos == "fixed" ||
+            currentPos == CssPosition.ABSOLUTE ||
+            currentPos == CssPosition.FIXED ||
             host.positionMode == PositionMode.ABSOLUTE ||
             host.positionMode == PositionMode.FIXED
         ) {
             if (host.positionMode == PositionMode.RELATIVE) {
                 host.positionMode = null
             }
-            if (currentPos == null || currentPos == "static") {
-                host.setStyleProperty("position", "absolute")
+            if (currentPos == null || currentPos == CssPosition.STATIC) {
+                host.getStyle().setPosition(CssPosition.ABSOLUTE)
             }
-            if (host.getStyleProperty("width") == null) {
-                host.setStyleProperty("width", "100%")
+            if (host.getStyle().getWidth() == null) {
+                host.getStyle().setWidth(CssLength.PERCENT_100)
             }
-            if (host.getStyleProperty("height") == null) {
-                host.setStyleProperty("height", "100%")
+            if (host.getStyle().getHeight() == null) {
+                host.getStyle().setHeight(CssLength.PERCENT_100)
             }
         } else {
-            if (currentPos == null || currentPos == "static") {
-                host.setStyleProperty("position", "relative")
+            if (currentPos == null || currentPos == CssPosition.STATIC) {
+                host.getStyle().setPosition(CssPosition.RELATIVE)
             }
-            if (host.getStyleProperty("width") == null) {
-                host.setStyleProperty("width", "100%")
+            if (host.getStyle().getWidth() == null) {
+                host.getStyle().setWidth(CssLength.PERCENT_100)
             }
-            if (host.getStyleProperty("height") == null) {
-                host.setStyleProperty("height", "100%")
+            if (host.getStyle().getHeight() == null) {
+                host.getStyle().setHeight(CssLength.PERCENT_100)
             }
         }
     }
@@ -179,140 +185,146 @@ open class LayeredLayout(
         child.setAttribute("layerPassThrough", constraint.passThroughPointerEvents.toString())
 
         child.addClass("gui-layer-item")
-        child.setStyleProperty("position", "absolute")
+        child.getStyle().setPosition(CssPosition.ABSOLUTE)
         child.zIndex = constraint.zIndex
-        child.setStyleProperty("z-index", constraint.zIndex.toString())
         if (constraint.passThroughPointerEvents) {
             child.addClass("gui-layer-pass-through")
             child.pointerEventsEnabled = false
-            child.setStyleProperty("pointer-events", "none")
+            child.getStyle().setPointerEvents(CssPointerEvents.NONE)
         } else {
             child.removeClass("gui-layer-pass-through")
             child.pointerEventsEnabled = true
-            child.setStyleProperty("pointer-events", "auto")
+            child.getStyle().setPointerEvents(CssPointerEvents.AUTO)
         }
 
         if (constraint.sizingMode == LayerSizingMode.FILL) {
-            val wasFloat = child.hasClass("gui-layer-float")
+            val wasFloat = child.hasClass("gui-layer-fill").not() && child.hasClass("gui-layer-float")
             child.addClass("gui-layer-fill")
             child.removeClass("gui-layer-float")
-            child.setStyleProperty("inset", "0")
-            child.setStyleProperty("top", "${constraint.offsetYPx}px")
-            child.setStyleProperty("left", "${constraint.offsetXPx}px")
-            child.setStyleProperty("width", "100%")
-            child.setStyleProperty("height", "100%")
-            child.removeStyleProperty("right")
-            child.removeStyleProperty("bottom")
-            if (wasFloat) {
-                child.removeStyleProperty("transform")
+            child.getStyle().apply {
+                setTop(CssLength.px(constraint.offsetYPx))
+                setLeft(CssLength.px(constraint.offsetXPx))
+                setWidth(CssLength.PERCENT_100)
+                setHeight(CssLength.PERCENT_100)
+                setRight(null)
+                setBottom(null)
+                if (wasFloat) {
+                    setTransform(null)
+                }
             }
         } else {
             child.addClass("gui-layer-float")
             child.removeClass("gui-layer-fill")
-            child.removeStyleProperty("inset")
 
             if (constraint.leftPercent != null) {
                 val pct = constraint.leftPercent.coerceIn(0f, 100f)
-                val leftExpr = if (constraint.offsetXPx != 0) {
-                    "calc(${pct}% + ${constraint.offsetXPx}px)"
+                val leftLen = if (constraint.offsetXPx != 0) {
+                    CssLength.calcPercentPx(pct, constraint.offsetXPx.toFloat())
                 } else {
-                    "${pct}%"
+                    CssLength.percent(pct)
                 }
-                child.setStyleProperty("left", leftExpr)
-                child.removeStyleProperty("right")
+                child.getStyle().setLeft(leftLen)
+                child.getStyle().setRight(null)
             } else if (constraint.rightPx != null) {
-                child.setStyleProperty("right", "${constraint.rightPx - constraint.offsetXPx}px")
-                child.removeStyleProperty("left")
+                child.getStyle().setRight(CssLength.px(constraint.rightPx - constraint.offsetXPx))
+                child.getStyle().setLeft(null)
             } else {
                 when (constraint.alignment) {
                     LayerAlignment.TOP_START,
                     LayerAlignment.CENTER_START,
                     LayerAlignment.BOTTOM_START -> {
-                        child.setStyleProperty("left", "${constraint.offsetXPx}px")
-                        child.removeStyleProperty("right")
+                        child.getStyle().setLeft(CssLength.px(constraint.offsetXPx))
+                        child.getStyle().setRight(null)
                     }
                     LayerAlignment.TOP_CENTER,
                     LayerAlignment.CENTER,
                     LayerAlignment.BOTTOM_CENTER -> {
-                        val leftExpr = if (constraint.offsetXPx != 0) {
-                            "calc(50% + ${constraint.offsetXPx}px)"
+                        val leftLen = if (constraint.offsetXPx != 0) {
+                            CssLength.calcPercentPx(50f, constraint.offsetXPx.toFloat())
                         } else {
-                            "50%"
+                            CssLength.PERCENT_50
                         }
-                        child.setStyleProperty("left", leftExpr)
-                        child.removeStyleProperty("right")
+                        child.getStyle().setLeft(leftLen)
+                        child.getStyle().setRight(null)
                     }
                     LayerAlignment.TOP_END,
                     LayerAlignment.CENTER_END,
                     LayerAlignment.BOTTOM_END -> {
-                        child.setStyleProperty("right", "${-constraint.offsetXPx}px")
-                        child.removeStyleProperty("left")
+                        child.getStyle().setRight(CssLength.px(-constraint.offsetXPx))
+                        child.getStyle().setLeft(null)
                     }
                 }
             }
 
             if (constraint.topPercent != null) {
                 val pct = constraint.topPercent.coerceIn(0f, 100f)
-                val topExpr = if (constraint.offsetYPx != 0) {
-                    "calc(${pct}% + ${constraint.offsetYPx}px)"
+                val topLen = if (constraint.offsetYPx != 0) {
+                    CssLength.calcPercentPx(pct, constraint.offsetYPx.toFloat())
                 } else {
-                    "${pct}%"
+                    CssLength.percent(pct)
                 }
-                child.setStyleProperty("top", topExpr)
-                child.removeStyleProperty("bottom")
+                child.getStyle().setTop(topLen)
+                child.getStyle().setBottom(null)
             } else if (constraint.bottomPx != null) {
-                child.setStyleProperty("bottom", "${constraint.bottomPx - constraint.offsetYPx}px")
-                child.removeStyleProperty("top")
+                child.getStyle().setBottom(CssLength.px(constraint.bottomPx - constraint.offsetYPx))
+                child.getStyle().setTop(null)
             } else {
                 when (constraint.alignment) {
                     LayerAlignment.TOP_START,
                     LayerAlignment.TOP_CENTER,
                     LayerAlignment.TOP_END -> {
-                        child.setStyleProperty("top", "${constraint.offsetYPx}px")
-                        child.removeStyleProperty("bottom")
+                        child.getStyle().setTop(CssLength.px(constraint.offsetYPx))
+                        child.getStyle().setBottom(null)
                     }
                     LayerAlignment.CENTER_START,
                     LayerAlignment.CENTER,
                     LayerAlignment.CENTER_END -> {
-                        val topExpr = if (constraint.offsetYPx != 0) {
-                            "calc(50% + ${constraint.offsetYPx}px)"
+                        val topLen = if (constraint.offsetYPx != 0) {
+                            CssLength.calcPercentPx(50f, constraint.offsetYPx.toFloat())
                         } else {
-                            "50%"
+                            CssLength.PERCENT_50
                         }
-                        child.setStyleProperty("top", topExpr)
-                        child.removeStyleProperty("bottom")
+                        child.getStyle().setTop(topLen)
+                        child.getStyle().setBottom(null)
                     }
                     LayerAlignment.BOTTOM_START,
                     LayerAlignment.BOTTOM_CENTER,
                     LayerAlignment.BOTTOM_END -> {
-                        child.setStyleProperty("bottom", "${-constraint.offsetYPx}px")
-                        child.removeStyleProperty("top")
+                        child.getStyle().setBottom(CssLength.px(-constraint.offsetYPx))
+                        child.getStyle().setTop(null)
                     }
                 }
             }
 
-            val tx = when (constraint.alignment) {
+            val txPct = when (constraint.alignment) {
                 LayerAlignment.TOP_CENTER,
                 LayerAlignment.CENTER,
-                LayerAlignment.BOTTOM_CENTER -> "-50%"
+                LayerAlignment.BOTTOM_CENTER -> -50f
                 LayerAlignment.TOP_END,
                 LayerAlignment.CENTER_END,
-                LayerAlignment.BOTTOM_END -> if (constraint.leftPercent != null) "-100%" else "0%"
-                else -> "0%"
+                LayerAlignment.BOTTOM_END -> if (constraint.leftPercent != null) -100f else 0f
+                else -> 0f
             }
-            val ty = when (constraint.alignment) {
+            val tyPct = when (constraint.alignment) {
                 LayerAlignment.CENTER_START,
                 LayerAlignment.CENTER,
-                LayerAlignment.CENTER_END -> "-50%"
+                LayerAlignment.CENTER_END -> -50f
                 LayerAlignment.BOTTOM_START,
                 LayerAlignment.BOTTOM_CENTER,
-                LayerAlignment.BOTTOM_END -> if (constraint.topPercent != null) "-100%" else "0%"
-                else -> "0%"
+                LayerAlignment.BOTTOM_END -> if (constraint.topPercent != null) -100f else 0f
+                else -> 0f
             }
-            if (tx != "0%" || ty != "0%") {
-                child.setStyleProperty("transform", "translate($tx, $ty)")
+            if (txPct != 0f || tyPct != 0f) {
+                child.getStyle().setTransform(
+                    CssTransform2D(
+                        translateX = txPct,
+                        translateXIsPercent = txPct != 0f,
+                        translateY = tyPct,
+                        translateYIsPercent = tyPct != 0f
+                    )
+                )
             } else {
-                child.removeStyleProperty("transform")
+                child.getStyle().setTransform(null)
             }
         }
     }

@@ -1,7 +1,10 @@
 package com.nexustools.genericui.component.layout
 
 import com.nexustools.genericui.core.NativeImpl
+import com.nexustools.genericui.enums.css.CssDisplay
+import com.nexustools.genericui.enums.css.CssPointerEvents
 import com.nexustools.genericui.geometry.Size
+import com.nexustools.genericui.style.css.CssLength
 
 /**
  * Flexible or fixed-size layout spacing component (`<genericui:spacer>`).
@@ -53,50 +56,44 @@ open class Spacer(
         setAttribute("spacerHeightPx", h.toString())
         setAttribute("spacerWeight", wt.toString())
         setAttribute("spacerFill", (wt > 0f).toString())
-        setStyleProperty("display", "inline-block")
-        setStyleProperty("pointer-events", "none")
+        getStyle().setDisplay(CssDisplay.INLINE_BLOCK)
+        getStyle().setPointerEvents(CssPointerEvents.NONE)
         if (w > 0 || h > 0) {
             setPreferredSize(Size(w, h))
         }
         if (w > 0) {
             widthPx = w
             minWidthPx = w
-            setStyleProperty("width", "${w}px")
-            setStyleProperty("min-width", "${w}px")
+            getStyle().setWidth(CssLength.px(w))
+            getStyle().setMinWidth(CssLength.px(w))
         } else {
             widthPx = null
             minWidthPx = null
-            removeStyleProperty("width")
-            removeStyleProperty("min-width")
+            getStyle().setWidth(null)
+            getStyle().setMinWidth(null)
         }
         if (h > 0) {
             heightPx = h
             minHeightPx = h
-            setStyleProperty("height", "${h}px")
-            setStyleProperty("min-height", "${h}px")
+            getStyle().setHeight(CssLength.px(h))
+            getStyle().setMinHeight(CssLength.px(h))
         } else {
             heightPx = null
             minHeightPx = null
-            removeStyleProperty("height")
-            removeStyleProperty("min-height")
+            getStyle().setHeight(null)
+            getStyle().setMinHeight(null)
         }
         if (wt > 0f) {
             val basis = when {
-                w > 0 -> "${w}px"
-                h > 0 -> "${h}px"
-                else -> "0%"
+                w > 0 -> CssLength.px(w)
+                h > 0 -> CssLength.px(h)
+                else -> CssLength.percent(0)
             }
-            setStyleProperty("flex-grow", wt.toString())
-            setStyleProperty("flex-shrink", "1")
-            setStyleProperty("flex-basis", basis)
-            setStyleProperty("flex", "$wt 1 $basis")
+            getStyle().setFlex(wt, 1f, basis)
             addClass("flex-grow-1")
             removeClass("flex-shrink-0")
         } else {
-            setStyleProperty("flex-grow", "0")
-            setStyleProperty("flex-shrink", "0")
-            setStyleProperty("flex-basis", "auto")
-            setStyleProperty("flex", "0 0 auto")
+            getStyle().setFlex(0f, 0f, CssLength.AUTO)
             removeClass("flex-grow-1")
             addClass("flex-shrink-0")
         }

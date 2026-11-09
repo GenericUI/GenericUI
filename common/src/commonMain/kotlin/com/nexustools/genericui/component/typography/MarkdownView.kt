@@ -10,6 +10,9 @@ import com.nexustools.genericui.nativeimpl.typography.MarkdownViewNativeImpl
 class MarkdownView(
     markdown: String = ""
 ) : AbstractComponent(htmlTag = "genericui:markdownview") {
+    override val acceptsTypographyComponentStyles: Boolean
+        get() = true
+
     var markdown: String = markdown
         set(value) {
             field = value

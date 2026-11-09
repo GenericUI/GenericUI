@@ -13,7 +13,7 @@ import com.nexustools.genericui.component.fragment.FragmentHost
  * or `DockWorkspaceFragment`.
  */
 open class FragmentApplication(
-    initialFragment: Fragment,
+    initialFragment: Fragment? = null,
     title: String = "GenericUI Application",
     initialThemeColor: String? = null
 ) : Application(
@@ -22,9 +22,10 @@ open class FragmentApplication(
     initialThemeColor = initialThemeColor
 ), FragmentHost {
 
-    val rootFragmentContainer: FragmentContainer = FragmentContainer(initialFragment, hostWindow = mainWindow)
+    override val rootFragmentContainer: FragmentContainer = FragmentContainer(initialFragment, hostWindow = mainWindow)
 
     init {
+        initialFragment?.application = this
         mainWindow.setContent(rootFragmentContainer)
     }
 
@@ -44,10 +45,12 @@ open class FragmentApplication(
         get() = rootFragmentContainer.canGoForward
 
     override fun setFragment(fragment: Fragment) {
+        fragment.application = this
         rootFragmentContainer.setFragment(fragment)
     }
 
     override fun pushFragment(fragment: Fragment) {
+        fragment.application = this
         rootFragmentContainer.pushFragment(fragment)
     }
 
@@ -58,11 +61,20 @@ open class FragmentApplication(
         rootFragmentContainer.goForward()
 
     override fun replaceFragment(fragment: Fragment) {
+        fragment.application = this
         rootFragmentContainer.replaceFragment(fragment)
     }
 
     override fun onApplicationStarted() {
         super.onApplicationStarted()
+        if (rootFragmentContainer.currentFragment == null &&
+            (mainFragmentFactory != null || mainFragmentClass != null)
+        ) {
+            val created = onCreateMainFragment(launchArguments)
+            if (created != null && rootFragmentContainer.currentFragment == null) {
+                setFragment(created)
+            }
+        }
         rootFragmentContainer.ensureActiveFragmentStartedAndResumed()
     }
 }

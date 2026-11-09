@@ -153,6 +153,10 @@ open class GenericUiExtension {
 
     /** Callback invoked immediately when `backends { ... }` or `application { ... }` is configured during script evaluation. */
     internal var onConfiguredCallback: (() -> Unit)? = null
+        set(value) {
+            field = value
+            backends.onChanged = value
+        }
 
     /**
      * Registers a dependency-building task (by name, `Task`, or `TaskProvider`) so that all GenericUI

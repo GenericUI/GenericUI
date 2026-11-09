@@ -2,6 +2,7 @@ package com.nexustools.genericui.core
 
 import com.nexustools.genericui.nativeimpl.system.DefaultUiTimerNativeImpl
 import com.nexustools.genericui.nativeimpl.system.UiTimerNativeImpl
+import com.nexustools.genericui.threading.GenericUiThreading
 
 /**
  * Global UI timer scheduler delegating [setTimeout], [setInterval], [clearTimer], and [clearAllTimers]
@@ -36,10 +37,18 @@ object UiTimerScheduler {
         }
 
     fun setTimeout(delayMs: Int, callback: () -> Unit): Int =
-        activeScheduler.setTimeout(delayMs, callback)
+        activeScheduler.setTimeout(delayMs) {
+            GenericUiThreading.runOnLogic {
+                callback()
+            }
+        }
 
     fun setInterval(intervalMs: Int, callback: () -> Unit): Int =
-        activeScheduler.setInterval(intervalMs, callback)
+        activeScheduler.setInterval(intervalMs) {
+            GenericUiThreading.runOnLogic {
+                callback()
+            }
+        }
 
     fun clearTimer(timerId: Int) {
         activeScheduler.clearTimer(timerId)

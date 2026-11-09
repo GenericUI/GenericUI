@@ -14,6 +14,7 @@ object PopupMouseCaptureManager {
     private var nextId: Int = 1
     private var swallowActivePressSequence: Boolean = false
     private var pointerDownActive: Boolean = false
+    private var approvedClickDispatchDepth: Int = 0
 
     val hasActivePopup: Boolean
         get() = entries.isNotEmpty()
@@ -91,6 +92,7 @@ object PopupMouseCaptureManager {
         entries.clear()
         swallowActivePressSequence = false
         pointerDownActive = false
+        approvedClickDispatchDepth = 0
         if (hadEntries) {
             onActivePopupCountChanged?.invoke(0)
         }
@@ -193,6 +195,7 @@ object PopupMouseCaptureManager {
     }
 
     fun interceptClick(x: Float = Float.NaN, y: Float = Float.NaN, target: Any? = null): Boolean {
+        if (approvedClickDispatchDepth > 0) return false
         pointerDownActive = false
         if (swallowActivePressSequence) {
             swallowActivePressSequence = false
@@ -208,5 +211,14 @@ object PopupMouseCaptureManager {
         pointerDownActive = false
         swallowActivePressSequence = false
         return intercepted
+    }
+
+    fun <T> withApprovedClickDispatch(block: () -> T): T {
+        approvedClickDispatchDepth++
+        return try {
+            block()
+        } finally {
+            approvedClickDispatchDepth = (approvedClickDispatchDepth - 1).coerceAtLeast(0)
+        }
     }
 }

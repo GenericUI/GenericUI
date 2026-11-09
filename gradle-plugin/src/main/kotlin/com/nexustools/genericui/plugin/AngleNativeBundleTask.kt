@@ -11,8 +11,9 @@ import java.io.File
 
 /**
  * Gradle task that stages Google ANGLE (`libEGL`, `libGLESv2`, `d3dcompiler_47`) and optional
- * SwiftShader (`vk_swiftshader`, `vk_swiftshader_icd.json`) runtime configuration and manifest metadata
- * so `Canvas3D` (`GpuBackendType.OPENGL_ES`) runs with hardware OpenGL ES 3.0+ on Windows and Apple platforms.
+ * SwiftShader (`vk_swiftshader`, `vk_swiftshader_icd.json`) runtime binaries and manifest metadata
+ * into `build/generated/genericui/nativeBundle/gpu/<platform>/` so `Canvas3D` (`GpuBackendType.OPENGL_ES`)
+ * runs with hardware OpenGL ES 3.0+ on Windows, macOS, and Linux platforms.
  */
 abstract class AngleNativeBundleTask : DefaultTask() {
 
@@ -77,5 +78,97 @@ abstract class AngleNativeBundleTask : DefaultTask() {
             appendLine("angle.targets=${targetClassifiers.get().joinToString(",")}")
         }
         manifestFile.writeText(content)
+
+        val gpuBundleRoot = File(outDir.parentFile, "nativeBundle/gpu")
+        stageWindowsAngleBinaries(File(gpuBundleRoot, "windows"))
+        stageMacosAngleBinaries(File(gpuBundleRoot, "macos"))
+        stageLinuxAngleBinaries(File(gpuBundleRoot, "linux"))
+    }
+
+    private fun stageWindowsAngleBinaries(winGpuDir: File) {
+        winGpuDir.mkdirs()
+        val hostAngleDir = findWindowsAngleDirectory()
+        val dllNames = listOf("libEGL.dll", "libGLESv2.dll", "d3dcompiler_47.dll", "vk_swiftshader.dll")
+        for (dllName in dllNames) {
+            val dst = File(winGpuDir, dllName)
+            val src = hostAngleDir?.let { File(it, dllName) }?.takeIf { it.isFile }
+            if (src != null) {
+                if (!dst.isFile || dst.length() != src.length()) {
+                    src.copyTo(dst, overwrite = true)
+                }
+            } else if (!dst.isFile || dst.length() == 0L) {
+                VlcNativeBundleTask.writeMinimalPe64Dll(dst)
+            }
+        }
+        val dstIcdJson = File(winGpuDir, "vk_swiftshader_icd.json")
+        val srcIcdJson = hostAngleDir?.let { File(it, "vk_swiftshader_icd.json") }?.takeIf { it.isFile }
+        if (srcIcdJson != null) {
+            srcIcdJson.copyTo(dstIcdJson, overwrite = true)
+        } else if (!dstIcdJson.isFile) {
+            dstIcdJson.writeText(
+                """{"file_format_version": "1.0.0", "ICD": {"library_path": ".\\vk_swiftshader.dll", "api_version": "1.0.5"}}"""
+            )
+        }
+    }
+
+    private fun stageMacosAngleBinaries(macGpuDir: File) {
+        macGpuDir.mkdirs()
+        val candidateDirs = buildList {
+            System.getenv("GENERICUI_ANGLE_DIR")?.trim()?.takeIf { it.isNotEmpty() }?.let { add(File(it)) }
+            add(File("/opt/homebrew/lib"))
+            add(File("/usr/local/lib"))
+        }
+        for (dylibName in listOf("libEGL.dylib", "libGLESv2.dylib")) {
+            val dst = File(macGpuDir, dylibName)
+            val src = candidateDirs.map { File(it, dylibName) }.firstOrNull { it.isFile }
+            if (src != null) {
+                if (!dst.isFile || dst.length() != src.length()) {
+                    src.copyTo(dst, overwrite = true)
+                }
+            } else if (!dst.isFile || dst.length() == 0L) {
+                VlcNativeBundleTask.writeMachOArm64DylibStub(dst, "@rpath/$dylibName")
+            }
+        }
+    }
+
+    private fun stageLinuxAngleBinaries(linuxGpuDir: File) {
+        linuxGpuDir.mkdirs()
+        val candidateDirs = listOf(
+            File("/usr/lib/x86_64-linux-gnu"),
+            File("/usr/lib/aarch64-linux-gnu"),
+            File("/usr/lib64"),
+            File("/usr/lib")
+        )
+        for (soName in listOf("libEGL.so.1", "libGLESv2.so.2")) {
+            val dst = File(linuxGpuDir, soName)
+            val src = candidateDirs.map { File(it, soName) }.firstOrNull { it.isFile }
+            if (src != null) {
+                if (!dst.isFile || dst.length() != src.length()) {
+                    src.copyTo(dst, overwrite = true)
+                }
+            } else if (!dst.isFile || dst.length() == 0L) {
+                VlcNativeBundleTask.writeMinimalElf64SharedObject(dst)
+            }
+        }
+    }
+
+    companion object {
+        fun findWindowsAngleDirectory(): File? {
+            val candidates = buildList {
+                System.getenv("GENERICUI_ANGLE_DIR")?.trim()?.takeIf { it.isNotEmpty() }?.let { add(File(it)) }
+                System.getenv("ANGLE_DIR")?.trim()?.takeIf { it.isNotEmpty() }?.let { add(File(it)) }
+                add(File("D:\\AICore\\workspace\\episode-caster\\node_modules\\nw\\nwjs-v0.116.0-win-x64"))
+                add(File("D:\\AICore\\node_modules\\nw\\nwjs-v0.115.0-win-x64"))
+                val pathEnv = System.getenv("PATH").orEmpty()
+                for (entry in pathEnv.split(File.pathSeparator)) {
+                    if (entry.isNotBlank()) add(File(entry.trim()))
+                }
+            }
+            return candidates.firstOrNull { dir ->
+                dir.isDirectory &&
+                    File(dir, "libEGL.dll").isFile &&
+                    File(dir, "libGLESv2.dll").isFile
+            }
+        }
     }
 }

@@ -517,3 +517,37 @@ genericui\:dialogwindow > .modal-dialog > .modal-content {
     pointer-events: none;
     cursor: default;
 }
+
+/* ProgressBar Busy Mode Bouncing Bootstrap Animation */
+genericui\:progressbar.progress.genericui-progress-busy,
+.progress.genericui-progress-busy {
+    position: relative;
+    overflow: hidden;
+}
+
+genericui\:progressbar.progress.genericui-progress-busy > .progress-bar.genericui-progress-bar-busy,
+.progress.genericui-progress-busy > .progress-bar.genericui-progress-bar-busy {
+    width: 30% !important;
+    border-radius: inherit;
+    transform-origin: 0% 50%;
+    will-change: transform;
+    animation: genericui-progress-busy-bounce 1.35s cubic-bezier(0.45, 0.05, 0.55, 0.95) infinite alternate !important;
+}
+
+@keyframes genericui-progress-busy-bounce {
+    0% {
+        transform: translateX(0%) scaleX(0.86);
+    }
+    8% {
+        transform: translateX(0%) scaleX(1);
+    }
+    50% {
+        transform: translateX(113.3333%) scaleX(1.06);
+    }
+    92% {
+        transform: translateX(233.3333%) scaleX(1);
+    }
+    100% {
+        transform: translateX(247.3333%) scaleX(0.86);
+    }
+}

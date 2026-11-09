@@ -847,13 +847,13 @@ class HybridLayoutsTest {
         assertNotNull(videoConstraint)
         assertEquals(0f, videoConstraint.weight)
         assertEquals(0f, videoConstraint.flexShrink)
-        assertEquals("16 / 9", topVideo.getStyleProperty("aspect-ratio"))
+        assertEquals("16 / 9", topVideo.getStyle().getAspectRatio()?.toCssString())
 
         val tabsConstraint = vstack.getChildConstraint(bottomTabs)
         assertNotNull(tabsConstraint)
         assertEquals(1f, tabsConstraint.weight)
         assertEquals(1f, vstack.getChildWeight(bottomTabs))
-        assertEquals("1", bottomTabs.getStyleProperty("flex-grow"))
+        assertEquals(1f, bottomTabs.getStyle().getFlexGrow())
         assertEquals(0, bottomTabs.minHeightPx)
 
         val hstack = HStack(gapPx = 12)
@@ -892,12 +892,12 @@ class HybridLayoutsTest {
         val pinnedConstraint = hybrid.singleStack.getChildConstraint(playerPane)
         assertNotNull(pinnedConstraint)
         assertEquals(0f, pinnedConstraint.weight)
-        assertEquals("16 / 9", playerPane.getStyleProperty("aspect-ratio"))
+        assertEquals("16 / 9", playerPane.getStyle().getAspectRatio()?.toCssString())
 
         val libraryConstraint = hybrid.singleStack.getChildConstraint(splitNav)
         assertNotNull(libraryConstraint)
         assertEquals(1f, libraryConstraint.weight)
-        assertEquals("1", splitNav.getStyleProperty("flex-grow"))
+        assertEquals(1f, splitNav.getStyle().getFlexGrow())
         assertFalse(splitNav.topTabLayout.isVisible)
         assertTrue(splitNav.bottomNavigationBar.isVisible)
 

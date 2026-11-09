@@ -21,7 +21,4 @@ data class TabEntry(
         set(value) {
             tab.title = value
         }
-
-    val iconSvgOrPath: String?
-        get() = tab.icon
 }

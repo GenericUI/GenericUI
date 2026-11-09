@@ -84,6 +84,17 @@ interface IFragment : Disposable {
     fun isFullscreen(): Boolean
     fun getDisplayCutoutMode(): DisplayCutoutMode
 
+    val isWindowVisible: Boolean
+        get() = hostingWindow?.isVisible ?: false
+
+    fun hideWindow() {
+        hostingWindow?.hide()
+    }
+
+    fun showWindow() {
+        hostingWindow?.show()
+    }
+
     // Reference-counted Loading State (`loading++` / `loading--`)
     var loading: Int
     val isLoading: Boolean

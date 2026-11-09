@@ -1,7 +1,8 @@
 package com.nexustools.genericui.component.tabs
 
+import com.nexustools.genericui.component.media.Image
 import com.nexustools.genericui.core.AbstractComponent
-import com.nexustools.genericui.nativeimpl.tabs.TabNativeImpl
+import com.nexustools.genericui.resources.ResourceID
 
 /**
  * A tab strip item that acts strictly as a clickable action button rather than a selectable content tab.
@@ -15,13 +16,23 @@ open class ButtonTab(
     icon: String? = null,
     tooltip: String? = null,
     customComponent: AbstractComponent? = null,
+    iconRes: ResourceID? = null,
+    image: Image? = null,
+    tintImageToTheme: Boolean = true,
+    iconSizePx: Int = image?.widthPx ?: image?.heightPx ?: 20,
+    iconPlacement: TabIconPlacement = TabIconPlacement.START,
     onClick: (() -> Unit)? = null
 ) : Tab(
     tabId = id.ifEmpty { "button_tab_${nextTabCounter()}" },
     title = title,
     icon = icon,
     tooltip = tooltip,
-    customComponent = customComponent
+    customComponent = customComponent,
+    iconRes = iconRes,
+    image = image,
+    tintImageToTheme = tintImageToTheme,
+    iconSizePx = iconSizePx,
+    iconPlacement = iconPlacement
 ) {
     override val isSelectable: Boolean = false
     override val supportsContent: Boolean = false

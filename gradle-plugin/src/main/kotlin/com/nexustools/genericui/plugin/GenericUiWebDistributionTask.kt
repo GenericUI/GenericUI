@@ -1,10 +1,13 @@
 package com.nexustools.genericui.plugin
 
 import org.gradle.api.DefaultTask
+import org.gradle.api.file.ConfigurableFileCollection
 import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.provider.ListProperty
+import org.gradle.api.provider.MapProperty
 import org.gradle.api.provider.Property
 import org.gradle.api.tasks.Input
+import org.gradle.api.tasks.InputFiles
 import org.gradle.api.tasks.Optional
 import org.gradle.api.tasks.OutputDirectory
 import org.gradle.api.tasks.TaskAction
@@ -44,6 +47,18 @@ abstract class GenericUiWebDistributionTask : DefaultTask() {
     @get:Input
     @get:Optional
     abstract val themeMode: Property<String>
+
+    @get:Input
+    @get:Optional
+    abstract val lightThemeColors: MapProperty<String, String>
+
+    @get:Input
+    @get:Optional
+    abstract val darkThemeColors: MapProperty<String, String>
+
+    @get:Input
+    @get:Optional
+    abstract val hasCustomThemeOverrides: Property<Boolean>
 
     @get:Input
     @get:Optional
@@ -161,8 +176,24 @@ abstract class GenericUiWebDistributionTask : DefaultTask() {
     @get:Optional
     abstract val buildVariant: Property<String>
 
+    @get:Input
+    @get:Optional
+    abstract val includeTestScripts: Property<Boolean>
+
+    @get:Optional
+    @get:InputFiles
+    abstract val jsOutputDirs: ConfigurableFileCollection
+
+    @get:Optional
+    @get:InputFiles
+    abstract val jsTestOutputDirs: ConfigurableFileCollection
+
     @get:OutputDirectory
     abstract val outputDirectory: DirectoryProperty
+
+    init {
+        includeTestScripts.convention(false)
+    }
 
     @TaskAction
     fun packageWebDistribution() {
@@ -264,7 +295,8 @@ abstract class GenericUiWebDistributionTask : DefaultTask() {
                 dir.listFiles()?.filter { it.isFile }?.maxOfOrNull { it.lastModified() } ?: 0L
             }
         }
-        val jsDirs = orderedJsDirs.filter { it.exists() && it.isDirectory }
+        val configuredJsDirs = jsOutputDirs.files.filter { it.exists() && it.isDirectory }
+        val jsDirs = (configuredJsDirs + orderedJsDirs.filter { it.exists() && it.isDirectory }).distinct()
 
         val stagedWasmRelPath = "$resolvedBase.wasm"
         val stagedJsRelPath = "$resolvedBase.js"
@@ -324,6 +356,49 @@ abstract class GenericUiWebDistributionTask : DefaultTask() {
         val stagedWasmSha1 = if (targetWasmFile.isFile) sha1HexOfFile(targetWasmFile) else sha1HexOfString(stagedWasmRelPath)
         val stagedJsSha1 = if (targetJsFile.isFile) sha1HexOfFile(targetJsFile) else sha1HexOfString(stagedJsRelPath)
 
+        // 3b. When includeTestScripts is true, stage compiled test .js files and web-test-harness.js
+        val testLoaderScriptTags = mutableListOf<String>()
+        if (includeTestScripts.getOrElse(false)) {
+            val defaultTestJsDirs = listOf(
+                File(buildDir, "compileSync/js/test/testDevelopmentExecutable/kotlin"),
+                File(buildDir, "compileSync/js/test/developmentExecutable/kotlin"),
+                File(buildDir, "js/packages/${resolvedBase}-test/kotlin")
+            )
+            val candidateTestDirs = (jsTestOutputDirs.files + defaultTestJsDirs)
+                .filter { it.exists() && it.isDirectory }
+                .distinctBy { it.canonicalPath }
+
+            val stagedTestJsNames = linkedSetOf<String>()
+            for (testDir in candidateTestDirs) {
+                val testJsFiles = testDir.listFiles()
+                    ?.filter {
+                        it.isFile &&
+                            it.extension.equals("js", ignoreCase = true) &&
+                            it.name != "loader.js" &&
+                            it.name != "genericui-loader.js" &&
+                            it.name != "web-test-harness.js" &&
+                            it.name != stagedJsRelPath
+                    }
+                    ?.sortedBy { it.name }
+                    .orEmpty()
+                for (testJs in testJsFiles) {
+                    val dstTestJs = File(outDir, testJs.name)
+                    if (testJs.canonicalFile != dstTestJs.canonicalFile) {
+                        testJs.copyTo(dstTestJs, overwrite = true)
+                    }
+                    if (stagedTestJsNames.add(testJs.name)) {
+                        val hash = sha1HexOfFile(dstTestJs)
+                        testLoaderScriptTags.add("""    <script type="loader-js" src="${escapeHtml(testJs.name)}?$hash"></script>""")
+                    }
+                }
+            }
+
+            val harnessFile = File(outDir, "web-test-harness.js")
+            harnessFile.writeText(WEB_TEST_HARNESS_JS_SOURCE, Charsets.UTF_8)
+            val harnessHash = sha1HexOfFile(harnessFile)
+            testLoaderScriptTags.add("""    <script type="loader-js" src="web-test-harness.js?$harnessHash"></script>""")
+        }
+
         // 4. Stage compiled SASS/CSS app stylesheet into res/ (autoloaded via <link rel="stylesheet">)
         // and packaged local Bootstrap 5 + Bootstrap Icons + loading.svg into gui/
         val appStylesheetRelPath = resolveAndStageAppStylesheet(rootDir, buildDir, resDir)
@@ -335,7 +410,7 @@ abstract class GenericUiWebDistributionTask : DefaultTask() {
             ""
         }
 
-        val stagedBootstrap = stagePackagedBootstrapAssets(rootDir, guiDir)
+        val (bootstrapCssSha1, bootstrapJsSha1, bootstrapIconsCssSha1) = stagePackagedBootstrapAssets(rootDir, guiDir)
         val loadingSvgFile = File(guiDir, "drawable/loading.svg")
         loadingSvgFile.parentFile?.mkdirs()
         loadingSvgFile.writeText(DEFAULT_LOADING_SVG_SOURCE, Charsets.UTF_8)
@@ -352,6 +427,9 @@ abstract class GenericUiWebDistributionTask : DefaultTask() {
         val genericUiCssFile = File(guiDir, "genericui.css")
         genericUiCssFile.writeText(GENERICUI_CSS_SOURCE, Charsets.UTF_8)
         val genericUiCssHash = sha1Hex(genericUiCssFile)
+
+        // 5b. Pre-generate gui/genericui-theme.css when custom theme colors/overrides are configured
+        val buildThemeStylesheetTag = maybeGenerateBuildThemeCss(guiDir)
 
         // 6. Scan packaged resources (gui/ and res/) and emit resources.json in root outDir with per-file SHA-1 hashes
         val resourceDescriptors = scanPackagedResources(outDir, resolvedManifestFileName, resolvedBase)
@@ -449,6 +527,13 @@ abstract class GenericUiWebDistributionTask : DefaultTask() {
             else -> "auto"
         }
 
+        val primaryLoaderJsTag = """    <script type="loader-js" src="$stagedJsRelPath?$stagedJsSha1"></script>"""
+        val allLoaderJsTags = if (testLoaderScriptTags.isEmpty()) {
+            primaryLoaderJsTag
+        } else {
+            (listOf(primaryLoaderJsTag) + testLoaderScriptTags).joinToString("\n")
+        }
+
         val indexHtml = INDEX_HTML_TEMPLATE
             .replace("{{LANG}}", escapeHtml(resolvedLang))
             .replace("{{TITLE}}", escapeHtml(resolvedTitle))
@@ -466,23 +551,29 @@ abstract class GenericUiWebDistributionTask : DefaultTask() {
             .replace("{{SPLASH_STATUS}}", "Initializing")
             .replace("{{SPLASH_PROGRESS_BAR_CLASS}}", "progress-bar progress-bar-striped progress-bar-animated")
             .replace("{{ROOT_CONTAINER_ID}}", "genericui-app")
-            .replace("{{BOOTSTRAP_CSS_URL}}", "gui/bootstrap.min.css?${stagedBootstrap.cssSha1}")
+            .replace("{{BOOTSTRAP_CSS_URL}}", "gui/bootstrap.min.css?$bootstrapCssSha1")
             .replace("{{BOOTSTRAP_CSS_INTEGRITY}}", "")
-            .replace("{{BOOTSTRAP_JS_URL}}", "gui/bootstrap.bundle.min.js?${stagedBootstrap.jsSha1}")
+            .replace("{{BOOTSTRAP_JS_URL}}", "gui/bootstrap.bundle.min.js?$bootstrapJsSha1")
             .replace("{{BOOTSTRAP_JS_INTEGRITY}}", "")
             .replace("{{CROSSORIGIN}}", "")
             .replace(""" integrity=""""""", "")
             .replace(""" crossorigin=""""""", "")
             .replace(
                 "{{BOOTSTRAP_ICONS_LINK}}",
-                """    <link id="genericui-bootstrap-icons-css" rel="stylesheet" href="gui/bootstrap-icons.min.css?${stagedBootstrap.iconsCssSha1}">"""
+                """    <link id="genericui-bootstrap-icons-css" rel="stylesheet" href="gui/bootstrap-icons.min.css?$bootstrapIconsCssSha1">"""
             )
-            .replace("{{EXTRA_STYLESHEETS}}", extraStylesheetTag)
+            .replace(
+                "{{EXTRA_STYLESHEETS}}",
+                listOf(buildThemeStylesheetTag, extraStylesheetTag)
+                    .filter { it.isNotBlank() }
+                    .joinToString("\n")
+            )
             .replace("{{RESOURCE_MANIFEST_JSON}}", inlineResourceManifestJson)
             .replace("{{EXTRA_SCRIPTS}}", serviceWorkerRegistrationScript)
             .replace("{{WASM_URL}}", stagedWasmRelPath)
             .replace("{{WASM_HASH}}", stagedWasmSha1)
             .replace("{{WASM_BINARY_ATTR}}", "")
+            .replace("""    <script type="loader-js" src="{{JS_URL}}?{{JS_HASH}}"></script>""", allLoaderJsTags)
             .replace("{{JS_URL}}", stagedJsRelPath)
             .replace("{{JS_HASH}}", stagedJsSha1)
             .replace("{{LOADER_JS_URL}}", "loader.js")
@@ -494,15 +585,198 @@ abstract class GenericUiWebDistributionTask : DefaultTask() {
         File(outDir, "index.html").writeText(indexHtml, Charsets.UTF_8)
     }
 
-    private data class WebResourceDescriptor(
-        val id: String,
-        val type: String,
-        val name: String,
-        val path: String,
-        val hash: String,
-        val mimeType: String,
-        val size: Long
-    )
+    private fun maybeGenerateBuildThemeCss(guiDir: File): String {
+        val themeCssFile = File(guiDir, "genericui-theme.css")
+        val configuredPrimary = themeColor.orNull?.trim()?.takeIf { it.isNotEmpty() }
+        val defaultLight = GenericUiThemeConfig.defaultLightColors()
+        val defaultDark = GenericUiThemeConfig.defaultDarkColors()
+        val lightInput = lightThemeColors.orNull.orEmpty().filterValues { it.isNotBlank() }
+        val darkInput = darkThemeColors.orNull.orEmpty().filterValues { it.isNotBlank() }
+
+        val resolvedLight = GenericUiThemeConfig.defaultLightColors(configuredPrimary).toMutableMap().apply {
+            putAll(lightInput)
+        }
+        val resolvedDark = GenericUiThemeConfig.defaultDarkColors(configuredPrimary).toMutableMap().apply {
+            putAll(darkInput)
+        }
+
+        val hasOverrides = (hasCustomThemeOverrides.orNull == true) ||
+            (configuredPrimary != null && !configuredPrimary.equals(GenericUiThemeConfig.DEFAULT_PRIMARY_COLOR, ignoreCase = true)) ||
+            (lightInput.isNotEmpty() && resolvedLight != defaultLight) ||
+            (darkInput.isNotEmpty() && resolvedDark != defaultDark)
+
+        if (!hasOverrides) {
+            if (themeCssFile.exists()) {
+                themeCssFile.delete()
+            }
+            return ""
+        }
+
+        val cssText = buildThemeOverrideCss(resolvedLight, resolvedDark)
+        themeCssFile.parentFile?.mkdirs()
+        themeCssFile.writeText(cssText, Charsets.UTF_8)
+        return """    <link id="genericui-build-theme-css" rel="stylesheet" href="gui/genericui-theme.css">"""
+    }
+
+    private fun buildThemeOverrideCss(
+        lightColors: Map<String, String>,
+        darkColors: Map<String, String>
+    ): String = buildString {
+        appendLine("/* Pre-generated GenericUI Theme Stylesheet (gui/genericui-theme.css) */")
+        emitWebThemeScopeCss(":root, [data-bs-theme=\"light\"]", lightColors, isDark = false)
+        appendLine()
+        emitWebThemeScopeCss("[data-bs-theme=\"dark\"]", darkColors, isDark = true)
+    }
+
+    private fun StringBuilder.emitWebThemeScopeCss(
+        scopeSelector: String,
+        palette: Map<String, String>,
+        isDark: Boolean
+    ) {
+        val primary = normalizeCssHex(palette[GenericUiThemeConfig.KEY_PRIMARY] ?: "#0d6efd")
+        val secondary = normalizeCssHex(palette[GenericUiThemeConfig.KEY_SECONDARY] ?: "#6c757d")
+        val accent = normalizeCssHex(palette[GenericUiThemeConfig.KEY_ACCENT] ?: primary)
+        val success = normalizeCssHex(palette[GenericUiThemeConfig.KEY_SUCCESS] ?: "#198754")
+        val danger = normalizeCssHex(palette[GenericUiThemeConfig.KEY_DANGER] ?: "#dc3545")
+        val warning = normalizeCssHex(palette[GenericUiThemeConfig.KEY_WARNING] ?: "#ffc107")
+        val info = normalizeCssHex(palette[GenericUiThemeConfig.KEY_INFO] ?: "#0dcaf0")
+        val light = normalizeCssHex(palette[GenericUiThemeConfig.KEY_LIGHT] ?: "#f8f9fa")
+        val dark = normalizeCssHex(palette[GenericUiThemeConfig.KEY_DARK] ?: "#212529")
+        val background = normalizeCssHex(
+            palette[GenericUiThemeConfig.KEY_BACKGROUND] ?: if (isDark) "#212529" else "#ffffff"
+        )
+        val surface = normalizeCssHex(
+            palette[GenericUiThemeConfig.KEY_SURFACE] ?: if (isDark) "#2b3035" else "#f8f9fa"
+        )
+        val textPrimary = normalizeCssHex(
+            palette[GenericUiThemeConfig.KEY_TEXT_PRIMARY] ?: if (isDark) "#f8f9fa" else "#212529"
+        )
+        val textSecondary = normalizeCssHex(
+            palette[GenericUiThemeConfig.KEY_TEXT_SECONDARY] ?: if (isDark) "#adb5bd" else "#6c757d"
+        )
+        val border = normalizeCssHex(
+            palette[GenericUiThemeConfig.KEY_BORDER] ?: if (isDark) "#495057" else "#dee2e6"
+        )
+
+        appendLine("$scopeSelector {")
+        emitBsCssVar("primary", primary)
+        emitBsCssVar("secondary", secondary)
+        emitBsCssVar("success", success)
+        emitBsCssVar("danger", danger)
+        emitBsCssVar("warning", warning)
+        emitBsCssVar("info", info)
+        emitBsCssVar("light", light)
+        emitBsCssVar("dark", dark)
+        appendLine("  --bs-link-color: $primary;")
+        appendLine("  --bs-link-color-rgb: ${hexToRgbTuple(primary)};")
+        appendLine("  --bs-body-bg: $background;")
+        appendLine("  --bs-body-bg-rgb: ${hexToRgbTuple(background)};")
+        appendLine("  --bs-tertiary-bg: $surface;")
+        appendLine("  --bs-tertiary-bg-rgb: ${hexToRgbTuple(surface)};")
+        appendLine("  --bs-body-color: $textPrimary;")
+        appendLine("  --bs-body-color-rgb: ${hexToRgbTuple(textPrimary)};")
+        appendLine("  --bs-secondary-color: $textSecondary;")
+        appendLine("  --bs-secondary-color-rgb: ${hexToRgbTuple(textSecondary)};")
+        appendLine("  --bs-border-color: $border;")
+        appendLine("  --genericui-theme-color: $primary;")
+        appendLine("  --genericui-accent: $accent;")
+        appendLine("}")
+
+        val semanticVariants = listOf(
+            "primary" to primary,
+            "secondary" to secondary,
+            "success" to success,
+            "danger" to danger,
+            "warning" to warning,
+            "info" to info,
+            "light" to light,
+            "dark" to dark
+        )
+        for ((name, colorHex) in semanticVariants) {
+            emitBsComponentRules(scopeSelector, name, colorHex)
+        }
+    }
+
+    private fun StringBuilder.emitBsCssVar(name: String, hex: String) {
+        appendLine("  --bs-$name: $hex;")
+        appendLine("  --bs-$name-rgb: ${hexToRgbTuple(hex)};")
+    }
+
+    private fun StringBuilder.emitBsComponentRules(
+        scopeSelector: String,
+        name: String,
+        baseHex: String
+    ) {
+        val (r, g, b) = parseHexRgb(baseHex)
+        val luma = (r * 299 + g * 587 + b * 114) / 1000
+        val fgHex = if (luma >= 150) "#212529" else "#ffffff"
+        val hoverHex = scaleHexRgb(r, g, b, 0.90)
+        val activeHex = scaleHexRgb(r, g, b, 0.84)
+
+        appendLine("$scopeSelector .btn-$name, .btn-$name {")
+        appendLine("  --bs-btn-color: $fgHex;")
+        appendLine("  --bs-btn-bg: $baseHex;")
+        appendLine("  --bs-btn-border-color: $baseHex;")
+        appendLine("  --bs-btn-hover-color: $fgHex;")
+        appendLine("  --bs-btn-hover-bg: $hoverHex;")
+        appendLine("  --bs-btn-hover-border-color: $hoverHex;")
+        appendLine("  --bs-btn-active-color: $fgHex;")
+        appendLine("  --bs-btn-active-bg: $activeHex;")
+        appendLine("  --bs-btn-active-border-color: $activeHex;")
+        appendLine("  background-color: $baseHex;")
+        appendLine("  border-color: $baseHex;")
+        appendLine("  color: $fgHex;")
+        appendLine("}")
+
+        appendLine("$scopeSelector .btn-outline-$name, .btn-outline-$name {")
+        appendLine("  --bs-btn-color: $baseHex;")
+        appendLine("  --bs-btn-border-color: $baseHex;")
+        appendLine("  --bs-btn-hover-color: $fgHex;")
+        appendLine("  --bs-btn-hover-bg: $baseHex;")
+        appendLine("  --bs-btn-hover-border-color: $baseHex;")
+        appendLine("  --bs-btn-active-color: $fgHex;")
+        appendLine("  --bs-btn-active-bg: $activeHex;")
+        appendLine("  --bs-btn-active-border-color: $activeHex;")
+        appendLine("  color: $baseHex;")
+        appendLine("  border-color: $baseHex;")
+        appendLine("}")
+
+        appendLine("$scopeSelector .bg-$name, .bg-$name { background-color: $baseHex !important; }")
+        appendLine("$scopeSelector .text-$name, .text-$name { color: $baseHex !important; }")
+        appendLine("$scopeSelector .border-$name, .border-$name { border-color: $baseHex !important; }")
+    }
+
+    private fun normalizeCssHex(raw: String): String {
+        val trimmed = raw.trim()
+        if (trimmed.isEmpty()) return "#0d6efd"
+        return if (trimmed.startsWith("#")) trimmed else "#$trimmed"
+    }
+
+    private fun parseHexRgb(hex: String): Triple<Int, Int, Int> {
+        val clean = hex.trim().removePrefix("#")
+        val full = when (clean.length) {
+            3 -> "${clean[0]}${clean[0]}${clean[1]}${clean[1]}${clean[2]}${clean[2]}"
+            6 -> clean
+            8 -> clean.substring(0, 6)
+            else -> "0d6efd"
+        }
+        val r = full.substring(0, 2).toIntOrNull(16) ?: 13
+        val g = full.substring(2, 4).toIntOrNull(16) ?: 110
+        val b = full.substring(4, 6).toIntOrNull(16) ?: 253
+        return Triple(r, g, b)
+    }
+
+    private fun hexToRgbTuple(hex: String): String {
+        val (r, g, b) = parseHexRgb(hex)
+        return "$r, $g, $b"
+    }
+
+    private fun scaleHexRgb(r: Int, g: Int, b: Int, factor: Double): String {
+        val sr = (r * factor).toInt().coerceIn(0, 255)
+        val sg = (g * factor).toInt().coerceIn(0, 255)
+        val sb = (b * factor).toInt().coerceIn(0, 255)
+        return "#%02x%02x%02x".format(sr, sg, sb)
+    }
 
     private fun cleanLegacyDistributionLayout(
         outDir: File,
@@ -574,6 +848,7 @@ abstract class GenericUiWebDistributionTask : DefaultTask() {
             "resources.json",
             "genericui-namespace.xml",
             "genericui.css",
+            "genericui-theme.css",
             "genericui-styles.css",
             "bootstrap.min.css",
             "bootstrap.bundle.min.js",
@@ -742,13 +1017,7 @@ abstract class GenericUiWebDistributionTask : DefaultTask() {
         return null
     }
 
-    private data class StagedBootstrapAssets(
-        val cssSha1: String,
-        val jsSha1: String,
-        val iconsCssSha1: String
-    )
-
-    private fun stagePackagedBootstrapAssets(rootDir: File, guiDir: File): StagedBootstrapAssets {
+    private fun stagePackagedBootstrapAssets(rootDir: File, guiDir: File): Triple<String, String, String> {
         val assetRelPaths = listOf(
             "bootstrap.min.css",
             "bootstrap.bundle.min.js",
@@ -780,10 +1049,10 @@ abstract class GenericUiWebDistributionTask : DefaultTask() {
         val cssFile = File(guiDir, "bootstrap.min.css")
         val jsFile = File(guiDir, "bootstrap.bundle.min.js")
         val iconsCssFile = File(guiDir, "bootstrap-icons.min.css")
-        return StagedBootstrapAssets(
-            cssSha1 = if (cssFile.isFile) sha1HexOfFile(cssFile) else sha1HexOfString("gui/bootstrap.min.css"),
-            jsSha1 = if (jsFile.isFile) sha1HexOfFile(jsFile) else sha1HexOfString("gui/bootstrap.bundle.min.js"),
-            iconsCssSha1 = if (iconsCssFile.isFile) sha1HexOfFile(iconsCssFile) else sha1HexOfString("gui/bootstrap-icons.min.css")
+        return Triple(
+            if (cssFile.isFile) sha1HexOfFile(cssFile) else sha1HexOfString("gui/bootstrap.min.css"),
+            if (jsFile.isFile) sha1HexOfFile(jsFile) else sha1HexOfString("gui/bootstrap.bundle.min.js"),
+            if (iconsCssFile.isFile) sha1HexOfFile(iconsCssFile) else sha1HexOfString("gui/bootstrap-icons.min.css")
         )
     }
 
@@ -791,11 +1060,12 @@ abstract class GenericUiWebDistributionTask : DefaultTask() {
         outDir: File,
         manifestFileName: String,
         resolvedBase: String
-    ): List<WebResourceDescriptor> {
+    ): List<GenericUiWebResourceDescriptor> {
         val excludedPaths = setOf(
             "index.html",
             "loader.js",
             "genericui-loader.js",
+            "web-test-harness.js",
             "genericui-sw.js",
             "gui/genericui-sw.js",
             "manifest.webmanifest",
@@ -822,7 +1092,7 @@ abstract class GenericUiWebDistributionTask : DefaultTask() {
             .toList()
 
         val seenIds = mutableSetOf<String>()
-        val descriptors = mutableListOf<WebResourceDescriptor>()
+        val descriptors = mutableListOf<GenericUiWebResourceDescriptor>()
         for (relPath in files) {
             val (type, baseName) = classifyResourceTypeAndName(relPath)
             val mimeType = inferResourceMimeType(relPath)
@@ -842,7 +1112,7 @@ abstract class GenericUiWebDistributionTask : DefaultTask() {
             val fileHash = if (fileOnDisk.isFile) sha1HexOfFile(fileOnDisk) else sha1HexOfString(relPath)
             val fileSize = if (fileOnDisk.isFile) fileOnDisk.length() else 0L
             descriptors.add(
-                WebResourceDescriptor(
+                GenericUiWebResourceDescriptor(
                     id = candidateId,
                     type = type,
                     name = candidateName,
@@ -856,7 +1126,7 @@ abstract class GenericUiWebDistributionTask : DefaultTask() {
         val wasmFile = File(outDir, "$resolvedBase.wasm")
         if (wasmFile.isFile) {
             descriptors.add(
-                WebResourceDescriptor(
+                GenericUiWebResourceDescriptor(
                     id = "wasm/$resolvedBase",
                     type = "wasm",
                     name = resolvedBase,
@@ -870,7 +1140,7 @@ abstract class GenericUiWebDistributionTask : DefaultTask() {
         val jsFile = File(outDir, "$resolvedBase.js")
         if (jsFile.isFile) {
             descriptors.add(
-                WebResourceDescriptor(
+                GenericUiWebResourceDescriptor(
                     id = "js/$resolvedBase",
                     type = "js",
                     name = resolvedBase,
@@ -957,7 +1227,7 @@ abstract class GenericUiWebDistributionTask : DefaultTask() {
     }
 
     private fun buildResourcesManifestJson(
-        descriptors: List<WebResourceDescriptor>,
+        descriptors: List<GenericUiWebResourceDescriptor>,
         pretty: Boolean
     ): String {
         if (descriptors.isEmpty()) {
@@ -995,7 +1265,7 @@ abstract class GenericUiWebDistributionTask : DefaultTask() {
         iconPrefix: String,
         stagedWasmRelPath: String,
         stagedJsRelPath: String,
-        resourceDescriptors: List<WebResourceDescriptor>
+        resourceDescriptors: List<GenericUiWebResourceDescriptor>
     ): List<String> {
         val paths = linkedSetOf<String>()
         paths.add("./")
@@ -1789,6 +2059,40 @@ genericui\:toolpalette {
     -moz-user-select: text !important;
     user-select: text !important;
     cursor: text;
+}
+
+/* ProgressBar Busy Mode Bouncing Bootstrap Animation */
+genericui\:progressbar.progress.genericui-progress-busy,
+.progress.genericui-progress-busy {
+    position: relative;
+    overflow: hidden;
+}
+
+genericui\:progressbar.progress.genericui-progress-busy > .progress-bar.genericui-progress-bar-busy,
+.progress.genericui-progress-busy > .progress-bar.genericui-progress-bar-busy {
+    width: 30% !important;
+    border-radius: inherit;
+    transform-origin: 0% 50%;
+    will-change: transform;
+    animation: genericui-progress-busy-bounce 1.35s cubic-bezier(0.45, 0.05, 0.55, 0.95) infinite alternate !important;
+}
+
+@keyframes genericui-progress-busy-bounce {
+    0% {
+        transform: translateX(0%) scaleX(0.86);
+    }
+    8% {
+        transform: translateX(0%) scaleX(1);
+    }
+    50% {
+        transform: translateX(113.3333%) scaleX(1.06);
+    }
+    92% {
+        transform: translateX(233.3333%) scaleX(1);
+    }
+    100% {
+        transform: translateX(247.3333%) scaleX(0.86);
+    }
 }"""
 
         const val NAMESPACE_CSS_SOURCE: String = """genericui\:app, genericui\:component, genericui\:fragment, genericui\:fragment-container, genericui\:container, genericui\:box, genericui\:col, genericui\:scrollview, genericui\:stepscrollview, genericui\:aspectratiocontainer, genericui\:lazylist, genericui\:lazycolumn, genericui\:lazygrid, genericui\:lazygridtree, genericui\:treeview, genericui\:collapsiblepanel, genericui\:accordion, genericui\:accordionitem, genericui\:jumbotron, genericui\:well, genericui\:listgroupitem, genericui\:tabcontainer, genericui\:formgroup, genericui\:radiogroup, genericui\:markdownview, genericui\:alert, genericui\:toast, genericui\:skeletonplaceholder, genericui\:modal, genericui\:popover, genericui\:backdrop, genericui\:dialogwindow, genericui\:dockpanel, genericui\:panelwindow, genericui\:categorizedtreeview, genericui\:menuitem, genericui\:checkmenuitem, genericui\:radiomenuitem, genericui\:menuseparator, genericui\:contextmenu, genericui\:mdidesktop { display: block; box-sizing: border-box; }
@@ -2998,6 +3302,7 @@ genericui\:toolpalette { display: grid; box-sizing: border-box; }"""
             if (!catalog || typeof catalog !== "object") {
                 return;
             }
+            state.pendingResourcesCatalog = catalog;
             var store = global.__GENERICUI_PRELOADED_RESOURCES__;
             if (!store) {
                 return;
@@ -3009,13 +3314,19 @@ genericui\:toolpalette { display: grid; box-sizing: border-box; }"""
                     var resName = keys[i];
                     var item = drawables[resName];
                     if (item && typeof item === "object") {
-                        var rec = (item.path && store[item.path]) ||
+                        var itemPath = item.path ? String(item.path).replace(/^\.?\//, "") : "";
+                        var rec = (itemPath && (store[itemPath] || store["res/" + itemPath] || store["res://" + itemPath])) ||
                             store["drawable/" + resName] ||
                             store[resName];
                         if (rec) {
                             if (item.id != null) {
                                 store[String(item.id)] = rec;
                                 store["res://" + String(item.id)] = rec;
+                            }
+                            if (itemPath) {
+                                store[itemPath] = rec;
+                                store["res/" + itemPath] = rec;
+                                store["res://" + itemPath] = rec;
                             }
                             registerNameKeysInStore(store, "drawable", resName, rec);
                         }
@@ -3080,6 +3391,20 @@ genericui\:toolpalette { display: grid; box-sizing: border-box; }"""
             text: text
         };
 
+        if (mimeType && mimeType.indexOf("image/") === 0 && dataUrl && typeof global.Image === "function") {
+            try {
+                var eagerImg = new global.Image();
+                eagerImg.decoding = "async";
+                eagerImg.src = dataUrl;
+                record.imageElement = eagerImg;
+                if (eagerImg.complete && eagerImg.naturalWidth > 0) {
+                    record.naturalWidth = eagerImg.naturalWidth;
+                    record.naturalHeight = eagerImg.naturalHeight;
+                }
+            } catch (imgErr) {
+            }
+        }
+
         if (id) {
             store[id] = record;
             store["res://" + id] = record;
@@ -3092,6 +3417,18 @@ genericui\:toolpalette { display: grid; box-sizing: border-box; }"""
             var cleanPath = path.replace(/^\.?\//, "").split("?")[0];
             store[cleanPath] = record;
             store["res://" + cleanPath] = record;
+            store["res/" + cleanPath] = record;
+            var lastSlashIdx = cleanPath.lastIndexOf("/");
+            var fileName = lastSlashIdx >= 0 ? cleanPath.substring(lastSlashIdx + 1) : cleanPath;
+            if (fileName) {
+                if (!store[fileName]) store[fileName] = record;
+                if (!store["res/" + fileName]) store["res/" + fileName] = record;
+                if (!store["assets/drawable/" + fileName]) store["assets/drawable/" + fileName] = record;
+                if (!store["res/assets/drawable/" + fileName]) store["res/assets/drawable/" + fileName] = record;
+                if (!store["res://assets/drawable/" + fileName]) store["res://assets/drawable/" + fileName] = record;
+                if (!store["drawable/" + fileName]) store["drawable/" + fileName] = record;
+                if (!store["res://drawable/" + fileName]) store["res://drawable/" + fileName] = record;
+            }
             if (cleanPath.indexOf("res/") === 0) {
                 var strippedRes = cleanPath.substring(4);
                 if (strippedRes) {
@@ -3103,6 +3440,20 @@ genericui\:toolpalette { display: grid; box-sizing: border-box; }"""
                 if (strippedGui) {
                     store[strippedGui] = record;
                     store["res://" + strippedGui] = record;
+                }
+            }
+            var relForIdent = cleanPath
+                .replace(/^(?:res|gui)\//i, "")
+                .replace(/^assets\/drawable\//i, "")
+                .replace(/^(?:drawable|mipmap|icons|images)\//i, "");
+            if (relForIdent && relForIdent.indexOf("/") !== -1) {
+                var relNoExt = relForIdent.replace(/\.[^.\/]+$/, "");
+                var subdirIdent = relNoExt
+                    .replace(/[-.\s\/]+/g, "_")
+                    .replace(/[^A-Za-z0-9_]/g, "")
+                    .toLowerCase();
+                if (subdirIdent) {
+                    registerNameKeysInStore(store, type, subdirIdent, record);
                 }
             }
             if (/\.scss$/i.test(cleanPath)) {
@@ -3122,10 +3473,13 @@ genericui\:toolpalette { display: grid; box-sizing: border-box; }"""
         if (!record || !record.mimeType || record.mimeType.indexOf("image/") !== 0 || !record.dataUrl || typeof global.Image !== "function") {
             return Promise.resolve(record);
         }
-        if (record.imageElement && record.imageElement.complete) {
+        if (record.imageElement && record.imageElement.complete && record.imageElement.naturalWidth > 0) {
+            record.naturalWidth = record.imageElement.naturalWidth;
+            record.naturalHeight = record.imageElement.naturalHeight || 0;
             return Promise.resolve(record);
         }
-        var img = new global.Image();
+        var img = record.imageElement || new global.Image();
+        img.decoding = "async";
         record.imageElement = img;
         return new Promise(function (resolve) {
             var settled = false;
@@ -3151,10 +3505,34 @@ genericui\:toolpalette { display: grid; box-sizing: border-box; }"""
                 record.naturalHeight = img.naturalHeight || 0;
                 resolve(record);
             }
-            img.onload = finish;
+            img.onload = function () {
+                if (typeof img.decode === "function") {
+                    try {
+                        var p = img.decode();
+                        if (p && typeof p.then === "function") {
+                            p.then(finish, finish);
+                            return;
+                        }
+                    } catch (decErr) {
+                    }
+                }
+                finish();
+            };
             img.onerror = finish;
-            img.src = record.dataUrl;
+            if (!img.src) {
+                img.src = record.dataUrl;
+            }
             if (img.complete && img.naturalWidth > 0) {
+                if (typeof img.decode === "function") {
+                    try {
+                        var dp = img.decode();
+                        if (dp && typeof dp.then === "function") {
+                            dp.then(finish, finish);
+                            return;
+                        }
+                    } catch (decErr2) {
+                    }
+                }
                 finish();
             }
         });
@@ -3455,6 +3833,9 @@ genericui\:toolpalette { display: grid; box-sizing: border-box; }"""
                 workers.push(runWorker());
             }
             return Promise.all(workers).then(function () {
+                if (state.pendingResourcesCatalog) {
+                    applyGenericUiResourcesCatalog(state.pendingResourcesCatalog);
+                }
                 if (state.totalBytes > 0) {
                     var resDonePct = Math.min(99, Math.round((state.loadedBytes / state.totalBytes) * 100));
                     updateProgress(resDonePct, STATUS_LOADING_RESOURCES);
@@ -3786,6 +4167,17 @@ genericui\:toolpalette { display: grid; box-sizing: border-box; }"""
             cfg.appBundleUrl ||
             readTagAttr(scriptEl, "data-app-bundle-url");
 
+        var additionalJsUrls = [];
+        if (els.doc && typeof els.doc.querySelectorAll === "function") {
+            var allJsTags = els.doc.querySelectorAll('script[type="loader-js"]');
+            for (var j = 1; j < allJsTags.length; j++) {
+                var extraSrc = readTagAttr(allJsTags[j], "src");
+                if (extraSrc) {
+                    additionalJsUrls.push(extraSrc);
+                }
+            }
+        }
+
         var wasmJsUrl = cfg.wasmJsUrl ||
             (isDirectWasmBinary ? jsIrUrl : rawWasmSrc) ||
             readTagAttr(scriptEl, "data-wasm-js-url") ||
@@ -3813,10 +4205,29 @@ genericui\:toolpalette { display: grid; box-sizing: border-box; }"""
             wasmJsUrl: wasmJsUrl,
             wasmBinaryUrl: wasmBinaryUrl,
             jsIrUrl: jsIrUrl,
+            additionalJsUrls: additionalJsUrls,
             resourceManifestUrl: resourceManifestUrl,
             requireResourceManifest: cfg.requireResourceManifest === true,
             fadeDurationMs: fadeDurationMs
         };
+    }
+
+    function loadAdditionalJsScriptsSequentially(additionalUrls) {
+        if (!additionalUrls || additionalUrls.length === 0) {
+            return Promise.resolve();
+        }
+        var chain = Promise.resolve();
+        for (var i = 0; i < additionalUrls.length; i++) {
+            (function (scriptUrl) {
+                chain = chain.then(function () {
+                    return downloadWithProgress(scriptUrl, 95, 99, STATUS_LOADING_APPLICATION, 0)
+                        .then(function (scriptBytes) {
+                            return executeDownloadedScript(scriptBytes, scriptUrl, false);
+                        });
+                });
+            })(additionalUrls[i]);
+        }
+        return chain;
     }
 
     function loadJsIrFallback(config, statusOverride, priorWasmError) {
@@ -4035,7 +4446,7 @@ genericui\:toolpalette { display: grid; box-sizing: border-box; }"""
         return preloadAllResources(config)
             .then(function () {
                 if (!config.wasmJsUrl && !config.jsIrUrl) {
-                    return Promise.resolve();
+                    return loadAdditionalJsScriptsSequentially(config.additionalJsUrls);
                 }
                 if (state.totalBytes <= 0) {
                     updateProgress(50, STATUS_LOADING_APPLICATION);
@@ -4043,7 +4454,10 @@ genericui\:toolpalette { display: grid; box-sizing: border-box; }"""
                     var afterResPct = Math.min(99, Math.round((state.loadedBytes / state.totalBytes) * 100));
                     updateProgress(afterResPct, STATUS_LOADING_APPLICATION);
                 }
-                return loadWasmPrimaryWithFallback(config);
+                return loadWasmPrimaryWithFallback(config)
+                    .then(function () {
+                        return loadAdditionalJsScriptsSequentially(config.additionalJsUrls);
+                    });
             })
             .catch(function (err) {
                 showError(err, STATUS_ERROR);
@@ -4096,6 +4510,81 @@ genericui\:toolpalette { display: grid; box-sizing: border-box; }"""
     }
 })(typeof window !== "undefined" ? window : globalThis);
 """.trimIndent()
+
+        const val WEB_TEST_HARNESS_JS_SOURCE: String = """(function (global) {
+    "use strict";
+    if (global.__GENERICUI_WEB_TEST_HARNESS_INSTALLED__) {
+        return;
+    }
+    global.__GENERICUI_WEB_TEST_HARNESS_INSTALLED__ = true;
+
+    var startTime = Date.now();
+    var capturedErrors = [];
+
+    if (typeof global.addEventListener === "function") {
+        global.addEventListener("error", function (ev) {
+            var msg = (ev && ev.message) ? String(ev.message) : "Unhandled window error";
+            var stack = (ev && ev.error && ev.error.stack) ? String(ev.error.stack) : msg;
+            capturedErrors.push({ name: "window.onerror", message: msg, stack: stack });
+        });
+        global.addEventListener("unhandledrejection", function (ev) {
+            var reason = ev ? ev.reason : null;
+            var msg = (reason && reason.message) ? String(reason.message) : String(reason || "Unhandled Promise rejection");
+            var stack = (reason && reason.stack) ? String(reason.stack) : msg;
+            capturedErrors.push({ name: "unhandledrejection", message: msg, stack: stack });
+        });
+    }
+
+    function finalizeReportIfPending() {
+        if (global.__GENERICUI_TEST_REPORT_JSON__) {
+            return;
+        }
+        var results = Array.isArray(global.__GENERICUI_TEST_RESULTS__) ? global.__GENERICUI_TEST_RESULTS__ : [];
+        var passed = 0;
+        var failed = 0;
+        var failures = [];
+        for (var i = 0; i < results.length; i++) {
+            var r = results[i];
+            if (r && r.status === "FAILED") {
+                failed++;
+                failures.push({
+                    suite: r.suite || "WebTestSuite",
+                    name: r.name || ("test_" + i),
+                    message: r.message || "Test failed",
+                    stack: r.stack || ""
+                });
+            } else {
+                passed++;
+            }
+        }
+        for (var e = 0; e < capturedErrors.length; e++) {
+            failed++;
+            failures.push({
+                suite: "WebTestHarness",
+                name: capturedErrors[e].name,
+                message: capturedErrors[e].message,
+                stack: capturedErrors[e].stack
+            });
+        }
+        var report = {
+            status: failed > 0 ? "FAILED" : "PASSED",
+            total: passed + failed,
+            passed: passed,
+            failed: failed,
+            durationMs: Date.now() - startTime,
+            failures: failures
+        };
+        global.__GENERICUI_TEST_REPORT_JSON__ = JSON.stringify(report);
+    }
+
+    global.__GENERICUI_FINALIZE_WEB_TEST_REPORT__ = finalizeReportIfPending;
+    if (typeof global.setTimeout === "function") {
+        global.setTimeout(finalizeReportIfPending, 50);
+    } else {
+        finalizeReportIfPending();
+    }
+})(typeof window !== "undefined" ? window : globalThis);
+"""
 
         const val DEFAULT_LOADING_SVG_SOURCE: String = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 90" width="160" height="90">
   <defs>

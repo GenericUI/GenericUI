@@ -203,7 +203,7 @@ class FragmentHostFragmentTest {
         assertEquals(2, host.stageContainer.children.size)
         assertEquals(2, host.stageLayout.layers.size)
         assertTrue(host.stageContainer.hasClass("gui-layered-container"))
-        assertEquals("relative", host.stageContainer.getStyleProperty("position"))
+        assertEquals("relative", host.stageContainer.getStyle().getPosition()?.cssValue)
 
         val outgoingConstraint = host.stageLayout.getLayerConstraint(first)
         val incomingConstraint = host.stageLayout.getLayerConstraint(second)
@@ -212,12 +212,12 @@ class FragmentHostFragmentTest {
         assertEquals(LayerSizingMode.FILL, outgoingConstraint.sizingMode)
         assertEquals(LayerSizingMode.FILL, incomingConstraint.sizingMode)
         assertTrue(outgoingConstraint.passThroughPointerEvents)
-        assertEquals("absolute", first.getStyleProperty("position"))
-        assertEquals("absolute", second.getStyleProperty("position"))
-        assertEquals("100%", first.getStyleProperty("width"))
-        assertEquals("100%", first.getStyleProperty("height"))
-        assertEquals("100%", second.getStyleProperty("width"))
-        assertEquals("100%", second.getStyleProperty("height"))
+        assertEquals("absolute", first.getStyle().getPosition()?.cssValue)
+        assertEquals("absolute", second.getStyle().getPosition()?.cssValue)
+        assertEquals("100%", first.getStyle().getWidth()?.toCssString())
+        assertEquals("100%", first.getStyle().getHeight()?.toCssString())
+        assertEquals("100%", second.getStyle().getWidth()?.toCssString())
+        assertEquals("100%", second.getStyle().getHeight()?.toCssString())
 
         // Advance past the 50ms activation delay -> incoming layer moves above outgoing with zIndex = 5
         UiTimerScheduler.advanceTimeBy(60)

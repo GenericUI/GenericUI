@@ -3,6 +3,7 @@ package com.nexustools.genericui.core
 import com.nexustools.genericui.component.fragment.Fragment
 import com.nexustools.genericui.component.fragment.FragmentBundle
 import com.nexustools.genericui.component.fragment.FragmentRegistry
+import com.nexustools.genericui.component.shell.Application
 import com.nexustools.genericui.component.shell.FragmentApplication
 import com.nexustools.genericui.component.shell.IApplication
 import com.nexustools.genericui.enums.ui.ThemeMode
@@ -20,6 +21,12 @@ object GenericUiLaunchSequence {
      * fragments into [FragmentRegistry], constructs the root [IApplication] / `@MainAppFragment`
      * (forwarding command-line [args] inside a [FragmentBundle] on system targets), and configures
      * the primary window and theme.
+     *
+     * On Desktop targets (`windows`, `macos`, `gtk`, `qt`, `swing`), if [GenericUiAppDescriptor.applicationFactory]
+     * is provided (`@AppApplication`), the custom [Application] is instantiated and its overridable
+     * [Application.onCreateMainFragment] / [Application.createMainFragment] routine is invoked.
+     * Mobile (`android`, `ios`) and Web (`web`) targets ignore [GenericUiAppDescriptor.applicationFactory]
+     * for fragment creation.
      */
     fun prepareApplication(
         factory: NativeFactory? = GenericUI.activeFactory,
@@ -51,30 +58,79 @@ object GenericUiLaunchSequence {
         }
 
         val resolvedThemeMode = ThemeMode.fromString(descriptor.themeMode)
+        val effectiveThemeConfig = descriptor.themeConfig
+            .withMode(resolvedThemeMode)
+            .let { cfg ->
+                if (cfg.colors.primary == null && cfg.colors.accent == null && descriptor.themeColor.isNotBlank()) {
+                    cfg.withPrimaryAccentColor(descriptor.themeColor)
+                } else {
+                    cfg
+                }
+            }
+        GenericUI.defaultThemeMode = resolvedThemeMode
+        GenericUI.defaultThemeConfig = effectiveThemeConfig
+        val isDesktopTarget = factory?.backendTarget?.isDesktop ?: isSystemTarget
 
-        val app: IApplication = if (descriptor.applicationFactory != null) {
-            descriptor.applicationFactory.invoke(launchBundle).also { createdApp ->
-                createdApp.setThemeMode(resolvedThemeMode)
-                if (descriptor.themeColor.isNotBlank()) {
-                    createdApp.setThemeColor(descriptor.themeColor)
+        if (isDesktopTarget && descriptor.applicationFactory != null) {
+            val createdApp = descriptor.applicationFactory.invoke(launchBundle)
+            createdApp.setThemeConfig(effectiveThemeConfig)
+            createdApp.setThemeMode(resolvedThemeMode)
+            if (descriptor.themeColor.isNotBlank()) {
+                createdApp.setThemeColor(descriptor.themeColor)
+            }
+            val mainWindow = createdApp.mainWindow
+            if (descriptor.windowTitle.isNotBlank() &&
+                (mainWindow.getTitle().isBlank() || mainWindow.getTitle() == "GenericUI Application")
+            ) {
+                mainWindow.setTitle(descriptor.windowTitle)
+            }
+            mainWindow.setWindowSize(Size(descriptor.windowWidth, descriptor.windowHeight))
+            if (descriptor.fullscreen) {
+                mainWindow.setFullscreen(true)
+            }
+            val iconUriOrPath = descriptor.iconPath?.takeIf { it.isNotBlank() }
+                ?: descriptor.iconResourceId?.toResourceUri()
+            if (iconUriOrPath != null) {
+                mainWindow.setWindowIcon(iconUriOrPath)
+            }
+            descriptor.globalStyleSheetResourceId?.let { createdApp.addStyleSheet(it) }
+            descriptor.globalStyleSheetPath?.takeIf { it.isNotBlank() }?.let { createdApp.addStyleSheet(it) }
+            descriptor.precompiledStyleSheetInstaller?.invoke(createdApp)
+
+            if (createdApp is Application) {
+                createdApp.mainFragmentClass = descriptor.mainFragmentClass
+                createdApp.mainFragmentFactory = descriptor.mainFragmentFactory
+                createdApp.launchArguments = launchBundle
+                descriptor.mainFragmentFactory?.let { fragFactory ->
+                    createdApp.bindDefaultMainFragmentFactory { rawArgs ->
+                        fragFactory(FragmentBundle.fromCommandLineArgs(rawArgs))
+                    }
+                }
+                if (mainWindow.getContent() == null && mainWindow.fragmentContainer?.currentFragment == null) {
+                    val frag = createdApp.onCreateMainFragment(launchBundle)
+                    if (frag != null && mainWindow.fragmentContainer?.currentFragment == null && mainWindow.getContent() == null) {
+                        createdApp.setFragment(frag)
+                    }
                 }
             }
-        } else {
-            val mainFragment = descriptor.mainFragmentFactory?.invoke(launchBundle)
-                ?: descriptor.mainFragmentClass?.let { FragmentRegistry.instantiate(it, launchBundle) }
-                ?: Fragment()
-            if (launchBundle != null && mainFragment.arguments == null) {
-                mainFragment.arguments = launchBundle
-            }
-            FragmentApplication(
-                initialFragment = mainFragment,
-                title = descriptor.windowTitle,
-                initialThemeColor = descriptor.themeColor.takeIf { it.isNotBlank() }
-            ).also { createdApp ->
-                createdApp.setThemeMode(resolvedThemeMode)
-                if (descriptor.themeColor.isNotBlank()) {
-                    createdApp.setThemeColor(descriptor.themeColor)
-                }
+            return createdApp
+        }
+
+        val mainFragment = descriptor.mainFragmentFactory?.invoke(launchBundle)
+            ?: descriptor.mainFragmentClass?.let { FragmentRegistry.instantiate(it, launchBundle) }
+            ?: Fragment()
+        if (launchBundle != null && mainFragment.arguments == null) {
+            mainFragment.arguments = launchBundle
+        }
+        val app: IApplication = FragmentApplication(
+            initialFragment = mainFragment,
+            title = descriptor.windowTitle,
+            initialThemeColor = descriptor.themeColor.takeIf { it.isNotBlank() }
+        ).also { createdApp ->
+            createdApp.setThemeConfig(effectiveThemeConfig)
+            createdApp.setThemeMode(resolvedThemeMode)
+            if (descriptor.themeColor.isNotBlank()) {
+                createdApp.setThemeColor(descriptor.themeColor)
             }
         }
 
@@ -108,6 +164,39 @@ object GenericUiLaunchSequence {
         isSystemTarget: Boolean = factory.backendTarget.isSystem
     ): IApplication {
         val app = prepareApplication(factory, args, descriptor, isSystemTarget)
+        app.run(factory)
+        return app
+    }
+
+    /**
+     * Desktop-specific launch helper that binds [defaultFragmentFactory] onto the [Application] returned by
+     * [appProvider], invokes [Application.onCreateMainFragment] (unless content or a fragment was already set),
+     * and starts the desktop event loop via [Application.run].
+     */
+    fun launchDesktop(
+        factory: NativeFactory,
+        appProvider: () -> Application,
+        defaultFragmentFactory: (Array<String>) -> Fragment,
+        title: String,
+        args: Array<String> = emptyArray()
+    ): Application {
+        GenericUI.initialize(factory)
+        val launchBundle = FragmentBundle.fromCommandLineArgs(args)
+        val app = appProvider()
+        app.launchArguments = launchBundle
+        app.bindDefaultMainFragmentFactory(defaultFragmentFactory)
+        app.mainFragmentFactory = { bundle ->
+            defaultFragmentFactory(bundle?.getCommandLineArgsArray() ?: args)
+        }
+        if (title.isNotBlank() && (app.mainWindow.getTitle().isBlank() || app.mainWindow.getTitle() == "GenericUI Application")) {
+            app.mainWindow.setTitle(title)
+        }
+        if (app.mainWindow.getContent() == null && app.mainWindow.fragmentContainer?.currentFragment == null) {
+            val fragment = app.onCreateMainFragment(args)
+            if (fragment != null && app.mainWindow.fragmentContainer?.currentFragment == null && app.mainWindow.getContent() == null) {
+                app.setFragment(fragment)
+            }
+        }
         app.run(factory)
         return app
     }

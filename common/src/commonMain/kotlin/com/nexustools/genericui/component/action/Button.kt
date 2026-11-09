@@ -268,6 +268,10 @@ open class Button(
         image?.onThemeChanged()
     }
 
+    internal open fun onThemeChanged() {
+        image?.onThemeChanged()
+    }
+
     protected override fun createNativeImpl(factory: NativeFactory): ButtonNativeImpl<*> =
         factory.createButton(classPrefix)
 

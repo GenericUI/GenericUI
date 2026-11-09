@@ -30,7 +30,7 @@ class LayeredContainerAndTextBubbleTest {
         val container = LayeredContainer()
         assertEquals("genericui:layered-container", container.htmlTag)
         assertTrue(container.getClasses().contains("gui-layered-container"))
-        assertEquals("relative", container.getStyleProperty("position"))
+        assertEquals("relative", container.getStyle().getPosition()?.cssValue)
 
         val videoSurface = Box()
         val subtitleOverlay = Box()
@@ -62,13 +62,13 @@ class LayeredContainerAndTextBubbleTest {
         assertTrue(subtitleConstraint.passThroughPointerEvents)
         assertTrue(subtitleOverlay.getClasses().contains("gui-layer-float"))
         assertTrue(subtitleOverlay.getClasses().contains("gui-layer-pass-through"))
-        assertEquals("none", subtitleOverlay.getStyleProperty("pointer-events"))
-        assertEquals("48px", subtitleOverlay.getStyleProperty("bottom"))
-        assertEquals("50.0%", subtitleOverlay.getStyleProperty("left"))
+        assertEquals("none", subtitleOverlay.getStyle().getPointerEvents()?.cssValue)
+        assertEquals("48px", subtitleOverlay.getStyle().getBottom()?.toCssString())
+        assertEquals("50%", subtitleOverlay.getStyle().getLeft()?.toCssString())
 
         assertTrue(videoSurface.getClasses().contains("gui-layer-fill"))
-        assertEquals("100%", videoSurface.getStyleProperty("width"))
-        assertEquals("100%", videoSurface.getStyleProperty("height"))
+        assertEquals("100%", videoSurface.getStyle().getWidth()?.toCssString())
+        assertEquals("100%", videoSurface.getStyle().getHeight()?.toCssString())
 
         // Updating layer constraint updates zIndex
         container.setLayerConstraint(videoSurface, LayerConstraint.fill(zIndex = 21))
@@ -103,8 +103,8 @@ class LayeredContainerAndTextBubbleTest {
         assertEquals(2, fragment.layers.size)
         assertEquals(listOf(background, badge), fragment.layers)
         assertEquals(LayerAlignment.TOP_END, fragment.getLayerConstraint(badge)?.alignment)
-        assertEquals("12px", badge.getStyleProperty("top"))
-        assertEquals("16px", badge.getStyleProperty("right"))
+        assertEquals("12px", badge.getStyle().getTop()?.toCssString())
+        assertEquals("16px", badge.getStyle().getRight()?.toCssString())
     }
 
     @Test
@@ -123,9 +123,9 @@ class LayeredContainerAndTextBubbleTest {
         assertTrue(bubble.getClasses().contains("gui-text-bubble"))
         assertTrue(bubble.getClasses().contains("gui-text-bubble-pointer-bottom"))
         assertEquals("BOTTOM", bubble.getAttribute("pointerSide"))
-        assertEquals("50.0%", bubble.getStyleProperty("--gui-bubble-pointer-offset"))
-        assertEquals("12px", bubble.getStyleProperty("--gui-bubble-pointer-width"))
-        assertEquals("8px", bubble.getStyleProperty("--gui-bubble-pointer-height"))
+        assertEquals("0.5", bubble.getAttribute("pointerOffset"))
+        assertEquals("12", bubble.getAttribute("pointerWidthPx"))
+        assertEquals("8", bubble.getAttribute("pointerHeightPx"))
 
         bubble.text = "01:02:03"
         bubble.pointerSide = TextBubblePointerSide.TOP
@@ -138,9 +138,9 @@ class LayeredContainerAndTextBubbleTest {
         assertFalse(bubble.getClasses().contains("gui-text-bubble-pointer-bottom"))
         assertEquals("TOP", bubble.getAttribute("pointerSide"))
         assertEquals(1.0f, bubble.pointerOffset)
-        assertEquals("100.0%", bubble.getStyleProperty("--gui-bubble-pointer-offset"))
-        assertEquals("14px", bubble.getStyleProperty("--gui-bubble-pointer-width"))
-        assertEquals("10px", bubble.getStyleProperty("--gui-bubble-pointer-height"))
+        assertEquals("1.0", bubble.getAttribute("pointerOffset"))
+        assertEquals("14", bubble.getAttribute("pointerWidthPx"))
+        assertEquals("10", bubble.getAttribute("pointerHeightPx"))
 
         bubble.pointerSide = TextBubblePointerSide.NONE
         assertTrue(bubble.getClasses().contains("gui-text-bubble-pointer-none"))
@@ -183,12 +183,10 @@ class LayeredContainerAndTextBubbleTest {
             gap = CssLength(8f, CssUnit.PX)
         }
         val computed = ComputedStyle(
-            rawDeclarations = mapOf(
-                "padding-top" to "6px",
-                "width" to "64px",
-                "height" to "64px",
-                "gap" to "12px"
-            )
+            paddingTop = CssLength.px(6f),
+            width = "64px",
+            height = "64px",
+            gap = CssLength.px(12f)
         )
 
         val spec = StyledVisualSpec.fromComponentAndComputed(compStyle, computed)

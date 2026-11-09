@@ -129,8 +129,10 @@ class ComponentStyleBootstrapAndThemeTest {
         assertEquals(10, s.getZIndex())
         assertEquals(0.9f, s.getOpacity())
 
-        val inlineCss = s.toInlineCssString()
-        assertTrue(inlineCss.contains("!important"))
+        val propMap = s.toCssPropertyMap()
+        assertEquals(true, propMap["color"]?.second)
+        assertEquals(true, propMap["border-radius"]?.second)
+        assertEquals(false, propMap["background-color"]?.second)
 
         // Verify null clearing removes declarations and !important flags
         s.setColor(null)
@@ -416,5 +418,77 @@ class ComponentStyleBootstrapAndThemeTest {
         assertTrue(app.hasStyleSheet("styles/app_main.scss"))
         assertTrue(app.removeStyleSheet(precompiled))
         assertFalse(app.hasStyleSheet("styles/app_main.scss"))
+    }
+
+    @Test
+    fun testThemeConfigAndSystemComponentStyleFiltering() {
+        val customTheme = com.nexustools.genericui.style.theme.ThemeConfig(
+            mode = ThemeMode.DARK,
+            colors = com.nexustools.genericui.style.theme.ThemeColorSet(
+                primary = RgbaColor.fromHex("#ff6600"),
+                onPrimary = RgbaColor.WHITE,
+                info = RgbaColor.fromHex("#00b4d8")
+            ),
+            lightColors = com.nexustools.genericui.style.theme.ThemeColorSet(
+                background = RgbaColor.fromHex("#f8fafc")
+            ),
+            darkColors = com.nexustools.genericui.style.theme.ThemeColorSet(
+                background = RgbaColor.fromHex("#0f172a")
+            )
+        )
+
+        assertEquals(RgbaColor.fromHex("#ff6600"), customTheme.resolveBootstrapColor(BootstrapType.PRIMARY, isDark = true))
+        assertEquals(RgbaColor.WHITE, customTheme.resolveBootstrapForeground(BootstrapType.PRIMARY, isDark = true))
+        assertEquals(RgbaColor.fromHex("#00b4d8"), customTheme.resolveBootstrapColor(BootstrapType.INFO, isDark = false))
+        assertEquals(RgbaColor.fromHex("#0f172a"), customTheme.resolveEffectiveColors(isDark = true).background)
+        assertEquals(RgbaColor.fromHex("#f8fafc"), customTheme.resolveEffectiveColors(isDark = false).background)
+
+        val webCss = customTheme.generateWebBootstrapOverrideCss()
+        assertTrue(webCss.contains("--bs-primary: #ff6600"))
+        assertTrue(webCss.contains(".btn-primary"))
+
+        val app = Application(initialContent = Container(), title = "Themed App")
+        app.setThemeConfig(customTheme)
+        assertEquals(customTheme, app.getThemeConfig())
+        assertEquals(
+            RgbaColor.fromHex("#ff6600"),
+            com.nexustools.genericui.style.color.BootstrapColorPalette.resolveColor(BootstrapType.PRIMARY, darkMode = true, themeConfig = app.getThemeConfig())
+        )
+
+        // Verify system component style filtering (standard control vs text element vs StyledContainer)
+        val fullStyle = ComponentStyle().apply {
+            setWidth(CssLength.px(200))
+            setPadding(CssEdgeLengths.px(8))
+            setBackgroundColor(RgbaColor.fromHex("#dc3545"))
+            setBorderRadius(CssCornerRadii.px(12))
+            setColor(RgbaColor.fromHex("#10b981"))
+            setFontSize(CssLength.px(20))
+            setFontWeight(FontWeight.BOLD)
+        }
+
+        // 1. Standard control (allowTypography = false, allowAestheticSkin = false): keeps layout, strips typography & skin
+        val standardFiltered = fullStyle.copyFilteredForSystemComponent(allowTypography = false, allowAestheticSkin = false)
+        assertEquals(200f, standardFiltered.getWidth()?.value)
+        assertNotNull(standardFiltered.getPadding())
+        assertNull(standardFiltered.getBackgroundColor())
+        assertNull(standardFiltered.getBorderRadius())
+        assertNull(standardFiltered.getColor())
+        assertNull(standardFiltered.getFontSize())
+        assertNull(standardFiltered.getFontWeight())
+
+        // 2. Text / Typography element (allowTypography = true, allowAestheticSkin = false): keeps layout & typography, strips skin
+        val textFiltered = fullStyle.copyFilteredForSystemComponent(allowTypography = true, allowAestheticSkin = false)
+        assertEquals(200f, textFiltered.getWidth()?.value)
+        assertEquals(RgbaColor.fromHex("#10b981"), textFiltered.getColor())
+        assertEquals(20f, textFiltered.getFontSize()?.value)
+        assertEquals(FontWeight.BOLD, textFiltered.getFontWeight())
+        assertNull(textFiltered.getBackgroundColor())
+        assertNull(textFiltered.getBorderRadius())
+
+        // 3. StyledContainer / StyledButton (allowTypography = true, allowAestheticSkin = true): keeps everything
+        val styledFiltered = fullStyle.copyFilteredForSystemComponent(allowTypography = true, allowAestheticSkin = true)
+        assertEquals(RgbaColor.fromHex("#dc3545"), styledFiltered.getBackgroundColor())
+        assertEquals(12f, styledFiltered.getBorderRadius()?.topLeft?.value)
+        assertEquals(RgbaColor.fromHex("#10b981"), styledFiltered.getColor())
     }
 }

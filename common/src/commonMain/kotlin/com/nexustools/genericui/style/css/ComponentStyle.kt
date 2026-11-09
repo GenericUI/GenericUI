@@ -40,26 +40,37 @@ import com.nexustools.genericui.style.transition.CssTransitionSpec
 import kotlin.jvm.JvmName
 
 /**
- * Strongly-typed inline CSS `style` object (`component.getStyle()`) modeled after W3C CSS inline declarations.
+ * Strongly-typed CSS style object attached to every component (`component.style` / `component.getStyle()`).
  *
- * - Strictly represents inline element styles (`style="..."`): pseudo-states (`:hover`, `:focus`,
- *   `:active`, `:disabled`, `:checked`) are NOT part of inline style and belong in stylesheets.
- * - Every setter and mutable property accepts `null` to clear/unset that CSS property.
- * - Supports per-property `!important` flags via `important = true` and [setImportant].
+ * Uses 128-bit bitmasks (`activeBitmaskLow`/`activeBitmaskHigh` and `importantBitmaskLow`/`importantBitmaskHigh`)
+ * indexed by [CssProperty.ordinal] with zero string-keyed declaration maps.
  */
 class ComponentStyle(
     internal var onChange: (() -> Unit)? = null,
     internal var onPropertyChange: ((CssProperty) -> Unit)? = null
 ) {
-    private val importantSet = linkedSetOf<CssProperty>()
-    private val rawImportantCustomProps = linkedSetOf<String>()
-    private val rawCustomDeclarations = linkedMapOf<String, String>()
+
+    private var activeBitmaskLow: Long = 0L
+    private var activeBitmaskHigh: Long = 0L
+    private var importantBitmaskLow: Long = 0L
+    private var importantBitmaskHigh: Long = 0L
     private var defaultImportantScope: Boolean = false
     private var suppressInternalNotifications: Boolean = false
-    private var activePropertiesBitmaskLow: Long = 0L
-    private var activePropertiesBitmaskHigh: Long = 0L
     private var lastMarkedProperty: CssProperty? = null
 
+    val activeBitmaskLowValue: Long
+        get() = activeBitmaskLow
+
+    val activeBitmaskHighValue: Long
+        get() = activeBitmaskHigh
+
+    val importantBitmaskLowValue: Long
+        get() = importantBitmaskLow
+
+    val importantBitmaskHighValue: Long
+        get() = importantBitmaskHigh
+
+    // --- 1. Background & Color ---
     private var _backgroundColor: RgbaColor? = null
     private var _backgroundImage: CssBackgroundImage? = null
     private var _backgroundSize: CssBackgroundSize? = null
@@ -68,10 +79,11 @@ class ComponentStyle(
     private var _backgroundAttachment: CssBackgroundAttachment? = null
     private var _backgroundClip: CssBackgroundClip? = null
     private var _backgroundOrigin: CssBackgroundOrigin? = null
-    private var _textColor: RgbaColor? = null
+    private var _color: RgbaColor? = null
     private var _accentColor: RgbaColor? = null
     private var _opacity: Float? = null
 
+    // --- 2. Box Model, Sizing, & Positioning ---
     private var _display: CssDisplay? = null
     private var _visibility: CssVisibility? = null
     private var _position: CssPosition? = null
@@ -99,12 +111,25 @@ class ComponentStyle(
     private var _floatSide: CssFloat? = null
     private var _clearSide: CssClear? = null
 
+    // --- 3. Borders, Corner Radii, Outlines, & Shadows ---
     private var _borderWidth: CssEdgeLengths? = null
     private var _borderStyle: CssBorderStyle? = null
     private var _borderColor: RgbaColor? = null
+    private var _borderTopColor: RgbaColor? = null
+    private var _borderRightColor: RgbaColor? = null
+    private var _borderBottomColor: RgbaColor? = null
+    private var _borderLeftColor: RgbaColor? = null
     private var _borderRadius: CssCornerRadii? = null
+    private var _outlineWidth: CssLength? = null
+    private var _outlineStyle: CssBorderStyle? = null
+    private var _outlineColor: RgbaColor? = null
+    private var _outlineOffset: CssLength? = null
+    private var _focusRingColor: RgbaColor? = null
+    private var _focusRingWidthPx: Float? = null
     private var _boxShadow: CssShadowList? = null
+    private var _textShadow: CssShadowList? = null
 
+    // --- 4. Typography ---
     private var _fontFamily: CssFontFamily? = null
     private var _fontSize: CssLength? = null
     private var _fontWeight: FontWeight? = null
@@ -119,8 +144,8 @@ class ComponentStyle(
     private var _whiteSpace: CssWhiteSpace? = null
     private var _wordBreak: CssWordBreak? = null
     private var _verticalAlign: CssVerticalAlign? = null
-    private var _textShadow: CssShadowList? = null
 
+    // --- 5. Flexbox & Grid Alignment ---
     private var _flexDirection: FlexDirection? = null
     private var _flexWrap: FlexWrap? = null
     private var _justifyContent: JustifyContent? = null
@@ -130,10 +155,12 @@ class ComponentStyle(
     private var _flexGrow: Float? = null
     private var _flexShrink: Float? = null
     private var _flexBasis: CssLength? = null
+    private var _order: Int? = null
     private var _gap: CssLength? = null
     private var _rowGap: CssLength? = null
     private var _columnGap: CssLength? = null
 
+    // --- 6. Overflow, Interaction, Cursor, Media Fit, Transform, Transition, & Filter ---
     private var _overflow: OverflowBehavior? = null
     private var _overflowX: OverflowBehavior? = null
     private var _overflowY: OverflowBehavior? = null
@@ -149,54 +176,76 @@ class ComponentStyle(
     private var _filter: CssFilter? = null
     private var _backdropFilter: CssFilter? = null
 
-    private fun markProperty(prop: CssProperty, hasValue: Boolean, explicitImportant: Boolean) {
-        val ord = prop.ordinal
+    private fun setActiveBit(property: CssProperty, present: Boolean) {
+        val ord = property.ordinal
         if (ord < 64) {
             val mask = 1L shl ord
-            activePropertiesBitmaskLow =
-                if (hasValue) activePropertiesBitmaskLow or mask else activePropertiesBitmaskLow and mask.inv()
+            activeBitmaskLow = if (present) activeBitmaskLow or mask else activeBitmaskLow and mask.inv()
         } else {
             val mask = 1L shl (ord - 64)
-            activePropertiesBitmaskHigh =
-                if (hasValue) activePropertiesBitmaskHigh or mask else activePropertiesBitmaskHigh and mask.inv()
-        }
-        if (!hasValue) {
-            importantSet.remove(prop)
-        } else if (explicitImportant || defaultImportantScope) {
-            importantSet.add(prop)
-        } else {
-            importantSet.remove(prop)
-        }
-        rawCustomDeclarations.remove(prop.cssName)
-        lastMarkedProperty = prop
-        if (!suppressInternalNotifications) {
-            onPropertyChange?.invoke(prop)
+            activeBitmaskHigh = if (present) activeBitmaskHigh or mask else activeBitmaskHigh and mask.inv()
         }
     }
 
-    private fun updateImportance(property: CssProperty, hasValue: Boolean, explicitImportant: Boolean) {
-        markProperty(property, hasValue, explicitImportant)
+    private fun setImportantBit(property: CssProperty, important: Boolean) {
+        val ord = property.ordinal
+        if (ord < 64) {
+            val mask = 1L shl ord
+            importantBitmaskLow = if (important) importantBitmaskLow or mask else importantBitmaskLow and mask.inv()
+        } else {
+            val mask = 1L shl (ord - 64)
+            importantBitmaskHigh = if (important) importantBitmaskHigh or mask else importantBitmaskHigh and mask.inv()
+        }
+    }
+
+    private fun markProperty(property: CssProperty, present: Boolean, important: Boolean) {
+        setActiveBit(property, present)
+        setImportantBit(property, present && (important || defaultImportantScope))
+        lastMarkedProperty = property
+    }
+
+    private fun updateImportance(property: CssProperty, present: Boolean, important: Boolean) {
+        markProperty(property, present, important)
     }
 
     private fun notifyChanged() {
-        val prop = lastMarkedProperty
+        val changedProp = lastMarkedProperty
         lastMarkedProperty = null
-        if (!suppressInternalNotifications) {
-            if (prop == null || onPropertyChange == null) {
-                onChange?.invoke()
-            }
+        if (suppressInternalNotifications) return
+        if (changedProp != null && onPropertyChange != null) {
+            onPropertyChange?.invoke(changedProp)
+        } else {
+            onChange?.invoke()
         }
     }
 
-    // -------------------------------------------------------------------------
-    // !important Support
-    // -------------------------------------------------------------------------
+    fun hasProperty(property: CssProperty): Boolean {
+        val ord = property.ordinal
+        return if (ord < 64) {
+            (activeBitmaskLow and (1L shl ord)) != 0L
+        } else {
+            (activeBitmaskHigh and (1L shl (ord - 64))) != 0L
+        }
+    }
 
-    fun isImportant(property: CssProperty): Boolean = property in importantSet
+    /**
+     * Checks whether [property] is currently marked `!important`.
+     */
+    fun isImportant(property: CssProperty): Boolean {
+        val ord = property.ordinal
+        return if (ord < 64) {
+            (importantBitmaskLow and (1L shl ord)) != 0L
+        } else {
+            (importantBitmaskHigh and (1L shl (ord - 64))) != 0L
+        }
+    }
 
-    fun setImportant(property: CssProperty, important: Boolean) {
-        val changed = if (important) importantSet.add(property) else importantSet.remove(property)
-        if (changed && !suppressInternalNotifications) {
+    /**
+     * Explicitly marks or unmarks [property] as `!important`.
+     */
+    fun markImportant(property: CssProperty, important: Boolean = true) {
+        setImportantBit(property, important)
+        if (!suppressInternalNotifications) {
             if (onPropertyChange != null) {
                 onPropertyChange?.invoke(property)
             } else {
@@ -205,16 +254,57 @@ class ComponentStyle(
         }
     }
 
-    fun getImportantProperties(): Set<CssProperty> = importantSet.toSet()
+    fun setImportant(property: CssProperty, important: Boolean = true) {
+        markImportant(property, important)
+    }
 
     fun isDefaultImportant(): Boolean = defaultImportantScope
 
-    fun setDefaultImportant(important: Boolean) {
-        defaultImportantScope = important
+    fun setDefaultImportant(value: Boolean) {
+        defaultImportantScope = value
+    }
+
+    /**
+     * Runs [block] where every property set inside the block is automatically marked `!important`.
+     */
+    fun important(block: ComponentStyle.() -> Unit): ComponentStyle {
+        val prev = defaultImportantScope
+        val prevSuppress = suppressInternalNotifications
+        defaultImportantScope = true
+        suppressInternalNotifications = true
+        try {
+            this.block()
+        } finally {
+            defaultImportantScope = prev
+            suppressInternalNotifications = prevSuppress
+            lastMarkedProperty = null
+        }
+        if (!suppressInternalNotifications) {
+            onChange?.invoke()
+        }
+        return this
+    }
+
+    /**
+     * Mutates multiple properties in a single batch and notifies listeners once.
+     */
+    fun update(block: ComponentStyle.() -> Unit): ComponentStyle {
+        val prevSuppress = suppressInternalNotifications
+        suppressInternalNotifications = true
+        try {
+            this.block()
+        } finally {
+            suppressInternalNotifications = prevSuppress
+            lastMarkedProperty = null
+        }
+        if (!suppressInternalNotifications) {
+            onChange?.invoke()
+        }
+        return this
     }
 
     // -------------------------------------------------------------------------
-    // 1. Colors, Gradients, Backgrounds, & Opacity
+    // 1. Background & Color
     // -------------------------------------------------------------------------
 
     fun getBackgroundColor(): RgbaColor? = _backgroundColor
@@ -223,10 +313,17 @@ class ComponentStyle(
         updateImportance(CssProperty.BACKGROUND_COLOR, color != null, important)
         notifyChanged()
     }
+    fun setBackgroundColorHex(hex: String?, important: Boolean = false) {
+        setBackgroundColor(hex?.let { RgbaColor.fromCss(it) }, important)
+    }
 
     var backgroundColor: RgbaColor?
         @JvmName("obtainBackgroundColor") get() = _backgroundColor
         @JvmName("assignBackgroundColor") set(value) = setBackgroundColor(value)
+
+    var backgroundColorHex: String?
+        @JvmName("obtainBackgroundColorHex") get() = _backgroundColor?.toHex()
+        @JvmName("assignBackgroundColorHex") set(value) = setBackgroundColorHex(value)
 
     fun getBackgroundImage(): CssBackgroundImage? = _backgroundImage
     fun setBackgroundImage(image: CssBackgroundImage?, important: Boolean = false) {
@@ -234,19 +331,28 @@ class ComponentStyle(
         updateImportance(CssProperty.BACKGROUND_IMAGE, image != null, important)
         notifyChanged()
     }
+    fun setBackgroundGradient(gradient: Gradient?, important: Boolean = false) {
+        setBackgroundImage(gradient?.let { CssBackgroundImage.fromGradient(it) }, important)
+    }
+    fun setBackgroundImageUrl(url: String?, important: Boolean = false) {
+        setBackgroundImage(url?.takeIf { it.isNotBlank() }?.let { CssBackgroundImage.fromUrl(it) }, important)
+    }
 
     var backgroundImage: CssBackgroundImage?
         @JvmName("obtainBackgroundImage") get() = _backgroundImage
         @JvmName("assignBackgroundImage") set(value) = setBackgroundImage(value)
 
-    /**
-     * Convenience property for gradient backgrounds (`style { background = LinearGradient(...) }`).
-     */
-    var background: Gradient?
+    var backgroundGradient: Gradient?
         @JvmName("obtainBackgroundGradient") get() = _backgroundImage?.gradient
-        @JvmName("assignBackgroundGradient") set(value) {
-            setBackgroundImage(value?.let { CssBackgroundImage.fromGradient(it) })
-        }
+        @JvmName("assignBackgroundGradient") set(value) = setBackgroundGradient(value)
+
+    var background: Gradient?
+        @JvmName("obtainBackground") get() = _backgroundImage?.gradient
+        @JvmName("assignBackground") set(value) = setBackgroundGradient(value)
+
+    var backgroundImageUrl: String?
+        @JvmName("obtainBackgroundImageUrl") get() = _backgroundImage?.urlOrPath
+        @JvmName("assignBackgroundImageUrl") set(value) = setBackgroundImageUrl(value)
 
     fun getBackgroundSize(): CssBackgroundSize? = _backgroundSize
     fun setBackgroundSize(size: CssBackgroundSize?, important: Boolean = false) {
@@ -314,23 +420,29 @@ class ComponentStyle(
         @JvmName("obtainBackgroundOrigin") get() = _backgroundOrigin
         @JvmName("assignBackgroundOrigin") set(value) = setBackgroundOrigin(value)
 
-    fun getTextColor(): RgbaColor? = _textColor
-    fun setTextColor(color: RgbaColor?, important: Boolean = false) {
-        _textColor = color
+    fun getColor(): RgbaColor? = _color
+    fun setColor(color: RgbaColor?, important: Boolean = false) {
+        _color = color
         updateImportance(CssProperty.COLOR, color != null, important)
         notifyChanged()
     }
-
-    fun getColor(): RgbaColor? = _textColor
-    fun setColor(color: RgbaColor?, important: Boolean = false) = setTextColor(color, important)
-
-    var textColor: RgbaColor?
-        @JvmName("obtainTextColor") get() = _textColor
-        @JvmName("assignTextColor") set(value) = setTextColor(value)
+    fun getTextColor(): RgbaColor? = _color
+    fun setTextColor(color: RgbaColor?, important: Boolean = false) = setColor(color, important)
+    fun setTextColorHex(hex: String?, important: Boolean = false) {
+        setColor(hex?.let { RgbaColor.fromCss(it) }, important)
+    }
 
     var color: RgbaColor?
-        @JvmName("obtainColor") get() = _textColor
-        @JvmName("assignColor") set(value) = setTextColor(value)
+        @JvmName("obtainColor") get() = _color
+        @JvmName("assignColor") set(value) = setColor(value)
+
+    var textColor: RgbaColor?
+        @JvmName("obtainTextColor") get() = _color
+        @JvmName("assignTextColor") set(value) = setColor(value)
+
+    var textColorHex: String?
+        @JvmName("obtainTextColorHex") get() = _color?.toHex()
+        @JvmName("assignTextColorHex") set(value) = setTextColorHex(value)
 
     fun getAccentColor(): RgbaColor? = _accentColor
     fun setAccentColor(color: RgbaColor?, important: Boolean = false) {
@@ -338,14 +450,21 @@ class ComponentStyle(
         updateImportance(CssProperty.ACCENT_COLOR, color != null, important)
         notifyChanged()
     }
+    fun setAccentColorHex(hex: String?, important: Boolean = false) {
+        setAccentColor(hex?.let { RgbaColor.fromCss(it) }, important)
+    }
 
     var accentColor: RgbaColor?
         @JvmName("obtainAccentColor") get() = _accentColor
         @JvmName("assignAccentColor") set(value) = setAccentColor(value)
 
+    var accentColorHex: String?
+        @JvmName("obtainAccentColorHex") get() = _accentColor?.toHex()
+        @JvmName("assignAccentColorHex") set(value) = setAccentColorHex(value)
+
     fun getOpacity(): Float? = _opacity
-    fun setOpacity(value: Float?, important: Boolean = false) {
-        _opacity = value?.coerceIn(0f, 1f)
+    fun setOpacity(opacity: Float?, important: Boolean = false) {
+        _opacity = opacity?.coerceIn(0f, 1f)
         updateImportance(CssProperty.OPACITY, _opacity != null, important)
         notifyChanged()
     }
@@ -355,7 +474,7 @@ class ComponentStyle(
         @JvmName("assignOpacity") set(value) = setOpacity(value)
 
     // -------------------------------------------------------------------------
-    // 2. Box Model, Dimensions, & Positioning
+    // 2. Box Model, Sizing, & Positioning
     // -------------------------------------------------------------------------
 
     fun getDisplay(): CssDisplay? = _display
@@ -441,6 +560,8 @@ class ComponentStyle(
         updateImportance(CssProperty.WIDTH, width != null, important)
         notifyChanged()
     }
+    fun setWidthPx(px: Int?, important: Boolean = false) = setWidth(px?.let { CssLength.px(it) }, important)
+    fun setWidthPercent(percent: Float?, important: Boolean = false) = setWidth(percent?.let { CssLength.percent(it) }, important)
 
     var width: CssLength?
         @JvmName("obtainWidth") get() = _width
@@ -452,6 +573,8 @@ class ComponentStyle(
         updateImportance(CssProperty.HEIGHT, height != null, important)
         notifyChanged()
     }
+    fun setHeightPx(px: Int?, important: Boolean = false) = setHeight(px?.let { CssLength.px(it) }, important)
+    fun setHeightPercent(percent: Float?, important: Boolean = false) = setHeight(percent?.let { CssLength.percent(it) }, important)
 
     var height: CssLength?
         @JvmName("obtainHeight") get() = _height
@@ -463,6 +586,7 @@ class ComponentStyle(
         updateImportance(CssProperty.MIN_WIDTH, minWidth != null, important)
         notifyChanged()
     }
+    fun setMinWidthPx(px: Int?, important: Boolean = false) = setMinWidth(px?.let { CssLength.px(it) }, important)
 
     var minWidth: CssLength?
         @JvmName("obtainMinWidth") get() = _minWidth
@@ -474,6 +598,7 @@ class ComponentStyle(
         updateImportance(CssProperty.MIN_HEIGHT, minHeight != null, important)
         notifyChanged()
     }
+    fun setMinHeightPx(px: Int?, important: Boolean = false) = setMinHeight(px?.let { CssLength.px(it) }, important)
 
     var minHeight: CssLength?
         @JvmName("obtainMinHeight") get() = _minHeight
@@ -485,6 +610,7 @@ class ComponentStyle(
         updateImportance(CssProperty.MAX_WIDTH, maxWidth != null, important)
         notifyChanged()
     }
+    fun setMaxWidthPx(px: Int?, important: Boolean = false) = setMaxWidth(px?.let { CssLength.px(it) }, important)
 
     var maxWidth: CssLength?
         @JvmName("obtainMaxWidth") get() = _maxWidth
@@ -496,6 +622,7 @@ class ComponentStyle(
         updateImportance(CssProperty.MAX_HEIGHT, maxHeight != null, important)
         notifyChanged()
     }
+    fun setMaxHeightPx(px: Int?, important: Boolean = false) = setMaxHeight(px?.let { CssLength.px(it) }, important)
 
     var maxHeight: CssLength?
         @JvmName("obtainMaxHeight") get() = _maxHeight
@@ -507,16 +634,15 @@ class ComponentStyle(
         updateImportance(CssProperty.MARGIN, margin != null, important)
         notifyChanged()
     }
+    fun setMarginInsets(insets: EdgeInsets?, important: Boolean = false) {
+        setMargin(insets?.let { CssEdgeLengths.fromEdgeInsets(it) }, important)
+    }
 
     var margin: CssEdgeLengths?
         @JvmName("obtainMargin") get() = _margin
         @JvmName("assignMargin") set(value) = setMargin(value)
 
-    var marginPx: EdgeInsets?
-        @JvmName("obtainMarginPx") get() = _margin?.toEdgeInsets()
-        @JvmName("assignMarginPx") set(value) = setMargin(value?.let { CssEdgeLengths.fromEdgeInsets(it) })
-
-    fun getMarginTop(): CssLength? = _marginTop
+    fun getMarginTop(): CssLength? = _marginTop ?: _margin?.top
     fun setMarginTop(marginTop: CssLength?, important: Boolean = false) {
         _marginTop = marginTop
         updateImportance(CssProperty.MARGIN_TOP, marginTop != null, important)
@@ -527,7 +653,7 @@ class ComponentStyle(
         @JvmName("obtainMarginTop") get() = _marginTop
         @JvmName("assignMarginTop") set(value) = setMarginTop(value)
 
-    fun getMarginRight(): CssLength? = _marginRight
+    fun getMarginRight(): CssLength? = _marginRight ?: _margin?.right
     fun setMarginRight(marginRight: CssLength?, important: Boolean = false) {
         _marginRight = marginRight
         updateImportance(CssProperty.MARGIN_RIGHT, marginRight != null, important)
@@ -538,7 +664,7 @@ class ComponentStyle(
         @JvmName("obtainMarginRight") get() = _marginRight
         @JvmName("assignMarginRight") set(value) = setMarginRight(value)
 
-    fun getMarginBottom(): CssLength? = _marginBottom
+    fun getMarginBottom(): CssLength? = _marginBottom ?: _margin?.bottom
     fun setMarginBottom(marginBottom: CssLength?, important: Boolean = false) {
         _marginBottom = marginBottom
         updateImportance(CssProperty.MARGIN_BOTTOM, marginBottom != null, important)
@@ -549,7 +675,7 @@ class ComponentStyle(
         @JvmName("obtainMarginBottom") get() = _marginBottom
         @JvmName("assignMarginBottom") set(value) = setMarginBottom(value)
 
-    fun getMarginLeft(): CssLength? = _marginLeft
+    fun getMarginLeft(): CssLength? = _marginLeft ?: _margin?.left
     fun setMarginLeft(marginLeft: CssLength?, important: Boolean = false) {
         _marginLeft = marginLeft
         updateImportance(CssProperty.MARGIN_LEFT, marginLeft != null, important)
@@ -566,16 +692,15 @@ class ComponentStyle(
         updateImportance(CssProperty.PADDING, padding != null, important)
         notifyChanged()
     }
+    fun setPaddingInsets(insets: EdgeInsets?, important: Boolean = false) {
+        setPadding(insets?.let { CssEdgeLengths.fromEdgeInsets(it) }, important)
+    }
 
     var padding: CssEdgeLengths?
         @JvmName("obtainPadding") get() = _padding
         @JvmName("assignPadding") set(value) = setPadding(value)
 
-    var paddingPx: EdgeInsets?
-        @JvmName("obtainPaddingPx") get() = _padding?.toEdgeInsets()
-        @JvmName("assignPaddingPx") set(value) = setPadding(value?.let { CssEdgeLengths.fromEdgeInsets(it) })
-
-    fun getPaddingTop(): CssLength? = _paddingTop
+    fun getPaddingTop(): CssLength? = _paddingTop ?: _padding?.top
     fun setPaddingTop(paddingTop: CssLength?, important: Boolean = false) {
         _paddingTop = paddingTop
         updateImportance(CssProperty.PADDING_TOP, paddingTop != null, important)
@@ -586,7 +711,7 @@ class ComponentStyle(
         @JvmName("obtainPaddingTop") get() = _paddingTop
         @JvmName("assignPaddingTop") set(value) = setPaddingTop(value)
 
-    fun getPaddingRight(): CssLength? = _paddingRight
+    fun getPaddingRight(): CssLength? = _paddingRight ?: _padding?.right
     fun setPaddingRight(paddingRight: CssLength?, important: Boolean = false) {
         _paddingRight = paddingRight
         updateImportance(CssProperty.PADDING_RIGHT, paddingRight != null, important)
@@ -597,7 +722,7 @@ class ComponentStyle(
         @JvmName("obtainPaddingRight") get() = _paddingRight
         @JvmName("assignPaddingRight") set(value) = setPaddingRight(value)
 
-    fun getPaddingBottom(): CssLength? = _paddingBottom
+    fun getPaddingBottom(): CssLength? = _paddingBottom ?: _padding?.bottom
     fun setPaddingBottom(paddingBottom: CssLength?, important: Boolean = false) {
         _paddingBottom = paddingBottom
         updateImportance(CssProperty.PADDING_BOTTOM, paddingBottom != null, important)
@@ -608,7 +733,7 @@ class ComponentStyle(
         @JvmName("obtainPaddingBottom") get() = _paddingBottom
         @JvmName("assignPaddingBottom") set(value) = setPaddingBottom(value)
 
-    fun getPaddingLeft(): CssLength? = _paddingLeft
+    fun getPaddingLeft(): CssLength? = _paddingLeft ?: _padding?.left
     fun setPaddingLeft(paddingLeft: CssLength?, important: Boolean = false) {
         _paddingLeft = paddingLeft
         updateImportance(CssProperty.PADDING_LEFT, paddingLeft != null, important)
@@ -653,7 +778,7 @@ class ComponentStyle(
         @JvmName("assignClearSide") set(value) = setClearSide(value)
 
     // -------------------------------------------------------------------------
-    // 3. Borders, Corner Radii, & Shadows
+    // 3. Borders, Corner Radii, Outlines, & Shadows
     // -------------------------------------------------------------------------
 
     fun getBorderWidth(): CssEdgeLengths? = _borderWidth
@@ -662,14 +787,17 @@ class ComponentStyle(
         updateImportance(CssProperty.BORDER_WIDTH, borderWidth != null, important)
         notifyChanged()
     }
+    fun setBorderWidthPx(px: Float?, important: Boolean = false) {
+        setBorderWidth(px?.let { CssEdgeLengths.all(CssLength.px(it)) }, important)
+    }
 
     var borderWidth: CssEdgeLengths?
         @JvmName("obtainBorderWidth") get() = _borderWidth
         @JvmName("assignBorderWidth") set(value) = setBorderWidth(value)
 
     var borderWidthPx: Float?
-        @JvmName("obtainBorderWidthPx") get() = _borderWidth?.top?.value
-        @JvmName("assignBorderWidthPx") set(value) = setBorderWidth(value?.let { CssEdgeLengths.px(it) })
+        @JvmName("obtainBorderWidthPx") get() = _borderWidth?.top?.resolvePx()
+        @JvmName("assignBorderWidthPx") set(value) = setBorderWidthPx(value)
 
     fun getBorderStyle(): CssBorderStyle? = _borderStyle
     fun setBorderStyle(borderStyle: CssBorderStyle?, important: Boolean = false) {
@@ -688,10 +816,83 @@ class ComponentStyle(
         updateImportance(CssProperty.BORDER_COLOR, borderColor != null, important)
         notifyChanged()
     }
+    fun setBorderColorHex(hex: String?, important: Boolean = false) {
+        setBorderColor(hex?.let { RgbaColor.fromCss(it) }, important)
+    }
 
     var borderColor: RgbaColor?
         @JvmName("obtainBorderColor") get() = _borderColor
         @JvmName("assignBorderColor") set(value) = setBorderColor(value)
+
+    var borderColorHex: String?
+        @JvmName("obtainBorderColorHex") get() = _borderColor?.toHex()
+        @JvmName("assignBorderColorHex") set(value) = setBorderColorHex(value)
+
+    fun getBorderTopColor(): RgbaColor? = _borderTopColor
+    fun setBorderTopColor(color: RgbaColor?, important: Boolean = false) {
+        _borderTopColor = color
+        updateImportance(CssProperty.BORDER_COLOR, color != null || _borderColor != null, important)
+        notifyChanged()
+    }
+
+    var borderTopColor: RgbaColor?
+        @JvmName("obtainBorderTopColor") get() = _borderTopColor
+        @JvmName("assignBorderTopColor") set(value) = setBorderTopColor(value)
+
+    fun getBorderRightColor(): RgbaColor? = _borderRightColor
+    fun setBorderRightColor(color: RgbaColor?, important: Boolean = false) {
+        _borderRightColor = color
+        updateImportance(CssProperty.BORDER_COLOR, color != null || _borderColor != null, important)
+        notifyChanged()
+    }
+
+    var borderRightColor: RgbaColor?
+        @JvmName("obtainBorderRightColor") get() = _borderRightColor
+        @JvmName("assignBorderRightColor") set(value) = setBorderRightColor(value)
+
+    fun getBorderBottomColor(): RgbaColor? = _borderBottomColor
+    fun setBorderBottomColor(color: RgbaColor?, important: Boolean = false) {
+        _borderBottomColor = color
+        updateImportance(CssProperty.BORDER_COLOR, color != null || _borderColor != null, important)
+        notifyChanged()
+    }
+
+    var borderBottomColor: RgbaColor?
+        @JvmName("obtainBorderBottomColor") get() = _borderBottomColor
+        @JvmName("assignBorderBottomColor") set(value) = setBorderBottomColor(value)
+
+    fun getBorderLeftColor(): RgbaColor? = _borderLeftColor
+    fun setBorderLeftColor(color: RgbaColor?, important: Boolean = false) {
+        _borderLeftColor = color
+        updateImportance(CssProperty.BORDER_COLOR, color != null || _borderColor != null, important)
+        notifyChanged()
+    }
+
+    var borderLeftColor: RgbaColor?
+        @JvmName("obtainBorderLeftColor") get() = _borderLeftColor
+        @JvmName("assignBorderLeftColor") set(value) = setBorderLeftColor(value)
+
+    fun setBorder(
+        width: CssLength = CssLength.px(1f),
+        style: CssBorderStyle = CssBorderStyle.SOLID,
+        color: RgbaColor,
+        important: Boolean = false
+    ) {
+        val prevSuppress = suppressInternalNotifications
+        suppressInternalNotifications = true
+        try {
+            setBorderWidth(CssEdgeLengths.all(width), important)
+            setBorderStyle(style, important)
+            setBorderColor(color, important)
+            updateImportance(CssProperty.BORDER, true, important)
+        } finally {
+            suppressInternalNotifications = prevSuppress
+            lastMarkedProperty = null
+        }
+        if (!suppressInternalNotifications) {
+            onChange?.invoke()
+        }
+    }
 
     fun getBorderRadius(): CssCornerRadii? = _borderRadius
     fun setBorderRadius(borderRadius: CssCornerRadii?, important: Boolean = false) {
@@ -699,14 +900,83 @@ class ComponentStyle(
         updateImportance(CssProperty.BORDER_RADIUS, borderRadius != null, important)
         notifyChanged()
     }
+    fun setBorderRadiusPx(px: Float?, important: Boolean = false) {
+        setBorderRadius(px?.let { CssCornerRadii.px(it) }, important)
+    }
 
     var borderRadius: CssCornerRadii?
         @JvmName("obtainBorderRadius") get() = _borderRadius
         @JvmName("assignBorderRadius") set(value) = setBorderRadius(value)
 
     var borderRadiusPx: Float?
-        @JvmName("obtainBorderRadiusPx") get() = _borderRadius?.topLeft?.takeIf { it.unit == CssUnit.PX }?.value
-        @JvmName("assignBorderRadiusPx") set(value) = setBorderRadius(value?.let { CssCornerRadii.px(it) })
+        @JvmName("obtainBorderRadiusPx") get() = _borderRadius?.topLeft?.resolvePx()
+        @JvmName("assignBorderRadiusPx") set(value) = setBorderRadiusPx(value)
+
+    fun getOutlineWidth(): CssLength? = _outlineWidth
+    fun setOutlineWidth(width: CssLength?, important: Boolean = false) {
+        _outlineWidth = width
+        updateImportance(CssProperty.OUTLINE_WIDTH, width != null, important)
+        notifyChanged()
+    }
+
+    var outlineWidth: CssLength?
+        @JvmName("obtainOutlineWidth") get() = _outlineWidth
+        @JvmName("assignOutlineWidth") set(value) = setOutlineWidth(value)
+
+    fun getOutlineStyle(): CssBorderStyle? = _outlineStyle
+    fun setOutlineStyle(style: CssBorderStyle?, important: Boolean = false) {
+        _outlineStyle = style
+        updateImportance(CssProperty.OUTLINE_STYLE, style != null, important)
+        notifyChanged()
+    }
+
+    var outlineStyle: CssBorderStyle?
+        @JvmName("obtainOutlineStyle") get() = _outlineStyle
+        @JvmName("assignOutlineStyle") set(value) = setOutlineStyle(value)
+
+    fun getOutlineColor(): RgbaColor? = _outlineColor
+    fun setOutlineColor(color: RgbaColor?, important: Boolean = false) {
+        _outlineColor = color
+        updateImportance(CssProperty.OUTLINE_COLOR, color != null, important)
+        notifyChanged()
+    }
+
+    var outlineColor: RgbaColor?
+        @JvmName("obtainOutlineColor") get() = _outlineColor
+        @JvmName("assignOutlineColor") set(value) = setOutlineColor(value)
+
+    fun getOutlineOffset(): CssLength? = _outlineOffset
+    fun setOutlineOffset(offset: CssLength?, important: Boolean = false) {
+        _outlineOffset = offset
+        updateImportance(CssProperty.OUTLINE, offset != null || _outlineWidth != null || _outlineStyle != null || _outlineColor != null, important)
+        notifyChanged()
+    }
+
+    var outlineOffset: CssLength?
+        @JvmName("obtainOutlineOffset") get() = _outlineOffset
+        @JvmName("assignOutlineOffset") set(value) = setOutlineOffset(value)
+
+    fun getFocusRingColor(): RgbaColor? = _focusRingColor
+    fun setFocusRingColor(color: RgbaColor?, important: Boolean = false) {
+        _focusRingColor = color
+        updateImportance(CssProperty.OUTLINE_COLOR, color != null || _outlineColor != null, important)
+        notifyChanged()
+    }
+
+    var focusRingColor: RgbaColor?
+        @JvmName("obtainFocusRingColor") get() = _focusRingColor
+        @JvmName("assignFocusRingColor") set(value) = setFocusRingColor(value)
+
+    fun getFocusRingWidthPx(): Float? = _focusRingWidthPx
+    fun setFocusRingWidthPx(widthPx: Float?, important: Boolean = false) {
+        _focusRingWidthPx = widthPx
+        updateImportance(CssProperty.OUTLINE_WIDTH, widthPx != null || _outlineWidth != null, important)
+        notifyChanged()
+    }
+
+    var focusRingWidthPx: Float?
+        @JvmName("obtainFocusRingWidthPx") get() = _focusRingWidthPx
+        @JvmName("assignFocusRingWidthPx") set(value) = setFocusRingWidthPx(value)
 
     fun getBoxShadow(): CssShadowList? = _boxShadow
     fun setBoxShadow(boxShadow: CssShadowList?, important: Boolean = false) {
@@ -740,13 +1010,14 @@ class ComponentStyle(
         updateImportance(CssProperty.FONT_SIZE, fontSize != null, important)
         notifyChanged()
     }
+    fun setFontSizePx(px: Float?, important: Boolean = false) = setFontSize(px?.let { CssLength.px(it) }, important)
 
     var fontSize: CssLength?
         @JvmName("obtainFontSize") get() = _fontSize
         @JvmName("assignFontSize") set(value) = setFontSize(value)
 
     var fontSizePx: Float?
-        @JvmName("obtainFontSizePx") get() = _fontSize?.value
+        @JvmName("obtainFontSizePx") get() = _fontSize?.resolvePx()
         @JvmName("assignFontSizePx") set(value) = setFontSize(value?.let { CssLength.px(it) })
 
     fun getFontWeight(): FontWeight? = _fontWeight
@@ -994,6 +1265,38 @@ class ComponentStyle(
         @JvmName("obtainFlexBasis") get() = _flexBasis
         @JvmName("assignFlexBasis") set(value) = setFlexBasis(value)
 
+    fun setFlex(
+        grow: Float?,
+        shrink: Float? = null,
+        basis: CssLength? = null,
+        important: Boolean = false
+    ) {
+        val prevSuppress = suppressInternalNotifications
+        suppressInternalNotifications = true
+        try {
+            setFlexGrow(grow, important)
+            setFlexShrink(shrink, important)
+            setFlexBasis(basis, important)
+        } finally {
+            suppressInternalNotifications = prevSuppress
+            lastMarkedProperty = null
+        }
+        if (!suppressInternalNotifications) {
+            onChange?.invoke()
+        }
+    }
+
+    fun getOrder(): Int? = _order
+    fun setOrder(order: Int?, important: Boolean = false) {
+        _order = order
+        updateImportance(CssProperty.ORDER, order != null, important)
+        notifyChanged()
+    }
+
+    var order: Int?
+        @JvmName("obtainOrder") get() = _order
+        @JvmName("assignOrder") set(value) = setOrder(value)
+
     fun getGap(): CssLength? = _gap
     fun setGap(gap: CssLength?, important: Boolean = false) {
         _gap = gap
@@ -1186,567 +1489,487 @@ class ComponentStyle(
         @JvmName("assignBackdropFilter") set(value) = setBackdropFilter(value)
 
     // -------------------------------------------------------------------------
-    // Raw / Precompiler Declaration Support
+    // Copy, Merge, Filter, & Clear Operations
     // -------------------------------------------------------------------------
 
-    /**
-     * Parses and applies a CSS declaration (`property: value`) into the corresponding typed property
-     * on this [ComponentStyle], while also retaining any unrecognized/custom CSS property in
-     * `rawCustomDeclarations`.
-     */
-    fun applyCssDeclaration(property: String, value: String, important: Boolean = false) {
-        setRawDeclaration(property, value, important)
-    }
-
-    fun setRawDeclaration(property: String, value: String?, important: Boolean = false) {
-        val propName = property.trim().lowercase()
-        if (propName.isEmpty()) return
-        if (value == null) {
-            rawCustomDeclarations.remove(propName)
-            rawImportantCustomProps.remove(propName)
-            val singleProp = CssProperty.fromCssName(propName)
-            singleProp?.let { importantSet.remove(it) }
-            val prevSuppress = suppressInternalNotifications
-            suppressInternalNotifications = true
-            try {
-                when (propName) {
-                    "background-color" -> setBackgroundColor(null)
-                    "background" -> {
-                        setBackgroundColor(null)
-                        setBackgroundImage(null)
-                    }
-                    "background-image" -> setBackgroundImage(null)
-                    "background-size" -> setBackgroundSize(null)
-                    "background-position" -> setBackgroundPosition(null)
-                    "background-repeat" -> setBackgroundRepeat(null)
-                    "background-attachment" -> setBackgroundAttachment(null)
-                    "background-clip" -> setBackgroundClip(null)
-                    "background-origin" -> setBackgroundOrigin(null)
-                    "color" -> setTextColor(null)
-                    "accent-color" -> setAccentColor(null)
-                    "opacity" -> setOpacity(null)
-                    "display" -> setDisplay(null)
-                    "visibility" -> setVisibility(null)
-                    "position" -> setPosition(null)
-                    "top" -> setTop(null)
-                    "right" -> setRight(null)
-                    "bottom" -> setBottom(null)
-                    "left" -> setLeft(null)
-                    "width" -> setWidth(null)
-                    "height" -> setHeight(null)
-                    "min-width" -> setMinWidth(null)
-                    "min-height" -> setMinHeight(null)
-                    "max-width" -> setMaxWidth(null)
-                    "max-height" -> setMaxHeight(null)
-                    "margin" -> setMargin(null)
-                    "margin-top" -> setMarginTop(null)
-                    "margin-right" -> setMarginRight(null)
-                    "margin-bottom" -> setMarginBottom(null)
-                    "margin-left" -> setMarginLeft(null)
-                    "padding" -> setPadding(null)
-                    "padding-top" -> setPaddingTop(null)
-                    "padding-right" -> setPaddingRight(null)
-                    "padding-bottom" -> setPaddingBottom(null)
-                    "padding-left" -> setPaddingLeft(null)
-                    "box-sizing" -> setBoxSizing(null)
-                    "float" -> setFloatSide(null)
-                    "clear" -> setClearSide(null)
-                    "border-width" -> setBorderWidth(null)
-                    "border-style" -> setBorderStyle(null)
-                    "border-color" -> setBorderColor(null)
-                    "border" -> {
-                        setBorderWidth(null)
-                        setBorderStyle(null)
-                        setBorderColor(null)
-                    }
-                    "border-radius" -> setBorderRadius(null)
-                    "box-shadow", "-webkit-box-shadow" -> setBoxShadow(null)
-                    "text-shadow" -> setTextShadow(null)
-                    "font-family" -> setFontFamily(null)
-                    "font-size" -> setFontSize(null)
-                    "font-weight" -> {
-                        _fontWeightNumericOverride = null
-                        _fontWeight = null
-                        markProperty(CssProperty.FONT_WEIGHT, false, false)
-                    }
-                    "font-style" -> setFontStyle(null)
-                    "line-height" -> setLineHeight(null)
-                    "letter-spacing" -> setLetterSpacing(null)
-                    "text-align" -> setTextAlign(null)
-                    "text-decoration" -> setTextDecoration(null)
-                    "text-transform" -> setTextTransform(null)
-                    "text-overflow" -> setTextOverflow(null)
-                    "white-space" -> setWhiteSpace(null)
-                    "word-break" -> setWordBreak(null)
-                    "vertical-align" -> setVerticalAlign(null)
-                    "flex-direction" -> setFlexDirection(null)
-                    "flex-wrap" -> setFlexWrap(null)
-                    "justify-content" -> setJustifyContent(null)
-                    "align-items" -> setAlignItems(null)
-                    "align-self" -> setAlignSelf(null)
-                    "align-content" -> setAlignContent(null)
-                    "flex-grow" -> setFlexGrow(null)
-                    "flex-shrink" -> setFlexShrink(null)
-                    "flex-basis" -> setFlexBasis(null)
-                    "gap" -> setGap(null)
-                    "row-gap" -> setRowGap(null)
-                    "column-gap" -> setColumnGap(null)
-                    "overflow" -> setOverflow(null)
-                    "overflow-x" -> setOverflowX(null)
-                    "overflow-y" -> setOverflowY(null)
-                    "cursor" -> setCursor(null)
-                    "pointer-events" -> setPointerEvents(null)
-                    "user-select" -> setUserSelect(null)
-                    "object-fit" -> setObjectFit(null)
-                    "aspect-ratio" -> setAspectRatio(null)
-                    "z-index" -> setZIndex(null)
-                    "transform" -> setTransform(null)
-                    "transform-origin" -> setTransformOrigin(null)
-                    "transition" -> setTransitions(null)
-                    "filter" -> setFilter(null)
-                    "backdrop-filter", "-webkit-backdrop-filter" -> setBackdropFilter(null)
-                }
-            } finally {
-                suppressInternalNotifications = prevSuppress
-                lastMarkedProperty = null
-            }
-            if (!suppressInternalNotifications) {
-                if (singleProp != null && onPropertyChange != null) {
-                    onPropertyChange?.invoke(singleProp)
-                } else {
-                    onChange?.invoke()
-                }
-            }
-            return
-        }
-
-        val hasBangImportant = value.contains("!important", ignoreCase = true)
-        val cleanVal = value.replace(Regex("!\\s*important", RegexOption.IGNORE_CASE), "").trim()
-        val isImp = important || hasBangImportant || defaultImportantScope
-        val singleProp = CssProperty.fromCssName(propName)
-
+    fun clear() {
         val prevSuppress = suppressInternalNotifications
         suppressInternalNotifications = true
         try {
-            when (propName) {
-                "background-color" -> RgbaColor.fromCss(cleanVal)?.let { setBackgroundColor(it, isImp) }
-                "background" -> {
-                    val grad = Gradient.fromCss(cleanVal)
-                    if (grad != null) {
-                        setBackgroundImage(CssBackgroundImage.fromGradient(grad), isImp)
-                    } else {
-                        val color = RgbaColor.fromCss(cleanVal)
-                        if (color != null) {
-                            setBackgroundColor(color, isImp)
-                        } else {
-                            CssBackgroundImage.parse(cleanVal)?.let { setBackgroundImage(it, isImp) }
-                        }
-                    }
-                }
-                "background-image" -> CssBackgroundImage.parse(cleanVal)?.let { setBackgroundImage(it, isImp) }
-                "background-size" -> CssBackgroundSize.parse(cleanVal)?.let { setBackgroundSize(it, isImp) }
-                "background-position" -> CssBackgroundPosition.parse(cleanVal)?.let { setBackgroundPosition(it, isImp) }
-                "background-repeat" -> CssBackgroundRepeat.fromCss(cleanVal)?.let { setBackgroundRepeat(it, isImp) }
-                "background-attachment" -> CssBackgroundAttachment.fromCss(cleanVal)?.let { setBackgroundAttachment(it, isImp) }
-                "background-clip" -> CssBackgroundClip.fromCss(cleanVal)?.let { setBackgroundClip(it, isImp) }
-                "background-origin" -> CssBackgroundOrigin.fromCss(cleanVal)?.let { setBackgroundOrigin(it, isImp) }
-                "color" -> RgbaColor.fromCss(cleanVal)?.let { setTextColor(it, isImp) }
-                "accent-color" -> RgbaColor.fromCss(cleanVal)?.let { setAccentColor(it, isImp) }
-                "opacity" -> cleanVal.toFloatOrNull()?.let { setOpacity(it, isImp) }
-                "display" -> CssDisplay.fromCss(cleanVal)?.let { setDisplay(it, isImp) }
-                "visibility" -> CssVisibility.fromCss(cleanVal)?.let { setVisibility(it, isImp) }
-                "position" -> CssPosition.fromCss(cleanVal)?.let { setPosition(it, isImp) }
-                "top" -> CssLength.parse(cleanVal)?.let { setTop(it, isImp) }
-                "right" -> CssLength.parse(cleanVal)?.let { setRight(it, isImp) }
-                "bottom" -> CssLength.parse(cleanVal)?.let { setBottom(it, isImp) }
-                "left" -> CssLength.parse(cleanVal)?.let { setLeft(it, isImp) }
-                "width" -> CssLength.parse(cleanVal)?.let { setWidth(it, isImp) }
-                "height" -> CssLength.parse(cleanVal)?.let { setHeight(it, isImp) }
-                "min-width" -> CssLength.parse(cleanVal)?.let { setMinWidth(it, isImp) }
-                "min-height" -> CssLength.parse(cleanVal)?.let { setMinHeight(it, isImp) }
-                "max-width" -> CssLength.parse(cleanVal)?.let { setMaxWidth(it, isImp) }
-                "max-height" -> CssLength.parse(cleanVal)?.let { setMaxHeight(it, isImp) }
-                "margin" -> CssEdgeLengths.parse(cleanVal)?.let { setMargin(it, isImp) }
-                "margin-top" -> CssLength.parse(cleanVal)?.let { setMarginTop(it, isImp) }
-                "margin-right" -> CssLength.parse(cleanVal)?.let { setMarginRight(it, isImp) }
-                "margin-bottom" -> CssLength.parse(cleanVal)?.let { setMarginBottom(it, isImp) }
-                "margin-left" -> CssLength.parse(cleanVal)?.let { setMarginLeft(it, isImp) }
-                "padding" -> CssEdgeLengths.parse(cleanVal)?.let { setPadding(it, isImp) }
-                "padding-top" -> CssLength.parse(cleanVal)?.let { setPaddingTop(it, isImp) }
-                "padding-right" -> CssLength.parse(cleanVal)?.let { setPaddingRight(it, isImp) }
-                "padding-bottom" -> CssLength.parse(cleanVal)?.let { setPaddingBottom(it, isImp) }
-                "padding-left" -> CssLength.parse(cleanVal)?.let { setPaddingLeft(it, isImp) }
-                "box-sizing" -> CssBoxSizing.fromCss(cleanVal)?.let { setBoxSizing(it, isImp) }
-                "float" -> CssFloat.fromCss(cleanVal)?.let { setFloatSide(it, isImp) }
-                "clear" -> CssClear.fromCss(cleanVal)?.let { setClearSide(it, isImp) }
-                "border-width" -> CssEdgeLengths.parse(cleanVal)?.let { setBorderWidth(it, isImp) }
-                "border-style" -> CssBorderStyle.fromCss(cleanVal)?.let { setBorderStyle(it, isImp) }
-                "border-color" -> RgbaColor.fromCss(cleanVal)?.let { setBorderColor(it, isImp) }
-                "border" -> parseBorderShorthand(cleanVal, isImp)
-                "border-radius" -> CssCornerRadii.parse(cleanVal)?.let { setBorderRadius(it, isImp) }
-                "box-shadow", "-webkit-box-shadow" -> CssShadowList.parse(cleanVal)?.let { setBoxShadow(it, isImp) }
-                "text-shadow" -> CssShadowList.parse(cleanVal)?.let { setTextShadow(it, isImp) }
-                "font-family" -> CssFontFamily.parse(cleanVal)?.let { setFontFamily(it, isImp) }
-                "font-size" -> CssLength.parse(cleanVal)?.let { setFontSize(it, isImp) }
-                "font-weight" -> parseFontWeightDeclaration(cleanVal, isImp)
-                "font-style" -> CssFontStyle.fromCss(cleanVal)?.let { setFontStyle(it, isImp) }
-                "line-height" -> CssLength.parse(cleanVal)?.let { setLineHeight(it, isImp) }
-                "letter-spacing" -> CssLength.parse(cleanVal)?.let { setLetterSpacing(it, isImp) }
-                "text-align" -> parseTextAlignDeclaration(cleanVal, isImp)
-                "text-decoration" -> CssTextDecoration.fromCss(cleanVal)?.let { setTextDecoration(it, isImp) }
-                "text-transform" -> parseTextTransformDeclaration(cleanVal, isImp)
-                "text-overflow" -> parseTextOverflowDeclaration(cleanVal, isImp)
-                "white-space" -> CssWhiteSpace.fromCss(cleanVal)?.let { setWhiteSpace(it, isImp) }
-                "word-break" -> CssWordBreak.fromCss(cleanVal)?.let { setWordBreak(it, isImp) }
-                "vertical-align" -> CssVerticalAlign.fromCss(cleanVal)?.let { setVerticalAlign(it, isImp) }
-                "flex-direction" -> parseFlexDirectionDeclaration(cleanVal, isImp)
-                "flex-wrap" -> parseFlexWrapDeclaration(cleanVal, isImp)
-                "justify-content" -> parseJustifyContentDeclaration(cleanVal, isImp)
-                "align-items" -> parseAlignItemsDeclaration(cleanVal, isImp)
-                "align-self" -> parseAlignSelfDeclaration(cleanVal, isImp)
-                "align-content" -> CssAlignContent.fromCss(cleanVal)?.let { setAlignContent(it, isImp) }
-                "flex-grow" -> cleanVal.toFloatOrNull()?.let { setFlexGrow(it, isImp) }
-                "flex-shrink" -> cleanVal.toFloatOrNull()?.let { setFlexShrink(it, isImp) }
-                "flex-basis" -> CssLength.parse(cleanVal)?.let { setFlexBasis(it, isImp) }
-                "gap" -> CssLength.parse(cleanVal)?.let { setGap(it, isImp) }
-                "row-gap" -> CssLength.parse(cleanVal)?.let { setRowGap(it, isImp) }
-                "column-gap" -> CssLength.parse(cleanVal)?.let { setColumnGap(it, isImp) }
-                "overflow" -> parseOverflowDeclaration(cleanVal)?.let { setOverflow(it, isImp) }
-                "overflow-x" -> parseOverflowDeclaration(cleanVal)?.let { setOverflowX(it, isImp) }
-                "overflow-y" -> parseOverflowDeclaration(cleanVal)?.let { setOverflowY(it, isImp) }
-                "cursor" -> CssCustomCursor.parse(cleanVal)?.let { setCursor(it, isImp) }
-                "pointer-events" -> CssPointerEvents.fromCss(cleanVal)?.let { setPointerEvents(it, isImp) }
-                "user-select" -> CssUserSelect.fromCss(cleanVal)?.let { setUserSelect(it, isImp) }
-                "object-fit" -> parseObjectFitDeclaration(cleanVal)?.let { setObjectFit(it, isImp) }
-                "aspect-ratio" -> CssAspectRatio.parse(cleanVal)?.let { setAspectRatio(it, isImp) }
-                "z-index" -> cleanVal.toIntOrNull()?.let { setZIndex(it, isImp) }
-                "transform" -> setTransform(CssTransform2D.parse(cleanVal), isImp)
-                "transform-origin" -> CssBackgroundPosition.parse(cleanVal)?.let { setTransformOrigin(it, isImp) }
-                "transition" -> setTransitions(CssTransitionSpec.parseList(cleanVal), isImp)
-                "filter" -> CssFilter.parse(cleanVal)?.let { setFilter(it, isImp) }
-                "backdrop-filter", "-webkit-backdrop-filter" -> CssFilter.parse(cleanVal)?.let { setBackdropFilter(it, isImp) }
-            }
-            if (singleProp == null || getSinglePropertyCssString(singleProp) == null) {
-                rawCustomDeclarations[propName] = cleanVal
-            }
-            if (isImp) {
-                if (singleProp == null) rawImportantCustomProps.add(propName)
-                singleProp?.let { importantSet.add(it) }
-            }
+            activeBitmaskLow = 0L
+            activeBitmaskHigh = 0L
+            importantBitmaskLow = 0L
+            importantBitmaskHigh = 0L
+            _backgroundColor = null
+            _backgroundImage = null
+            _backgroundSize = null
+            _backgroundPosition = null
+            _backgroundRepeat = null
+            _backgroundAttachment = null
+            _backgroundClip = null
+            _backgroundOrigin = null
+            _color = null
+            _accentColor = null
+            _opacity = null
+            _display = null
+            _visibility = null
+            _position = null
+            _top = null
+            _right = null
+            _bottom = null
+            _left = null
+            _width = null
+            _height = null
+            _minWidth = null
+            _minHeight = null
+            _maxWidth = null
+            _maxHeight = null
+            _margin = null
+            _marginTop = null
+            _marginRight = null
+            _marginBottom = null
+            _marginLeft = null
+            _padding = null
+            _paddingTop = null
+            _paddingRight = null
+            _paddingBottom = null
+            _paddingLeft = null
+            _boxSizing = null
+            _floatSide = null
+            _clearSide = null
+            _borderWidth = null
+            _borderStyle = null
+            _borderColor = null
+            _borderTopColor = null
+            _borderRightColor = null
+            _borderBottomColor = null
+            _borderLeftColor = null
+            _borderRadius = null
+            _outlineWidth = null
+            _outlineStyle = null
+            _outlineColor = null
+            _outlineOffset = null
+            _focusRingColor = null
+            _focusRingWidthPx = null
+            _boxShadow = null
+            _textShadow = null
+            _fontFamily = null
+            _fontSize = null
+            _fontWeight = null
+            _fontWeightNumericOverride = null
+            _fontStyle = null
+            _lineHeight = null
+            _letterSpacing = null
+            _textAlign = null
+            _textDecoration = null
+            _textTransform = null
+            _textOverflow = null
+            _whiteSpace = null
+            _wordBreak = null
+            _verticalAlign = null
+            _flexDirection = null
+            _flexWrap = null
+            _justifyContent = null
+            _alignItems = null
+            _alignSelf = null
+            _alignContent = null
+            _flexGrow = null
+            _flexShrink = null
+            _flexBasis = null
+            _order = null
+            _gap = null
+            _rowGap = null
+            _columnGap = null
+            _overflow = null
+            _overflowX = null
+            _overflowY = null
+            _cursor = null
+            _pointerEvents = null
+            _userSelect = null
+            _objectFit = null
+            _aspectRatio = null
+            _zIndex = null
+            _transform = null
+            _transformOrigin = null
+            _transitions = null
+            _filter = null
+            _backdropFilter = null
         } finally {
             suppressInternalNotifications = prevSuppress
             lastMarkedProperty = null
         }
         if (!suppressInternalNotifications) {
-            if (singleProp != null && onPropertyChange != null) {
-                onPropertyChange?.invoke(singleProp)
-            } else {
-                onChange?.invoke()
-            }
+            onChange?.invoke()
         }
     }
 
-    private fun parseBorderShorthand(cleanVal: String, isImp: Boolean) {
-        for (token in CssShadow.tokenizePreservingParens(cleanVal)) {
-            val styleCandidate = CssBorderStyle.fromCss(token)
-            if (styleCandidate != null) {
-                setBorderStyle(styleCandidate, isImp)
-                continue
-            }
-            val colorCandidate = RgbaColor.fromCss(token)
-            if (colorCandidate != null) {
-                setBorderColor(colorCandidate, isImp)
-                continue
-            }
-            val lenCandidate = CssLength.parse(token)
-            if (lenCandidate != null) {
-                setBorderWidth(CssEdgeLengths.all(lenCandidate), isImp)
-            }
+    fun isEmpty(): Boolean = activeBitmaskLow == 0L && activeBitmaskHigh == 0L
+
+    fun copyFrom(other: ComponentStyle) {
+        val prevSuppress = suppressInternalNotifications
+        suppressInternalNotifications = true
+        try {
+            activeBitmaskLow = other.activeBitmaskLow
+            activeBitmaskHigh = other.activeBitmaskHigh
+            importantBitmaskLow = other.importantBitmaskLow
+            importantBitmaskHigh = other.importantBitmaskHigh
+            _backgroundColor = other._backgroundColor
+            _backgroundImage = other._backgroundImage
+            _backgroundSize = other._backgroundSize
+            _backgroundPosition = other._backgroundPosition
+            _backgroundRepeat = other._backgroundRepeat
+            _backgroundAttachment = other._backgroundAttachment
+            _backgroundClip = other._backgroundClip
+            _backgroundOrigin = other._backgroundOrigin
+            _color = other._color
+            _accentColor = other._accentColor
+            _opacity = other._opacity
+            _display = other._display
+            _visibility = other._visibility
+            _position = other._position
+            _top = other._top
+            _right = other._right
+            _bottom = other._bottom
+            _left = other._left
+            _width = other._width
+            _height = other._height
+            _minWidth = other._minWidth
+            _minHeight = other._minHeight
+            _maxWidth = other._maxWidth
+            _maxHeight = other._maxHeight
+            _margin = other._margin
+            _marginTop = other._marginTop
+            _marginRight = other._marginRight
+            _marginBottom = other._marginBottom
+            _marginLeft = other._marginLeft
+            _padding = other._padding
+            _paddingTop = other._paddingTop
+            _paddingRight = other._paddingRight
+            _paddingBottom = other._paddingBottom
+            _paddingLeft = other._paddingLeft
+            _boxSizing = other._boxSizing
+            _floatSide = other._floatSide
+            _clearSide = other._clearSide
+            _borderWidth = other._borderWidth
+            _borderStyle = other._borderStyle
+            _borderColor = other._borderColor
+            _borderTopColor = other._borderTopColor
+            _borderRightColor = other._borderRightColor
+            _borderBottomColor = other._borderBottomColor
+            _borderLeftColor = other._borderLeftColor
+            _borderRadius = other._borderRadius
+            _outlineWidth = other._outlineWidth
+            _outlineStyle = other._outlineStyle
+            _outlineColor = other._outlineColor
+            _outlineOffset = other._outlineOffset
+            _focusRingColor = other._focusRingColor
+            _focusRingWidthPx = other._focusRingWidthPx
+            _boxShadow = other._boxShadow
+            _textShadow = other._textShadow
+            _fontFamily = other._fontFamily
+            _fontSize = other._fontSize
+            _fontWeight = other._fontWeight
+            _fontWeightNumericOverride = other._fontWeightNumericOverride
+            _fontStyle = other._fontStyle
+            _lineHeight = other._lineHeight
+            _letterSpacing = other._letterSpacing
+            _textAlign = other._textAlign
+            _textDecoration = other._textDecoration
+            _textTransform = other._textTransform
+            _textOverflow = other._textOverflow
+            _whiteSpace = other._whiteSpace
+            _wordBreak = other._wordBreak
+            _verticalAlign = other._verticalAlign
+            _flexDirection = other._flexDirection
+            _flexWrap = other._flexWrap
+            _justifyContent = other._justifyContent
+            _alignItems = other._alignItems
+            _alignSelf = other._alignSelf
+            _alignContent = other._alignContent
+            _flexGrow = other._flexGrow
+            _flexShrink = other._flexShrink
+            _flexBasis = other._flexBasis
+            _order = other._order
+            _gap = other._gap
+            _rowGap = other._rowGap
+            _columnGap = other._columnGap
+            _overflow = other._overflow
+            _overflowX = other._overflowX
+            _overflowY = other._overflowY
+            _cursor = other._cursor
+            _pointerEvents = other._pointerEvents
+            _userSelect = other._userSelect
+            _objectFit = other._objectFit
+            _aspectRatio = other._aspectRatio
+            _zIndex = other._zIndex
+            _transform = other._transform
+            _transformOrigin = other._transformOrigin
+            _transitions = other._transitions
+            _filter = other._filter
+            _backdropFilter = other._backdropFilter
+        } finally {
+            suppressInternalNotifications = prevSuppress
+            lastMarkedProperty = null
         }
-    }
-
-    private fun parseFontWeightDeclaration(cleanVal: String, isImp: Boolean) {
-        val numeric = when (cleanVal.lowercase()) {
-            "normal" -> 400
-            "bold" -> 700
-            "lighter" -> 300
-            "bolder" -> 800
-            else -> cleanVal.toIntOrNull()
-        }
-        if (numeric != null) {
-            _fontWeightNumericOverride = numeric
-            _fontWeight = FontWeight.entries.firstOrNull { it.numericWeight == numeric }
-            updateImportance(CssProperty.FONT_WEIGHT, true, isImp)
-        }
-    }
-
-    private fun parseTextAlignDeclaration(cleanVal: String, isImp: Boolean) {
-        val aligned = when (cleanVal.lowercase()) {
-            "left", "start" -> TextAlignment.START
-            "center" -> TextAlignment.CENTER
-            "right", "end" -> TextAlignment.END
-            "justify" -> TextAlignment.JUSTIFY
-            else -> null
-        }
-        if (aligned != null) setTextAlign(aligned, isImp)
-    }
-
-    private fun parseTextTransformDeclaration(cleanVal: String, isImp: Boolean) {
-        val tt = when (cleanVal.lowercase()) {
-            "none" -> TextTransform.NONE
-            "lowercase" -> TextTransform.LOWERCASE
-            "uppercase" -> TextTransform.UPPERCASE
-            "capitalize" -> TextTransform.CAPITALIZE
-            else -> null
-        }
-        if (tt != null) setTextTransform(tt, isImp)
-    }
-
-    private fun parseTextOverflowDeclaration(cleanVal: String, isImp: Boolean) {
-        val to = when (cleanVal.lowercase()) {
-            "ellipsis", "truncate" -> TextOverflow.ELLIPSIS
-            "nowrap" -> TextOverflow.NOWRAP
-            "clip", "wrap" -> TextOverflow.WRAP
-            else -> null
-        }
-        if (to != null) setTextOverflow(to, isImp)
-    }
-
-    private fun parseFlexDirectionDeclaration(cleanVal: String, isImp: Boolean) {
-        val dir = when (cleanVal.lowercase()) {
-            "row" -> FlexDirection.ROW
-            "row-reverse" -> FlexDirection.ROW_REVERSE
-            "column" -> FlexDirection.COLUMN
-            "column-reverse" -> FlexDirection.COLUMN_REVERSE
-            else -> null
-        }
-        if (dir != null) setFlexDirection(dir, isImp)
-    }
-
-    private fun parseFlexWrapDeclaration(cleanVal: String, isImp: Boolean) {
-        val wrap = when (cleanVal.lowercase()) {
-            "nowrap" -> FlexWrap.NOWRAP
-            "wrap" -> FlexWrap.WRAP
-            "wrap-reverse" -> FlexWrap.WRAP_REVERSE
-            else -> null
-        }
-        if (wrap != null) setFlexWrap(wrap, isImp)
-    }
-
-    private fun parseJustifyContentDeclaration(cleanVal: String, isImp: Boolean) {
-        val jc = when (cleanVal.lowercase()) {
-            "flex-start", "start", "left" -> JustifyContent.START
-            "flex-end", "end", "right" -> JustifyContent.END
-            "center" -> JustifyContent.CENTER
-            "space-between", "between" -> JustifyContent.BETWEEN
-            "space-around", "around" -> JustifyContent.AROUND
-            "space-evenly", "evenly" -> JustifyContent.EVENLY
-            else -> null
-        }
-        if (jc != null) setJustifyContent(jc, isImp)
-    }
-
-    private fun parseAlignItemsDeclaration(cleanVal: String, isImp: Boolean) {
-        val ai = when (cleanVal.lowercase()) {
-            "flex-start", "start" -> AlignItems.START
-            "flex-end", "end" -> AlignItems.END
-            "center" -> AlignItems.CENTER
-            "baseline" -> AlignItems.BASELINE
-            "stretch" -> AlignItems.STRETCH
-            else -> null
-        }
-        if (ai != null) setAlignItems(ai, isImp)
-    }
-
-    private fun parseAlignSelfDeclaration(cleanVal: String, isImp: Boolean) {
-        val asf = when (cleanVal.lowercase()) {
-            "auto" -> AlignSelf.AUTO
-            "flex-start", "start" -> AlignSelf.START
-            "flex-end", "end" -> AlignSelf.END
-            "center" -> AlignSelf.CENTER
-            "baseline" -> AlignSelf.BASELINE
-            "stretch" -> AlignSelf.STRETCH
-            else -> null
-        }
-        if (asf != null) setAlignSelf(asf, isImp)
-    }
-
-    private fun parseOverflowDeclaration(cleanVal: String): OverflowBehavior? = when (cleanVal.lowercase()) {
-        "auto" -> OverflowBehavior.AUTO
-        "hidden" -> OverflowBehavior.HIDDEN
-        "visible" -> OverflowBehavior.VISIBLE
-        "scroll" -> OverflowBehavior.SCROLL
-        else -> null
-    }
-
-    private fun parseObjectFitDeclaration(cleanVal: String): ObjectFit? = when (cleanVal.lowercase()) {
-        "contain" -> ObjectFit.CONTAIN
-        "cover" -> ObjectFit.COVER
-        "fill" -> ObjectFit.FILL
-        "scale-down", "scale" -> ObjectFit.SCALE_DOWN
-        "none" -> ObjectFit.NONE
-        else -> null
-    }
-
-    // -------------------------------------------------------------------------
-    // Serialization & ComputedStyle Conversion
-    // -------------------------------------------------------------------------
-
-    /**
-     * Returns all non-null properties mapped to `cssPropertyName -> (cssValueString to isImportant)`.
-     */
-    fun toCssPropertyMap(): Map<String, Pair<String, Boolean>> {
-        if (isEmpty()) return emptyMap()
-        val out = linkedMapOf<String, Pair<String, Boolean>>()
-        for ((k, v) in rawCustomDeclarations) {
-            out[k] = v to (k in rawImportantCustomProps)
-        }
-        val entries = CssProperty.entries
-        var low = activePropertiesBitmaskLow
-        while (low != 0L) {
-            val bit = low.countTrailingZeroBits()
-            val prop = entries[bit]
-            val value = getSinglePropertyCssString(prop)
-            if (value != null) {
-                out[prop.cssName] = value to isImportant(prop)
-            }
-            low = low and (low - 1L)
-        }
-        var high = activePropertiesBitmaskHigh
-        while (high != 0L) {
-            val bit = high.countTrailingZeroBits()
-            val prop = entries[64 + bit]
-            val value = getSinglePropertyCssString(prop)
-            if (value != null) {
-                out[prop.cssName] = value to isImportant(prop)
-            }
-            high = high and (high - 1L)
-        }
-        return out
-    }
-
-    /**
-     * Serializes this [ComponentStyle] into a standard inline CSS string (`prop: value [!important]; ...`).
-     */
-    fun toInlineCssString(): String =
-        toCssPropertyMap().entries.joinToString("; ") { (prop, pair) ->
-            val (value, isImp) = pair
-            if (isImp) "$prop: $value !important" else "$prop: $value"
-        }
-
-    fun isEmpty(): Boolean =
-        activePropertiesBitmaskLow == 0L && activePropertiesBitmaskHigh == 0L && rawCustomDeclarations.isEmpty()
-
-    fun clear() {
-        importantSet.clear()
-        rawImportantCustomProps.clear()
-        rawCustomDeclarations.clear()
-        activePropertiesBitmaskLow = 0L
-        activePropertiesBitmaskHigh = 0L
-        lastMarkedProperty = null
-        _backgroundColor = null
-        _backgroundImage = null
-        _backgroundSize = null
-        _backgroundPosition = null
-        _backgroundRepeat = null
-        _backgroundAttachment = null
-        _backgroundClip = null
-        _backgroundOrigin = null
-        _textColor = null
-        _accentColor = null
-        _opacity = null
-        _display = null
-        _visibility = null
-        _position = null
-        _top = null
-        _right = null
-        _bottom = null
-        _left = null
-        _width = null
-        _height = null
-        _minWidth = null
-        _minHeight = null
-        _maxWidth = null
-        _maxHeight = null
-        _margin = null
-        _marginTop = null
-        _marginRight = null
-        _marginBottom = null
-        _marginLeft = null
-        _padding = null
-        _paddingTop = null
-        _paddingRight = null
-        _paddingBottom = null
-        _paddingLeft = null
-        _boxSizing = null
-        _floatSide = null
-        _clearSide = null
-        _borderWidth = null
-        _borderStyle = null
-        _borderColor = null
-        _borderRadius = null
-        _boxShadow = null
-        _fontFamily = null
-        _fontSize = null
-        _fontWeight = null
-        _fontWeightNumericOverride = null
-        _fontStyle = null
-        _lineHeight = null
-        _letterSpacing = null
-        _textAlign = null
-        _textDecoration = null
-        _textTransform = null
-        _textOverflow = null
-        _whiteSpace = null
-        _wordBreak = null
-        _verticalAlign = null
-        _textShadow = null
-        _flexDirection = null
-        _flexWrap = null
-        _justifyContent = null
-        _alignItems = null
-        _alignSelf = null
-        _alignContent = null
-        _flexGrow = null
-        _flexShrink = null
-        _flexBasis = null
-        _gap = null
-        _rowGap = null
-        _columnGap = null
-        _overflow = null
-        _overflowX = null
-        _overflowY = null
-        _cursor = null
-        _pointerEvents = null
-        _userSelect = null
-        _objectFit = null
-        _aspectRatio = null
-        _zIndex = null
-        _transform = null
-        _transformOrigin = null
-        _transitions = null
-        _filter = null
-        _backdropFilter = null
         if (!suppressInternalNotifications) {
             onChange?.invoke()
         }
     }
 
-    internal fun getSinglePropertyCssString(prop: CssProperty): String? = when (prop) {
+    fun mergeFrom(other: ComponentStyle, respectImportant: Boolean = true) {
+        if (other.isEmpty()) return
+        val prevSuppress = suppressInternalNotifications
+        suppressInternalNotifications = true
+        try {
+            fun canOverride(prop: CssProperty): Boolean {
+                if (!other.hasProperty(prop)) return false
+                if (!respectImportant) return true
+                return !isImportant(prop) || other.isImportant(prop)
+            }
+            fun applyImp(prop: CssProperty) {
+                setActiveBit(prop, true)
+                if (other.isImportant(prop)) setImportantBit(prop, true)
+            }
+
+            if (canOverride(CssProperty.BACKGROUND_COLOR)) { _backgroundColor = other._backgroundColor; applyImp(CssProperty.BACKGROUND_COLOR) }
+            if (canOverride(CssProperty.BACKGROUND_IMAGE)) { _backgroundImage = other._backgroundImage; applyImp(CssProperty.BACKGROUND_IMAGE) }
+            if (canOverride(CssProperty.BACKGROUND_SIZE)) { _backgroundSize = other._backgroundSize; applyImp(CssProperty.BACKGROUND_SIZE) }
+            if (canOverride(CssProperty.BACKGROUND_POSITION)) { _backgroundPosition = other._backgroundPosition; applyImp(CssProperty.BACKGROUND_POSITION) }
+            if (canOverride(CssProperty.BACKGROUND_REPEAT)) { _backgroundRepeat = other._backgroundRepeat; applyImp(CssProperty.BACKGROUND_REPEAT) }
+            if (canOverride(CssProperty.BACKGROUND_ATTACHMENT)) { _backgroundAttachment = other._backgroundAttachment; applyImp(CssProperty.BACKGROUND_ATTACHMENT) }
+            if (canOverride(CssProperty.BACKGROUND_CLIP)) { _backgroundClip = other._backgroundClip; applyImp(CssProperty.BACKGROUND_CLIP) }
+            if (canOverride(CssProperty.BACKGROUND_ORIGIN)) { _backgroundOrigin = other._backgroundOrigin; applyImp(CssProperty.BACKGROUND_ORIGIN) }
+            if (canOverride(CssProperty.COLOR)) { _color = other._color; applyImp(CssProperty.COLOR) }
+            if (canOverride(CssProperty.ACCENT_COLOR)) { _accentColor = other._accentColor; applyImp(CssProperty.ACCENT_COLOR) }
+            if (canOverride(CssProperty.OPACITY)) { _opacity = other._opacity; applyImp(CssProperty.OPACITY) }
+            if (canOverride(CssProperty.DISPLAY)) { _display = other._display; applyImp(CssProperty.DISPLAY) }
+            if (canOverride(CssProperty.VISIBILITY)) { _visibility = other._visibility; applyImp(CssProperty.VISIBILITY) }
+            if (canOverride(CssProperty.POSITION)) { _position = other._position; applyImp(CssProperty.POSITION) }
+            if (canOverride(CssProperty.TOP)) { _top = other._top; applyImp(CssProperty.TOP) }
+            if (canOverride(CssProperty.RIGHT)) { _right = other._right; applyImp(CssProperty.RIGHT) }
+            if (canOverride(CssProperty.BOTTOM)) { _bottom = other._bottom; applyImp(CssProperty.BOTTOM) }
+            if (canOverride(CssProperty.LEFT)) { _left = other._left; applyImp(CssProperty.LEFT) }
+            if (canOverride(CssProperty.WIDTH)) { _width = other._width; applyImp(CssProperty.WIDTH) }
+            if (canOverride(CssProperty.HEIGHT)) { _height = other._height; applyImp(CssProperty.HEIGHT) }
+            if (canOverride(CssProperty.MIN_WIDTH)) { _minWidth = other._minWidth; applyImp(CssProperty.MIN_WIDTH) }
+            if (canOverride(CssProperty.MIN_HEIGHT)) { _minHeight = other._minHeight; applyImp(CssProperty.MIN_HEIGHT) }
+            if (canOverride(CssProperty.MAX_WIDTH)) { _maxWidth = other._maxWidth; applyImp(CssProperty.MAX_WIDTH) }
+            if (canOverride(CssProperty.MAX_HEIGHT)) { _maxHeight = other._maxHeight; applyImp(CssProperty.MAX_HEIGHT) }
+            if (canOverride(CssProperty.MARGIN)) { _margin = other._margin; applyImp(CssProperty.MARGIN) }
+            if (canOverride(CssProperty.MARGIN_TOP)) { _marginTop = other._marginTop; applyImp(CssProperty.MARGIN_TOP) }
+            if (canOverride(CssProperty.MARGIN_RIGHT)) { _marginRight = other._marginRight; applyImp(CssProperty.MARGIN_RIGHT) }
+            if (canOverride(CssProperty.MARGIN_BOTTOM)) { _marginBottom = other._marginBottom; applyImp(CssProperty.MARGIN_BOTTOM) }
+            if (canOverride(CssProperty.MARGIN_LEFT)) { _marginLeft = other._marginLeft; applyImp(CssProperty.MARGIN_LEFT) }
+            if (canOverride(CssProperty.PADDING)) { _padding = other._padding; applyImp(CssProperty.PADDING) }
+            if (canOverride(CssProperty.PADDING_TOP)) { _paddingTop = other._paddingTop; applyImp(CssProperty.PADDING_TOP) }
+            if (canOverride(CssProperty.PADDING_RIGHT)) { _paddingRight = other._paddingRight; applyImp(CssProperty.PADDING_RIGHT) }
+            if (canOverride(CssProperty.PADDING_BOTTOM)) { _paddingBottom = other._paddingBottom; applyImp(CssProperty.PADDING_BOTTOM) }
+            if (canOverride(CssProperty.PADDING_LEFT)) { _paddingLeft = other._paddingLeft; applyImp(CssProperty.PADDING_LEFT) }
+            if (canOverride(CssProperty.BOX_SIZING)) { _boxSizing = other._boxSizing; applyImp(CssProperty.BOX_SIZING) }
+            if (canOverride(CssProperty.FLOAT)) { _floatSide = other._floatSide; applyImp(CssProperty.FLOAT) }
+            if (canOverride(CssProperty.CLEAR)) { _clearSide = other._clearSide; applyImp(CssProperty.CLEAR) }
+            if (canOverride(CssProperty.BORDER_WIDTH)) { _borderWidth = other._borderWidth; applyImp(CssProperty.BORDER_WIDTH) }
+            if (canOverride(CssProperty.BORDER_STYLE)) { _borderStyle = other._borderStyle; applyImp(CssProperty.BORDER_STYLE) }
+            if (canOverride(CssProperty.BORDER_COLOR)) {
+                if (other._borderColor != null) _borderColor = other._borderColor
+                if (other._borderTopColor != null) _borderTopColor = other._borderTopColor
+                if (other._borderRightColor != null) _borderRightColor = other._borderRightColor
+                if (other._borderBottomColor != null) _borderBottomColor = other._borderBottomColor
+                if (other._borderLeftColor != null) _borderLeftColor = other._borderLeftColor
+                applyImp(CssProperty.BORDER_COLOR)
+            }
+            if (canOverride(CssProperty.BORDER_RADIUS)) { _borderRadius = other._borderRadius; applyImp(CssProperty.BORDER_RADIUS) }
+            if (canOverride(CssProperty.OUTLINE_WIDTH)) {
+                if (other._outlineWidth != null) _outlineWidth = other._outlineWidth
+                if (other._focusRingWidthPx != null) _focusRingWidthPx = other._focusRingWidthPx
+                applyImp(CssProperty.OUTLINE_WIDTH)
+            }
+            if (canOverride(CssProperty.OUTLINE_STYLE)) { _outlineStyle = other._outlineStyle; applyImp(CssProperty.OUTLINE_STYLE) }
+            if (canOverride(CssProperty.OUTLINE_COLOR)) {
+                if (other._outlineColor != null) _outlineColor = other._outlineColor
+                if (other._focusRingColor != null) _focusRingColor = other._focusRingColor
+                applyImp(CssProperty.OUTLINE_COLOR)
+            }
+            if (canOverride(CssProperty.OUTLINE)) {
+                if (other._outlineOffset != null) _outlineOffset = other._outlineOffset
+                applyImp(CssProperty.OUTLINE)
+            }
+            if (canOverride(CssProperty.BOX_SHADOW)) { _boxShadow = other._boxShadow; applyImp(CssProperty.BOX_SHADOW) }
+            if (canOverride(CssProperty.TEXT_SHADOW)) { _textShadow = other._textShadow; applyImp(CssProperty.TEXT_SHADOW) }
+            if (canOverride(CssProperty.FONT_FAMILY)) { _fontFamily = other._fontFamily; applyImp(CssProperty.FONT_FAMILY) }
+            if (canOverride(CssProperty.FONT_SIZE)) { _fontSize = other._fontSize; applyImp(CssProperty.FONT_SIZE) }
+            if (canOverride(CssProperty.FONT_WEIGHT)) {
+                _fontWeight = other._fontWeight
+                _fontWeightNumericOverride = other._fontWeightNumericOverride
+                applyImp(CssProperty.FONT_WEIGHT)
+            }
+            if (canOverride(CssProperty.FONT_STYLE)) { _fontStyle = other._fontStyle; applyImp(CssProperty.FONT_STYLE) }
+            if (canOverride(CssProperty.LINE_HEIGHT)) { _lineHeight = other._lineHeight; applyImp(CssProperty.LINE_HEIGHT) }
+            if (canOverride(CssProperty.LETTER_SPACING)) { _letterSpacing = other._letterSpacing; applyImp(CssProperty.LETTER_SPACING) }
+            if (canOverride(CssProperty.TEXT_ALIGN)) { _textAlign = other._textAlign; applyImp(CssProperty.TEXT_ALIGN) }
+            if (canOverride(CssProperty.TEXT_DECORATION)) { _textDecoration = other._textDecoration; applyImp(CssProperty.TEXT_DECORATION) }
+            if (canOverride(CssProperty.TEXT_TRANSFORM)) { _textTransform = other._textTransform; applyImp(CssProperty.TEXT_TRANSFORM) }
+            if (canOverride(CssProperty.TEXT_OVERFLOW)) { _textOverflow = other._textOverflow; applyImp(CssProperty.TEXT_OVERFLOW) }
+            if (canOverride(CssProperty.WHITE_SPACE)) { _whiteSpace = other._whiteSpace; applyImp(CssProperty.WHITE_SPACE) }
+            if (canOverride(CssProperty.WORD_BREAK)) { _wordBreak = other._wordBreak; applyImp(CssProperty.WORD_BREAK) }
+            if (canOverride(CssProperty.VERTICAL_ALIGN)) { _verticalAlign = other._verticalAlign; applyImp(CssProperty.VERTICAL_ALIGN) }
+            if (canOverride(CssProperty.FLEX_DIRECTION)) { _flexDirection = other._flexDirection; applyImp(CssProperty.FLEX_DIRECTION) }
+            if (canOverride(CssProperty.FLEX_WRAP)) { _flexWrap = other._flexWrap; applyImp(CssProperty.FLEX_WRAP) }
+            if (canOverride(CssProperty.JUSTIFY_CONTENT)) { _justifyContent = other._justifyContent; applyImp(CssProperty.JUSTIFY_CONTENT) }
+            if (canOverride(CssProperty.ALIGN_ITEMS)) { _alignItems = other._alignItems; applyImp(CssProperty.ALIGN_ITEMS) }
+            if (canOverride(CssProperty.ALIGN_SELF)) { _alignSelf = other._alignSelf; applyImp(CssProperty.ALIGN_SELF) }
+            if (canOverride(CssProperty.ALIGN_CONTENT)) { _alignContent = other._alignContent; applyImp(CssProperty.ALIGN_CONTENT) }
+            if (canOverride(CssProperty.FLEX_GROW)) { _flexGrow = other._flexGrow; applyImp(CssProperty.FLEX_GROW) }
+            if (canOverride(CssProperty.FLEX_SHRINK)) { _flexShrink = other._flexShrink; applyImp(CssProperty.FLEX_SHRINK) }
+            if (canOverride(CssProperty.FLEX_BASIS)) { _flexBasis = other._flexBasis; applyImp(CssProperty.FLEX_BASIS) }
+            if (canOverride(CssProperty.ORDER)) { _order = other._order; applyImp(CssProperty.ORDER) }
+            if (canOverride(CssProperty.GAP)) { _gap = other._gap; applyImp(CssProperty.GAP) }
+            if (canOverride(CssProperty.ROW_GAP)) { _rowGap = other._rowGap; applyImp(CssProperty.ROW_GAP) }
+            if (canOverride(CssProperty.COLUMN_GAP)) { _columnGap = other._columnGap; applyImp(CssProperty.COLUMN_GAP) }
+            if (canOverride(CssProperty.OVERFLOW)) { _overflow = other._overflow; applyImp(CssProperty.OVERFLOW) }
+            if (canOverride(CssProperty.OVERFLOW_X)) { _overflowX = other._overflowX; applyImp(CssProperty.OVERFLOW_X) }
+            if (canOverride(CssProperty.OVERFLOW_Y)) { _overflowY = other._overflowY; applyImp(CssProperty.OVERFLOW_Y) }
+            if (canOverride(CssProperty.CURSOR)) { _cursor = other._cursor; applyImp(CssProperty.CURSOR) }
+            if (canOverride(CssProperty.POINTER_EVENTS)) { _pointerEvents = other._pointerEvents; applyImp(CssProperty.POINTER_EVENTS) }
+            if (canOverride(CssProperty.USER_SELECT)) { _userSelect = other._userSelect; applyImp(CssProperty.USER_SELECT) }
+            if (canOverride(CssProperty.OBJECT_FIT)) { _objectFit = other._objectFit; applyImp(CssProperty.OBJECT_FIT) }
+            if (canOverride(CssProperty.ASPECT_RATIO)) { _aspectRatio = other._aspectRatio; applyImp(CssProperty.ASPECT_RATIO) }
+            if (canOverride(CssProperty.Z_INDEX)) { _zIndex = other._zIndex; applyImp(CssProperty.Z_INDEX) }
+            if (canOverride(CssProperty.TRANSFORM)) { _transform = other._transform; applyImp(CssProperty.TRANSFORM) }
+            if (canOverride(CssProperty.TRANSFORM_ORIGIN)) { _transformOrigin = other._transformOrigin; applyImp(CssProperty.TRANSFORM_ORIGIN) }
+            if (canOverride(CssProperty.TRANSITION)) { _transitions = other._transitions; applyImp(CssProperty.TRANSITION) }
+            if (canOverride(CssProperty.FILTER)) { _filter = other._filter; applyImp(CssProperty.FILTER) }
+            if (canOverride(CssProperty.BACKDROP_FILTER)) { _backdropFilter = other._backdropFilter; applyImp(CssProperty.BACKDROP_FILTER) }
+        } finally {
+            suppressInternalNotifications = prevSuppress
+            lastMarkedProperty = null
+        }
+        if (!suppressInternalNotifications) {
+            onChange?.invoke()
+        }
+    }
+
+    /**
+     * Returns a copy of this [ComponentStyle] filtered for a standard component on a system backend:
+     * - If [allowAestheticSkin] is `true`, returns a full copy of `this`.
+     * - If [allowAestheticSkin] is `false`, keeps layout/geometry properties (`display`, `position`,
+     *   `top`, `right`, `bottom`, `left`, `width`, `height`, `minWidth`, `minHeight`, `maxWidth`,
+     *   `maxHeight`, `aspectRatio`, `boxSizing`, `padding*`, `margin*`, `flex*`, `justifyContent`,
+     *   `alignItems`, `alignSelf`, `alignContent`, `order`, `gap`, `rowGap`, `columnGap`, `overflow*`,
+     *   `zIndex`, `opacity`, `visibility`, `cursor`, `pointerEvents`, `userSelect`, `objectFit`,
+     *   `transform2D`, `transformOrigin`, `transitions`) and:
+     *   - If [allowTypography] is `true`: also keeps `color`/`textColor`, `fontFamily`, `fontSize`,
+     *     `fontWeight`, `fontStyle`, `lineHeight`, `letterSpacing`, `textAlign`, `textDecoration`,
+     *     `textTransform`, `textOverflow`, `whiteSpace`, `wordBreak`.
+     *   - If [allowTypography] is `false`: strips those typography/color properties as well, and
+     *     always strips aesthetic skinning properties.
+     */
+    fun copyFilteredForSystemComponent(allowTypography: Boolean, allowAestheticSkin: Boolean): ComponentStyle {
+        val copy = ComponentStyle()
+        if (allowAestheticSkin) {
+            copy.copyFrom(this)
+            return copy
+        }
+        val (maskLow, maskHigh) = ComputedStyle.systemFilterBitmasks(allowTypography)
+        copy.activeBitmaskLow = activeBitmaskLow and maskLow
+        copy.activeBitmaskHigh = activeBitmaskHigh and maskHigh
+        copy.importantBitmaskLow = importantBitmaskLow and maskLow
+        copy.importantBitmaskHigh = importantBitmaskHigh and maskHigh
+
+        // Layout / geometry properties
+        copy._display = _display
+        copy._visibility = _visibility
+        copy._position = _position
+        copy._top = _top
+        copy._right = _right
+        copy._bottom = _bottom
+        copy._left = _left
+        copy._width = _width
+        copy._height = _height
+        copy._minWidth = _minWidth
+        copy._minHeight = _minHeight
+        copy._maxWidth = _maxWidth
+        copy._maxHeight = _maxHeight
+        copy._aspectRatio = _aspectRatio
+        copy._boxSizing = _boxSizing
+        copy._padding = _padding
+        copy._paddingTop = _paddingTop
+        copy._paddingRight = _paddingRight
+        copy._paddingBottom = _paddingBottom
+        copy._paddingLeft = _paddingLeft
+        copy._margin = _margin
+        copy._marginTop = _marginTop
+        copy._marginRight = _marginRight
+        copy._marginBottom = _marginBottom
+        copy._marginLeft = _marginLeft
+        copy._floatSide = _floatSide
+        copy._clearSide = _clearSide
+        copy._verticalAlign = _verticalAlign
+        copy._flexDirection = _flexDirection
+        copy._flexWrap = _flexWrap
+        copy._justifyContent = _justifyContent
+        copy._alignItems = _alignItems
+        copy._alignSelf = _alignSelf
+        copy._alignContent = _alignContent
+        copy._flexGrow = _flexGrow
+        copy._flexShrink = _flexShrink
+        copy._flexBasis = _flexBasis
+        copy._order = _order
+        copy._gap = _gap
+        copy._rowGap = _rowGap
+        copy._columnGap = _columnGap
+        copy._overflow = _overflow
+        copy._overflowX = _overflowX
+        copy._overflowY = _overflowY
+        copy._zIndex = _zIndex
+        copy._opacity = _opacity
+        copy._cursor = _cursor
+        copy._pointerEvents = _pointerEvents
+        copy._userSelect = _userSelect
+        copy._objectFit = _objectFit
+        copy._transform = _transform
+        copy._transformOrigin = _transformOrigin
+        copy._transitions = _transitions
+
+        if (allowTypography) {
+            copy._color = _color
+            copy._fontFamily = _fontFamily
+            copy._fontSize = _fontSize
+            copy._fontWeight = _fontWeight
+            copy._fontWeightNumericOverride = _fontWeightNumericOverride
+            copy._fontStyle = _fontStyle
+            copy._lineHeight = _lineHeight
+            copy._letterSpacing = _letterSpacing
+            copy._textAlign = _textAlign
+            copy._textDecoration = _textDecoration
+            copy._textTransform = _textTransform
+            copy._textOverflow = _textOverflow
+            copy._whiteSpace = _whiteSpace
+            copy._wordBreak = _wordBreak
+        }
+        return copy
+    }
+
+    /**
+     * Returns the serialized CSS value for a single [CssProperty] on this [ComponentStyle],
+     * or `null` if that property is unset.
+     */
+    fun getSinglePropertyCssString(prop: CssProperty): String? = when (prop) {
+        CssProperty.BACKGROUND -> _backgroundImage?.toCssString() ?: _backgroundColor?.toCssRgbaString()
         CssProperty.BACKGROUND_COLOR -> _backgroundColor?.toCssRgbaString()
         CssProperty.BACKGROUND_IMAGE -> _backgroundImage?.toCssString()
         CssProperty.BACKGROUND_SIZE -> _backgroundSize?.toCssString()
         CssProperty.BACKGROUND_POSITION -> _backgroundPosition?.toCssString()
-        CssProperty.BACKGROUND_REPEAT -> _backgroundRepeat?.toCssString()
-        CssProperty.BACKGROUND_ATTACHMENT -> _backgroundAttachment?.toCssString()
-        CssProperty.BACKGROUND_CLIP -> _backgroundClip?.toCssString()
-        CssProperty.BACKGROUND_ORIGIN -> _backgroundOrigin?.toCssString()
-        CssProperty.COLOR -> _textColor?.toCssRgbaString()
+        CssProperty.BACKGROUND_REPEAT -> _backgroundRepeat?.cssValue
+        CssProperty.BACKGROUND_ATTACHMENT -> _backgroundAttachment?.cssValue
+        CssProperty.BACKGROUND_CLIP -> _backgroundClip?.cssValue
+        CssProperty.BACKGROUND_ORIGIN -> _backgroundOrigin?.cssValue
+        CssProperty.COLOR -> _color?.toCssRgbaString()
         CssProperty.ACCENT_COLOR -> _accentColor?.toCssRgbaString()
         CssProperty.OPACITY -> _opacity?.toString()
-        CssProperty.DISPLAY -> _display?.toCssString()
-        CssProperty.VISIBILITY -> _visibility?.toCssString()
-        CssProperty.POSITION -> _position?.toCssString()
+        CssProperty.DISPLAY -> _display?.cssValue
+        CssProperty.VISIBILITY -> _visibility?.cssValue
+        CssProperty.POSITION -> _position?.cssValue
         CssProperty.TOP -> _top?.toCssString()
         CssProperty.RIGHT -> _right?.toCssString()
         CssProperty.BOTTOM -> _bottom?.toCssString()
@@ -1767,29 +1990,52 @@ class ComponentStyle(
         CssProperty.PADDING_RIGHT -> _paddingRight?.toCssString()
         CssProperty.PADDING_BOTTOM -> _paddingBottom?.toCssString()
         CssProperty.PADDING_LEFT -> _paddingLeft?.toCssString()
-        CssProperty.BOX_SIZING -> _boxSizing?.toCssString()
-        CssProperty.FLOAT -> _floatSide?.toCssString()
-        CssProperty.CLEAR -> _clearSide?.toCssString()
+        CssProperty.BOX_SIZING -> _boxSizing?.cssValue
+        CssProperty.FLOAT -> _floatSide?.cssValue
+        CssProperty.CLEAR -> _clearSide?.cssValue
+        CssProperty.BORDER -> {
+            val w = _borderWidth?.toCssString()
+            val s = _borderStyle?.cssValue
+            val c = _borderColor?.toCssRgbaString()
+            if (w != null || s != null || c != null) {
+                listOfNotNull(w, s, c).joinToString(" ")
+            } else {
+                null
+            }
+        }
         CssProperty.BORDER_WIDTH -> _borderWidth?.toCssString()
-        CssProperty.BORDER_STYLE -> _borderStyle?.toCssString()
+        CssProperty.BORDER_STYLE -> _borderStyle?.cssValue
         CssProperty.BORDER_COLOR -> _borderColor?.toCssRgbaString()
         CssProperty.BORDER_RADIUS -> _borderRadius?.toCssString()
+        CssProperty.OUTLINE -> {
+            val w = _outlineWidth?.toCssString()
+            val s = _outlineStyle?.cssValue
+            val c = (_outlineColor ?: _focusRingColor)?.toCssRgbaString()
+            if (w != null || s != null || c != null) {
+                listOfNotNull(w, s, c).joinToString(" ")
+            } else {
+                null
+            }
+        }
+        CssProperty.OUTLINE_WIDTH -> _outlineWidth?.toCssString() ?: _focusRingWidthPx?.let { "${it}px" }
+        CssProperty.OUTLINE_STYLE -> _outlineStyle?.cssValue
+        CssProperty.OUTLINE_COLOR -> (_outlineColor ?: _focusRingColor)?.toCssRgbaString()
         CssProperty.BOX_SHADOW -> _boxShadow?.toCssString()
         CssProperty.TEXT_SHADOW -> _textShadow?.toCssString()
         CssProperty.FONT_FAMILY -> _fontFamily?.toCssString()
         CssProperty.FONT_SIZE -> _fontSize?.toCssString()
-        CssProperty.FONT_WEIGHT -> (_fontWeightNumericOverride ?: _fontWeight?.numericWeight)?.toString()
-        CssProperty.FONT_STYLE -> _fontStyle?.toCssString()
+        CssProperty.FONT_WEIGHT -> fontWeightNumeric?.toString()
+        CssProperty.FONT_STYLE -> _fontStyle?.cssValue
         CssProperty.LINE_HEIGHT -> _lineHeight?.toCssString()
         CssProperty.LETTER_SPACING -> _letterSpacing?.toCssString()
         CssProperty.TEXT_ALIGN -> when (_textAlign) {
-            TextAlignment.START -> "start"
+            TextAlignment.START -> "left"
+            TextAlignment.END -> "right"
             TextAlignment.CENTER -> "center"
-            TextAlignment.END -> "end"
             TextAlignment.JUSTIFY -> "justify"
             null -> null
         }
-        CssProperty.TEXT_DECORATION -> _textDecoration?.toCssString()
+        CssProperty.TEXT_DECORATION -> _textDecoration?.cssValue
         CssProperty.TEXT_TRANSFORM -> when (_textTransform) {
             TextTransform.NONE -> "none"
             TextTransform.LOWERCASE -> "lowercase"
@@ -1799,13 +2045,13 @@ class ComponentStyle(
         }
         CssProperty.TEXT_OVERFLOW -> when (_textOverflow) {
             TextOverflow.ELLIPSIS -> "ellipsis"
-            TextOverflow.NOWRAP -> "clip"
             TextOverflow.WRAP -> "clip"
+            TextOverflow.NOWRAP -> null
             null -> null
         }
-        CssProperty.WHITE_SPACE -> _whiteSpace?.toCssString()
-        CssProperty.WORD_BREAK -> _wordBreak?.toCssString()
-        CssProperty.VERTICAL_ALIGN -> _verticalAlign?.toCssString()
+        CssProperty.WHITE_SPACE -> _whiteSpace?.cssValue
+        CssProperty.WORD_BREAK -> _wordBreak?.cssValue
+        CssProperty.VERTICAL_ALIGN -> _verticalAlign?.cssValue
         CssProperty.FLEX_DIRECTION -> when (_flexDirection) {
             FlexDirection.ROW -> "row"
             FlexDirection.ROW_REVERSE -> "row-reverse"
@@ -1814,8 +2060,8 @@ class ComponentStyle(
             null -> null
         }
         CssProperty.FLEX_WRAP -> when (_flexWrap) {
-            FlexWrap.NOWRAP -> "nowrap"
             FlexWrap.WRAP -> "wrap"
+            FlexWrap.NOWRAP -> "nowrap"
             FlexWrap.WRAP_REVERSE -> "wrap-reverse"
             null -> null
         }
@@ -1845,511 +2091,404 @@ class ComponentStyle(
             AlignSelf.STRETCH -> "stretch"
             null -> null
         }
-        CssProperty.ALIGN_CONTENT -> _alignContent?.toCssString()
-        CssProperty.FLEX_GROW -> _flexGrow?.toString()
-        CssProperty.FLEX_SHRINK -> _flexShrink?.toString()
+        CssProperty.ALIGN_CONTENT -> _alignContent?.cssValue
+        CssProperty.FLEX_GROW -> _flexGrow?.let { if (it == it.toInt().toFloat()) it.toInt().toString() else it.toString() }
+        CssProperty.FLEX_SHRINK -> _flexShrink?.let { if (it == it.toInt().toFloat()) it.toInt().toString() else it.toString() }
         CssProperty.FLEX_BASIS -> _flexBasis?.toCssString()
+        CssProperty.ORDER -> _order?.toString()
         CssProperty.GAP -> _gap?.toCssString()
         CssProperty.ROW_GAP -> _rowGap?.toCssString()
         CssProperty.COLUMN_GAP -> _columnGap?.toCssString()
-        CssProperty.OVERFLOW -> when (_overflow) {
-            OverflowBehavior.AUTO -> "auto"
-            OverflowBehavior.HIDDEN -> "hidden"
-            OverflowBehavior.VISIBLE -> "visible"
-            OverflowBehavior.SCROLL -> "scroll"
-            null -> null
-        }
-        CssProperty.OVERFLOW_X -> when (_overflowX) {
-            OverflowBehavior.AUTO -> "auto"
-            OverflowBehavior.HIDDEN -> "hidden"
-            OverflowBehavior.VISIBLE -> "visible"
-            OverflowBehavior.SCROLL -> "scroll"
-            null -> null
-        }
-        CssProperty.OVERFLOW_Y -> when (_overflowY) {
-            OverflowBehavior.AUTO -> "auto"
-            OverflowBehavior.HIDDEN -> "hidden"
-            OverflowBehavior.VISIBLE -> "visible"
-            OverflowBehavior.SCROLL -> "scroll"
-            null -> null
-        }
+        CssProperty.OVERFLOW -> _overflow?.name?.lowercase()
+        CssProperty.OVERFLOW_X -> _overflowX?.name?.lowercase()
+        CssProperty.OVERFLOW_Y -> _overflowY?.name?.lowercase()
         CssProperty.CURSOR -> _cursor?.toCssString()
-        CssProperty.POINTER_EVENTS -> _pointerEvents?.toCssString()
-        CssProperty.USER_SELECT -> _userSelect?.toCssString()
-        CssProperty.OBJECT_FIT -> when (_objectFit) {
-            ObjectFit.CONTAIN -> "contain"
-            ObjectFit.COVER -> "cover"
-            ObjectFit.FILL -> "fill"
-            ObjectFit.SCALE_DOWN -> "scale-down"
-            ObjectFit.NONE -> "none"
-            null -> null
-        }
+        CssProperty.POINTER_EVENTS -> _pointerEvents?.cssValue
+        CssProperty.USER_SELECT -> _userSelect?.cssValue
+        CssProperty.OBJECT_FIT -> _objectFit?.name?.lowercase()?.replace('_', '-')
         CssProperty.ASPECT_RATIO -> _aspectRatio?.toCssString()
         CssProperty.Z_INDEX -> _zIndex?.toString()
         CssProperty.TRANSFORM -> _transform?.toCssString()
         CssProperty.TRANSFORM_ORIGIN -> _transformOrigin?.toCssString()
-        CssProperty.TRANSITION -> _transitions?.joinToString(", ") { it.toCssString() }
+        CssProperty.TRANSITION -> _transitions?.takeIf { it.isNotEmpty() }?.joinToString(", ") {
+            "${it.property} ${it.durationMs}ms ${it.timingFunction.toCssString()} ${it.delayMs}ms"
+        }
         CssProperty.FILTER -> _filter?.toCssString()
         CssProperty.BACKDROP_FILTER -> _backdropFilter?.toCssString()
-    } ?: rawCustomDeclarations[prop.cssName]
-
-    /**
-     * Updates ONLY the single [prop] slot on [base] in $O(1)$ time without calling
-     * [toCssPropertyMap], [toInlineCssString], or re-evaluating any other property.
-     */
-    fun applySinglePropertyToComputed(
-        prop: CssProperty,
-        base: ComputedStyle,
-        sheetBase: ComputedStyle? = null
-    ): ComputedStyle {
-        val propName = prop.cssName
-        val fallback = sheetBase ?: ComputedStyle.EMPTY
-        val selfHasImportant = isImportant(prop) || (propName in rawImportantCustomProps)
-        val sheetHasImportant = sheetBase != null && propName in sheetBase.importantProperties
-        if (sheetHasImportant && !selfHasImportant) {
-            return base
-        }
-
-        val cssVal = getSinglePropertyCssString(prop)
-        val nextRaw = if (cssVal != null) {
-            base.rawDeclarations + (propName to cssVal)
-        } else {
-            val sheetRawVal = sheetBase?.rawDeclarations?.get(propName)
-            if (sheetRawVal != null) {
-                base.rawDeclarations + (propName to sheetRawVal)
-            } else {
-                base.rawDeclarations - propName
-            }
-        }
-        val nextImp = when {
-            selfHasImportant && cssVal != null -> base.importantProperties + propName
-            sheetHasImportant -> base.importantProperties + propName
-            else -> base.importantProperties - propName
-        }
-
-        return when (prop) {
-            CssProperty.BACKGROUND_COLOR -> base.copy(
-                backgroundColor = _backgroundColor ?: fallback.backgroundColor,
-                rawDeclarations = nextRaw,
-                importantProperties = nextImp
-            )
-            CssProperty.BACKGROUND_IMAGE -> base.copy(
-                backgroundGradient = _backgroundImage?.gradient ?: fallback.backgroundGradient,
-                backgroundImageUrl = _backgroundImage?.urlOrPath ?: fallback.backgroundImageUrl,
-                rawDeclarations = nextRaw,
-                importantProperties = nextImp
-            )
-            CssProperty.BACKGROUND_SIZE -> base.copy(
-                backgroundSize = cssVal ?: fallback.backgroundSize,
-                rawDeclarations = nextRaw,
-                importantProperties = nextImp
-            )
-            CssProperty.BACKGROUND_POSITION -> base.copy(
-                backgroundPosition = cssVal ?: fallback.backgroundPosition,
-                rawDeclarations = nextRaw,
-                importantProperties = nextImp
-            )
-            CssProperty.BACKGROUND_REPEAT -> base.copy(
-                backgroundRepeat = cssVal ?: fallback.backgroundRepeat,
-                rawDeclarations = nextRaw,
-                importantProperties = nextImp
-            )
-            CssProperty.BACKGROUND_ATTACHMENT -> base.copy(
-                backgroundAttachment = cssVal ?: fallback.backgroundAttachment,
-                rawDeclarations = nextRaw,
-                importantProperties = nextImp
-            )
-            CssProperty.COLOR -> base.copy(
-                textColor = _textColor ?: fallback.textColor,
-                rawDeclarations = nextRaw,
-                importantProperties = nextImp
-            )
-            CssProperty.ACCENT_COLOR -> base.copy(
-                accentColor = _accentColor ?: fallback.accentColor,
-                rawDeclarations = nextRaw,
-                importantProperties = nextImp
-            )
-            CssProperty.OPACITY -> base.copy(
-                opacity = _opacity ?: fallback.opacity,
-                rawDeclarations = nextRaw,
-                importantProperties = nextImp
-            )
-            CssProperty.DISPLAY -> base.copy(
-                display = cssVal ?: fallback.display,
-                rawDeclarations = nextRaw,
-                importantProperties = nextImp
-            )
-            CssProperty.POSITION -> base.copy(
-                position = cssVal ?: fallback.position,
-                rawDeclarations = nextRaw,
-                importantProperties = nextImp
-            )
-            CssProperty.TOP -> base.copy(
-                top = cssVal ?: fallback.top,
-                rawDeclarations = nextRaw,
-                importantProperties = nextImp
-            )
-            CssProperty.RIGHT -> base.copy(
-                right = cssVal ?: fallback.right,
-                rawDeclarations = nextRaw,
-                importantProperties = nextImp
-            )
-            CssProperty.BOTTOM -> base.copy(
-                bottom = cssVal ?: fallback.bottom,
-                rawDeclarations = nextRaw,
-                importantProperties = nextImp
-            )
-            CssProperty.LEFT -> base.copy(
-                left = cssVal ?: fallback.left,
-                rawDeclarations = nextRaw,
-                importantProperties = nextImp
-            )
-            CssProperty.WIDTH -> base.copy(
-                width = cssVal ?: fallback.width,
-                rawDeclarations = nextRaw,
-                importantProperties = nextImp
-            )
-            CssProperty.HEIGHT -> base.copy(
-                height = cssVal ?: fallback.height,
-                rawDeclarations = nextRaw,
-                importantProperties = nextImp
-            )
-            CssProperty.MIN_WIDTH -> base.copy(
-                minWidth = cssVal ?: fallback.minWidth,
-                rawDeclarations = nextRaw,
-                importantProperties = nextImp
-            )
-            CssProperty.MIN_HEIGHT -> base.copy(
-                minHeight = cssVal ?: fallback.minHeight,
-                rawDeclarations = nextRaw,
-                importantProperties = nextImp
-            )
-            CssProperty.MAX_WIDTH -> base.copy(
-                maxWidth = cssVal ?: fallback.maxWidth,
-                rawDeclarations = nextRaw,
-                importantProperties = nextImp
-            )
-            CssProperty.MAX_HEIGHT -> base.copy(
-                maxHeight = cssVal ?: fallback.maxHeight,
-                rawDeclarations = nextRaw,
-                importantProperties = nextImp
-            )
-            CssProperty.FLOAT -> base.copy(
-                floatSide = cssVal ?: fallback.floatSide,
-                rawDeclarations = nextRaw,
-                importantProperties = nextImp
-            )
-            CssProperty.CLEAR -> base.copy(
-                clearSide = cssVal ?: fallback.clearSide,
-                rawDeclarations = nextRaw,
-                importantProperties = nextImp
-            )
-            CssProperty.BORDER_WIDTH -> base.copy(
-                borderWidthPx = if (_borderWidth != null) _borderWidth?.top?.resolvePx() else fallback.borderWidthPx,
-                rawDeclarations = nextRaw,
-                importantProperties = nextImp
-            )
-            CssProperty.BORDER_STYLE -> base.copy(
-                borderStyle = cssVal ?: fallback.borderStyle,
-                rawDeclarations = nextRaw,
-                importantProperties = nextImp
-            )
-            CssProperty.BORDER_COLOR -> base.copy(
-                borderColor = _borderColor ?: fallback.borderColor,
-                rawDeclarations = nextRaw,
-                importantProperties = nextImp
-            )
-            CssProperty.BORDER_RADIUS -> base.copy(
-                borderRadiusPx = if (_borderRadius != null) _borderRadius?.topLeft?.takeIf { it.unit != CssUnit.PERCENT }?.resolvePx() else fallback.borderRadiusPx,
-                borderRadiusPercent = if (_borderRadius != null) _borderRadius?.topLeft?.takeIf { it.unit == CssUnit.PERCENT }?.value else fallback.borderRadiusPercent,
-                rawDeclarations = nextRaw,
-                importantProperties = nextImp
-            )
-            CssProperty.BOX_SHADOW -> base.copy(
-                boxShadow = cssVal ?: fallback.boxShadow,
-                rawDeclarations = nextRaw,
-                importantProperties = nextImp
-            )
-            CssProperty.TEXT_SHADOW -> base.copy(
-                textShadow = cssVal ?: fallback.textShadow,
-                rawDeclarations = nextRaw,
-                importantProperties = nextImp
-            )
-            CssProperty.FONT_FAMILY -> base.copy(
-                fontFamily = _fontFamily?.resolvedPrimaryName() ?: fallback.fontFamily,
-                rawDeclarations = nextRaw,
-                importantProperties = nextImp
-            )
-            CssProperty.FONT_SIZE -> base.copy(
-                fontSizePx = if (_fontSize != null) _fontSize?.takeIf { it.unit != CssUnit.PERCENT }?.resolvePx() else fallback.fontSizePx,
-                fontSizePercent = if (_fontSize != null) _fontSize?.takeIf { it.unit == CssUnit.PERCENT }?.value else fallback.fontSizePercent,
-                rawDeclarations = nextRaw,
-                importantProperties = nextImp
-            )
-            CssProperty.FONT_WEIGHT -> base.copy(
-                fontWeightNumeric = (_fontWeightNumericOverride ?: _fontWeight?.numericWeight) ?: fallback.fontWeightNumeric,
-                rawDeclarations = nextRaw,
-                importantProperties = nextImp
-            )
-            CssProperty.TEXT_ALIGN -> base.copy(
-                textAlign = cssVal ?: fallback.textAlign,
-                rawDeclarations = nextRaw,
-                importantProperties = nextImp
-            )
-            CssProperty.WHITE_SPACE -> base.copy(
-                whiteSpace = cssVal ?: fallback.whiteSpace,
-                rawDeclarations = nextRaw,
-                importantProperties = nextImp
-            )
-            CssProperty.VERTICAL_ALIGN -> base.copy(
-                verticalAlign = cssVal ?: fallback.verticalAlign,
-                rawDeclarations = nextRaw,
-                importantProperties = nextImp
-            )
-            CssProperty.OVERFLOW -> base.copy(
-                overflow = cssVal ?: fallback.overflow,
-                rawDeclarations = nextRaw,
-                importantProperties = nextImp
-            )
-            CssProperty.CURSOR -> base.copy(
-                cursor = cssVal ?: fallback.cursor,
-                customCursor = _cursor ?: fallback.customCursor,
-                rawDeclarations = nextRaw,
-                importantProperties = nextImp
-            )
-            CssProperty.POINTER_EVENTS -> base.copy(
-                pointerEventsEnabled = if (_pointerEvents != null) _pointerEvents != CssPointerEvents.NONE else fallback.pointerEventsEnabled,
-                rawDeclarations = nextRaw,
-                importantProperties = nextImp
-            )
-            CssProperty.ASPECT_RATIO -> base.copy(
-                aspectRatio = _aspectRatio?.numericRatio ?: fallback.aspectRatio,
-                rawDeclarations = nextRaw,
-                importantProperties = nextImp
-            )
-            CssProperty.Z_INDEX -> base.copy(
-                zIndex = _zIndex ?: fallback.zIndex,
-                rawDeclarations = nextRaw,
-                importantProperties = nextImp
-            )
-            CssProperty.TRANSFORM -> base.copy(
-                transform = cssVal ?: fallback.transform,
-                rawDeclarations = nextRaw,
-                importantProperties = nextImp
-            )
-            CssProperty.TRANSITION -> base.copy(
-                transition = cssVal ?: fallback.transition,
-                rawDeclarations = nextRaw,
-                importantProperties = nextImp
-            )
-            CssProperty.FILTER -> base.copy(
-                filter = _filter ?: fallback.filter,
-                rawDeclarations = nextRaw,
-                importantProperties = nextImp
-            )
-            else -> base.copy(
-                rawDeclarations = nextRaw,
-                importantProperties = nextImp
-            )
-        }
     }
 
     /**
-     * Merges this [ComponentStyle] on top of an optional [base] [ComputedStyle], respecting
-     * `!important` flags on [base] vs this [ComponentStyle].
+     * Returns a map of CSS property name -> `(cssValue, isImportant)` for all set properties.
+     */
+    fun toCssPropertyMap(): Map<String, Pair<String, Boolean>> {
+        if (isEmpty()) return emptyMap()
+        val out = LinkedHashMap<String, Pair<String, Boolean>>()
+        fun putProp(prop: CssProperty, value: String?) {
+            if (value == null) return
+            out[prop.cssName] = value to isImportant(prop)
+        }
+        for (prop in CssProperty.entries) {
+            if (hasProperty(prop)) {
+                putProp(prop, getSinglePropertyCssString(prop))
+            }
+        }
+        return out
+    }
+
+    /**
+     * Incrementally updates a single [CssProperty] on [current] from this [ComponentStyle],
+     * falling back to [sheetBase] when the property was cleared (`null`).
+     */
+    fun applySinglePropertyToComputed(
+        property: CssProperty,
+        current: ComputedStyle,
+        sheetBase: ComputedStyle? = null
+    ): ComputedStyle {
+        val imp = isImportant(property)
+        val present = hasProperty(property)
+        val ord = property.ordinal
+        val baseHas = sheetBase?.hasProperty(property) == true
+        val baseImp = sheetBase?.isImportant(property) == true
+        val nextActLow = if (ord < 64) {
+            val mask = 1L shl ord
+            if (present || baseHas) current.activeBitmaskLow or mask else current.activeBitmaskLow and mask.inv()
+        } else current.activeBitmaskLow
+        val nextActHigh = if (ord >= 64) {
+            val mask = 1L shl (ord - 64)
+            if (present || baseHas) current.activeBitmaskHigh or mask else current.activeBitmaskHigh and mask.inv()
+        } else current.activeBitmaskHigh
+        val nextImpLow = if (ord < 64) {
+            val mask = 1L shl ord
+            if ((present && imp) || (!present && baseImp)) current.importantBitmaskLow or mask else current.importantBitmaskLow and mask.inv()
+        } else current.importantBitmaskLow
+        val nextImpHigh = if (ord >= 64) {
+            val mask = 1L shl (ord - 64)
+            if ((present && imp) || (!present && baseImp)) current.importantBitmaskHigh or mask else current.importantBitmaskHigh and mask.inv()
+        } else current.importantBitmaskHigh
+
+        val updated = when (property) {
+            CssProperty.BACKGROUND_COLOR -> current.copy(backgroundColor = _backgroundColor ?: sheetBase?.backgroundColor)
+            CssProperty.BACKGROUND_IMAGE -> current.copy(
+                backgroundGradient = _backgroundImage?.gradient ?: sheetBase?.backgroundGradient,
+                backgroundImageUrl = _backgroundImage?.urlOrPath ?: sheetBase?.backgroundImageUrl
+            )
+            CssProperty.BACKGROUND_SIZE -> current.copy(backgroundSize = _backgroundSize?.toCssString() ?: sheetBase?.backgroundSize)
+            CssProperty.BACKGROUND_POSITION -> current.copy(backgroundPosition = _backgroundPosition?.toCssString() ?: sheetBase?.backgroundPosition)
+            CssProperty.BACKGROUND_REPEAT -> current.copy(backgroundRepeat = _backgroundRepeat?.cssValue ?: sheetBase?.backgroundRepeat)
+            CssProperty.BACKGROUND_ATTACHMENT -> current.copy(backgroundAttachment = _backgroundAttachment?.cssValue ?: sheetBase?.backgroundAttachment)
+            CssProperty.BACKGROUND_CLIP -> current.copy(backgroundClip = _backgroundClip ?: sheetBase?.backgroundClip)
+            CssProperty.BACKGROUND_ORIGIN -> current.copy(backgroundOrigin = _backgroundOrigin ?: sheetBase?.backgroundOrigin)
+            CssProperty.COLOR -> current.copy(textColor = _color ?: sheetBase?.textColor)
+            CssProperty.ACCENT_COLOR -> current.copy(accentColor = _accentColor ?: sheetBase?.accentColor)
+            CssProperty.OPACITY -> current.copy(opacity = _opacity ?: sheetBase?.opacity ?: 1.0f)
+            CssProperty.DISPLAY -> current.copy(display = _display?.cssValue ?: sheetBase?.display)
+            CssProperty.VISIBILITY -> current.copy(visibility = _visibility ?: sheetBase?.visibility)
+            CssProperty.POSITION -> current.copy(position = _position?.cssValue ?: sheetBase?.position)
+            CssProperty.TOP -> current.copy(top = _top?.toCssString() ?: sheetBase?.top)
+            CssProperty.RIGHT -> current.copy(right = _right?.toCssString() ?: sheetBase?.right)
+            CssProperty.BOTTOM -> current.copy(bottom = _bottom?.toCssString() ?: sheetBase?.bottom)
+            CssProperty.LEFT -> current.copy(left = _left?.toCssString() ?: sheetBase?.left)
+            CssProperty.WIDTH -> current.copy(width = _width?.toCssString() ?: sheetBase?.width)
+            CssProperty.HEIGHT -> current.copy(height = _height?.toCssString() ?: sheetBase?.height)
+            CssProperty.MIN_WIDTH -> current.copy(minWidth = _minWidth?.toCssString() ?: sheetBase?.minWidth)
+            CssProperty.MIN_HEIGHT -> current.copy(minHeight = _minHeight?.toCssString() ?: sheetBase?.minHeight)
+            CssProperty.MAX_WIDTH -> current.copy(maxWidth = _maxWidth?.toCssString() ?: sheetBase?.maxWidth)
+            CssProperty.MAX_HEIGHT -> current.copy(maxHeight = _maxHeight?.toCssString() ?: sheetBase?.maxHeight)
+            CssProperty.MARGIN -> current.copy(margin = _margin ?: sheetBase?.margin)
+            CssProperty.MARGIN_TOP -> current.copy(marginTop = _marginTop ?: sheetBase?.marginTop)
+            CssProperty.MARGIN_RIGHT -> current.copy(marginRight = _marginRight ?: sheetBase?.marginRight)
+            CssProperty.MARGIN_BOTTOM -> current.copy(marginBottom = _marginBottom ?: sheetBase?.marginBottom)
+            CssProperty.MARGIN_LEFT -> current.copy(marginLeft = _marginLeft ?: sheetBase?.marginLeft)
+            CssProperty.PADDING -> current.copy(padding = _padding ?: sheetBase?.padding)
+            CssProperty.PADDING_TOP -> current.copy(paddingTop = _paddingTop ?: sheetBase?.paddingTop)
+            CssProperty.PADDING_RIGHT -> current.copy(paddingRight = _paddingRight ?: sheetBase?.paddingRight)
+            CssProperty.PADDING_BOTTOM -> current.copy(paddingBottom = _paddingBottom ?: sheetBase?.paddingBottom)
+            CssProperty.PADDING_LEFT -> current.copy(paddingLeft = _paddingLeft ?: sheetBase?.paddingLeft)
+            CssProperty.BOX_SIZING -> current.copy(boxSizing = _boxSizing ?: sheetBase?.boxSizing)
+            CssProperty.FLOAT -> current.copy(floatSide = _floatSide?.cssValue ?: sheetBase?.floatSide)
+            CssProperty.CLEAR -> current.copy(clearSide = _clearSide?.cssValue ?: sheetBase?.clearSide)
+            CssProperty.BORDER_WIDTH -> {
+                val bw = _borderWidth
+                current.copy(
+                    borderWidthPx = bw?.top?.resolvePx() ?: sheetBase?.borderWidthPx,
+                    borderTopWidthPx = bw?.top?.resolvePx() ?: sheetBase?.borderTopWidthPx,
+                    borderRightWidthPx = bw?.right?.resolvePx() ?: sheetBase?.borderRightWidthPx,
+                    borderBottomWidthPx = bw?.bottom?.resolvePx() ?: sheetBase?.borderBottomWidthPx,
+                    borderLeftWidthPx = bw?.left?.resolvePx() ?: sheetBase?.borderLeftWidthPx
+                )
+            }
+            CssProperty.BORDER_STYLE -> current.copy(borderStyle = _borderStyle?.cssValue ?: sheetBase?.borderStyle)
+            CssProperty.BORDER_COLOR -> current.copy(
+                borderColor = _borderColor ?: sheetBase?.borderColor,
+                borderTopColor = _borderTopColor ?: _borderColor ?: sheetBase?.borderTopColor,
+                borderRightColor = _borderRightColor ?: _borderColor ?: sheetBase?.borderRightColor,
+                borderBottomColor = _borderBottomColor ?: _borderColor ?: sheetBase?.borderBottomColor,
+                borderLeftColor = _borderLeftColor ?: _borderColor ?: sheetBase?.borderLeftColor
+            )
+            CssProperty.BORDER_RADIUS -> {
+                val br = _borderRadius
+                val tl = br?.topLeft
+                current.copy(
+                    borderRadius = br ?: sheetBase?.borderRadius,
+                    borderRadiusPx = tl?.takeIf { it.unit != CssUnit.PERCENT }?.resolvePx() ?: sheetBase?.borderRadiusPx,
+                    borderRadiusPercent = tl?.takeIf { it.unit == CssUnit.PERCENT }?.value ?: sheetBase?.borderRadiusPercent,
+                    borderRadiusTopLeftPx = br?.topLeft?.resolvePx() ?: sheetBase?.borderRadiusTopLeftPx,
+                    borderRadiusTopRightPx = br?.topRight?.resolvePx() ?: sheetBase?.borderRadiusTopRightPx,
+                    borderRadiusBottomRightPx = br?.bottomRight?.resolvePx() ?: sheetBase?.borderRadiusBottomRightPx,
+                    borderRadiusBottomLeftPx = br?.bottomLeft?.resolvePx() ?: sheetBase?.borderRadiusBottomLeftPx
+                )
+            }
+            CssProperty.OUTLINE_WIDTH -> current.copy(
+                outlineWidthPx = _outlineWidth?.resolvePx() ?: sheetBase?.outlineWidthPx,
+                focusRingWidthPx = _focusRingWidthPx ?: _outlineWidth?.resolvePx() ?: sheetBase?.focusRingWidthPx
+            )
+            CssProperty.OUTLINE_STYLE -> current.copy(outlineStyle = _outlineStyle?.cssValue ?: sheetBase?.outlineStyle)
+            CssProperty.OUTLINE_COLOR -> current.copy(
+                outlineColor = _outlineColor ?: sheetBase?.outlineColor,
+                focusRingColor = _focusRingColor ?: _outlineColor ?: sheetBase?.focusRingColor
+            )
+            CssProperty.OUTLINE -> current.copy(
+                outlineWidthPx = _outlineWidth?.resolvePx() ?: sheetBase?.outlineWidthPx,
+                outlineStyle = _outlineStyle?.cssValue ?: sheetBase?.outlineStyle,
+                outlineColor = _outlineColor ?: sheetBase?.outlineColor,
+                outlineOffsetPx = _outlineOffset?.resolvePx() ?: sheetBase?.outlineOffsetPx
+            )
+            CssProperty.BOX_SHADOW -> current.copy(
+                boxShadow = _boxShadow?.toCssString() ?: sheetBase?.boxShadow,
+                boxShadowList = _boxShadow ?: sheetBase?.boxShadowList
+            )
+            CssProperty.TEXT_SHADOW -> current.copy(
+                textShadow = _textShadow?.toCssString() ?: sheetBase?.textShadow,
+                textShadowList = _textShadow ?: sheetBase?.textShadowList
+            )
+            CssProperty.FONT_FAMILY -> current.copy(fontFamily = _fontFamily?.resolvedPrimaryName() ?: sheetBase?.fontFamily)
+            CssProperty.FONT_SIZE -> {
+                val fs = _fontSize
+                current.copy(
+                    fontSizePx = fs?.takeIf { it.unit != CssUnit.PERCENT }?.resolvePx() ?: sheetBase?.fontSizePx,
+                    fontSizePercent = fs?.takeIf { it.unit == CssUnit.PERCENT }?.value ?: sheetBase?.fontSizePercent
+                )
+            }
+            CssProperty.FONT_WEIGHT -> current.copy(fontWeightNumeric = fontWeightNumeric ?: sheetBase?.fontWeightNumeric)
+            CssProperty.FONT_STYLE -> current.copy(fontStyle = _fontStyle ?: sheetBase?.fontStyle)
+            CssProperty.LINE_HEIGHT -> current.copy(lineHeight = _lineHeight ?: sheetBase?.lineHeight)
+            CssProperty.LETTER_SPACING -> current.copy(letterSpacing = _letterSpacing ?: sheetBase?.letterSpacing)
+            CssProperty.TEXT_ALIGN -> current.copy(textAlign = getSinglePropertyCssString(CssProperty.TEXT_ALIGN) ?: sheetBase?.textAlign)
+            CssProperty.TEXT_DECORATION -> current.copy(textDecoration = _textDecoration ?: sheetBase?.textDecoration)
+            CssProperty.TEXT_TRANSFORM -> current.copy(textTransform = _textTransform ?: sheetBase?.textTransform)
+            CssProperty.TEXT_OVERFLOW -> current.copy(textOverflow = _textOverflow ?: sheetBase?.textOverflow)
+            CssProperty.WHITE_SPACE -> current.copy(whiteSpace = _whiteSpace?.cssValue ?: sheetBase?.whiteSpace)
+            CssProperty.WORD_BREAK -> current.copy(wordBreak = _wordBreak ?: sheetBase?.wordBreak)
+            CssProperty.VERTICAL_ALIGN -> current.copy(verticalAlign = _verticalAlign?.cssValue ?: sheetBase?.verticalAlign)
+            CssProperty.FLEX_DIRECTION -> current.copy(flexDirection = _flexDirection ?: sheetBase?.flexDirection)
+            CssProperty.FLEX_WRAP -> current.copy(flexWrap = _flexWrap ?: sheetBase?.flexWrap)
+            CssProperty.JUSTIFY_CONTENT -> current.copy(justifyContent = _justifyContent ?: sheetBase?.justifyContent)
+            CssProperty.ALIGN_ITEMS -> current.copy(alignItems = _alignItems ?: sheetBase?.alignItems)
+            CssProperty.ALIGN_SELF -> current.copy(alignSelf = _alignSelf ?: sheetBase?.alignSelf)
+            CssProperty.ALIGN_CONTENT -> current.copy(alignContent = _alignContent ?: sheetBase?.alignContent)
+            CssProperty.FLEX_GROW -> current.copy(flexGrow = _flexGrow ?: sheetBase?.flexGrow)
+            CssProperty.FLEX_SHRINK -> current.copy(flexShrink = _flexShrink ?: sheetBase?.flexShrink)
+            CssProperty.FLEX_BASIS -> current.copy(flexBasis = _flexBasis ?: sheetBase?.flexBasis)
+            CssProperty.ORDER -> current.copy(order = _order ?: sheetBase?.order)
+            CssProperty.GAP -> current.copy(gap = _gap ?: sheetBase?.gap)
+            CssProperty.ROW_GAP -> current.copy(rowGap = _rowGap ?: sheetBase?.rowGap)
+            CssProperty.COLUMN_GAP -> current.copy(columnGap = _columnGap ?: sheetBase?.columnGap)
+            CssProperty.OVERFLOW -> current.copy(overflow = _overflow?.name?.lowercase() ?: sheetBase?.overflow)
+            CssProperty.OVERFLOW_X -> current.copy(overflowX = _overflowX ?: sheetBase?.overflowX)
+            CssProperty.OVERFLOW_Y -> current.copy(overflowY = _overflowY ?: sheetBase?.overflowY)
+            CssProperty.CURSOR -> current.copy(
+                cursor = (_cursor as? CssCursor)?.cssValue ?: sheetBase?.cursor,
+                customCursor = _cursor ?: sheetBase?.customCursor
+            )
+            CssProperty.POINTER_EVENTS -> current.copy(
+                pointerEventsEnabled = _pointerEvents?.let { it != CssPointerEvents.NONE } ?: sheetBase?.pointerEventsEnabled ?: true
+            )
+            CssProperty.USER_SELECT -> current.copy(userSelect = _userSelect ?: sheetBase?.userSelect)
+            CssProperty.OBJECT_FIT -> current.copy(objectFit = _objectFit ?: sheetBase?.objectFit)
+            CssProperty.ASPECT_RATIO -> current.copy(aspectRatio = _aspectRatio?.numericRatio ?: sheetBase?.aspectRatio)
+            CssProperty.Z_INDEX -> current.copy(zIndex = _zIndex ?: sheetBase?.zIndex)
+            CssProperty.TRANSFORM -> current.copy(
+                transform = _transform?.toCssString() ?: sheetBase?.transform,
+                transform2D = _transform ?: sheetBase?.transform2D
+            )
+            CssProperty.TRANSFORM_ORIGIN -> current.copy(transformOrigin = _transformOrigin ?: sheetBase?.transformOrigin)
+            CssProperty.TRANSITION -> current.copy(
+                transition = getSinglePropertyCssString(CssProperty.TRANSITION) ?: sheetBase?.transition,
+                transitions = _transitions ?: sheetBase?.transitions
+            )
+            CssProperty.FILTER -> current.copy(filter = _filter ?: sheetBase?.filter)
+            CssProperty.BACKDROP_FILTER -> current.copy(backdropFilter = _backdropFilter ?: sheetBase?.backdropFilter)
+            else -> current
+        }
+
+        return updated.copy(
+            activeBitmaskLow = nextActLow,
+            activeBitmaskHigh = nextActHigh,
+            importantBitmaskLow = nextImpLow,
+            importantBitmaskHigh = nextImpHigh
+        )
+    }
+
+    /**
+     * Converts this [ComponentStyle] into a [ComputedStyle], optionally merging on top of [base]
+     * while respecting `!important` flags on [base].
      */
     fun toComputedStyle(base: ComputedStyle? = null): ComputedStyle {
         val baseStyle = base ?: ComputedStyle.EMPTY
         if (isEmpty()) return baseStyle
-        if (rawCustomDeclarations.isEmpty()) {
-            var current = baseStyle
-            val entries = CssProperty.entries
-            var low = activePropertiesBitmaskLow
-            while (low != 0L) {
-                val bit = low.countTrailingZeroBits()
-                current = applySinglePropertyToComputed(entries[bit], current, baseStyle)
-                low = low and (low - 1L)
-            }
-            var high = activePropertiesBitmaskHigh
-            while (high != 0L) {
-                val bit = high.countTrailingZeroBits()
-                current = applySinglePropertyToComputed(entries[64 + bit], current, baseStyle)
-                high = high and (high - 1L)
-            }
-            return current
-        }
-        val propMap = toCssPropertyMap()
-        if (propMap.isEmpty()) return baseStyle
 
-        val mergedRaw = LinkedHashMap(baseStyle.rawDeclarations)
-        val mergedImportant = LinkedHashSet(baseStyle.importantProperties)
-
-        fun canOverride(propName: String, propEnum: CssProperty?): Boolean {
-            val baseHasImportant = propName in baseStyle.importantProperties
-            val selfHasImportant = (propEnum != null && isImportant(propEnum)) || (propName in rawImportantCustomProps)
-            return !baseHasImportant || selfHasImportant
+        fun canOverride(prop: CssProperty): Boolean {
+            if (!hasProperty(prop)) return false
+            return !baseStyle.isImportant(prop) || isImportant(prop)
         }
 
-        for ((propName, pair) in propMap) {
-            val (cssVal, isImp) = pair
-            val propEnum = CssProperty.fromCssName(propName)
-            if (canOverride(propName, propEnum)) {
-                mergedRaw[propName] = cssVal
-                if (isImp) mergedImportant.add(propName)
-            }
-        }
-
-        val resolvedBgColor = if (_backgroundColor != null && canOverride("background-color", CssProperty.BACKGROUND_COLOR)) {
-            _backgroundColor
-        } else {
-            baseStyle.backgroundColor
-        }
-        val resolvedBgGradient = if (_backgroundImage?.gradient != null && canOverride("background-image", CssProperty.BACKGROUND_IMAGE)) {
-            _backgroundImage?.gradient
-        } else {
-            baseStyle.backgroundGradient
-        }
-        val resolvedBgImageUrl = if (_backgroundImage != null && canOverride("background-image", CssProperty.BACKGROUND_IMAGE)) {
-            _backgroundImage?.urlOrPath ?: baseStyle.backgroundImageUrl
-        } else {
-            baseStyle.backgroundImageUrl
-        }
-        val resolvedTextColor = if (_textColor != null && canOverride("color", CssProperty.COLOR)) {
-            _textColor
-        } else {
-            baseStyle.textColor
-        }
-        val resolvedAccentColor = if (_accentColor != null && canOverride("accent-color", CssProperty.ACCENT_COLOR)) {
-            _accentColor
-        } else {
-            baseStyle.accentColor
-        }
-        val resolvedBorderColor = if (_borderColor != null && canOverride("border-color", CssProperty.BORDER_COLOR)) {
-            _borderColor
-        } else {
-            baseStyle.borderColor
-        }
-        val resolvedBorderWidthPx = if (_borderWidth != null && canOverride("border-width", CssProperty.BORDER_WIDTH)) {
-            _borderWidth?.top?.resolvePx()
-        } else {
-            baseStyle.borderWidthPx
-        }
-        val resolvedBorderStyle = if (_borderStyle != null && canOverride("border-style", CssProperty.BORDER_STYLE)) {
-            _borderStyle?.toCssString()
-        } else {
-            baseStyle.borderStyle
-        }
-        val resolvedRadiusPx = if (_borderRadius != null && canOverride("border-radius", CssProperty.BORDER_RADIUS)) {
-            _borderRadius?.topLeft?.takeIf { it.unit != CssUnit.PERCENT }?.resolvePx()
+        val radiusTl = _borderRadius?.topLeft
+        val radiusPx = if (canOverride(CssProperty.BORDER_RADIUS) && radiusTl != null && radiusTl.unit != CssUnit.PERCENT) {
+            radiusTl.resolvePx()
         } else {
             baseStyle.borderRadiusPx
         }
-        val resolvedRadiusPct = if (_borderRadius != null && canOverride("border-radius", CssProperty.BORDER_RADIUS)) {
-            _borderRadius?.topLeft?.takeIf { it.unit == CssUnit.PERCENT }?.value
+        val radiusPct = if (canOverride(CssProperty.BORDER_RADIUS) && radiusTl != null && radiusTl.unit == CssUnit.PERCENT) {
+            radiusTl.value
         } else {
             baseStyle.borderRadiusPercent
         }
-        val resolvedFontSizePx = if (_fontSize != null && canOverride("font-size", CssProperty.FONT_SIZE)) {
-            _fontSize?.takeIf { it.unit != CssUnit.PERCENT }?.resolvePx()
+
+        val fontSizePxVal = if (canOverride(CssProperty.FONT_SIZE) && _fontSize != null && _fontSize?.unit != CssUnit.PERCENT) {
+            _fontSize?.resolvePx()
         } else {
             baseStyle.fontSizePx
         }
-        val resolvedFontSizePct = if (_fontSize != null && canOverride("font-size", CssProperty.FONT_SIZE)) {
-            _fontSize?.takeIf { it.unit == CssUnit.PERCENT }?.value
+        val fontSizePctVal = if (canOverride(CssProperty.FONT_SIZE) && _fontSize != null && _fontSize?.unit == CssUnit.PERCENT) {
+            _fontSize?.value
         } else {
             baseStyle.fontSizePercent
         }
-        val resolvedFontFamily = if (_fontFamily != null && canOverride("font-family", CssProperty.FONT_FAMILY)) {
-            _fontFamily?.resolvedPrimaryName()
-        } else {
-            baseStyle.fontFamily
-        }
-        val resolvedFontWeight = if ((_fontWeightNumericOverride != null || _fontWeight != null) && canOverride("font-weight", CssProperty.FONT_WEIGHT)) {
-            _fontWeightNumericOverride ?: _fontWeight?.numericWeight
-        } else {
-            baseStyle.fontWeightNumeric
-        }
-        val resolvedOpacity = if (_opacity != null && canOverride("opacity", CssProperty.OPACITY)) {
-            _opacity ?: 1.0f
-        } else {
-            baseStyle.opacity
-        }
-        val resolvedCursor = if (_cursor != null && canOverride("cursor", CssProperty.CURSOR)) {
-            _cursor?.toCssString()
-        } else {
-            baseStyle.cursor
-        }
-        val resolvedCustomCursor = if (_cursor != null && canOverride("cursor", CssProperty.CURSOR)) {
-            _cursor
-        } else {
-            baseStyle.customCursor
-        }
-        val resolvedPointerEvents = if (_pointerEvents != null && canOverride("pointer-events", CssProperty.POINTER_EVENTS)) {
-            _pointerEvents != CssPointerEvents.NONE
-        } else {
-            baseStyle.pointerEventsEnabled
-        }
 
-        return baseStyle.copy(
-            backgroundColor = resolvedBgColor,
-            backgroundGradient = resolvedBgGradient,
-            textColor = resolvedTextColor,
-            accentColor = resolvedAccentColor,
-            borderColor = resolvedBorderColor,
-            borderWidthPx = resolvedBorderWidthPx,
-            borderStyle = resolvedBorderStyle,
-            borderRadiusPx = resolvedRadiusPx,
-            borderRadiusPercent = resolvedRadiusPct,
-            fontSizePx = resolvedFontSizePx,
-            fontSizePercent = resolvedFontSizePct,
-            fontFamily = resolvedFontFamily,
-            fontWeightNumeric = resolvedFontWeight,
-            opacity = resolvedOpacity,
-            backgroundImageUrl = resolvedBgImageUrl,
-            backgroundRepeat = if (_backgroundRepeat != null && canOverride("background-repeat", CssProperty.BACKGROUND_REPEAT)) _backgroundRepeat?.toCssString() else baseStyle.backgroundRepeat,
-            backgroundAttachment = if (_backgroundAttachment != null && canOverride("background-attachment", CssProperty.BACKGROUND_ATTACHMENT)) _backgroundAttachment?.toCssString() else baseStyle.backgroundAttachment,
-            backgroundPosition = if (_backgroundPosition != null && canOverride("background-position", CssProperty.BACKGROUND_POSITION)) _backgroundPosition?.toCssString() else baseStyle.backgroundPosition,
-            backgroundSize = if (_backgroundSize != null && canOverride("background-size", CssProperty.BACKGROUND_SIZE)) _backgroundSize?.toCssString() else baseStyle.backgroundSize,
-            textShadow = if (_textShadow != null && canOverride("text-shadow", CssProperty.TEXT_SHADOW)) _textShadow?.toCssString() else baseStyle.textShadow,
-            boxShadow = if (_boxShadow != null && canOverride("box-shadow", CssProperty.BOX_SHADOW)) _boxShadow?.toCssString() else baseStyle.boxShadow,
-            transform = if (_transform != null && canOverride("transform", CssProperty.TRANSFORM)) _transform?.toCssString() else baseStyle.transform,
-            transition = if (_transitions != null && canOverride("transition", CssProperty.TRANSITION)) _transitions?.joinToString(", ") { it.toCssString() } else baseStyle.transition,
-            zIndex = if (_zIndex != null && canOverride("z-index", CssProperty.Z_INDEX)) _zIndex else baseStyle.zIndex,
-            aspectRatio = if (_aspectRatio != null && canOverride("aspect-ratio", CssProperty.ASPECT_RATIO)) _aspectRatio?.numericRatio else baseStyle.aspectRatio,
-            pointerEventsEnabled = resolvedPointerEvents,
-            cursor = resolvedCursor,
-            customCursor = resolvedCustomCursor,
-            position = if (_position != null && canOverride("position", CssProperty.POSITION)) _position?.toCssString() else baseStyle.position,
-            display = if (_display != null && canOverride("display", CssProperty.DISPLAY)) _display?.toCssString() else baseStyle.display,
-            overflow = if (_overflow != null && canOverride("overflow", CssProperty.OVERFLOW)) mergedRaw["overflow"] else baseStyle.overflow,
-            textAlign = if (_textAlign != null && canOverride("text-align", CssProperty.TEXT_ALIGN)) mergedRaw["text-align"] else baseStyle.textAlign,
-            verticalAlign = if (_verticalAlign != null && canOverride("vertical-align", CssProperty.VERTICAL_ALIGN)) _verticalAlign?.toCssString() else baseStyle.verticalAlign,
-            whiteSpace = if (_whiteSpace != null && canOverride("white-space", CssProperty.WHITE_SPACE)) _whiteSpace?.toCssString() else baseStyle.whiteSpace,
-            floatSide = if (_floatSide != null && canOverride("float", CssProperty.FLOAT)) _floatSide?.toCssString() else baseStyle.floatSide,
-            clearSide = if (_clearSide != null && canOverride("clear", CssProperty.CLEAR)) _clearSide?.toCssString() else baseStyle.clearSide,
-            left = if (_left != null && canOverride("left", CssProperty.LEFT)) _left?.toCssString() else baseStyle.left,
-            top = if (_top != null && canOverride("top", CssProperty.TOP)) _top?.toCssString() else baseStyle.top,
-            right = if (_right != null && canOverride("right", CssProperty.RIGHT)) _right?.toCssString() else baseStyle.right,
-            bottom = if (_bottom != null && canOverride("bottom", CssProperty.BOTTOM)) _bottom?.toCssString() else baseStyle.bottom,
-            width = if (_width != null && canOverride("width", CssProperty.WIDTH)) _width?.toCssString() else baseStyle.width,
-            height = if (_height != null && canOverride("height", CssProperty.HEIGHT)) _height?.toCssString() else baseStyle.height,
-            minWidth = if (_minWidth != null && canOverride("min-width", CssProperty.MIN_WIDTH)) _minWidth?.toCssString() else baseStyle.minWidth,
-            minHeight = if (_minHeight != null && canOverride("min-height", CssProperty.MIN_HEIGHT)) _minHeight?.toCssString() else baseStyle.minHeight,
-            maxWidth = if (_maxWidth != null && canOverride("max-width", CssProperty.MAX_WIDTH)) _maxWidth?.toCssString() else baseStyle.maxWidth,
-            maxHeight = if (_maxHeight != null && canOverride("max-height", CssProperty.MAX_HEIGHT)) _maxHeight?.toCssString() else baseStyle.maxHeight,
-            filter = if (_filter != null && canOverride("filter", CssProperty.FILTER)) _filter else baseStyle.filter,
-            rawDeclarations = mergedRaw,
-            importantProperties = mergedImportant
+        return ComputedStyle(
+            backgroundColor = if (canOverride(CssProperty.BACKGROUND_COLOR)) _backgroundColor ?: baseStyle.backgroundColor else baseStyle.backgroundColor,
+            textColor = if (canOverride(CssProperty.COLOR)) _color ?: baseStyle.textColor else baseStyle.textColor,
+            borderColor = if (canOverride(CssProperty.BORDER_COLOR)) _borderColor ?: baseStyle.borderColor else baseStyle.borderColor,
+            borderTopColor = if (canOverride(CssProperty.BORDER_COLOR)) _borderTopColor ?: _borderColor ?: baseStyle.borderTopColor else baseStyle.borderTopColor,
+            borderRightColor = if (canOverride(CssProperty.BORDER_COLOR)) _borderRightColor ?: _borderColor ?: baseStyle.borderRightColor else baseStyle.borderRightColor,
+            borderBottomColor = if (canOverride(CssProperty.BORDER_COLOR)) _borderBottomColor ?: _borderColor ?: baseStyle.borderBottomColor else baseStyle.borderBottomColor,
+            borderLeftColor = if (canOverride(CssProperty.BORDER_COLOR)) _borderLeftColor ?: _borderColor ?: baseStyle.borderLeftColor else baseStyle.borderLeftColor,
+            accentColor = if (canOverride(CssProperty.ACCENT_COLOR)) _accentColor ?: baseStyle.accentColor else baseStyle.accentColor,
+            outlineColor = if (canOverride(CssProperty.OUTLINE_COLOR)) _outlineColor ?: baseStyle.outlineColor else baseStyle.outlineColor,
+            focusRingColor = if (canOverride(CssProperty.OUTLINE_COLOR)) _focusRingColor ?: _outlineColor ?: baseStyle.focusRingColor else baseStyle.focusRingColor,
+            focusRingWidthPx = if (canOverride(CssProperty.OUTLINE_WIDTH)) _focusRingWidthPx ?: _outlineWidth?.resolvePx() ?: baseStyle.focusRingWidthPx else baseStyle.focusRingWidthPx,
+            backgroundGradient = if (canOverride(CssProperty.BACKGROUND_IMAGE)) _backgroundImage?.gradient ?: baseStyle.backgroundGradient else baseStyle.backgroundGradient,
+            backgroundImageUrl = if (canOverride(CssProperty.BACKGROUND_IMAGE)) _backgroundImage?.urlOrPath ?: baseStyle.backgroundImageUrl else baseStyle.backgroundImageUrl,
+            backgroundRepeat = if (canOverride(CssProperty.BACKGROUND_REPEAT)) _backgroundRepeat?.cssValue ?: baseStyle.backgroundRepeat else baseStyle.backgroundRepeat,
+            backgroundAttachment = if (canOverride(CssProperty.BACKGROUND_ATTACHMENT)) _backgroundAttachment?.cssValue ?: baseStyle.backgroundAttachment else baseStyle.backgroundAttachment,
+            backgroundPosition = if (canOverride(CssProperty.BACKGROUND_POSITION)) _backgroundPosition?.toCssString() ?: baseStyle.backgroundPosition else baseStyle.backgroundPosition,
+            backgroundSize = if (canOverride(CssProperty.BACKGROUND_SIZE)) _backgroundSize?.toCssString() ?: baseStyle.backgroundSize else baseStyle.backgroundSize,
+            backgroundClip = if (canOverride(CssProperty.BACKGROUND_CLIP)) _backgroundClip ?: baseStyle.backgroundClip else baseStyle.backgroundClip,
+            backgroundOrigin = if (canOverride(CssProperty.BACKGROUND_ORIGIN)) _backgroundOrigin ?: baseStyle.backgroundOrigin else baseStyle.backgroundOrigin,
+            borderRadiusPx = radiusPx,
+            borderRadiusPercent = radiusPct,
+            borderRadiusTopLeftPx = if (canOverride(CssProperty.BORDER_RADIUS)) _borderRadius?.topLeft?.resolvePx() ?: baseStyle.borderRadiusTopLeftPx else baseStyle.borderRadiusTopLeftPx,
+            borderRadiusTopRightPx = if (canOverride(CssProperty.BORDER_RADIUS)) _borderRadius?.topRight?.resolvePx() ?: baseStyle.borderRadiusTopRightPx else baseStyle.borderRadiusTopRightPx,
+            borderRadiusBottomRightPx = if (canOverride(CssProperty.BORDER_RADIUS)) _borderRadius?.bottomRight?.resolvePx() ?: baseStyle.borderRadiusBottomRightPx else baseStyle.borderRadiusBottomRightPx,
+            borderRadiusBottomLeftPx = if (canOverride(CssProperty.BORDER_RADIUS)) _borderRadius?.bottomLeft?.resolvePx() ?: baseStyle.borderRadiusBottomLeftPx else baseStyle.borderRadiusBottomLeftPx,
+            borderRadius = if (canOverride(CssProperty.BORDER_RADIUS)) _borderRadius ?: baseStyle.borderRadius else baseStyle.borderRadius,
+            borderWidthPx = if (canOverride(CssProperty.BORDER_WIDTH)) _borderWidth?.top?.resolvePx() ?: baseStyle.borderWidthPx else baseStyle.borderWidthPx,
+            borderTopWidthPx = if (canOverride(CssProperty.BORDER_WIDTH)) _borderWidth?.top?.resolvePx() ?: baseStyle.borderTopWidthPx else baseStyle.borderTopWidthPx,
+            borderRightWidthPx = if (canOverride(CssProperty.BORDER_WIDTH)) _borderWidth?.right?.resolvePx() ?: baseStyle.borderRightWidthPx else baseStyle.borderRightWidthPx,
+            borderBottomWidthPx = if (canOverride(CssProperty.BORDER_WIDTH)) _borderWidth?.bottom?.resolvePx() ?: baseStyle.borderBottomWidthPx else baseStyle.borderBottomWidthPx,
+            borderLeftWidthPx = if (canOverride(CssProperty.BORDER_WIDTH)) _borderWidth?.left?.resolvePx() ?: baseStyle.borderLeftWidthPx else baseStyle.borderLeftWidthPx,
+            borderStyle = if (canOverride(CssProperty.BORDER_STYLE)) _borderStyle?.cssValue ?: baseStyle.borderStyle else baseStyle.borderStyle,
+            outlineWidthPx = if (canOverride(CssProperty.OUTLINE_WIDTH)) _outlineWidth?.resolvePx() ?: baseStyle.outlineWidthPx else baseStyle.outlineWidthPx,
+            outlineStyle = if (canOverride(CssProperty.OUTLINE_STYLE)) _outlineStyle?.cssValue ?: baseStyle.outlineStyle else baseStyle.outlineStyle,
+            outlineOffsetPx = if (canOverride(CssProperty.OUTLINE)) _outlineOffset?.resolvePx() ?: baseStyle.outlineOffsetPx else baseStyle.outlineOffsetPx,
+            padding = if (canOverride(CssProperty.PADDING)) _padding ?: baseStyle.padding else baseStyle.padding,
+            paddingTop = if (canOverride(CssProperty.PADDING_TOP)) _paddingTop ?: baseStyle.paddingTop else baseStyle.paddingTop,
+            paddingRight = if (canOverride(CssProperty.PADDING_RIGHT)) _paddingRight ?: baseStyle.paddingRight else baseStyle.paddingRight,
+            paddingBottom = if (canOverride(CssProperty.PADDING_BOTTOM)) _paddingBottom ?: baseStyle.paddingBottom else baseStyle.paddingBottom,
+            paddingLeft = if (canOverride(CssProperty.PADDING_LEFT)) _paddingLeft ?: baseStyle.paddingLeft else baseStyle.paddingLeft,
+            margin = if (canOverride(CssProperty.MARGIN)) _margin ?: baseStyle.margin else baseStyle.margin,
+            marginTop = if (canOverride(CssProperty.MARGIN_TOP)) _marginTop ?: baseStyle.marginTop else baseStyle.marginTop,
+            marginRight = if (canOverride(CssProperty.MARGIN_RIGHT)) _marginRight ?: baseStyle.marginRight else baseStyle.marginRight,
+            marginBottom = if (canOverride(CssProperty.MARGIN_BOTTOM)) _marginBottom ?: baseStyle.marginBottom else baseStyle.marginBottom,
+            marginLeft = if (canOverride(CssProperty.MARGIN_LEFT)) _marginLeft ?: baseStyle.marginLeft else baseStyle.marginLeft,
+            boxSizing = if (canOverride(CssProperty.BOX_SIZING)) _boxSizing ?: baseStyle.boxSizing else baseStyle.boxSizing,
+            fontSizePx = fontSizePxVal,
+            fontSizePercent = fontSizePctVal,
+            fontFamily = if (canOverride(CssProperty.FONT_FAMILY)) _fontFamily?.resolvedPrimaryName() ?: baseStyle.fontFamily else baseStyle.fontFamily,
+            fontWeightNumeric = if (canOverride(CssProperty.FONT_WEIGHT)) fontWeightNumeric ?: baseStyle.fontWeightNumeric else baseStyle.fontWeightNumeric,
+            fontStyle = if (canOverride(CssProperty.FONT_STYLE)) _fontStyle ?: baseStyle.fontStyle else baseStyle.fontStyle,
+            lineHeight = if (canOverride(CssProperty.LINE_HEIGHT)) _lineHeight ?: baseStyle.lineHeight else baseStyle.lineHeight,
+            letterSpacing = if (canOverride(CssProperty.LETTER_SPACING)) _letterSpacing ?: baseStyle.letterSpacing else baseStyle.letterSpacing,
+            textDecoration = if (canOverride(CssProperty.TEXT_DECORATION)) _textDecoration ?: baseStyle.textDecoration else baseStyle.textDecoration,
+            textTransform = if (canOverride(CssProperty.TEXT_TRANSFORM)) _textTransform ?: baseStyle.textTransform else baseStyle.textTransform,
+            textOverflow = if (canOverride(CssProperty.TEXT_OVERFLOW)) _textOverflow ?: baseStyle.textOverflow else baseStyle.textOverflow,
+            wordBreak = if (canOverride(CssProperty.WORD_BREAK)) _wordBreak ?: baseStyle.wordBreak else baseStyle.wordBreak,
+            opacity = if (canOverride(CssProperty.OPACITY)) _opacity ?: baseStyle.opacity else baseStyle.opacity,
+            cursor = if (canOverride(CssProperty.CURSOR)) (_cursor as? CssCursor)?.cssValue ?: baseStyle.cursor else baseStyle.cursor,
+            customCursor = if (canOverride(CssProperty.CURSOR)) _cursor ?: baseStyle.customCursor else baseStyle.customCursor,
+            filter = if (canOverride(CssProperty.FILTER)) _filter ?: baseStyle.filter else baseStyle.filter,
+            backdropFilter = if (canOverride(CssProperty.BACKDROP_FILTER)) _backdropFilter ?: baseStyle.backdropFilter else baseStyle.backdropFilter,
+            boxShadow = if (canOverride(CssProperty.BOX_SHADOW)) _boxShadow?.toCssString() ?: baseStyle.boxShadow else baseStyle.boxShadow,
+            boxShadowList = if (canOverride(CssProperty.BOX_SHADOW)) _boxShadow ?: baseStyle.boxShadowList else baseStyle.boxShadowList,
+            textShadow = if (canOverride(CssProperty.TEXT_SHADOW)) _textShadow?.toCssString() ?: baseStyle.textShadow else baseStyle.textShadow,
+            textShadowList = if (canOverride(CssProperty.TEXT_SHADOW)) _textShadow ?: baseStyle.textShadowList else baseStyle.textShadowList,
+            transform = if (canOverride(CssProperty.TRANSFORM)) _transform?.toCssString() ?: baseStyle.transform else baseStyle.transform,
+            transform2D = if (canOverride(CssProperty.TRANSFORM)) _transform ?: baseStyle.transform2D else baseStyle.transform2D,
+            transformOrigin = if (canOverride(CssProperty.TRANSFORM_ORIGIN)) _transformOrigin ?: baseStyle.transformOrigin else baseStyle.transformOrigin,
+            transition = if (canOverride(CssProperty.TRANSITION)) getSinglePropertyCssString(CssProperty.TRANSITION) ?: baseStyle.transition else baseStyle.transition,
+            transitions = if (canOverride(CssProperty.TRANSITION)) _transitions ?: baseStyle.transitions else baseStyle.transitions,
+            zIndex = if (canOverride(CssProperty.Z_INDEX)) _zIndex ?: baseStyle.zIndex else baseStyle.zIndex,
+            aspectRatio = if (canOverride(CssProperty.ASPECT_RATIO)) _aspectRatio?.numericRatio ?: baseStyle.aspectRatio else baseStyle.aspectRatio,
+            width = if (canOverride(CssProperty.WIDTH)) _width?.toCssString() ?: baseStyle.width else baseStyle.width,
+            height = if (canOverride(CssProperty.HEIGHT)) _height?.toCssString() ?: baseStyle.height else baseStyle.height,
+            minWidth = if (canOverride(CssProperty.MIN_WIDTH)) _minWidth?.toCssString() ?: baseStyle.minWidth else baseStyle.minWidth,
+            minHeight = if (canOverride(CssProperty.MIN_HEIGHT)) _minHeight?.toCssString() ?: baseStyle.minHeight else baseStyle.minHeight,
+            maxWidth = if (canOverride(CssProperty.MAX_WIDTH)) _maxWidth?.toCssString() ?: baseStyle.maxWidth else baseStyle.maxWidth,
+            maxHeight = if (canOverride(CssProperty.MAX_HEIGHT)) _maxHeight?.toCssString() ?: baseStyle.maxHeight else baseStyle.maxHeight,
+            top = if (canOverride(CssProperty.TOP)) _top?.toCssString() ?: baseStyle.top else baseStyle.top,
+            left = if (canOverride(CssProperty.LEFT)) _left?.toCssString() ?: baseStyle.left else baseStyle.left,
+            right = if (canOverride(CssProperty.RIGHT)) _right?.toCssString() ?: baseStyle.right else baseStyle.right,
+            bottom = if (canOverride(CssProperty.BOTTOM)) _bottom?.toCssString() ?: baseStyle.bottom else baseStyle.bottom,
+            display = if (canOverride(CssProperty.DISPLAY)) _display?.cssValue ?: baseStyle.display else baseStyle.display,
+            visibility = if (canOverride(CssProperty.VISIBILITY)) _visibility ?: baseStyle.visibility else baseStyle.visibility,
+            position = if (canOverride(CssProperty.POSITION)) _position?.cssValue ?: baseStyle.position else baseStyle.position,
+            overflow = if (canOverride(CssProperty.OVERFLOW)) _overflow?.name?.lowercase() ?: baseStyle.overflow else baseStyle.overflow,
+            overflowX = if (canOverride(CssProperty.OVERFLOW_X)) _overflowX ?: baseStyle.overflowX else baseStyle.overflowX,
+            overflowY = if (canOverride(CssProperty.OVERFLOW_Y)) _overflowY ?: baseStyle.overflowY else baseStyle.overflowY,
+            flexDirection = if (canOverride(CssProperty.FLEX_DIRECTION)) _flexDirection ?: baseStyle.flexDirection else baseStyle.flexDirection,
+            flexWrap = if (canOverride(CssProperty.FLEX_WRAP)) _flexWrap ?: baseStyle.flexWrap else baseStyle.flexWrap,
+            justifyContent = if (canOverride(CssProperty.JUSTIFY_CONTENT)) _justifyContent ?: baseStyle.justifyContent else baseStyle.justifyContent,
+            alignItems = if (canOverride(CssProperty.ALIGN_ITEMS)) _alignItems ?: baseStyle.alignItems else baseStyle.alignItems,
+            alignSelf = if (canOverride(CssProperty.ALIGN_SELF)) _alignSelf ?: baseStyle.alignSelf else baseStyle.alignSelf,
+            alignContent = if (canOverride(CssProperty.ALIGN_CONTENT)) _alignContent ?: baseStyle.alignContent else baseStyle.alignContent,
+            flexGrow = if (canOverride(CssProperty.FLEX_GROW)) _flexGrow ?: baseStyle.flexGrow else baseStyle.flexGrow,
+            flexShrink = if (canOverride(CssProperty.FLEX_SHRINK)) _flexShrink ?: baseStyle.flexShrink else baseStyle.flexShrink,
+            flexBasis = if (canOverride(CssProperty.FLEX_BASIS)) _flexBasis ?: baseStyle.flexBasis else baseStyle.flexBasis,
+            order = if (canOverride(CssProperty.ORDER)) _order ?: baseStyle.order else baseStyle.order,
+            gap = if (canOverride(CssProperty.GAP)) _gap ?: baseStyle.gap else baseStyle.gap,
+            rowGap = if (canOverride(CssProperty.ROW_GAP)) _rowGap ?: baseStyle.rowGap else baseStyle.rowGap,
+            columnGap = if (canOverride(CssProperty.COLUMN_GAP)) _columnGap ?: baseStyle.columnGap else baseStyle.columnGap,
+            textAlign = if (canOverride(CssProperty.TEXT_ALIGN)) getSinglePropertyCssString(CssProperty.TEXT_ALIGN) ?: baseStyle.textAlign else baseStyle.textAlign,
+            verticalAlign = if (canOverride(CssProperty.VERTICAL_ALIGN)) _verticalAlign?.cssValue ?: baseStyle.verticalAlign else baseStyle.verticalAlign,
+            whiteSpace = if (canOverride(CssProperty.WHITE_SPACE)) _whiteSpace?.cssValue ?: baseStyle.whiteSpace else baseStyle.whiteSpace,
+            floatSide = if (canOverride(CssProperty.FLOAT)) _floatSide?.cssValue ?: baseStyle.floatSide else baseStyle.floatSide,
+            clearSide = if (canOverride(CssProperty.CLEAR)) _clearSide?.cssValue ?: baseStyle.clearSide else baseStyle.clearSide,
+            userSelect = if (canOverride(CssProperty.USER_SELECT)) _userSelect ?: baseStyle.userSelect else baseStyle.userSelect,
+            objectFit = if (canOverride(CssProperty.OBJECT_FIT)) _objectFit ?: baseStyle.objectFit else baseStyle.objectFit,
+            pointerEventsEnabled = if (canOverride(CssProperty.POINTER_EVENTS)) {
+                _pointerEvents?.let { it != CssPointerEvents.NONE } ?: baseStyle.pointerEventsEnabled
+            } else {
+                baseStyle.pointerEventsEnabled
+            },
+            hoverStyle = baseStyle.hoverStyle,
+            focusStyle = baseStyle.focusStyle,
+            activeStyle = baseStyle.activeStyle,
+            disabledStyle = baseStyle.disabledStyle,
+            checkedStyle = baseStyle.checkedStyle,
+            activeBitmaskLow = baseStyle.activeBitmaskLow or activeBitmaskLow,
+            activeBitmaskHigh = baseStyle.activeBitmaskHigh or activeBitmaskHigh,
+            importantBitmaskLow = baseStyle.importantBitmaskLow or importantBitmaskLow,
+            importantBitmaskHigh = baseStyle.importantBitmaskHigh or importantBitmaskHigh
         )
-    }
-
-    companion object {
-        fun fromDeclarations(declarations: Map<String, String>): ComponentStyle {
-            val style = ComponentStyle()
-            for ((k, v) in declarations) {
-                style.setRawDeclaration(k, v)
-            }
-            return style
-        }
     }
 }

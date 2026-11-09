@@ -1,10 +1,12 @@
 package com.nexustools.genericui.component.tabs
 
+import com.nexustools.genericui.component.media.Image
 import com.nexustools.genericui.core.AbstractComponent
 import com.nexustools.genericui.core.AbstractContainer
 import com.nexustools.genericui.core.NativeFactory
 import com.nexustools.genericui.nativeimpl.tabs.TabContainerNativeImpl
 import com.nexustools.genericui.nativeimpl.tabs.TabNativeImpl
+import com.nexustools.genericui.resources.ResourceID
 
 /**
  * Native tabbed view container (`JTabbedPane`, `WC_TABCONTROL`, `QTabWidget`, `NSTabView`,
@@ -71,6 +73,12 @@ open class TabContainer(
         set(value) {
             field = value
             typedNative<TabContainerNativeImpl<*>>()?.setTabBarStyleNative(value)
+        }
+
+    var fullWidthTabs: Boolean = false
+        set(value) {
+            field = value
+            typedNative<TabContainerNativeImpl<*>>()?.setFullWidthTabsNative(value)
         }
 
     private var isUpdatingSelectionFromNative: Boolean = false
@@ -157,8 +165,8 @@ open class TabContainer(
                 content.isVisible = isActive
                 if (isActive) {
                     content.removeClass("d-none")
-                    if (content.getStyleProperty("display") == "none") {
-                        content.removeStyleProperty("display")
+                    if (content.getStyle().getDisplay() == com.nexustools.genericui.enums.css.CssDisplay.NONE) {
+                        content.getStyle().setDisplay(null)
                     }
                 } else {
                     content.addClass("d-none")
@@ -268,6 +276,11 @@ open class TabContainer(
         title: String,
         id: String = "button_tab_${_entries.size}",
         icon: String? = null,
+        iconRes: ResourceID? = null,
+        image: Image? = null,
+        tintImageToTheme: Boolean = true,
+        iconSizePx: Int = image?.widthPx ?: image?.heightPx ?: 20,
+        iconPlacement: TabIconPlacement = TabIconPlacement.START,
         index: Int = -1,
         onClick: () -> Unit
     ): ButtonTab {
@@ -275,6 +288,11 @@ open class TabContainer(
             title = title,
             id = id,
             icon = icon,
+            iconRes = iconRes,
+            image = image,
+            tintImageToTheme = tintImageToTheme,
+            iconSizePx = iconSizePx,
+            iconPlacement = iconPlacement,
             onClick = onClick
         )
         return addButtonTab(buttonTab, index)
@@ -301,19 +319,43 @@ open class TabContainer(
     }
 
     /**
-     * Adds a standard [Tab] by title and optional icon.
+     * Adds a standard [Tab] by title and optional icon or [Image] / [ResourceID].
      */
     fun addTab(
         title: String,
         content: AbstractComponent,
         id: String = "tab_${_entries.size}",
         icon: String? = null,
-        closable: Boolean = false
+        closable: Boolean = false,
+        iconRes: ResourceID? = null,
+        image: Image? = null,
+        tintImageToTheme: Boolean = true,
+        iconSizePx: Int = image?.widthPx ?: image?.heightPx ?: 20,
+        iconPlacement: TabIconPlacement = TabIconPlacement.START
     ): TabContainer = apply {
         val tab: Tab = if (closable) {
-            CloseableTab(tabId = id, title = title, icon = icon, isCloseable = true)
+            CloseableTab(
+                tabId = id,
+                title = title,
+                icon = icon,
+                isCloseable = true,
+                iconRes = iconRes,
+                image = image,
+                tintImageToTheme = tintImageToTheme,
+                iconSizePx = iconSizePx,
+                iconPlacement = iconPlacement
+            )
         } else {
-            Tab(tabId = id, title = title, icon = icon)
+            Tab(
+                tabId = id,
+                title = title,
+                icon = icon,
+                iconRes = iconRes,
+                image = image,
+                tintImageToTheme = tintImageToTheme,
+                iconSizePx = iconSizePx,
+                iconPlacement = iconPlacement
+            )
         }
         addTab(tab, content)
     }
@@ -329,6 +371,11 @@ open class TabContainer(
         isCloseable: Boolean = true,
         isDirty: Boolean = false,
         customComponent: AbstractComponent? = null,
+        iconRes: ResourceID? = null,
+        image: Image? = null,
+        tintImageToTheme: Boolean = true,
+        iconSizePx: Int = image?.widthPx ?: image?.heightPx ?: 20,
+        iconPlacement: TabIconPlacement = TabIconPlacement.START,
         onCloseRequested: (() -> Boolean)? = null
     ): CloseableTab {
         val tab = CloseableTab(
@@ -338,6 +385,11 @@ open class TabContainer(
             isCloseable = isCloseable,
             isDirty = isDirty,
             customComponent = customComponent,
+            iconRes = iconRes,
+            image = image,
+            tintImageToTheme = tintImageToTheme,
+            iconSizePx = iconSizePx,
+            iconPlacement = iconPlacement,
             onCloseRequested = onCloseRequested
         )
         addTab(tab, content)
@@ -432,7 +484,19 @@ open class TabContainer(
         if (icon != null) {
             entry.tab.icon = icon
         }
-        typedNative<TabContainerNativeImpl<*>>()?.setTabTitleNative(idx, entry.tab.displayTitle)
+        val impl = typedNative<TabContainerNativeImpl<*>>()
+        impl?.setTabTitleNative(idx, entry.tab.displayTitle)
+        (entry.tab.nativeImpl as? TabNativeImpl<*>)?.let { impl?.updateTabNative(idx, it) }
+    }
+
+    fun setTabImage(tabId: String, image: Image?, tintToTheme: Boolean = true) {
+        val entry = _entries.firstOrNull { it.id == tabId } ?: return
+        entry.tab.setImage(image, tintToTheme)
+    }
+
+    fun setTabIcon(tabId: String, resId: ResourceID, tintToTheme: Boolean = true) {
+        val entry = _entries.firstOrNull { it.id == tabId } ?: return
+        entry.tab.setImage(resId, tintToTheme)
     }
 
     fun setActiveTab(tabId: String) {
@@ -501,6 +565,7 @@ open class TabContainer(
         val impl = typedNative<TabContainerNativeImpl<*>>() ?: return
         impl.setTabPositionNative(tabPosition)
         impl.setTabBarStyleNative(tabBarStyle)
+        impl.setFullWidthTabsNative(fullWidthTabs)
         _entries.forEachIndexed { idx, entry ->
             entry.tab.isVisible = true
             val tabImpl = (entry.tab.nativeImpl ?: entry.tab.ensureNativeImpl()) as? TabNativeImpl<*>

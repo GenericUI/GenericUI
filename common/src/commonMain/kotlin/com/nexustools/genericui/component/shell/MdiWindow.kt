@@ -203,8 +203,8 @@ open class MdiWindow(
             topOffset = "${value.y}px"
             widthPx = value.width
             heightPx = value.height
-            setStyleProperty("width", "${value.width}px")
-            setStyleProperty("height", "${value.height}px")
+            getStyle().setWidth(com.nexustools.genericui.style.css.CssLength.px(value.width))
+            getStyle().setHeight(com.nexustools.genericui.style.css.CssLength.px(value.height))
             if (prev.width != value.width || prev.height != value.height) {
                 onResizeListener?.invoke(
                     WindowConfiguration(

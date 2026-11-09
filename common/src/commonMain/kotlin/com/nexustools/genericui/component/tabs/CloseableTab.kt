@@ -1,8 +1,10 @@
 package com.nexustools.genericui.component.tabs
 
+import com.nexustools.genericui.component.media.Image
 import com.nexustools.genericui.core.AbstractComponent
 import com.nexustools.genericui.core.NativeFactory
 import com.nexustools.genericui.nativeimpl.tabs.TabNativeImpl
+import com.nexustools.genericui.resources.ResourceID
 
 /**
  * A [Tab] with a native close button, dirty state indicator (`*`), and close-confirmation hook
@@ -22,6 +24,11 @@ open class CloseableTab(
     isCloseable: Boolean = true,
     isDirty: Boolean = false,
     customComponent: AbstractComponent? = null,
+    iconRes: ResourceID? = null,
+    image: Image? = null,
+    tintImageToTheme: Boolean = true,
+    iconSizePx: Int = image?.widthPx ?: image?.heightPx ?: 20,
+    iconPlacement: TabIconPlacement = TabIconPlacement.START,
     var onCloseRequested: (() -> Boolean)? = null,
     var onClosed: (() -> Unit)? = null
 ) : Tab(
@@ -29,7 +36,12 @@ open class CloseableTab(
     title = title,
     icon = icon,
     tooltip = tooltip,
-    customComponent = customComponent
+    customComponent = customComponent,
+    iconRes = iconRes,
+    image = image,
+    tintImageToTheme = tintImageToTheme,
+    iconSizePx = iconSizePx,
+    iconPlacement = iconPlacement
 ) {
 
     var isCloseable: Boolean = isCloseable

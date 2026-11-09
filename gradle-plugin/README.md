@@ -10,11 +10,11 @@
 | Class | Package | Responsibility |
 |-------|---------|----------------|
 | `GenericUiGradlePlugin` | `com.nexustools.genericui.plugin` | Registers the `genericui { ... }` DSL extension and wires code, stylesheet, cursor, and resource generation tasks into Kotlin Multiplatform target compilations |
-| `GenericUiExtension` | `com.nexustools.genericui.plugin` | Type-safe DSL configuring `app { ... }`, `backends { ... }`, `window { ... }`, `theme { mode = "auto" \| "dark" \| "light" }`, `styles { globalStyleSheet = "..." }`, `android { manifest { ... } services { ... } }`, `extensions { ... }`, and `testing { visualOnWindows = ... }` |
+| `GenericUiExtension` | `com.nexustools.genericui.plugin` | Type-safe DSL configuring `app { ... }`, `backends { ... }`, `window { ... }`, `theme { mode = "auto" \| "dark" \| "light"; primaryColor = ...; light { ... }; dark { ... } }`, `styles { globalStyleSheet = "..." }`, `android { manifest { ... } services { ... } }`, `extensions { ... }`, and `testing { visualOnWindows = ... }` |
 | `GenericUiSassCompileTask` & `SassKotlinPrecompiler` | `com.nexustools.genericui.plugin` | Compiles `.scss` / `.sass` / `.css` files in `src/commonMain/resources/**` into typed `PrecompiledStyleSheet` (`CompiledStyleRule`) `.kt` objects for non-web targets and `.css` bundles for `:web`, registering each stylesheet as `ResourceType.STYLE` (`R.style.<name>` / `Resource.style.<name>`) |
 | `WindowsCurResourceGenerator` | `com.nexustools.genericui.plugin` | Converts `.png` and `.svg` cursor assets at build time into valid Windows `.cur` binary files (`ICONDIR` `idType = 2`, `ICONDIRENTRY` `wXHotSpot` & `wYHotSpot`, 32-bit BGRA DIB + 1-bpp AND mask) under `backends/windows/cursors/<name>.cur` |
-| `GenericUiGenerateLaunchersTask` & `GenericUiGenerateAndroidActivitiesTask` | `com.nexustools.genericui.plugin` | Scans `src/commonMain/kotlin` for `@MainAppFragment` and `@AppFragment` annotations and generates platform launchers (`WindowsLauncher`, `MacosLauncher`, `GtkLauncher`, `QtLauncher`, `SwingLauncher`, `GeneratedAndroidApplication` + 1:1 `AppCompatActivity` subclasses + `AndroidManifest.xml`, `IosLauncher`, `WebLauncher`, and `GeneratedWindowsVisualTestLauncher`), automatically emitting `app.addStyleSheet(...)` and `app.setTheme(...)` when configured |
-| `GenericUiCompileResourcesTask` | `com.nexustools.genericui.plugin` | Compiles `src/commonMain/resources/` (`values/strings.xml`, `values-<lang>/strings.xml`, `values/colors.xml`, `values/dimens.xml`, `values/themes.xml`, `styles/*.scss`, `layout/*.xml`, `drawable/*`, `raw/*`, `font/*`) into typed `R.kt` / `Resource.kt` accessors and native platform resource bundles |
+| `GenericUiGenerateLaunchersTask` & `GenericUiGenerateAndroidActivitiesTask` | `com.nexustools.genericui.plugin` | Scans `src/commonMain/kotlin` for `@MainAppFragment` and `@AppFragment` annotations and generates platform launchers (`WindowsLauncher`, `MacosLauncher`, `GtkLauncher`, `QtLauncher`, `SwingLauncher`, `GeneratedAndroidApplication` + 1:1 `AppCompatActivity` subclasses + `AndroidManifest.xml`, `IosLauncher`, `WebLauncher`, and `GeneratedWindowsVisualTestLauncher`), automatically emitting `app.setThemeConfig(ThemeConfig(...))`, `app.addStyleSheet(...)`, and `app.setTheme(...)` when configured |
+| `GenericUiCompileResourcesTask` & `GenericUiGenerateAndroidResourcesTask` | `com.nexustools.genericui.plugin` | Compiles `src/commonMain/resources/` (`values/strings.xml`, `values-<lang>/strings.xml`, `values/colors.xml`, `values/dimens.xml`, `values/themes.xml`, `styles/*.scss`, `layout/*.xml`, `drawable/*`, `raw/*`, `font/*`) into typed `R.kt` / `Resource.kt` accessors, Android Material theme XMLs (`res/values/genericui_theme_colors.xml`, `res/values/themes.xml`, `res/values-night/themes.xml` with `@style/Theme.GenericUI.App`), Web `gui/genericui-theme.css` (`<link id="genericui-build-theme-css">`), and native platform resource bundles |
 
 ---
 
@@ -44,6 +44,31 @@ genericui {
 
     theme {
         mode = "auto" // "auto" (default), "dark", or "light"
+        primaryColor = "#2563EB"
+        secondaryColor = "#64748B"
+        accentColor = "#4F46E5"
+        successColor = "#16A34A"
+        dangerColor = "#DC2626"
+        warningColor = "#F59E0B"
+        infoColor = "#0EA5E9"
+        lightColor = "#F8FAFC"
+        darkColor = "#1E293B"
+        backgroundColor = "#F8FAFC"
+        surfaceColor = "#FFFFFF"
+        textPrimaryColor = "#0F172A"
+        textSecondaryColor = "#475569"
+        borderColor = "#CBD5E1"
+        light {
+            backgroundColor = "#F8FAFC"
+            surfaceColor = "#FFFFFF"
+            textPrimaryColor = "#0F172A"
+        }
+        dark {
+            primaryColor = "#3B82F6"
+            backgroundColor = "#0F172A"
+            surfaceColor = "#1E293B"
+            textPrimaryColor = "#F8FAFC"
+        }
     }
 
     styles {
@@ -114,6 +139,6 @@ During `compileGenericUiResources`, `WindowsCurResourceGenerator` converts `.png
 | Linux GTK (`:desktop:gtk`) | `genericui.gresource.xml` $\rightarrow$ `glib-compile-resources` `.gresource` | `GtkResourceResolverImpl` (`GResource`) |
 | Linux Qt (`:desktop:qt`) | `genericui_resources.qrc` $\rightarrow$ `rcc` `.rcc` bundle | `QtResourceResolverImpl` (`QResource`) |
 | JVM Swing (`:desktop:swing`) | Classpath JAR resources | `SwingResourceResolverImpl` (`ClassLoader.getResource`) |
-| Android (`:mobile:android`) | Standard Android `res/values*/`, `res/drawable/`, `res/raw/`, `res/font/` | `AndroidResourceResolverImpl` (`Context.resources`) |
+| Android (`:mobile:android`) | Standard Android `res/values*/`, `res/values/genericui_theme_colors.xml`, `res/values/themes.xml`, `res/values-night/themes.xml` (`@style/Theme.GenericUI.App`), `res/drawable/`, `res/raw/`, `res/font/` | `AndroidResourceResolverImpl` (`Context.resources`) + `AndroidApplicationImpl` |
 | iOS (`:mobile:ios`) | Apple bundle resources + `.lproj/Localizable.strings` | `IosResourceResolverImpl` (`NSBundle.mainBundle`) |
-| Web (`:web`) | `assets/<type>/<fileName>` + compiled `styles/<name>.css` web bundles | `WebResourceResolverImpl` (`assets/...` URLs) + `WebStyleSheetManager` |
+| Web (`:web`) | `assets/<type>/<fileName>` + compiled `styles/<name>.css` + pre-generated `gui/genericui-theme.css` (`<link id="genericui-build-theme-css">`) | `WebResourceResolverImpl` (`assets/...` URLs) + `WebStyleSheetManager` (`<style id="genericui-runtime-theme-css">`) |

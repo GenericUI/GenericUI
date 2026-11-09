@@ -186,29 +186,44 @@ Used when an extension is implemented in 100% shared KMP code atop `:common` and
 
 ---
 
-## 7B. `ComponentStyle` (`getStyle()`), `ComponentBootstrap` (`getBootstrap()`), Native `UxTheme`, Custom Cursors (`CssCustomCursor`), Precompiled `.scss` Stylesheets, & `IApplication` Theming (`ThemeMode.AUTO`)
+## 7B. `ComponentStyle` (`getStyle()`), `ComponentBootstrap` (`getBootstrap()`), Zero String-Keyed Style APIs, Native Control Rendering & `BootstrapType` Tinting, Unified `ThemeConfig`, & Per-Component `*NativeImpl` / `*RenderUtil` Architecture
 
-1. **`component.getStyle(): ComponentStyle` (W3C Inline CSS, Full `!important`, Zero Pseudo-States)**:
-   - Every `AbstractComponent` exposes `getStyle(): ComponentStyle` (`val style: ComponentStyle`).
-   - Strongly-typed W3C CSS properties accept typed CSS enums/value classes and `null` to clear, with per-property `important: Boolean = false` (`!important`) support (`setImportant`, `isImportant`, `getImportantProperties()`).
+1. **Zero String-Keyed Style APIs (`ComponentStyle` & `ComponentBootstrap` Only; String Translation Exclusively on `:web`)**:
+   - GenericUI **MUST NOT** provide any string-keyed style API (`setStyleProperty(String, String)`, `getStyleProperty(String)`, `removeStyleProperty(String)`, `clearStyleProperties()`, `inlineStyle: String`, `setRawDeclaration(String, String?)`, `getRawDeclaration(String)`, or `rawDeclarations: Map<String, String>`).
+   - Every `AbstractComponent` exposes strongly-typed `getStyle(): ComponentStyle` (`val style: ComponentStyle`) and `getBootstrap(): ComponentBootstrap` (`val bootstrap: ComponentBootstrap`), with DSL builders (`style { ... }`, `bootstrap { ... }`, `important { ... }`) in `:extensions:dsl`.
+   - On all 7 non-Web system targets (`:desktop:windows`, `:desktop:macos`, `:desktop:gtk`, `:desktop:qt`, `:desktop:swing`, `:mobile:android`, `:mobile:ios`) and `:extensions:alien`, `ComponentStyle`, `ComputedStyle`, and `ComponentBootstrap` operate on **100% strongly-typed fields and primitive 64-bit bitmasks** (`activePropertiesBitmaskLow`/`High`, `importantBitmaskLow`/`High`) with **zero string keys, zero CSS string serialization, and zero `Map<String, String>` allocations**.
+   - String-based CSS property names and values (`element.style.setProperty(...)`) are translated **transparently and exclusively inside the `:web` backend** (`WebBaseNativeImpl` / `WebCssStyleTranslator`).
    - **Zero Pseudo-States on Inline `ComponentStyle`**: Inline `ComponentStyle` never contains `:hover`, `:focus`, `:active`, `:disabled`, or `:checked` subblocks (pseudo-classes belong strictly in `.scss`/`.css` stylesheets).
-   - Uses standard W3C `accentColor` (`accent-color`).
 2. **`component.getBootstrap(): ComponentBootstrap` & Strict User CSS Class Isolation**:
    - Every `AbstractComponent` exposes `getBootstrap(): ComponentBootstrap` (`val bootstrap: ComponentBootstrap`), encapsulating all Bootstrap properties and `Bootstrap*` utility enums: `BootstrapType` (defaulting to `BootstrapType.NONE` / `BootstrapType.None`), `BootstrapSize`, `BootstrapWidth`, `BootstrapHeight`, directional `SpacingScale` margins/paddings/gaps (including `SpacingScale.AUTO`), `BootstrapBorderWidth`, `BootstrapOpacity`, `BootstrapFontSize`, `BootstrapLineHeight`, `BootstrapFlexGrow`, `BootstrapFlexShrink`, `BootstrapFloat`, `BootstrapUserSelect`, `BootstrapPointerEvents`, `BootstrapObjectFit`, `BootstrapAspectRatio`, `BootstrapVisibility`.
    - **Strict User CSS Class Isolation**: `addClass`, `removeClass`, `hasClass`, `getClasses()`, and `getClass()` operate strictly on user-added custom classes (`customClasses`), keeping enum-added classes 100% invisible.
 3. **Strict `:extensions:dsl` Isolation**:
    - DSL builder functions (`style { ... }`, `bootstrap { ... }`, `important { ... }`) live exclusively in `:extensions:dsl` (`DslStyleAndBootstrapBuilders.kt`) and are **never** part of `:common`.
-4. **Native System Control Styling (`BootstrapType.NONE` + Win32 `UxTheme`) vs. `:extensions:alien` Precompiled Bootstrap SCSS**:
-   - Native system applications **never** use Bootstrap CSS styling: `BootstrapType.NONE` (default) renders the genuine OS system control (Win32 `UxTheme` `DarkMode_Explorer::BUTTON` / `Explorer::BUTTON` on `:desktop:windows`), and semantic `BootstrapType` (`DANGER`, `PRIMARY`, `SUCCESS`, etc.) colors the native control. Unsupported CSS properties on native backends are silently ignored.
+4. **System Backend Aesthetic Style Rules (Typography on Text Elements vs. Silently Ignored Aesthetic Styles on Standard Controls)**:
+   - On all 7 non-Web system targets, you cannot redesign the aesthetic UI styles of standard controls to make them look alien without using `:extensions:alien` (or `StyledContainer` / `StyledButton`):
+     - **Text / Typography Elements (`Label`, `Text`, `Heading`, `Badge`, `Blockquote`, `CodeBlock`, `MarkdownView` $\rightarrow$ `TextNativeImpl` & `MarkdownViewNativeImpl`)**: Typography and text-color properties (`color` / `textColor`, `fontFamily`, `fontSize`, `fontWeight`, `fontStyle`, `lineHeight`, `letterSpacing`, `textAlign`, `textDecoration`, `textTransform`, `textOverflow`, `whiteSpace`, `wordBreak`, plus `bootstrap.textColorType`, `bootstrap.fontSize`, `bootstrap.fontWeight`, `bootstrap.textAlignment`) **work on all system targets**.
+     - **Buttons, Inputs, Controls, & Standard Containers (`Button`, `IconButton`, `ToggleButton`, `CheckBox`, `RadioButton`, `Switch`, `Select`, `DropdownButton`, `TextField`, `TextArea`, `RangeSlider`, `ProgressBar`, `Spinner`, `TabContainer`, `Tab`, `Container`, `Card`, etc.)**: Aesthetic skinning/chrome and typography overrides on `ComponentStyle` (`backgroundColor`, `background` / `backgroundImage` gradients, `color` / `textColor`, `accentColor`, `borderColor`, `borderWidth`, `borderStyle`, `borderRadius`, `boxShadow`, `textShadow`, `filter`, `backdropFilter`, `fontFamily`, `fontSize`, `fontWeight`, `fontStyle`) are **silently ignored**. Standard components can **ONLY** be tinted via `BootstrapType` (`bootstrap.type`, `bootstrap.backgroundType`, `bootstrap.textColorType`, `bootstrap.borderType`, `bootstrap.outline`).
+     - **`StyledContainer` & `StyledButton` (and `:extensions:alien`)**: Explicitly opt into honoring full `ComponentStyle` aesthetic and typography properties.
+5. **Native-Only System Control Rendering (`BootstrapType.NONE`) & Empty-Text Native Render + Color-Tint + Text Overlay (`BootstrapType != NONE`)**:
+   - Unless `:extensions:alien` or `:web` is used, `GenericUI` itself **MUST ALWAYS render genuine native OS components** on all 7 system targets:
+     - **`BootstrapType.NONE` (default)**: Renders the 100% unmodified native OS component using the OS's native control libraries (`uxtheme.dll` / `comctl32.dll` / `user32.dll` on `:desktop:windows`, AppKit `NSControl` on `:desktop:macos`, GTK4 `GtkWidget` on `:desktop:gtk`, Qt6 `QStyle` on `:desktop:qt`, system Look-And-Feel `JComponent` on `:desktop:swing`, default Android/Material `View` on `:mobile:android`, UIKit `UIControl` on `:mobile:ios`).
+     - **`BootstrapType != BootstrapType.NONE` (`PRIMARY`, `SECONDARY`, `SUCCESS`, `INFO`, `WARNING`, `DANGER`, `LIGHT`, `DARK`)**: Renders the exact same native OS component with **no text** into an offscreen buffer (when the OS toolkit does not provide a direct bevel-preserving native tint API), **color-tints the native control pixels** to match the resolved `ThemeConfig` color for that `BootstrapType` (preserving 100% of native bevels, borders, highlights, and hover/pressed/disabled states), blits it, and **renders the contrasting text and icon on top afterward**.
    - `:extensions:alien` precompiles `bootstrap.scss` into `AlienPrecompiledBootstrapStyleSheet` and implements `IAlien` on `AlienContainer`, `AlienFragment`, `AlienScrollFragment`, and `AlienFragmentHostFragment` (`IAlien.BOOTSTRAP_STYLE_SHEET_ID` active at index `0` by default and removable via `removeStyleSheet(IAlien.BOOTSTRAP_STYLE_SHEET_ID)`, plus `insertApplicationStyleSheets: Int = 1` by default or `-1` to disable application stylesheets).
-5. **Custom Cursors (`CssCustomCursor`)**:
+6. **No Centralized Render-Tree `when`-Block Monoliths (Per-Component `*NativeImpl` & Type-Grouped `*RenderUtil` Classes Only)**:
+   - Backends (`:desktop:windows`, `:desktop:macos`, `:desktop:gtk`, `:desktop:qt`, `:desktop:swing`, `:mobile:android`, `:mobile:ios`, and `:tests:common`) **MUST NOT** use massive centralized `when (impl)` / `when (comp)` render-tree monolith files. Component-specific rendering must live inside each component's `<Backend><Component>NativeImpl` class, and any rendering logic shared across multiple `*NativeImpl` classes must be split into type-grouped `*RenderUtil` classes (strictly 1 class per `.kt` file).
+7. **Unified `ThemeConfig` System (Gradle Plugin DSL, `:common` `ThemeConfig`, Android Material Theme XML, Desktop, & Web Pre-Generated + Runtime CSS)**:
+   - `ThemeConfig` and `ThemeColorSet` (`com.nexustools.genericui.style.theme`) and `genericUI { theme { ... } }` in `:gradle-plugin` allow overriding Bootstrap and Material primary/secondary/accent/semantic colors (`primary`, `secondary`, `accent`, `info`, `success`, `warning`, `danger`, `light`, `dark`, `background`, `surface`, `statusBar`, plus `light { ... }` and `dark { ... }` mode sets):
+     - **Android (`:mobile:android`)**: Generates `res/values/genericui_theme_colors.xml`, `res/values/themes.xml`, and `res/values-night/themes.xml` (`@style/Theme.GenericUI.App`) producing Material Design components with the specified theme colors.
+     - **Windows & All System Backends**: Uses `ThemeConfig` to tint native `BootstrapType` components.
+     - **Web (`:web`)**: Pre-generates `gui/genericui-theme.css` at build time when configured in `build.gradle.kts` AND generates/updates `<style id="genericui-runtime-theme-css">` at runtime (`WebStyleSheetManager.applyThemeConfig`) to override Bootstrap's `--bs-*`, `.btn-*`, `.bg-*`, and component colors.
+8. **Custom Cursors (`CssCustomCursor`)**:
    - `CssCustomCursor` (from PNG `ResourceID`, SVG `ResourceID`, inline `svgMarkup`, or `ImageBuffer` with `hotspotX` / `hotspotY` and `CssCursor` fallback) is automatically translated to a valid Windows `.cur` binary on `:desktop:windows` (`WindowsCurCodec`) and `NSCursor` on `:desktop:macos` (`MacosCursorTranslator`).
-6. **Build-Time `.scss` Precompilation, Local NPM Bootstrap Packaging, `Resources.BOOTSTRAP` / `Resources.GENERICUI`, & `IApplication.addStyleSheet` / `removeStyleSheet`**:
+9. **Build-Time `.scss` Precompilation, Local NPM Bootstrap Packaging, `Resources.BOOTSTRAP` / `Resources.GENERICUI`, & `IApplication.addStyleSheet` / `removeStyleSheet`**:
    - `.scss` files in `src/commonMain/resources/**` compile at build time to `Resource.style.<name>` (`R.style.<name>`) backed by typed `PrecompiledStyleSheet` (`CompiledStyleRule`) on all 7 non-web targets and `.css` files on `:web`.
    - **Local NPM Bootstrap Packaging & Built-In `Resources.*` IDs**: Instead of loading Bootstrap from an external CDN, `:web` packages local NPM Bootstrap (`npm i bootstrap`) bundling `bootstrap.min.css` and `bootstrap.bundle.min.js` directly into resources alongside `genericui.css`. `Resources` (`com.nexustools.genericui.resources.Resources`) exposes the built-in `Resources.BOOTSTRAP`, `Resources.BOOTSTRAP_JS`, `Resources.BOOTSTRAP_ICONS`, and `Resources.GENERICUI` `ResourceID` constants. On `:web`, all stylesheets are mounted in `<head>` (deduplicated against HTML template `<link>` tags, with zero `<link>`, `<style>`, or `<script>` tags inside `<genericui:app>`) and can be removed from an `Application`'s stylesheets via `app.removeStyleSheet(Resources.BOOTSTRAP)` or `app.removeStyleSheet(Resources.GENERICUI)`.
    - `IApplication.addStyleSheet` and `IApplication.removeStyleSheet` live on `IApplication` (NOT `IFragment`), and the Gradle plugin automatically injects `app.addStyleSheet(...)` in generated `main()` startup code when `styles { globalStyleSheet = "..." }` is configured in `build.gradle.kts`.
-7. **`IApplication` Theming (`ThemeMode.AUTO`, `DARK`, `LIGHT` — Default `AUTO`)**:
-   - `IApplication.setTheme(ThemeMode)`, `getTheme()`, and `getResolvedTheme()` default to `ThemeMode.AUTO` with live 8-target OS dark/light theme detection (`SystemThemeDetector`) and `:web` Bootstrap `data-bs-theme="light|dark"` switching.
+10. **`IApplication` Theming (`ThemeMode.AUTO`, `DARK`, `LIGHT` — Default `AUTO`)**:
+   - `IApplication.setTheme(ThemeMode)`, `getTheme()`, `getResolvedTheme()`, `setThemeConfig(ThemeConfig)`, and `getThemeConfig()` default to `ThemeMode.AUTO` with live 8-target OS dark/light theme detection (`SystemThemeDetector`) and `:web` Bootstrap `data-bs-theme="light|dark"` switching.
 
 ---
 
@@ -273,3 +288,40 @@ All agents, subagents, and engineers MUST strictly enforce **Extension Isolation
 2. **Global Pointer Drag Capture System (`PointerDragManager` & `PointerDragSession`)**:
    - Interactive draggable controls (`SeekBar`, `TrackSeekBar`, `SliderSeekBar`, `ExpandingVolumeSlider`, etc.) use `AbstractComponent.startPointerDrag(...)` backed by `PointerDragManager` (`com.nexustools.genericui.event.PointerDragManager`) and backend window-level pointer capture (`Win32NativeWindowHost` `SetCapture` / `HitRegion.onRelease` and `WebBrowserDomBridge` `window` `pointermove`/`pointerup`/`mousemove`/`mouseup` listeners).
    - Once a drag starts on a knob or track, pointer movement continues updating the drag when the cursor leaves the boundary of the element, and `pointerup` / `mouseup` outside the boundary of the element reliably ends and commits the drag session without auto-hiding active media overlays mid-drag.
+
+---
+
+## 13. Dual-Thread UI Rendering/Updating vs. Logic/Event-Handler Thread Separation (`GenericUiThreading`)
+
+1. **Strict Separation of UI Thread vs. Logic Thread Across All 7 Non-Web Backends**:
+   - On all 7 non-Web backends (`:desktop:windows`, `:desktop:macos`, `:desktop:gtk`, `:desktop:qt`, `:desktop:swing`, `:mobile:android`, `:mobile:ios`), `GenericUiThreading.isSplitThreadingEnabled` is `true` (and `false` on `:web`, where the browser event loop executes both directly):
+     - **UI Thread (`GenericUiThreading.uiDispatcher` / `GenericUiThreading.runOnUi` / `GenericUiThreading.runOnUiSync`)**: Exclusively performs native widget mutations, layout passes, style application, and rendering (`Win32` message loop on `:desktop:windows`, AppKit main queue on `:desktop:macos`, GLib/GTK main context on `:desktop:gtk`, `QApplication` main thread on `:desktop:qt`, AWT Event Dispatch Thread on `:desktop:swing`, Android Main `Looper` on `:mobile:android`, and UIKit main queue on `:mobile:ios`).
+     - **Logic Thread (`GenericUiThreading.logicDispatcher` / `GenericUiThreading.logicScope` / `GenericUiThreading.runOnLogic` / `GenericUiThreading.runOnLogicAsync`)**: Executes all user event callbacks (`onClick`, `onDoubleClick`, `onContextMenu`, `onPointer*`, `onWheel`, `onKeyDown`, `onKeyUp`), `UiTimerScheduler` callbacks (`setTimeout`, `setInterval`), and application business logic with `GenericUiThreading.isOnLogicThread() == true` and `GenericUiThreading.isOnUiThread() == false`.
+   - When component properties or `GenericUiThreading.runOnUi { ... }` are invoked from inside a Logic Thread callback, native widget mutations are enqueued onto the UI task queue and drained on the UI Thread (`isOnUiThread() == true`, `isOnLogicThread() == false`).
+2. **Per-Backend `UiThreadDispatcherNativeImpl` Implementations**:
+   - `NativeFactory.createUiThreadDispatcher()` provides the backend's `UiThreadDispatcherNativeImpl` (`WindowsUiThreadDispatcherNativeImpl`, `MacosUiThreadDispatcherNativeImpl`, `GtkUiThreadDispatcherNativeImpl`, `QtUiThreadDispatcherNativeImpl` extending `DesktopNativeUiThreadDispatcherImpl`; `SwingUiThreadDispatcherNativeImpl`; `AndroidUiThreadDispatcherNativeImpl`; `IosUiThreadDispatcherNativeImpl`; and `WebUiThreadDispatcherNativeImpl` with `isSplitThreadingEnabled = false`).
+   - `:common` never branches on `BackendTarget` to determine threading behavior; each concrete backend's `UiThreadDispatcherNativeImpl` defines `isSplitThreadingEnabled` as a constant boolean.
+
+---
+
+## 14. Chromium/Chrome Multi-Process Desktop `WebView` Architecture & Helper Executable (`:extensions:webview`)
+
+1. **Chrome-Style Multi-Process Isolation on Desktop (`:extensions:webview:desktop:*`)**:
+   - On all 5 desktop backends (`:desktop:windows`, `:desktop:macos`, `:desktop:gtk`, `:desktop:qt`, `:desktop:swing`), `:extensions:webview` runs a Chromium/Chrome multi-process architecture (`ChromiumMultiProcessCoordinator`, `ChromiumProcessType`, `ChromiumHelperProcessConfig`, `ChromiumIpcChannel`, `ChromiumSubprocessLauncher`, `ChromiumSharedMemorySurface`):
+     - **`BROWSER` Process**: Runs inside the host GenericUI application process and coordinates navigation, IPC channels, permissions, and composited frame presentation.
+     - **`RENDERER` Process**: Isolated per-site/per-tab helper process running `ChromiumBlinkEngine` layout/DOM/paint + `NJS` (`lib/NJS`) JavaScript execution, rendering into a shared-memory surface (`ChromiumSharedMemorySurface`).
+     - **`GPU` Process**: Dedicated GPU compositing and rasterization helper process.
+     - **`NETWORK` & `UTILITY` Processes**: Isolated network service and sandboxed utility subprocesses.
+2. **Dedicated Helper Executable (`genericui-webview-helper`)**:
+   - When `extensions { webView() }` is enabled in a consumer project's `build.gradle.kts`, the GenericUI Gradle plugin (`GenericUiPackageTask` / `WebViewHelperBundler`) compiles and bundles the standalone `genericui-webview-helper` (`.exe` on Windows, helper binary inside `.app/Contents/Frameworks` on macOS, sibling executable on Linux/Swing) alongside the application distribution.
+   - Mobile (`:mobile:android`, `:mobile:ios`) and `:web` use native platform `WebView` / `WKWebView` / `<iframe>` implementations and never bundle `genericui-webview-helper` or `NJS`.
+
+---
+
+## 15. Static Core Libraries vs. Packaged Extension Libraries & Executables (`:gradle-plugin`)
+
+1. **Statically Linked Core & Backend Libraries**:
+   - Core modules (`:common`, `:systemCommon`, `:desktop:*`, `:mobile:*`, `:web`) and their core image/platform libraries (`libjpeg`/`libjpeg-turbo`, `libpng`, `libwebp`, OS system toolkits) are linked directly into the main application binary/archive.
+2. **Modular Dynamic Libraries & Helper Executables for Opt-In Extensions**:
+   - Native runtime libraries and helper executables required by opt-in extensions (`libvlc` / `libvlccore` and VLC `plugins/` for `:extensions:media`, ANGLE `libEGL` / `libGLESv2` and MoltenVK `libMoltenVK` for `:extensions:gpu` / `:extensions:canvas3d`, and `genericui-webview-helper` + Chromium/NJS libraries for `:extensions:webview`) are packaged into the application distribution (`GenericUiPackageTask` / `ExtensionNativePackagingManifest`) **strictly when the corresponding extension is enabled** in `genericui { extensions { ... } }`.
+

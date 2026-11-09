@@ -49,6 +49,10 @@ object GenericUiVariantResolver {
             "auto"
         }
         var themeColor: String = desktop.themeColor.trim().ifEmpty { "#0d6efd" }
+        val mergedTheme = GenericUiThemeConfig()
+        if (themeColor != GenericUiThemeConfig.DEFAULT_PRIMARY_COLOR) {
+            mergedTheme.primaryColor = themeColor
+        }
         var iconPath: String? = resolveLegacyIconForTarget(desktop, targetScope)
         var globalStyleSheet: String? = extension.styles.globalStyleSheet?.trim()?.takeIf { it.isNotEmpty() }
             ?: extension.themeConfig.styleSheet?.trim()?.takeIf { it.isNotEmpty() }
@@ -66,6 +70,7 @@ object GenericUiVariantResolver {
             if (fs != null) fullscreen = fs
             if (ic != null) iconPath = ic
         }
+        mergedTheme.applyOverridesFrom(extension.themeConfig)
         applyThemeConfig(extension.themeConfig) { m, c, ss ->
             if (m != null) themeMode = m
             if (c != null) themeColor = c
@@ -78,7 +83,10 @@ object GenericUiVariantResolver {
             val variant = extension.variantConfigFor(scope)
             variant.title?.takeIf { it.isNotBlank() }?.let { windowTitle = it }
             variant.icon?.takeIf { it.isNotBlank() }?.let { iconPath = it }
-            variant.themeColor?.takeIf { it.isNotBlank() }?.let { themeColor = it }
+            variant.themeColor?.takeIf { it.isNotBlank() }?.let {
+                themeColor = it
+                mergedTheme.primaryColor = it.trim()
+            }
             variant.styleSheet?.trim()?.takeIf { it.isNotEmpty() }?.let { globalStyleSheet = it }
             applyWindowConfig(variant.window) { t, w, h, mw, mh, r, fs, ic ->
                 if (t != null) windowTitle = t
@@ -90,12 +98,19 @@ object GenericUiVariantResolver {
                 if (fs != null) fullscreen = fs
                 if (ic != null) iconPath = ic
             }
+            mergedTheme.applyOverridesFrom(variant.theme)
             applyThemeConfig(variant.theme) { m, c, ss ->
                 if (m != null) themeMode = m
                 if (c != null) themeColor = c
                 if (ss != null) globalStyleSheet = ss
             }
             mergedExtensionOverrides.putAll(variant.extensionOverrides)
+        }
+
+        val resolvedLight = mergedTheme.resolveLightColors()
+        val resolvedDark = mergedTheme.resolveDarkColors()
+        if (themeColor == GenericUiThemeConfig.DEFAULT_PRIMARY_COLOR) {
+            themeColor = resolvedLight[GenericUiThemeConfig.KEY_PRIMARY] ?: themeColor
         }
 
         return GenericUiResolvedVariantConfig(
@@ -115,6 +130,9 @@ object GenericUiVariantResolver {
             fullscreen = fullscreen,
             themeMode = themeMode,
             themeColor = themeColor,
+            lightThemeColors = resolvedLight,
+            darkThemeColors = resolvedDark,
+            hasCustomThemeOverrides = mergedTheme.hasCustomThemeOverrides(),
             iconPath = iconPath,
             globalStyleSheet = globalStyleSheet,
             extensionOverrides = mergedExtensionOverrides

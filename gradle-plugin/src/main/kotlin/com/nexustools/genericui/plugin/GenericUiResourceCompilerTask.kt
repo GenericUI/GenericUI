@@ -3,6 +3,7 @@ package com.nexustools.genericui.plugin
 import org.gradle.api.DefaultTask
 import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.provider.ListProperty
+import org.gradle.api.provider.MapProperty
 import org.gradle.api.provider.Property
 import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.Optional
@@ -53,6 +54,14 @@ abstract class GenericUiResourceCompilerTask : DefaultTask() {
     @get:Input
     @get:Optional
     abstract val themeMode: Property<String>
+
+    @get:Input
+    @get:Optional
+    abstract val lightThemeColors: MapProperty<String, String>
+
+    @get:Input
+    @get:Optional
+    abstract val darkThemeColors: MapProperty<String, String>
 
     @get:Input
     @get:Optional
@@ -144,90 +153,98 @@ abstract class GenericUiResourceCompilerTask : DefaultTask() {
         var nextXmlIdx = 1
         var nextStyleIdx = 1
 
+        val drawableExts = setOf("svg", "png", "ico", "webp", "jpg", "jpeg", "gif", "bmp")
+
+        fun buildDrawableEntry(
+            entryName: String,
+            file: File,
+            relPath: String,
+            ext: String,
+            defaultViewBox: Float = 24f
+        ): DrawableEntry {
+            val numId = (0x7f01 shl 16) or (nextDrawableIdx++ and 0xFFFF)
+            return if (ext == "svg") {
+                val svgText = file.readText()
+                val (vbW, vbH) = extractSvgViewBox(svgText)
+                val pathList = extractSvgPaths(svgText)
+                DrawableEntry(
+                    name = entryName,
+                    numericId = numId,
+                    relativePath = relPath,
+                    format = "svg",
+                    svgSource = svgText,
+                    svgPaths = pathList,
+                    viewBoxWidth = vbW,
+                    viewBoxHeight = vbH,
+                    base64Data = null
+                )
+            } else {
+                val b64 = Base64.getEncoder().encodeToString(file.readBytes())
+                DrawableEntry(
+                    name = entryName,
+                    numericId = numId,
+                    relativePath = relPath,
+                    format = ext,
+                    svgSource = null,
+                    svgPaths = emptyList(),
+                    viewBoxWidth = defaultViewBox,
+                    viewBoxHeight = defaultViewBox,
+                    base64Data = b64
+                )
+            }
+        }
+
+        fun isExcludedDrawableFolderSegment(segment: String): Boolean {
+            val lower = segment.lowercase()
+            return lower.startsWith("values") ||
+                lower.startsWith("layout") ||
+                lower.startsWith("font") ||
+                lower.startsWith("raw") ||
+                lower == "scripts" ||
+                lower.startsWith("xml") ||
+                lower.startsWith("menu") ||
+                lower.startsWith("styles") ||
+                lower.startsWith("style") ||
+                lower.startsWith("css") ||
+                lower.startsWith("scss") ||
+                lower.startsWith("sass") ||
+                lower.startsWith("samples") ||
+                lower.startsWith("cursors") ||
+                lower.startsWith("cursor")
+        }
+
+        val subdirUnprefixedCandidates = linkedMapOf<String, MutableList<Pair<String, () -> DrawableEntry>>>()
+
         for (root in existingDirs) {
-            root.walkTopDown().filter { it.isFile }.forEach { file ->
+            root.walkTopDown().filter { it.isFile }
+                .sortedBy { it.relativeTo(root).invariantSeparatorsPath.count { ch -> ch == '/' } }
+                .forEach { file ->
                 val relPath = file.relativeTo(root).invariantSeparatorsPath
                 val parentDir = file.parentFile?.name?.lowercase() ?: ""
                 val ext = file.extension.lowercase()
                 val ident = sanitizeIdentifier(file.nameWithoutExtension)
+                val pathSegments = relPath.split('/').dropLast(1)
 
                 when {
                     parentDir == "cursors" || parentDir == "cursor" || ext == "cur" -> {
-                        if (ident.isNotEmpty() && ext in setOf("svg", "png", "cur", "ico", "webp", "jpg", "jpeg")) {
+                        if (ident.isNotEmpty() && (ext == "cur" || ext in drawableExts)) {
                             cursors.putIfAbsent(ident, file)
                             if (ident !in drawables) {
-                                val numId = (0x7f01 shl 16) or (nextDrawableIdx++ and 0xFFFF)
-                                if (ext == "svg") {
-                                    val svgText = file.readText()
-                                    val (vbW, vbH) = extractSvgViewBox(svgText)
-                                    val pathList = extractSvgPaths(svgText)
-                                    drawables[ident] = DrawableEntry(
-                                        name = ident,
-                                        numericId = numId,
-                                        relativePath = relPath,
-                                        format = "svg",
-                                        svgSource = svgText,
-                                        svgPaths = pathList,
-                                        viewBoxWidth = vbW,
-                                        viewBoxHeight = vbH,
-                                        base64Data = null
-                                    )
-                                } else {
-                                    val b64 = Base64.getEncoder().encodeToString(file.readBytes())
-                                    drawables[ident] = DrawableEntry(
-                                        name = ident,
-                                        numericId = numId,
-                                        relativePath = relPath,
-                                        format = ext,
-                                        svgSource = null,
-                                        svgPaths = emptyList(),
-                                        viewBoxWidth = 32f,
-                                        viewBoxHeight = 32f,
-                                        base64Data = b64
-                                    )
-                                }
+                                drawables[ident] = buildDrawableEntry(ident, file, relPath, ext, defaultViewBox = 32f)
                             }
                         }
                     }
-                    parentDir.startsWith("drawable") || parentDir == "icons" || parentDir == "images" ||
-                        (parentDir == root.name.lowercase() && ext in setOf("svg", "png", "ico", "webp", "jpg")) -> {
-                        if (ident.isNotEmpty() && ident !in drawables && ext in setOf("svg", "png", "ico", "webp", "jpg", "jpeg")) {
+                    parentDir.startsWith("drawable") || parentDir.startsWith("mipmap") ||
+                        parentDir == "icons" || parentDir == "images" ||
+                        (file.parentFile == root && ext in drawableExts) -> {
+                        if (ident.isNotEmpty() && ident !in drawables && ext in drawableExts) {
                             if (ident.contains("cursor")) {
                                 cursors.putIfAbsent(ident, file)
                             }
-                            val numId = (0x7f01 shl 16) or (nextDrawableIdx++ and 0xFFFF)
-                            if (ext == "svg") {
-                                val svgText = file.readText()
-                                val (vbW, vbH) = extractSvgViewBox(svgText)
-                                val pathList = extractSvgPaths(svgText)
-                                drawables[ident] = DrawableEntry(
-                                    name = ident,
-                                    numericId = numId,
-                                    relativePath = relPath,
-                                    format = "svg",
-                                    svgSource = svgText,
-                                    svgPaths = pathList,
-                                    viewBoxWidth = vbW,
-                                    viewBoxHeight = vbH,
-                                    base64Data = null
-                                )
-                            } else {
-                                val b64 = Base64.getEncoder().encodeToString(file.readBytes())
-                                drawables[ident] = DrawableEntry(
-                                    name = ident,
-                                    numericId = numId,
-                                    relativePath = relPath,
-                                    format = ext,
-                                    svgSource = null,
-                                    svgPaths = emptyList(),
-                                    viewBoxWidth = 24f,
-                                    viewBoxHeight = 24f,
-                                    base64Data = b64
-                                )
-                            }
+                            drawables[ident] = buildDrawableEntry(ident, file, relPath, ext, defaultViewBox = 24f)
                         }
                     }
-                    (parentDir in setOf("styles", "style", "css", "scss", "sass") || parentDir == root.name.lowercase()) &&
+                    (parentDir in setOf("styles", "style", "css", "scss", "sass") || file.parentFile == root) &&
                         ext in setOf("scss", "sass", "css") && !file.name.startsWith("_") -> {
                         if (ident.isNotEmpty() && ident !in styles) {
                             val numId = (0x7f0c shl 16) or (nextStyleIdx++ and 0xFFFF)
@@ -307,6 +324,27 @@ abstract class GenericUiResourceCompilerTask : DefaultTask() {
                             )
                         }
                     }
+                    ext in drawableExts && pathSegments.none { isExcludedDrawableFolderSegment(it) } -> {
+                        val relPathWithoutExt = relPath.substringBeforeLast('.', relPath)
+                        val subdirIdent = sanitizeIdentifier(relPathWithoutExt.replace('/', '_'))
+                        if (subdirIdent.isNotEmpty() && subdirIdent !in drawables) {
+                            drawables[subdirIdent] = buildDrawableEntry(subdirIdent, file, relPath, ext, defaultViewBox = 24f)
+                        }
+                        if (ident.isNotEmpty() && ident != subdirIdent) {
+                            subdirUnprefixedCandidates.getOrPut(ident) { mutableListOf() }.add(
+                                subdirIdent to { buildDrawableEntry(ident, file, relPath, ext, defaultViewBox = 24f) }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        for ((ident, candidates) in subdirUnprefixedCandidates) {
+            if (ident !in drawables) {
+                val uniqueBySubdir = candidates.distinctBy { it.first }
+                if (uniqueBySubdir.size == 1) {
+                    drawables[ident] = uniqueBySubdir[0].second()
                 }
             }
         }
@@ -1320,9 +1358,37 @@ object RC {
         dimens: List<ValueEntry>
     ) {
         val valuesDir = File(outDir, "values").apply { mkdirs() }
+        val valuesNightDir = File(outDir, "values-night").apply { mkdirs() }
         val drawableDir = File(outDir, "drawable").apply { mkdirs() }
         val sourceIconFile = resolveProjectIconSourceFile(projDir)
         GenericUiDefaultIconProvider.ensurePngFromSourceOrDefault(sourceIconFile, projDir, drawableDir)
+
+        val resolvedLight = GenericUiThemeConfig.defaultLightColors(themeColor.orNull).toMutableMap().apply {
+            putAll(lightThemeColors.orNull.orEmpty().filterValues { it.isNotBlank() })
+        }
+        val resolvedDark = GenericUiThemeConfig.defaultDarkColors(themeColor.orNull).toMutableMap().apply {
+            putAll(darkThemeColors.orNull.orEmpty().filterValues { it.isNotBlank() })
+        }
+
+        File(valuesDir, "genericui_theme_colors.xml").writeText(
+            buildAndroidThemeColorsXml(resolvedLight, resolvedDark)
+        )
+
+        val modeLower = themeMode.orNull?.trim()?.lowercase() ?: "auto"
+        val dayUsesDark = modeLower == "dark"
+        val nightUsesLight = modeLower == "light"
+        File(valuesDir, "themes.xml").writeText(
+            buildAndroidThemesXml(
+                parentTheme = if (dayUsesDark) "@android:style/Theme.Material.NoActionBar" else "@android:style/Theme.Material.Light.NoActionBar",
+                colorPrefix = if (dayUsesDark) "genericui_dark" else "genericui_light"
+            )
+        )
+        File(valuesNightDir, "themes.xml").writeText(
+            buildAndroidThemesXml(
+                parentTheme = if (nightUsesLight) "@android:style/Theme.Material.Light.NoActionBar" else "@android:style/Theme.Material.NoActionBar",
+                colorPrefix = if (nightUsesLight) "genericui_light" else "genericui_dark"
+            )
+        )
 
         if (strings.isNotEmpty()) {
             val sb = StringBuilder("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<resources>\n")
@@ -1371,6 +1437,98 @@ object RC {
                 File(drawableDir, "${d.name}.xml").writeText(vd.toString())
             }
         }
+    }
+
+    private fun buildAndroidThemeColorsXml(
+        lightColors: Map<String, String>,
+        darkColors: Map<String, String>
+    ): String = buildString {
+        appendLine("<?xml version=\"1.0\" encoding=\"utf-8\"?>")
+        appendLine("<resources>")
+        fun emitPalette(prefix: String, map: Map<String, String>, isDark: Boolean) {
+            val primary = normalizeAndroidHexColor(map[GenericUiThemeConfig.KEY_PRIMARY] ?: "#0d6efd")
+            val primaryDark = darkenAndroidHexColor(primary, 0.80)
+            val secondary = normalizeAndroidHexColor(map[GenericUiThemeConfig.KEY_SECONDARY] ?: "#6c757d")
+            val accent = normalizeAndroidHexColor(map[GenericUiThemeConfig.KEY_ACCENT] ?: primary)
+            val success = normalizeAndroidHexColor(map[GenericUiThemeConfig.KEY_SUCCESS] ?: "#198754")
+            val danger = normalizeAndroidHexColor(map[GenericUiThemeConfig.KEY_DANGER] ?: "#dc3545")
+            val warning = normalizeAndroidHexColor(map[GenericUiThemeConfig.KEY_WARNING] ?: "#ffc107")
+            val info = normalizeAndroidHexColor(map[GenericUiThemeConfig.KEY_INFO] ?: "#0dcaf0")
+            val background = normalizeAndroidHexColor(
+                map[GenericUiThemeConfig.KEY_BACKGROUND] ?: if (isDark) "#212529" else "#ffffff"
+            )
+            val surface = normalizeAndroidHexColor(
+                map[GenericUiThemeConfig.KEY_SURFACE] ?: if (isDark) "#2b3035" else "#f8f9fa"
+            )
+            val textPrimary = normalizeAndroidHexColor(
+                map[GenericUiThemeConfig.KEY_TEXT_PRIMARY] ?: if (isDark) "#f8f9fa" else "#212529"
+            )
+            val textSecondary = normalizeAndroidHexColor(
+                map[GenericUiThemeConfig.KEY_TEXT_SECONDARY] ?: if (isDark) "#adb5bd" else "#6c757d"
+            )
+            val border = normalizeAndroidHexColor(
+                map[GenericUiThemeConfig.KEY_BORDER] ?: if (isDark) "#495057" else "#dee2e6"
+            )
+            appendLine("    <color name=\"${prefix}_primary\">${escapeXml(primary)}</color>")
+            appendLine("    <color name=\"${prefix}_primary_dark\">${escapeXml(primaryDark)}</color>")
+            appendLine("    <color name=\"${prefix}_secondary\">${escapeXml(secondary)}</color>")
+            appendLine("    <color name=\"${prefix}_accent\">${escapeXml(accent)}</color>")
+            appendLine("    <color name=\"${prefix}_success\">${escapeXml(success)}</color>")
+            appendLine("    <color name=\"${prefix}_danger\">${escapeXml(danger)}</color>")
+            appendLine("    <color name=\"${prefix}_warning\">${escapeXml(warning)}</color>")
+            appendLine("    <color name=\"${prefix}_info\">${escapeXml(info)}</color>")
+            appendLine("    <color name=\"${prefix}_background\">${escapeXml(background)}</color>")
+            appendLine("    <color name=\"${prefix}_surface\">${escapeXml(surface)}</color>")
+            appendLine("    <color name=\"${prefix}_text_primary\">${escapeXml(textPrimary)}</color>")
+            appendLine("    <color name=\"${prefix}_text_secondary\">${escapeXml(textSecondary)}</color>")
+            appendLine("    <color name=\"${prefix}_border\">${escapeXml(border)}</color>")
+        }
+        emitPalette("genericui_light", lightColors, isDark = false)
+        emitPalette("genericui_dark", darkColors, isDark = true)
+        appendLine("</resources>")
+    }
+
+    private fun buildAndroidThemesXml(
+        parentTheme: String,
+        colorPrefix: String
+    ): String = buildString {
+        appendLine("<?xml version=\"1.0\" encoding=\"utf-8\"?>")
+        appendLine("<resources>")
+        appendLine("    <style name=\"Theme.GenericUI.App\" parent=\"${escapeXml(parentTheme)}\">")
+        appendLine("        <item name=\"android:colorPrimary\">@color/${colorPrefix}_primary</item>")
+        appendLine("        <item name=\"android:colorPrimaryDark\">@color/${colorPrefix}_primary_dark</item>")
+        appendLine("        <item name=\"android:colorAccent\">@color/${colorPrefix}_accent</item>")
+        appendLine("        <item name=\"android:windowBackground\">@color/${colorPrefix}_background</item>")
+        appendLine("        <item name=\"android:colorBackground\">@color/${colorPrefix}_background</item>")
+        appendLine("        <item name=\"android:textColorPrimary\">@color/${colorPrefix}_text_primary</item>")
+        appendLine("        <item name=\"android:textColorSecondary\">@color/${colorPrefix}_text_secondary</item>")
+        appendLine("        <item name=\"android:statusBarColor\">@color/${colorPrefix}_primary_dark</item>")
+        appendLine("        <item name=\"android:navigationBarColor\">@color/${colorPrefix}_surface</item>")
+        appendLine("    </style>")
+        appendLine("</resources>")
+    }
+
+    private fun normalizeAndroidHexColor(raw: String): String {
+        val trimmed = raw.trim()
+        if (trimmed.isEmpty()) return "#0d6efd"
+        return if (trimmed.startsWith("#")) trimmed else "#$trimmed"
+    }
+
+    private fun darkenAndroidHexColor(hexColor: String, factor: Double): String {
+        val clean = hexColor.trim().removePrefix("#")
+        val rgbHex = when (clean.length) {
+            3 -> "${clean[0]}${clean[0]}${clean[1]}${clean[1]}${clean[2]}${clean[2]}"
+            6 -> clean
+            8 -> clean.substring(clean.length - 6)
+            else -> return hexColor
+        }
+        val r = rgbHex.substring(0, 2).toIntOrNull(16) ?: return hexColor
+        val g = rgbHex.substring(2, 4).toIntOrNull(16) ?: return hexColor
+        val b = rgbHex.substring(4, 6).toIntOrNull(16) ?: return hexColor
+        val dr = (r * factor).toInt().coerceIn(0, 255)
+        val dg = (g * factor).toInt().coerceIn(0, 255)
+        val db = (b * factor).toInt().coerceIn(0, 255)
+        return "#%02x%02x%02x".format(dr, dg, db)
     }
 
     private fun emitAppleResourceTranslations(
@@ -1492,12 +1650,20 @@ object RC {
         GenericUiDefaultIconProvider.ensureWindowsIcoFromSourceOrDefault(sourceIconFile, projDir, outDir)
         GenericUiDefaultIconProvider.ensureDefaultSvgIcon(projDir, outDir)
 
-        // Stage Web assets under web/assets/<type>/<fileName>
+        // Stage Web assets under web/assets/<type>/<relativePath> and flat <fileName>
         val assetsRoot = File(outDir, "assets").apply { mkdirs() }
         val drawableAssetsDir = File(assetsRoot, "drawable").apply { mkdirs() }
+        val stagedFlatDrawableNames = mutableSetOf<String>()
         for (d in drawables) {
-            val fileName = d.relativePath.substringAfterLast('/').ifEmpty { "${d.name}.${d.format}" }
-            writeDrawablePayload(d, File(drawableAssetsDir, fileName))
+            val relPath = d.relativePath.replace('\\', '/').trimStart('/').ifEmpty { "${d.name}.${d.format}" }
+            val fileName = relPath.substringAfterLast('/').ifEmpty { "${d.name}.${d.format}" }
+            writeDrawablePayload(d, File(drawableAssetsDir, relPath))
+            if (stagedFlatDrawableNames.add(fileName.lowercase())) {
+                writeDrawablePayload(d, File(drawableAssetsDir, fileName))
+            }
+            if (relPath.contains('/') || !File(outDir, relPath).exists()) {
+                writeDrawablePayload(d, File(outDir, relPath))
+            }
         }
         val rawAssetsDir = File(assetsRoot, "raw").apply { mkdirs() }
         for (r in raws) {
@@ -1534,8 +1700,8 @@ object RC {
         val json = StringBuilder("{\n  \"drawables\": {\n")
         drawables.forEachIndexed { idx, d ->
             val comma = if (idx < drawables.lastIndex) "," else ""
-            val fileName = d.relativePath.substringAfterLast('/').ifEmpty { "${d.name}.${d.format}" }
-            json.appendLine("    \"${d.name}\": { \"id\": ${d.numericId}, \"format\": \"${d.format}\", \"path\": \"assets/drawable/$fileName\" }$comma")
+            val relPath = d.relativePath.replace('\\', '/').trimStart('/').ifEmpty { "${d.name}.${d.format}" }
+            json.appendLine("    \"${d.name}\": { \"id\": ${d.numericId}, \"format\": \"${d.format}\", \"path\": \"assets/drawable/$relPath\" }$comma")
         }
         json.appendLine("  },\n  \"strings\": {")
         strings.forEachIndexed { idx, s ->

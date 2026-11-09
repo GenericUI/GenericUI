@@ -2,6 +2,7 @@ package com.nexustools.genericui.plugin
 
 import org.gradle.testfixtures.ProjectBuilder
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
@@ -108,6 +109,26 @@ class GenericUiGradlePluginTest {
                 ":extensions:box3d"
             )
         ))
+        assertTrue(
+            ext.extensions.providerInstallerCallsForBackend(GenericUiVariantScope.ANDROID)
+                .contains("com.nexustools.genericui.android.AndroidWebViewExtensionProvider.install()")
+        )
+        assertTrue(
+            ext.extensions.providerInstallerCallsForBackend(GenericUiVariantScope.IOS)
+                .contains("com.nexustools.genericui.ios.IosWebViewExtensionProvider.install()")
+        )
+        assertTrue(
+            ext.extensions.providerInstallerCallsForBackend(GenericUiVariantScope.WEB)
+                .contains("com.nexustools.genericui.ext.webview.web.WebWebViewExtensionProvider.install()")
+        )
+        assertTrue(
+            ext.extensions.providerInstallerCallsForBackend(GenericUiVariantScope.WINDOWS)
+                .contains("com.nexustools.genericui.ext.webview.desktop.DesktopWebViewExtensionProvider.install()")
+        )
+        assertTrue(
+            ext.extensions.providerInstallerCallsForBackend(GenericUiVariantScope.SWING)
+                .contains("com.nexustools.genericui.ext.webview.swing.SwingWebViewExtensionProvider.install()")
+        )
 
         assertNotNull(project.tasks.findByName("bundleGenericUiAngle"))
         assertNotNull(project.tasks.findByName("bundleGenericUiVulkan"))
@@ -192,6 +213,8 @@ class GenericUiGradlePluginTest {
         assertTrue(generatedKt.contains("ComponentStyle().apply"))
         assertTrue(generatedKt.contains("BlinkStyleEngine.registerStyleSheet(this)"))
         assertTrue(generatedKt.contains("StyleSheetRegistry.register(name, cssResourcePath, this)"))
+        assertTrue(generatedKt.contains("fun install(app: IApplication)"))
+        assertTrue(generatedKt.contains("attachTo(app)"))
         assertTrue(generatedKt.contains("selector = \".page\""))
         assertTrue(generatedKt.contains("selector = \".page .menu\""))
         assertTrue(generatedKt.contains("selector = \".page .menu:hover\""))
@@ -449,6 +472,8 @@ class GenericUiGradlePluginTest {
             "productionLinuxQtArm64",
             "developmentAndroid",
             "productionAndroid",
+            "developmentAndroidDex",
+            "productionAndroidDex",
             "developmentAndroidX32",
             "productionAndroidX32",
             "developmentAndroidX64",
@@ -469,12 +494,61 @@ class GenericUiGradlePluginTest {
             "productionWeb",
             "packageGenericUiWebDistribution",
             "packageGenericUiWebDevelopmentDistribution",
-            "packageGenericUiWebProductionDistribution"
+            "packageGenericUiWebProductionDistribution",
+            "packageGenericUiWebTestDistribution",
+            "packageGenericUiAndroidDevelopmentApk",
+            "packageGenericUiAndroidProductionApk"
         )
         for (taskName in expectedBuildTargetTasks) {
             assertNotNull(
                 project.tasks.findByName(taskName),
                 "Expected GenericUI build target task '$taskName' to be registered"
+            )
+        }
+
+        val expectedTestTargetTasks = listOf(
+            "testWindows",
+            "testWindowsX64",
+            "testWindowsX32",
+            "testWindowsArm64",
+            "testMac",
+            "testMacos",
+            "testMacArm64",
+            "testMacosArm64",
+            "testLinux",
+            "testGtk",
+            "testLinuxGtk",
+            "testLinuxGtkX64",
+            "testLinuxGtkArm64",
+            "testLinuxGtkX32",
+            "testLinuxGtkArm32",
+            "testQt",
+            "testLinuxQt",
+            "testLinuxQtX64",
+            "testLinuxQtArm64",
+            "testLinuxQtX32",
+            "testLinuxQtArm32",
+            "testSwing",
+            "testAndroid",
+            "testAndroidDex",
+            "testAndroidX32",
+            "testAndroidX64",
+            "testAndroidArm32",
+            "testAndroidArm64",
+            "testIos",
+            "testIosArm64",
+            "testIosSimulatorArm64",
+            "testWeb"
+        )
+        for (testTaskName in expectedTestTargetTasks) {
+            val testTask = assertNotNull(
+                project.tasks.findByName(testTaskName),
+                "Expected GenericUI test target task '$testTaskName' to be registered"
+            )
+            assertEquals(
+                "genericui test",
+                testTask.group,
+                "Expected GenericUI test task '$testTaskName' to belong to group 'genericui test'"
             )
         }
 
@@ -493,8 +567,10 @@ class GenericUiGradlePluginTest {
             "productionLinuxGtkX64" to "dist/linux-gtk/x64/production",
             "developmentLinuxQtArm64" to "dist/linux-qt/arm64/development",
             "productionLinuxQtArm64" to "dist/linux-qt/arm64/production",
-            "developmentAndroid" to "dist/android/development",
-            "productionAndroid" to "dist/android/production",
+            "developmentAndroid" to "dist/android/dex/development",
+            "productionAndroid" to "dist/android/dex/production",
+            "developmentAndroidDex" to "dist/android/dex/development",
+            "productionAndroidDex" to "dist/android/dex/production",
             "developmentAndroidArm64" to "dist/android/arm64/development",
             "productionAndroidArm64" to "dist/android/arm64/production",
             "developmentIosArm64" to "dist/ios/arm64/development",
@@ -956,5 +1032,269 @@ class GenericUiGradlePluginTest {
         )
         val bottomRightAlpha = (rendered256.getRGB(240, 240) ushr 24) and 0xFF
         assertTrue(bottomRightAlpha > 200, "128x128 viewBox SVG should scale to fill the bottom-right quadrant of a 256x256 icon")
+    }
+
+    @Test
+    fun `testTarget tasks respect enabled backends and packageGenericUiWebTestDistribution stages test js and harness`() {
+        val desktopOnlyProject = ProjectBuilder.builder().withName("desktop-only-app").build()
+        desktopOnlyProject.pluginManager.apply("com.nexustools.genericui")
+        val desktopExt = desktopOnlyProject.extensions.getByType(GenericUiExtension::class.java)
+        desktopExt.backends {
+            allNativeDesktop()
+        }
+
+        // Enabled native desktop backends must register their test<Target> tasks
+        for (enabledTask in listOf(
+            "testWindows",
+            "testWindowsX64",
+            "testWindowsX32",
+            "testWindowsArm64",
+            "testMac",
+            "testMacos",
+            "testMacArm64",
+            "testMacosArm64",
+            "testLinux",
+            "testGtk",
+            "testLinuxGtk",
+            "testLinuxGtkX64",
+            "testQt",
+            "testLinuxQt",
+            "testLinuxQtX64"
+        )) {
+            assertNotNull(
+                desktopOnlyProject.tasks.findByName(enabledTask),
+                "Expected '$enabledTask' to be registered when allNativeDesktop() is configured"
+            )
+        }
+
+        // Disabled backends (web, android, ios, swing) must NOT register their test<Target> tasks
+        for (disabledTask in listOf(
+            "testWeb",
+            "packageGenericUiWebTestDistribution",
+            "testAndroid",
+            "testAndroidDex",
+            "testIos",
+            "testIosArm64",
+            "testSwing"
+        )) {
+            assertNull(
+                desktopOnlyProject.tasks.findByName(disabledTask),
+                "Expected '$disabledTask' NOT to be registered when only native desktop backends are enabled"
+            )
+        }
+
+        // Verify web test distribution packaging and auto-generated test bootstraps
+        val webProject = ProjectBuilder.builder().withName("sample-web-test-app").build()
+        webProject.group = "com.example.webtest"
+        webProject.pluginManager.apply("com.nexustools.genericui")
+        val webExt = webProject.extensions.getByType(GenericUiExtension::class.java)
+        webExt.application {
+            appName = "Sample Web Test App"
+            baseName = "sample-web-test-app"
+        }
+        webExt.backends {
+            all()
+        }
+
+        val launchersTask = webProject.tasks.getByName("generateGenericUiLaunchers") as GenericUiGenerateLaunchersTask
+        launchersTask.generateLaunchers()
+        val launchersRoot = launchersTask.outputDirectory.get().asFile
+        val expectedBootstraps = mapOf(
+            "windowsTest/kotlin/com/example/webtest/generated/GeneratedWindowsTestBootstrap.kt" to "WindowsJestElectricBootstrap.installIfEnabled()",
+            "macosTest/kotlin/com/example/webtest/generated/GeneratedMacosTestBootstrap.kt" to "MacosJestElectricBootstrap.installIfEnabled()",
+            "gtkTest/kotlin/com/example/webtest/generated/GeneratedGtkTestBootstrap.kt" to "GtkJestElectricBootstrap.installIfEnabled()",
+            "qtTest/kotlin/com/example/webtest/generated/GeneratedQtTestBootstrap.kt" to "QtJestElectricBootstrap.installIfEnabled()",
+            "swingTest/kotlin/com/example/webtest/generated/GeneratedSwingTestBootstrap.kt" to "SwingJestElectricBootstrap.installIfEnabled()",
+            "androidTest/kotlin/com/example/webtest/generated/GeneratedAndroidTestBootstrap.kt" to "AndroidJestElectricBootstrap.installIfEnabled()",
+            "iosTest/kotlin/com/example/webtest/generated/GeneratedIosTestBootstrap.kt" to "IosJestElectricBootstrap.installIfEnabled()",
+            "webTest/kotlin/com/example/webtest/generated/GeneratedWebTestBootstrap.kt" to "WebJestElectricBootstrap.installIfEnabled()"
+        )
+        for ((relPath, expectedCall) in expectedBootstraps) {
+            val file = java.io.File(launchersRoot, relPath)
+            assertTrue(file.isFile, "Expected generated test bootstrap at $relPath")
+            assertTrue(file.readText().contains(expectedCall), "Expected $relPath to contain '$expectedCall'")
+        }
+
+        // Stage main JS + test JS bundles and packageGenericUiWebTestDistribution
+        val buildDir = webProject.layout.buildDirectory.get().asFile
+        val jsMainDir = java.io.File(buildDir, "dist/js/developmentExecutable").apply { mkdirs() }
+        java.io.File(jsMainDir, "sample-web-test-app.js").writeText("/* main js bundle */")
+        val jsTestDir = java.io.File(buildDir, "compileSync/js/test/testDevelopmentExecutable/kotlin").apply { mkdirs() }
+        java.io.File(jsTestDir, "sample-web-test-app_test.js").writeText("/* test js bundle */")
+
+        val webTestDistTask = webProject.tasks.getByName("packageGenericUiWebTestDistribution") as GenericUiWebDistributionTask
+        webTestDistTask.packageWebDistribution()
+
+        val testDistDir = webTestDistTask.outputDirectory.get().asFile
+        assertTrue(
+            testDistDir.invariantSeparatorsPath.endsWith("build/distributions/web/test"),
+            "packageGenericUiWebTestDistribution should output to build/distributions/web/test"
+        )
+        assertTrue(java.io.File(testDistDir, "sample-web-test-app.js").isFile, "Main JS bundle should be staged")
+        assertTrue(java.io.File(testDistDir, "sample-web-test-app_test.js").isFile, "Test JS bundle should be staged")
+        assertTrue(java.io.File(testDistDir, "web-test-harness.js").isFile, "web-test-harness.js should be staged")
+
+        val testIndexHtml = java.io.File(testDistDir, "index.html").readText()
+        assertTrue(testIndexHtml.contains("<script type=\"loader-js\" src=\"sample-web-test-app.js?"))
+        assertTrue(testIndexHtml.contains("<script type=\"loader-js\" src=\"sample-web-test-app_test.js?"))
+        assertTrue(testIndexHtml.contains("<script type=\"loader-js\" src=\"web-test-harness.js?"))
+
+        val testLoaderJs = java.io.File(testDistDir, "loader.js").readText()
+        assertTrue(testLoaderJs.contains("querySelectorAll('script[type=\"loader-js\"]')"))
+        assertTrue(testLoaderJs.contains("loadAdditionalJsScriptsSequentially"))
+    }
+
+    @Test
+    fun `theme DSL configures light and dark overrides and emits Android Material XML, launcher ThemeConfig, and Web genericui-theme css`() {
+        val project = ProjectBuilder.builder().withName("themed-app").build()
+        project.group = "com.example.themed"
+        project.pluginManager.apply("com.nexustools.genericui")
+
+        val commonKotlinDir = java.io.File(project.projectDir, "src/commonMain/kotlin/com/example/themed").apply { mkdirs() }
+        java.io.File(commonKotlinDir, "MainFragment.kt").writeText(
+            """
+            package com.example.themed
+
+            import com.nexustools.genericui.component.fragment.Fragment
+            import com.nexustools.genericui.component.fragment.MainAppFragment
+
+            @MainAppFragment
+            class MainFragment : Fragment()
+            """.trimIndent()
+        )
+
+        val ext = project.extensions.getByType(GenericUiExtension::class.java)
+        assertFalse(ext.themeConfig.hasCustomThemeOverrides(), "Default GenericUiThemeConfig should have no custom overrides")
+
+        ext.app {
+            id = "com.example.themed"
+            name = "Themed App"
+            packageName = "com.example.themed"
+        }
+        ext.backends {
+            all()
+        }
+        ext.theme {
+            mode = "auto"
+            primaryColor = "#2563eb"
+            secondaryColor = "#475569"
+            accentColor = "#7c3aed"
+            successColor = "#16a34a"
+            dangerColor = "#dc2626"
+            warningColor = "#d97706"
+            infoColor = "#0284c7"
+            light {
+                backgroundColor = "#f8fafc"
+                surfaceColor = "#ffffff"
+                textPrimaryColor = "#0f172a"
+                borderColor = "#e2e8f0"
+            }
+            dark {
+                primaryColor = "#60a5fa"
+                backgroundColor = "#0f172a"
+                surfaceColor = "#1e293b"
+                textPrimaryColor = "#f8fafc"
+                borderColor = "#334155"
+            }
+        }
+
+        assertTrue(ext.themeConfig.hasCustomThemeOverrides(), "Configured GenericUiThemeConfig should report custom overrides")
+        assertTrue(ext.themeConfig.light.hasCustomOverrides())
+        assertTrue(ext.themeConfig.dark.hasCustomOverrides())
+        val lightResolved = ext.themeConfig.resolveLightColors()
+        val darkResolved = ext.themeConfig.resolveDarkColors()
+        assertEquals("#2563eb", lightResolved["primary"])
+        assertEquals("#7c3aed", lightResolved["accent"])
+        assertEquals("#f8fafc", lightResolved["background"])
+        assertEquals("#60a5fa", darkResolved["primary"])
+        assertEquals("#0f172a", darkResolved["background"])
+        assertEquals("#1e293b", darkResolved["surface"])
+
+        // 1. Verify Android resource compiler generates genericui_theme_colors.xml, values/themes.xml, and values-night/themes.xml
+        val resTask = project.tasks.getByName("compileGenericUiResources") as GenericUiResourceCompilerTask
+        resTask.compileResources()
+        val androidResDir = java.io.File(resTask.backendOutputDirectory.get().asFile, "android/res")
+        val themeColorsXmlFile = java.io.File(androidResDir, "values/genericui_theme_colors.xml")
+        val dayThemesXmlFile = java.io.File(androidResDir, "values/themes.xml")
+        val nightThemesXmlFile = java.io.File(androidResDir, "values-night/themes.xml")
+        assertTrue(themeColorsXmlFile.isFile, "Expected res/values/genericui_theme_colors.xml")
+        assertTrue(dayThemesXmlFile.isFile, "Expected res/values/themes.xml")
+        assertTrue(nightThemesXmlFile.isFile, "Expected res/values-night/themes.xml")
+
+        val themeColorsXml = themeColorsXmlFile.readText()
+        assertTrue(themeColorsXml.contains("<color name=\"genericui_light_primary\">#2563eb</color>"))
+        assertTrue(themeColorsXml.contains("<color name=\"genericui_light_primary_dark\">"))
+        assertTrue(themeColorsXml.contains("<color name=\"genericui_light_accent\">#7c3aed</color>"))
+        assertTrue(themeColorsXml.contains("<color name=\"genericui_light_background\">#f8fafc</color>"))
+        assertTrue(themeColorsXml.contains("<color name=\"genericui_dark_primary\">#60a5fa</color>"))
+        assertTrue(themeColorsXml.contains("<color name=\"genericui_dark_background\">#0f172a</color>"))
+        assertTrue(themeColorsXml.contains("<color name=\"genericui_dark_surface\">#1e293b</color>"))
+
+        val dayThemesXml = dayThemesXmlFile.readText()
+        assertTrue(dayThemesXml.contains("<style name=\"Theme.GenericUI.App\" parent=\"@android:style/Theme.Material.Light.NoActionBar\">"))
+        assertTrue(dayThemesXml.contains("<item name=\"android:colorPrimary\">@color/genericui_light_primary</item>"))
+        assertTrue(dayThemesXml.contains("<item name=\"android:colorAccent\">@color/genericui_light_accent</item>"))
+        assertTrue(dayThemesXml.contains("<item name=\"android:statusBarColor\">@color/genericui_light_primary_dark</item>"))
+
+        val nightThemesXml = nightThemesXmlFile.readText()
+        assertTrue(nightThemesXml.contains("<style name=\"Theme.GenericUI.App\" parent=\"@android:style/Theme.Material.NoActionBar\">"))
+        assertTrue(nightThemesXml.contains("<item name=\"android:colorPrimary\">@color/genericui_dark_primary</item>"))
+        assertTrue(nightThemesXml.contains("<item name=\"android:windowBackground\">@color/genericui_dark_background</item>"))
+
+        // 2. Verify AndroidManifest.xml uses @style/Theme.GenericUI.App by default
+        val manifestTask = project.tasks.getByName("generateGenericUiAndroidManifest") as GenericUiGenerateAndroidManifestTask
+        manifestTask.generate()
+        val manifestXml = manifestTask.outputManifestFile.get().asFile.readText()
+        assertTrue(
+            manifestXml.contains("android:theme=\"@style/Theme.GenericUI.App\""),
+            "AndroidManifest.xml should default to @style/Theme.GenericUI.App"
+        )
+
+        // 3. Verify generated launcher descriptors and Android Application emit ThemeConfig(light = ThemeColorSet.fromHex(...), dark = ThemeColorSet.fromHex(...))
+        val launchersTask = project.tasks.getByName("generateGenericUiLaunchers") as GenericUiGenerateLaunchersTask
+        launchersTask.generateLaunchers()
+        val launchersRoot = launchersTask.outputDirectory.get().asFile
+        val winDescriptor = java.io.File(launchersRoot, "windows/kotlin/com/example/themed/generated/GeneratedWindowsAppDescriptor.kt").readText()
+        val winMain = java.io.File(launchersRoot, "windows/kotlin/com/example/themed/generated/GeneratedWindowsLauncherMain.kt").readText()
+        assertTrue(winDescriptor.contains("themeConfig = ThemeConfig("))
+        assertTrue(winDescriptor.contains("light = ThemeColorSet.fromHex("))
+        assertTrue(winDescriptor.contains("dark = ThemeColorSet.fromHex("))
+        assertTrue(winDescriptor.contains("primary = \"#2563eb\""))
+        assertTrue(winDescriptor.contains("primary = \"#60a5fa\""))
+        assertTrue(winMain.contains("GenericUI.defaultThemeConfig ="))
+        assertTrue(winMain.contains("app.setThemeConfig("))
+
+        val androidActivitiesTask = project.tasks.getByName("generateGenericUiAndroidActivities") as GenericUiGenerateAndroidActivitiesTask
+        androidActivitiesTask.generate()
+        val androidAppKt = java.io.File(androidActivitiesTask.outputDirectory.get().asFile, "com/example/themed/GeneratedAndroidApplication.kt").readText()
+        assertTrue(androidAppKt.contains("themeConfig = ThemeConfig("))
+        assertTrue(androidAppKt.contains("light = ThemeColorSet.fromHex("))
+        assertTrue(androidAppKt.contains("dark = ThemeColorSet.fromHex("))
+        assertTrue(androidAppKt.contains("GenericUI.defaultThemeConfig ="))
+        assertTrue(androidAppKt.contains("app.setThemeConfig("))
+
+        // 4. Verify Web distribution pre-generates gui/genericui-theme.css and injects <link id="genericui-build-theme-css" ...>
+        val webDistTask = project.tasks.getByName("packageGenericUiWebDistribution") as GenericUiWebDistributionTask
+        webDistTask.packageWebDistribution()
+        val webOutDir = webDistTask.outputDirectory.get().asFile
+        val themeCssFile = java.io.File(webOutDir, "gui/genericui-theme.css")
+        assertTrue(themeCssFile.isFile, "Expected gui/genericui-theme.css to be generated when theme overrides are configured")
+        val themeCss = themeCssFile.readText()
+        assertTrue(themeCss.contains(":root, [data-bs-theme=\"light\"]"))
+        assertTrue(themeCss.contains("[data-bs-theme=\"dark\"]"))
+        assertTrue(themeCss.contains("--bs-primary: #2563eb;"))
+        assertTrue(themeCss.contains("--bs-primary-rgb: 37, 99, 235;"))
+        assertTrue(themeCss.contains("--bs-primary: #60a5fa;"))
+        assertTrue(themeCss.contains(".btn-primary"))
+        assertTrue(themeCss.contains(".btn-outline-primary"))
+        assertTrue(themeCss.contains(".bg-primary"))
+        assertTrue(themeCss.contains(".text-primary"))
+        assertTrue(themeCss.contains(".border-primary"))
+
+        val indexHtml = java.io.File(webOutDir, "index.html").readText()
+        assertTrue(
+            indexHtml.contains("<link id=\"genericui-build-theme-css\" rel=\"stylesheet\" href=\"gui/genericui-theme.css\">"),
+            "Expected index.html to inject #genericui-build-theme-css after bootstrap.min.css and genericui.css"
+        )
     }
 }

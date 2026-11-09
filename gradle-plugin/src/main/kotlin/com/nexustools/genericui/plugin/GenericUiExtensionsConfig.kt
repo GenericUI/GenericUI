@@ -478,11 +478,12 @@ open class GenericUiExtensionsConfig {
                         add("com.nexustools.genericui.ext.webview.desktop.DesktopWebViewExtensionProvider.install()")
                     GenericUiVariantScope.SWING ->
                         add("com.nexustools.genericui.ext.webview.swing.SwingWebViewExtensionProvider.install()")
-                    GenericUiVariantScope.ANDROID,
+                    GenericUiVariantScope.ANDROID ->
+                        add("com.nexustools.genericui.android.AndroidWebViewExtensionProvider.install()")
+                    GenericUiVariantScope.IOS ->
+                        add("com.nexustools.genericui.ios.IosWebViewExtensionProvider.install()")
                     GenericUiVariantScope.MOBILE_COMMON ->
                         add("com.nexustools.genericui.ext.webview.mobile.MobileWebViewExtensionProvider.install(false)")
-                    GenericUiVariantScope.IOS ->
-                        add("com.nexustools.genericui.ext.webview.mobile.MobileWebViewExtensionProvider.install(true)")
                     GenericUiVariantScope.WEB ->
                         add("com.nexustools.genericui.ext.webview.web.WebWebViewExtensionProvider.install()")
                     else -> Unit

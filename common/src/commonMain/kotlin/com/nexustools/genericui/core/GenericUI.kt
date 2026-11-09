@@ -3,6 +3,8 @@ package com.nexustools.genericui.core
 import com.nexustools.genericui.enums.ui.ThemeMode
 import com.nexustools.genericui.resources.ResourceID
 import com.nexustools.genericui.res.Resources
+import com.nexustools.genericui.style.theme.ThemeConfig
+import com.nexustools.genericui.threading.GenericUiThreading
 
 /**
  * Global entry point for registering and retrieving the active platform [NativeFactory].
@@ -11,6 +13,7 @@ object GenericUI {
     var activeFactory: NativeFactory? = null
     var applicationName: String = "GenericUI"
     var defaultThemeMode: ThemeMode = ThemeMode.AUTO
+    var defaultThemeConfig: ThemeConfig = ThemeConfig.DEFAULT
 
     val GENERICUI: ResourceID
         get() = Resources.GENERICUI
@@ -27,6 +30,7 @@ object GenericUI {
 
     fun initialize(factory: NativeFactory, appName: String? = null) {
         activeFactory = factory
+        GenericUiThreading.onFactoryInitialized(factory)
         if (!appName.isNullOrBlank()) {
             applicationName = appName.trim()
         }

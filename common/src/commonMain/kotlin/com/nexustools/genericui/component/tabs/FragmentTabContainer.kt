@@ -2,6 +2,7 @@ package com.nexustools.genericui.component.tabs
 
 import com.nexustools.genericui.component.fragment.Fragment
 import com.nexustools.genericui.component.fragment.FragmentContainer
+import com.nexustools.genericui.component.media.Image
 import com.nexustools.genericui.component.shell.Window
 import com.nexustools.genericui.core.AbstractComponent
 import com.nexustools.genericui.core.AbstractContainer
@@ -9,6 +10,7 @@ import com.nexustools.genericui.core.NativeFactory
 import com.nexustools.genericui.enums.fragment.FragmentState
 import com.nexustools.genericui.nativeimpl.tabs.TabContainerNativeImpl
 import com.nexustools.genericui.nativeimpl.tabs.TabNativeImpl
+import com.nexustools.genericui.resources.ResourceID
 
 /**
  * Tabbed container where each tab hosts a full-lifecycle [Fragment] inside a managed [FragmentContainer],
@@ -73,6 +75,12 @@ open class FragmentTabContainer(
         set(value) {
             field = value
             typedNative<TabContainerNativeImpl<*>>()?.setTabBarStyleNative(value)
+        }
+
+    var fullWidthTabs: Boolean = false
+        set(value) {
+            field = value
+            typedNative<TabContainerNativeImpl<*>>()?.setFullWidthTabsNative(value)
         }
 
     var selectedIndex: Int = 0
@@ -179,19 +187,43 @@ open class FragmentTabContainer(
     }
 
     /**
-     * Adds a [Fragment] tab by title and optional icon.
+     * Adds a [Fragment] tab by title and optional icon or [Image] / [ResourceID].
      */
     fun addTab(
         title: String,
         fragment: Fragment,
         id: String = "frag_tab_${_entries.size}",
         icon: String? = null,
-        closable: Boolean = false
+        closable: Boolean = false,
+        iconRes: ResourceID? = null,
+        image: Image? = null,
+        tintImageToTheme: Boolean = true,
+        iconSizePx: Int = image?.widthPx ?: image?.heightPx ?: 20,
+        iconPlacement: TabIconPlacement = TabIconPlacement.START
     ): FragmentTabContainer = apply {
         val tab: Tab = if (closable) {
-            CloseableTab(tabId = id, title = title, icon = icon, isCloseable = true)
+            CloseableTab(
+                tabId = id,
+                title = title,
+                icon = icon,
+                isCloseable = true,
+                iconRes = iconRes,
+                image = image,
+                tintImageToTheme = tintImageToTheme,
+                iconSizePx = iconSizePx,
+                iconPlacement = iconPlacement
+            )
         } else {
-            Tab(tabId = id, title = title, icon = icon)
+            Tab(
+                tabId = id,
+                title = title,
+                icon = icon,
+                iconRes = iconRes,
+                image = image,
+                tintImageToTheme = tintImageToTheme,
+                iconSizePx = iconSizePx,
+                iconPlacement = iconPlacement
+            )
         }
         addTab(tab, fragment)
     }
@@ -207,6 +239,11 @@ open class FragmentTabContainer(
         isCloseable: Boolean = true,
         isDirty: Boolean = false,
         customComponent: AbstractComponent? = null,
+        iconRes: ResourceID? = null,
+        image: Image? = null,
+        tintImageToTheme: Boolean = true,
+        iconSizePx: Int = image?.widthPx ?: image?.heightPx ?: 20,
+        iconPlacement: TabIconPlacement = TabIconPlacement.START,
         onCloseRequested: (() -> Boolean)? = null
     ): CloseableTab {
         val tab = CloseableTab(
@@ -216,6 +253,11 @@ open class FragmentTabContainer(
             isCloseable = isCloseable,
             isDirty = isDirty,
             customComponent = customComponent,
+            iconRes = iconRes,
+            image = image,
+            tintImageToTheme = tintImageToTheme,
+            iconSizePx = iconSizePx,
+            iconPlacement = iconPlacement,
             onCloseRequested = onCloseRequested
         )
         addTab(tab, fragment)
@@ -277,7 +319,19 @@ open class FragmentTabContainer(
         if (icon != null) {
             entry.tab.icon = icon
         }
-        typedNative<TabContainerNativeImpl<*>>()?.setTabTitleNative(idx, entry.tab.displayTitle)
+        val impl = typedNative<TabContainerNativeImpl<*>>()
+        impl?.setTabTitleNative(idx, entry.tab.displayTitle)
+        (entry.tab.nativeImpl as? TabNativeImpl<*>)?.let { impl?.updateTabNative(idx, it) }
+    }
+
+    fun setTabImage(tabId: String, image: Image?, tintToTheme: Boolean = true) {
+        val entry = _entries.firstOrNull { it.id == tabId } ?: return
+        entry.tab.setImage(image, tintToTheme)
+    }
+
+    fun setTabIcon(tabId: String, resId: ResourceID, tintToTheme: Boolean = true) {
+        val entry = _entries.firstOrNull { it.id == tabId } ?: return
+        entry.tab.setImage(resId, tintToTheme)
     }
 
     fun setActiveTab(tabId: String) {
@@ -321,6 +375,7 @@ open class FragmentTabContainer(
         val impl = typedNative<TabContainerNativeImpl<*>>() ?: return
         impl.setTabPositionNative(tabPosition)
         impl.setTabBarStyleNative(tabBarStyle)
+        impl.setFullWidthTabsNative(fullWidthTabs)
         _entries.forEachIndexed { idx, entry ->
             val contentImpl = entry.hostContainer.nativeImpl ?: entry.hostContainer.ensureNativeImpl() ?: return@forEachIndexed
             val tabImpl = (entry.tab.nativeImpl ?: entry.tab.ensureNativeImpl()) as? TabNativeImpl<*>

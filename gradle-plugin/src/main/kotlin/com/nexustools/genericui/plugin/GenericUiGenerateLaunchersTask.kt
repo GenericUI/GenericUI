@@ -90,6 +90,18 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
 
     @get:Input
     @get:Optional
+    abstract val backendLightThemeColors: MapProperty<String, Map<String, String>>
+
+    @get:Input
+    @get:Optional
+    abstract val backendDarkThemeColors: MapProperty<String, Map<String, String>>
+
+    @get:Input
+    @get:Optional
+    abstract val backendHasCustomThemeOverrides: MapProperty<String, Boolean>
+
+    @get:Input
+    @get:Optional
     abstract val backendIconPaths: MapProperty<String, String>
 
     @get:Input
@@ -101,7 +113,15 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
     abstract val backendProviderInstallerCalls: MapProperty<String, List<String>>
 
     @get:Input
+    @get:Optional
+    abstract val precompiledStyleSheetObjectFqns: ListProperty<String>
+
+    @get:Input
     abstract val generateVisualWindowsTestHelper: Property<Boolean>
+
+    @get:Input
+    @get:Optional
+    abstract val testingEnabled: Property<Boolean>
 
     @get:OutputDirectory
     abstract val outputDirectory: DirectoryProperty
@@ -111,6 +131,7 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
         description = "Generates per-backend GenericUiAppDescriptor and launcher main() entrypoints for @MainAppFragment."
         resourcesEnabled.convention(true)
         generateVisualWindowsTestHelper.convention(false)
+        testingEnabled.convention(true)
     }
 
     @TaskAction
@@ -134,19 +155,31 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
             .distinctBy { "${it.qualifiedName}:${it.isMainFragment}:${it.isApplicationClass}" }
 
         val mainFragments = discovered.filter { it.isMainFragment && !it.isApplicationClass }
-        if (mainFragments.isEmpty()) {
-            return
-        }
-
-        val enabledScopes = enabledBackendIds.getOrElse(emptyList())
+        val allEnabledScopes = enabledBackendIds.getOrElse(emptyList())
             .mapNotNull { GenericUiVariantScope.fromNameOrNull(it) }
-            .filter { it.isConcreteBackend && it != GenericUiVariantScope.ANDROID }
+            .filter { it.isConcreteBackend }
             .distinct()
+
+        val enabledScopes = allEnabledScopes
+            .filter { it != GenericUiVariantScope.ANDROID }
 
         val configuredPkg = generatedPackageName.orNull?.trim().orEmpty()
         val effectiveGenPkg = configuredPkg.ifEmpty {
             val firstMainPkg = mainFragments.firstOrNull { it.packageName.isNotBlank() }?.packageName.orEmpty()
             if (firstMainPkg.isNotEmpty()) "$firstMainPkg.generated" else DEFAULT_GENERATED_PACKAGE
+        }
+
+        if (testingEnabled.getOrElse(true)) {
+            emitBackendTestBootstraps(
+                outputRootDir = outRoot,
+                generatedPackage = effectiveGenPkg,
+                enabledScopes = allEnabledScopes,
+                visualOnWindows = generateVisualWindowsTestHelper.getOrElse(false)
+            )
+        }
+
+        if (mainFragments.isEmpty()) {
+            return
         }
 
         val resEnabled = resourcesEnabled.getOrElse(true)
@@ -165,12 +198,19 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
         val fullscreensMap = backendFullscreens.getOrElse(emptyMap())
         val themeModesMap = backendThemeModes.getOrElse(emptyMap())
         val themeColorsMap = backendThemeColors.getOrElse(emptyMap())
+        val lightThemeColorsMap = backendLightThemeColors.getOrElse(emptyMap())
+        val darkThemeColorsMap = backendDarkThemeColors.getOrElse(emptyMap())
+        val hasCustomThemeMap = backendHasCustomThemeOverrides.getOrElse(emptyMap())
         val iconPathsMap = backendIconPaths.getOrElse(emptyMap())
         val globalStyleSheetsMap = backendGlobalStyleSheets.getOrElse(emptyMap())
         val providerCallsMap = backendProviderInstallerCalls.getOrElse(emptyMap())
+        val styleSheetFqns = precompiledStyleSheetObjectFqns.getOrElse(emptyList())
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
 
         for (backendScope in enabledScopes) {
             val key = backendScope.id
+            val resolvedPrimary = themeColorsMap[key] ?: "#0d6efd"
             val variantConfig = GenericUiResolvedVariantConfig(
                 targetScope = backendScope,
                 appId = appIdsMap[key] ?: "com.nexustools.genericui.app",
@@ -184,7 +224,12 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
                 windowResizable = resizablesMap[key] ?: true,
                 fullscreen = fullscreensMap[key] ?: false,
                 themeMode = themeModesMap[key] ?: "auto",
-                themeColor = themeColorsMap[key] ?: "#0d6efd",
+                themeColor = resolvedPrimary,
+                lightThemeColors = lightThemeColorsMap[key]?.takeIf { it.isNotEmpty() }
+                    ?: GenericUiThemeConfig.defaultLightColors(resolvedPrimary),
+                darkThemeColors = darkThemeColorsMap[key]?.takeIf { it.isNotEmpty() }
+                    ?: GenericUiThemeConfig.defaultDarkColors(resolvedPrimary),
+                hasCustomThemeOverrides = hasCustomThemeMap[key] ?: (resolvedPrimary != "#0d6efd"),
                 iconPath = iconPathsMap[key]?.takeIf { it.isNotBlank() },
                 globalStyleSheet = globalStyleSheetsMap[key]?.takeIf { it.isNotBlank() }
             )
@@ -198,7 +243,8 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
                 variantConfig = variantConfig,
                 providerInstallerCalls = providerCalls,
                 resourcesEnabled = resEnabled,
-                resourcePackage = resPkg
+                resourcePackage = resPkg,
+                precompiledStyleSheetObjectFqns = styleSheetFqns
             )
         }
 
@@ -301,11 +347,23 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
                 val grp = projectGroup.trim()
                 if (grp.isNotEmpty() && grp != "unspecified") "$grp.res" else "com.nexustools.genericui.generated.res"
             }
-            val targetScopes = (enabledBackends ?: enabledLauncherBackendScopes(extension.backends))
-                .filter { it.isConcreteBackend && it != GenericUiVariantScope.ANDROID }
+            val allTargetScopes = (enabledBackends ?: enabledAllBackendScopes(extension.backends))
+                .filter { it.isConcreteBackend }
                 .distinct()
+            val targetScopes = allTargetScopes
+                .filter { it != GenericUiVariantScope.ANDROID }
 
             val generatedFiles = mutableListOf<File>()
+            if (extension.testing.enabled) {
+                generatedFiles.addAll(
+                    emitBackendTestBootstraps(
+                        outputRootDir = outputRootDir,
+                        generatedPackage = generatedPkg,
+                        enabledScopes = allTargetScopes,
+                        visualOnWindows = extension.testing.visualOnWindows
+                    )
+                )
+            }
             for (scope in targetScopes) {
                 val variantConfig = GenericUiVariantResolver.resolve(extension, scope)
                 val providerCalls = extension.extensions.providerInstallerCallsForBackend(
@@ -352,7 +410,8 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
             variantConfig: GenericUiResolvedVariantConfig,
             providerInstallerCalls: List<String>,
             resourcesEnabled: Boolean,
-            resourcePackage: String
+            resourcePackage: String,
+            precompiledStyleSheetObjectFqns: List<String> = emptyList()
         ): List<File> {
             val winningMain = GenericUiMainFragmentResolver.resolveMainFragmentForBackend(
                 discoveredFragments = discoveredFragments,
@@ -362,10 +421,14 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
                 discoveredFragments = discoveredFragments,
                 targetBackend = backendScope
             )
-            val customApplication = GenericUiMainFragmentResolver.resolveApplicationForBackendOrNull(
-                discoveredFragments = discoveredFragments,
-                targetBackend = backendScope
-            )
+            val customApplication = if (isDesktopBackendScope(backendScope)) {
+                GenericUiMainFragmentResolver.resolveApplicationForBackendOrNull(
+                    discoveredFragments = discoveredFragments,
+                    targetBackend = backendScope
+                )
+            } else {
+                null
+            }
 
             val targetCap = targetPascalCase(backendScope)
             val pkgRelPath = generatedPackage.replace('.', '/')
@@ -385,7 +448,8 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
                     variantConfig = variantConfig,
                     providerInstallerCalls = providerInstallerCalls,
                     resourcesEnabled = resourcesEnabled,
-                    resourcePackage = resourcePackage
+                    resourcePackage = resourcePackage,
+                    precompiledStyleSheetObjectFqns = precompiledStyleSheetObjectFqns
                 )
             )
 
@@ -400,6 +464,15 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
             )
 
             return listOf(descriptorFile, launcherMainFile)
+        }
+
+        private fun isDesktopBackendScope(scope: GenericUiVariantScope): Boolean = when (scope) {
+            GenericUiVariantScope.WINDOWS,
+            GenericUiVariantScope.MACOS,
+            GenericUiVariantScope.GTK,
+            GenericUiVariantScope.QT,
+            GenericUiVariantScope.SWING -> true
+            else -> false
         }
 
         private fun targetPascalCase(scope: GenericUiVariantScope): String = when (scope) {
@@ -424,20 +497,80 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
             variantConfig: GenericUiResolvedVariantConfig,
             providerInstallerCalls: List<String>,
             resourcesEnabled: Boolean,
-            resourcePackage: String
+            resourcePackage: String,
+            precompiledStyleSheetObjectFqns: List<String> = emptyList()
         ): String = buildString {
+            val lightMap = GenericUiThemeConfig.defaultLightColors(variantConfig.themeColor).toMutableMap().apply {
+                putAll(variantConfig.lightThemeColors.filterValues { it.isNotBlank() })
+            }
+            val darkMap = GenericUiThemeConfig.defaultDarkColors(variantConfig.themeColor).toMutableMap().apply {
+                putAll(variantConfig.darkThemeColors.filterValues { it.isNotBlank() })
+            }
             appendLine("package $generatedPackage")
             appendLine()
             appendLine("import com.nexustools.genericui.core.GenericUiAppDescriptor")
+            appendLine("import com.nexustools.genericui.enums.ui.ThemeMode")
+            appendLine("import com.nexustools.genericui.style.color.RgbaColor")
+            appendLine("import com.nexustools.genericui.style.theme.ThemeColorSet")
+            appendLine("import com.nexustools.genericui.style.theme.ThemeConfig")
             appendLine()
             appendLine("/**")
             appendLine(" * Auto-generated [GenericUiAppDescriptor] provider for the `${backendScope.id}` backend target.")
             appendLine(" */")
             appendLine("object $descriptorObjectName {")
+            appendLine("    @Suppress(\"EXTENSION_SHADOWED_BY_MEMBER\", \"UnusedPrivateMember\")")
+            appendLine("    private fun ThemeColorSet.Companion.fromHex(")
+            appendLine("        primary: String = \"#0d6efd\",")
+            appendLine("        secondary: String = \"#6c757d\",")
+            appendLine("        accent: String = primary,")
+            appendLine("        success: String = \"#198754\",")
+            appendLine("        danger: String = \"#dc3545\",")
+            appendLine("        warning: String = \"#ffc107\",")
+            appendLine("        info: String = \"#0dcaf0\",")
+            appendLine("        light: String = \"#f8f9fa\",")
+            appendLine("        dark: String = \"#212529\",")
+            appendLine("        background: String = \"#ffffff\",")
+            appendLine("        surface: String = \"#f8f9fa\",")
+            appendLine("        textPrimary: String = \"#212529\",")
+            appendLine("        textSecondary: String = \"#6c757d\",")
+            appendLine("        border: String = \"#dee2e6\"")
+            appendLine("    ): ThemeColorSet = ThemeColorSet(")
+            appendLine("        primary = RgbaColor.fromHex(primary),")
+            appendLine("        secondary = RgbaColor.fromHex(secondary),")
+            appendLine("        accent = RgbaColor.fromHex(accent),")
+            appendLine("        success = RgbaColor.fromHex(success),")
+            appendLine("        danger = RgbaColor.fromHex(danger),")
+            appendLine("        warning = RgbaColor.fromHex(warning),")
+            appendLine("        info = RgbaColor.fromHex(info),")
+            appendLine("        light = RgbaColor.fromHex(light),")
+            appendLine("        dark = RgbaColor.fromHex(dark),")
+            appendLine("        background = RgbaColor.fromHex(background),")
+            appendLine("        onBackground = RgbaColor.fromHex(textPrimary),")
+            appendLine("        surface = RgbaColor.fromHex(surface),")
+            appendLine("        onSurface = RgbaColor.fromHex(textSecondary)")
+            appendLine("    )")
+            appendLine()
+            appendLine("    @Suppress(\"FunctionName\", \"UnusedPrivateMember\")")
+            appendLine("    private fun ThemeConfig(")
+            appendLine("        light: ThemeColorSet,")
+            appendLine("        dark: ThemeColorSet,")
+            appendLine("        mode: ThemeMode = ThemeMode.fromString(${escapeKotlinString(variantConfig.themeMode)})")
+            appendLine("    ): ThemeConfig = com.nexustools.genericui.style.theme.ThemeConfig(")
+            appendLine("        mode = mode,")
+            appendLine("        colors = light,")
+            appendLine("        lightColors = light,")
+            appendLine("        darkColors = dark")
+            appendLine("    )")
+            appendLine()
             if (resourcesEnabled && resourcePackage.isNotBlank()) {
                 appendLine("    @Suppress(\"UnusedPrivateMember\")")
                 appendLine("    private fun $resourcePackage.GeneratedResourceRegistry.registerAll() {")
                 appendLine("        ensureInitialized()")
+                if (backendScope != GenericUiVariantScope.WEB) {
+                    for (fqn in precompiledStyleSheetObjectFqns) {
+                        appendLine("        $fqn.hashCode()")
+                    }
+                }
                 appendLine("    }")
                 appendLine()
             }
@@ -454,6 +587,40 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
             appendLine("        fullscreen = ${variantConfig.fullscreen},")
             appendLine("        themeMode = ${escapeKotlinString(variantConfig.themeMode)},")
             appendLine("        themeColor = ${escapeKotlinString(variantConfig.themeColor)},")
+            appendLine("        themeConfig = ThemeConfig(")
+            appendLine("            light = ThemeColorSet.fromHex(")
+            appendLine("                primary = ${escapeKotlinString(lightMap.getValue(GenericUiThemeConfig.KEY_PRIMARY))},")
+            appendLine("                secondary = ${escapeKotlinString(lightMap.getValue(GenericUiThemeConfig.KEY_SECONDARY))},")
+            appendLine("                accent = ${escapeKotlinString(lightMap.getValue(GenericUiThemeConfig.KEY_ACCENT))},")
+            appendLine("                success = ${escapeKotlinString(lightMap.getValue(GenericUiThemeConfig.KEY_SUCCESS))},")
+            appendLine("                danger = ${escapeKotlinString(lightMap.getValue(GenericUiThemeConfig.KEY_DANGER))},")
+            appendLine("                warning = ${escapeKotlinString(lightMap.getValue(GenericUiThemeConfig.KEY_WARNING))},")
+            appendLine("                info = ${escapeKotlinString(lightMap.getValue(GenericUiThemeConfig.KEY_INFO))},")
+            appendLine("                light = ${escapeKotlinString(lightMap.getValue(GenericUiThemeConfig.KEY_LIGHT))},")
+            appendLine("                dark = ${escapeKotlinString(lightMap.getValue(GenericUiThemeConfig.KEY_DARK))},")
+            appendLine("                background = ${escapeKotlinString(lightMap.getValue(GenericUiThemeConfig.KEY_BACKGROUND))},")
+            appendLine("                surface = ${escapeKotlinString(lightMap.getValue(GenericUiThemeConfig.KEY_SURFACE))},")
+            appendLine("                textPrimary = ${escapeKotlinString(lightMap.getValue(GenericUiThemeConfig.KEY_TEXT_PRIMARY))},")
+            appendLine("                textSecondary = ${escapeKotlinString(lightMap.getValue(GenericUiThemeConfig.KEY_TEXT_SECONDARY))},")
+            appendLine("                border = ${escapeKotlinString(lightMap.getValue(GenericUiThemeConfig.KEY_BORDER))}")
+            appendLine("            ),")
+            appendLine("            dark = ThemeColorSet.fromHex(")
+            appendLine("                primary = ${escapeKotlinString(darkMap.getValue(GenericUiThemeConfig.KEY_PRIMARY))},")
+            appendLine("                secondary = ${escapeKotlinString(darkMap.getValue(GenericUiThemeConfig.KEY_SECONDARY))},")
+            appendLine("                accent = ${escapeKotlinString(darkMap.getValue(GenericUiThemeConfig.KEY_ACCENT))},")
+            appendLine("                success = ${escapeKotlinString(darkMap.getValue(GenericUiThemeConfig.KEY_SUCCESS))},")
+            appendLine("                danger = ${escapeKotlinString(darkMap.getValue(GenericUiThemeConfig.KEY_DANGER))},")
+            appendLine("                warning = ${escapeKotlinString(darkMap.getValue(GenericUiThemeConfig.KEY_WARNING))},")
+            appendLine("                info = ${escapeKotlinString(darkMap.getValue(GenericUiThemeConfig.KEY_INFO))},")
+            appendLine("                light = ${escapeKotlinString(darkMap.getValue(GenericUiThemeConfig.KEY_LIGHT))},")
+            appendLine("                dark = ${escapeKotlinString(darkMap.getValue(GenericUiThemeConfig.KEY_DARK))},")
+            appendLine("                background = ${escapeKotlinString(darkMap.getValue(GenericUiThemeConfig.KEY_BACKGROUND))},")
+            appendLine("                surface = ${escapeKotlinString(darkMap.getValue(GenericUiThemeConfig.KEY_SURFACE))},")
+            appendLine("                textPrimary = ${escapeKotlinString(darkMap.getValue(GenericUiThemeConfig.KEY_TEXT_PRIMARY))},")
+            appendLine("                textSecondary = ${escapeKotlinString(darkMap.getValue(GenericUiThemeConfig.KEY_TEXT_SECONDARY))},")
+            appendLine("                border = ${escapeKotlinString(darkMap.getValue(GenericUiThemeConfig.KEY_BORDER))}")
+            appendLine("            )")
+            appendLine("        ),")
             val iconLiteral = variantConfig.iconPath?.takeIf { it.isNotBlank() }?.let { escapeKotlinString(it) } ?: "null"
             appendLine("        iconPath = $iconLiteral,")
             val styleSheetPath = variantConfig.globalStyleSheet?.trim()?.takeIf { it.isNotEmpty() }
@@ -465,7 +632,7 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
             }
             appendLine("        mainFragmentClass = ${winningMain.qualifiedName}::class,")
             appendLine("        mainFragmentFactory = { _: com.nexustools.genericui.component.fragment.FragmentBundle? -> ${winningMain.qualifiedName}() },")
-            if (customApplication != null) {
+            if (customApplication != null && isDesktopBackendScope(backendScope)) {
                 appendLine("        applicationFactory = { _: com.nexustools.genericui.component.fragment.FragmentBundle? -> ${customApplication.qualifiedName}() },")
             }
             if (applicableFragments.isEmpty()) {
@@ -509,6 +676,14 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
             }
             appendLine("package $generatedPackage")
             appendLine()
+            appendLine("import com.nexustools.genericui.core.GenericUI")
+            appendLine()
+            appendLine("fun configureTheme(app: com.nexustools.genericui.component.shell.IApplication) {")
+            appendLine("    val descriptor = $descriptorObjectName.create()")
+            appendLine("    GenericUI.defaultThemeConfig = descriptor.themeConfig")
+            appendLine("    app.setThemeConfig(descriptor.themeConfig)")
+            appendLine("}")
+            appendLine()
             val cleanStyleSheet = globalStyleSheet?.trim()?.takeIf { it.isNotEmpty() }
             if (cleanStyleSheet != null) {
                 appendLine("fun configureGlobalStyleSheet(app: com.nexustools.genericui.component.shell.IApplication) {")
@@ -519,26 +694,31 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
             when (backendScope) {
                 GenericUiVariantScope.WINDOWS -> {
                     appendLine("fun main(args: Array<String>) {")
+                    appendLine("    GenericUI.defaultThemeConfig = $descriptorObjectName.create().themeConfig")
                     appendLine("    com.nexustools.genericui.windows.WindowsLauncher.launch(args, $descriptorObjectName.create())")
                     appendLine("}")
                 }
                 GenericUiVariantScope.MACOS -> {
                     appendLine("fun main(args: Array<String>) {")
+                    appendLine("    GenericUI.defaultThemeConfig = $descriptorObjectName.create().themeConfig")
                     appendLine("    com.nexustools.genericui.macos.MacosLauncher.launch(args, $descriptorObjectName.create())")
                     appendLine("}")
                 }
                 GenericUiVariantScope.GTK -> {
                     appendLine("fun main(args: Array<String>) {")
+                    appendLine("    GenericUI.defaultThemeConfig = $descriptorObjectName.create().themeConfig")
                     appendLine("    com.nexustools.genericui.gtk.GtkLauncher.launch(args, $descriptorObjectName.create())")
                     appendLine("}")
                 }
                 GenericUiVariantScope.QT -> {
                     appendLine("fun main(args: Array<String>) {")
+                    appendLine("    GenericUI.defaultThemeConfig = $descriptorObjectName.create().themeConfig")
                     appendLine("    com.nexustools.genericui.qt.QtLauncher.launch(args, $descriptorObjectName.create())")
                     appendLine("}")
                 }
                 GenericUiVariantScope.SWING -> {
                     appendLine("fun main(args: Array<String>) {")
+                    appendLine("    GenericUI.defaultThemeConfig = $descriptorObjectName.create().themeConfig")
                     appendLine("    com.nexustools.genericui.swing.SwingLauncher.launch(args, $descriptorObjectName.create())")
                     appendLine("}")
                 }
@@ -546,11 +726,13 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
                     appendLine("fun MainViewController() = com.nexustools.genericui.ios.IosLauncher.createRootViewController($descriptorObjectName.create())")
                     appendLine()
                     appendLine("fun main(args: Array<String>) {")
+                    appendLine("    GenericUI.defaultThemeConfig = $descriptorObjectName.create().themeConfig")
                     appendLine("    com.nexustools.genericui.ios.IosLauncher.launch(args, $descriptorObjectName.create())")
                     appendLine("}")
                 }
                 GenericUiVariantScope.WEB -> {
                     appendLine("fun main() {")
+                    appendLine("    GenericUI.defaultThemeConfig = $descriptorObjectName.create().themeConfig")
                     appendLine("    com.nexustools.genericui.web.WebLauncher.launch($descriptorObjectName.create())")
                     appendLine("}")
                 }
@@ -588,6 +770,124 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
                 }
             )
             return helperFile
+        }
+
+        private fun emitBackendTestBootstraps(
+            outputRootDir: File,
+            generatedPackage: String,
+            enabledScopes: List<GenericUiVariantScope>,
+            visualOnWindows: Boolean
+        ): List<File> {
+            val pkgRelPath = generatedPackage.replace('.', '/')
+            val generated = mutableListOf<File>()
+            for (scope in enabledScopes) {
+                val targetCap = targetPascalCase(scope)
+                val testDirName = "${scope.id}Test"
+                val testOutDir = File(outputRootDir, "$testDirName/kotlin/$pkgRelPath")
+                testOutDir.mkdirs()
+                val objectName = "Generated${targetCap}TestBootstrap"
+                val bootstrapFile = File(testOutDir, "$objectName.kt")
+                val code = buildString {
+                    appendLine("package $generatedPackage")
+                    appendLine()
+                    when (scope) {
+                        GenericUiVariantScope.WINDOWS -> {
+                            appendLine("import com.nexustools.genericui.tests.windows.WindowsJestElectricBootstrap")
+                            appendLine()
+                            appendLine("@Suppress(\"EXTENSION_SHADOWED_BY_MEMBER\", \"UnusedPrivateMember\")")
+                            appendLine("private fun WindowsJestElectricBootstrap.installIfEnabled(visualWindowEnabled: Boolean = $visualOnWindows) =")
+                            appendLine("    install(visualWindowEnabled = visualWindowEnabled)")
+                            appendLine()
+                            appendLine("object $objectName {")
+                            appendLine("    init {")
+                            appendLine("        WindowsJestElectricBootstrap.installIfEnabled()")
+                            appendLine("    }")
+                            appendLine()
+                            appendLine("    fun installIfEnabled() = WindowsJestElectricBootstrap.installIfEnabled()")
+                            appendLine("}")
+                        }
+                        GenericUiVariantScope.MACOS -> {
+                            appendLine("import com.nexustools.genericui.tests.macos.MacosJestElectricBootstrap")
+                            appendLine()
+                            appendLine("object $objectName {")
+                            appendLine("    init {")
+                            appendLine("        MacosJestElectricBootstrap.installIfEnabled()")
+                            appendLine("    }")
+                            appendLine()
+                            appendLine("    fun installIfEnabled() = MacosJestElectricBootstrap.installIfEnabled()")
+                            appendLine("}")
+                        }
+                        GenericUiVariantScope.GTK -> {
+                            appendLine("import com.nexustools.genericui.tests.gtk.GtkJestElectricBootstrap")
+                            appendLine()
+                            appendLine("object $objectName {")
+                            appendLine("    init {")
+                            appendLine("        GtkJestElectricBootstrap.installIfEnabled()")
+                            appendLine("    }")
+                            appendLine()
+                            appendLine("    fun installIfEnabled() = GtkJestElectricBootstrap.installIfEnabled()")
+                            appendLine("}")
+                        }
+                        GenericUiVariantScope.QT -> {
+                            appendLine("import com.nexustools.genericui.tests.qt.QtJestElectricBootstrap")
+                            appendLine()
+                            appendLine("object $objectName {")
+                            appendLine("    init {")
+                            appendLine("        QtJestElectricBootstrap.installIfEnabled()")
+                            appendLine("    }")
+                            appendLine()
+                            appendLine("    fun installIfEnabled() = QtJestElectricBootstrap.installIfEnabled()")
+                            appendLine("}")
+                        }
+                        GenericUiVariantScope.SWING -> {
+                            appendLine("import com.nexustools.genericui.tests.swing.SwingJestElectricBootstrap")
+                            appendLine()
+                            appendLine("object $objectName {")
+                            appendLine("    init {")
+                            appendLine("        SwingJestElectricBootstrap.installIfEnabled()")
+                            appendLine("    }")
+                            appendLine()
+                            appendLine("    fun installIfEnabled() = SwingJestElectricBootstrap.installIfEnabled()")
+                            appendLine("}")
+                        }
+                        GenericUiVariantScope.ANDROID -> {
+                            appendLine("import com.nexustools.genericui.tests.android.AndroidJestElectricBootstrap")
+                            appendLine()
+                            appendLine("object $objectName {")
+                            appendLine("    init {")
+                            appendLine("        AndroidJestElectricBootstrap.installIfEnabled()")
+                            appendLine("    }")
+                            appendLine()
+                            appendLine("    fun installIfEnabled() = AndroidJestElectricBootstrap.installIfEnabled()")
+                            appendLine("}")
+                        }
+                        GenericUiVariantScope.IOS -> {
+                            appendLine("import com.nexustools.genericui.tests.ios.IosJestElectricBootstrap")
+                            appendLine()
+                            appendLine("object $objectName {")
+                            appendLine("    init {")
+                            appendLine("        IosJestElectricBootstrap.installIfEnabled()")
+                            appendLine("    }")
+                            appendLine()
+                            appendLine("    fun installIfEnabled() = IosJestElectricBootstrap.installIfEnabled()")
+                            appendLine("}")
+                        }
+                        GenericUiVariantScope.WEB -> {
+                            appendLine("object $objectName {")
+                            appendLine("    init {")
+                            appendLine("        com.nexustools.genericui.tests.web.WebJestElectricBootstrap.installIfEnabled()")
+                            appendLine("    }")
+                            appendLine()
+                            appendLine("    fun installIfEnabled() = com.nexustools.genericui.tests.web.WebJestElectricBootstrap.installIfEnabled()")
+                            appendLine("}")
+                        }
+                        else -> Unit
+                    }
+                }
+                bootstrapFile.writeText(code)
+                generated.add(bootstrapFile)
+            }
+            return generated
         }
 
         private fun escapeKotlinString(value: String): String {

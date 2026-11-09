@@ -36,6 +36,8 @@ interface TabContainerNativeImpl<out W> : AbstractContainerNativeImpl<W> {
 
     fun setTabBarStyleNative(style: TabBarStyle) {}
 
+    fun setFullWidthTabsNative(fullWidth: Boolean) {}
+
     fun setSelectedTabIndex(index: Int, fadeTransition: Boolean = false)
 
     fun getSelectedTabIndex(): Int

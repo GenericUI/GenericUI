@@ -169,8 +169,8 @@ open class DockWorkspace(
         positionMode = PositionMode.ABSOLUTE
         leftOffset = "0px"
         topOffset = "0px"
-        setStyleProperty("width", "100%")
-        setStyleProperty("height", "100%")
+        getStyle().setWidth(com.nexustools.genericui.style.css.CssLength.PERCENT_100)
+        getStyle().setHeight(com.nexustools.genericui.style.css.CssLength.PERCENT_100)
         zIndex = 0
         isVisible = false
     }
@@ -193,8 +193,8 @@ open class DockWorkspace(
         positionMode = PositionMode.ABSOLUTE
         leftOffset = "0px"
         topOffset = "0px"
-        setStyleProperty("width", "100%")
-        setStyleProperty("height", "100%")
+        getStyle().setWidth(com.nexustools.genericui.style.css.CssLength.PERCENT_100)
+        getStyle().setHeight(com.nexustools.genericui.style.css.CssLength.PERCENT_100)
         zIndex = 25
         isVisible = false
     }
@@ -214,7 +214,7 @@ open class DockWorkspace(
 
     private val _rightEdgeHandle: Container = Container("div", "gui-dock-edge-handle gui-dock-edge-handle-right").apply {
         positionMode = PositionMode.ABSOLUTE
-        setStyleProperty("right", "0px")
+        getStyle().setRight(com.nexustools.genericui.style.css.CssLength.ZERO)
         topOffset = "50%"
         zIndex = 20
         isVisible = false
@@ -241,7 +241,7 @@ open class DockWorkspace(
     private val _bottomEdgeHandle: Container = Container("div", "gui-dock-edge-handle gui-dock-edge-handle-bottom").apply {
         positionMode = PositionMode.ABSOLUTE
         leftOffset = "50%"
-        setStyleProperty("bottom", "0px")
+        getStyle().setBottom(com.nexustools.genericui.style.css.CssLength.ZERO)
         zIndex = 20
         isVisible = false
     }
@@ -738,30 +738,30 @@ open class DockWorkspace(
                     DockPosition.LEFT -> {
                         area.leftOffset = "0px"
                         area.topOffset = "0px"
-                        area.setStyleProperty("right", "")
-                        area.setStyleProperty("bottom", "")
-                        area.setStyleProperty("height", "100%")
+                        area.getStyle().setRight(null)
+                        area.getStyle().setBottom(null)
+                        area.getStyle().setHeight(com.nexustools.genericui.style.css.CssLength.PERCENT_100)
                     }
                     DockPosition.RIGHT -> {
                         area.leftOffset = null
-                        area.setStyleProperty("right", "0px")
+                        area.getStyle().setRight(com.nexustools.genericui.style.css.CssLength.ZERO)
                         area.topOffset = "0px"
-                        area.setStyleProperty("bottom", "")
-                        area.setStyleProperty("height", "100%")
+                        area.getStyle().setBottom(null)
+                        area.getStyle().setHeight(com.nexustools.genericui.style.css.CssLength.PERCENT_100)
                     }
                     DockPosition.TOP -> {
                         area.leftOffset = "0px"
                         area.topOffset = "0px"
-                        area.setStyleProperty("right", "")
-                        area.setStyleProperty("bottom", "")
-                        area.setStyleProperty("width", "100%")
+                        area.getStyle().setRight(null)
+                        area.getStyle().setBottom(null)
+                        area.getStyle().setWidth(com.nexustools.genericui.style.css.CssLength.PERCENT_100)
                     }
                     DockPosition.BOTTOM -> {
                         area.leftOffset = "0px"
                         area.topOffset = null
-                        area.setStyleProperty("right", "")
-                        area.setStyleProperty("bottom", "0px")
-                        area.setStyleProperty("width", "100%")
+                        area.getStyle().setRight(null)
+                        area.getStyle().setBottom(com.nexustools.genericui.style.css.CssLength.ZERO)
+                        area.getStyle().setWidth(com.nexustools.genericui.style.css.CssLength.PERCENT_100)
                     }
                     else -> {}
                 }
@@ -825,10 +825,10 @@ open class DockWorkspace(
                 if (area.hasClass("gui-dock-mobile-drawer-closed")) area.removeClass("gui-dock-mobile-drawer-closed")
                 area.transform = null
                 area.isVisible = true
-                area.setStyleProperty("width", "")
-                area.setStyleProperty("height", "")
-                area.setStyleProperty("right", "")
-                area.setStyleProperty("bottom", "")
+                area.getStyle().setWidth(null)
+                area.getStyle().setHeight(null)
+                area.getStyle().setRight(null)
+                area.getStyle().setBottom(null)
                 area.leftOffset = null
                 area.topOffset = null
             }
@@ -843,10 +843,10 @@ open class DockWorkspace(
                 topArea.topOffset = "0px"
                 leftArea.leftOffset = "0px"
                 leftArea.topOffset = "48px"
-                rightArea.setStyleProperty("right", "0px")
+                rightArea.getStyle().setRight(com.nexustools.genericui.style.css.CssLength.ZERO)
                 rightArea.topOffset = "48px"
                 bottomArea.leftOffset = "0px"
-                bottomArea.setStyleProperty("bottom", "0px")
+                bottomArea.getStyle().setBottom(com.nexustools.genericui.style.css.CssLength.ZERO)
             } else {
                 for ((_, area) in peripheralAreas) {
                     area.positionMode = PositionMode.RELATIVE

@@ -70,6 +70,7 @@ open class Fragment : Container("fragment"), IFragment {
     private var menuBar: MenuBar? = null
     private var titleBar: TitleBar? = null
     private var fullscreenMode: Boolean = false
+    private var fullscreenExplicitlySetOnFragment: Boolean = false
     private var displayCutoutMode: DisplayCutoutMode = DisplayCutoutMode.DEFAULT
 
     override fun setNavBar(navBar: Navbar?) {
@@ -102,14 +103,31 @@ open class Fragment : Container("fragment"), IFragment {
 
     override fun setFullscreen(fullscreen: Boolean, cutoutMode: DisplayCutoutMode) {
         this.fullscreenMode = fullscreen
+        this.fullscreenExplicitlySetOnFragment = true
         this.displayCutoutMode = cutoutMode
         updateFullscreenElementState(fullscreen, cutoutMode)
         syncChromeToAttachedWindow()
+        if (attachedWindow == null && attachedIWindow == null) {
+            (application ?: Application.current)?.mainWindow?.setFullscreen(fullscreen, cutoutMode)
+        }
     }
 
-    override fun isFullscreen(): Boolean = fullscreenMode || super.isFullscreen()
+    override fun isFullscreen(): Boolean =
+        (attachedWindow ?: attachedIWindow ?: (application ?: Application.current)?.mainWindow)?.isFullscreen()
+            ?: fullscreenMode || super.isFullscreen()
 
     override fun getDisplayCutoutMode(): DisplayCutoutMode = displayCutoutMode
+
+    override val isWindowVisible: Boolean
+        get() = (attachedWindow ?: attachedIWindow ?: (application ?: Application.current)?.mainWindow)?.isVisible ?: false
+
+    override fun hideWindow() {
+        (attachedWindow ?: attachedIWindow ?: (application ?: Application.current)?.mainWindow)?.hide()
+    }
+
+    override fun showWindow() {
+        (attachedWindow ?: attachedIWindow ?: (application ?: Application.current)?.mainWindow)?.show()
+    }
 
     override fun getPreferenceStore(): PreferenceStore {
         val ownerApp = application
@@ -143,10 +161,14 @@ open class Fragment : Container("fragment"), IFragment {
     internal fun syncChromeToAttachedWindow() {
         val win = attachedWindow ?: (attachedIWindow as? Window)
         if (win != null) {
-            if (fullscreenMode) {
-                win.setFullscreen(true, displayCutoutMode)
-            } else if (win.fullscreenElement == null || win.fullscreenElement === this || win.fullscreenElement === win.getContent() || win.fullscreenElement === win) {
-                win.setFullscreen(false, displayCutoutMode)
+            if (fullscreenExplicitlySetOnFragment || fullscreenMode) {
+                if (fullscreenMode) {
+                    win.setFullscreen(true, displayCutoutMode)
+                } else if (win.fullscreenElement == null || win.fullscreenElement === this || win.fullscreenElement === win.getContent() || win.fullscreenElement === win) {
+                    win.setFullscreen(false, displayCutoutMode)
+                }
+            } else if (win.isFullscreen()) {
+                fullscreenMode = true
             }
             win.setNavBar(if (fullscreenMode) null else navBar)
             win.setBottomNavigationBar(if (fullscreenMode) null else bottomNavigationBar)
@@ -159,7 +181,11 @@ open class Fragment : Container("fragment"), IFragment {
             return
         }
         val iWin = attachedIWindow ?: return
-        iWin.setFullscreen(fullscreenMode, displayCutoutMode)
+        if (fullscreenExplicitlySetOnFragment || fullscreenMode) {
+            iWin.setFullscreen(fullscreenMode, displayCutoutMode)
+        } else if (iWin.isFullscreen()) {
+            fullscreenMode = true
+        }
         if (titleBar != null) {
             iWin.setTitleBar(titleBar)
         }

@@ -204,10 +204,6 @@ open class Column(
             managedBootstrapClasses.add(cls)
         }
         val ord = spec.order
-        if (ord != null) {
-            setStyleProperty("order", ord.toString())
-        } else {
-            removeStyleProperty("order")
-        }
+        getStyle().setOrder(ord)
     }
 }

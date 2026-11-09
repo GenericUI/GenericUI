@@ -1,6 +1,10 @@
 package com.nexustools.genericui.component.shell
 
 import com.nexustools.genericui.component.fragment.Fragment
+import com.nexustools.genericui.component.fragment.FragmentBundle
+import com.nexustools.genericui.component.fragment.FragmentContainer
+import com.nexustools.genericui.component.fragment.FragmentHost
+import com.nexustools.genericui.component.fragment.FragmentRegistry
 import com.nexustools.genericui.component.layout.Container
 import com.nexustools.genericui.component.system.PreferenceStore
 import com.nexustools.genericui.core.GenericUI
@@ -15,29 +19,196 @@ import com.nexustools.genericui.style.css.CssStyleSheet
 import com.nexustools.genericui.style.css.PrecompiledStyleSheet
 import com.nexustools.genericui.style.css.StyleSheetRegistry
 import com.nexustools.genericui.style.theme.SystemThemeDetector
+import com.nexustools.genericui.style.theme.ThemeConfig
 import com.nexustools.genericui.window.IWindow
 import com.nexustools.genericui.window.TitleBar
+import kotlin.reflect.KClass
 
 /**
- * Standard Container-driven application (`Application`).
+ * Standard Container-driven or Fragment-driven application (`Application`).
  *
- * Accepts a [Container] (and does not force developers to use `Fragment`s if they do not need them).
- * For Fragment-driven applications (including Helper Fragments like `HybridColumnFragment` and `DockWorkspaceFragment`),
- * use [FragmentApplication].
+ * Accepts an optional [Container] (and does not force developers to use `Fragment`s if they do not need them),
+ * and also implements [FragmentHost] and provides overridable [createMainFragment] / [onCreateMainFragment]
+ * routines for Desktop targets (including Swing).
  */
 open class Application(
     initialContent: Container? = null,
     title: String = "GenericUI Application",
     initialThemeColor: String? = null
-) : IApplication {
+) : IApplication, FragmentHost {
 
     override val mainWindow: Window = Window(title = title)
     internal var appNativeImpl: ApplicationNativeImpl<*>? = null
         private set
     private var activeFactory: NativeFactory? = null
 
+    var mainFragmentClass: KClass<out Fragment>? = null
+    var mainFragmentFactory: ((FragmentBundle?) -> Fragment)? = null
+    var launchArguments: FragmentBundle? = null
+    private var defaultMainFragmentFactory: ((Array<String>) -> Fragment)? = null
+
+    private var inFragmentBundleCreate: Boolean = false
+    private var inStringArrayCreate: Boolean = false
+    private var inFragmentBundleOnCreate: Boolean = false
+    private var inStringArrayOnCreate: Boolean = false
+
+    internal fun bindDefaultMainFragmentFactory(factory: (Array<String>) -> Fragment) {
+        defaultMainFragmentFactory = factory
+    }
+
+    open val rootFragmentContainer: FragmentContainer?
+        get() = mainWindow.fragmentContainer
+
+    override val currentFragment: Fragment?
+        get() = rootFragmentContainer?.currentFragment
+
+    override val backStackDepth: Int
+        get() = rootFragmentContainer?.backStackDepth ?: 0
+
+    override val forwardStackDepth: Int
+        get() = rootFragmentContainer?.forwardStackDepth ?: 0
+
+    override val canGoBack: Boolean
+        get() = rootFragmentContainer?.canGoBack ?: false
+
+    override val canGoForward: Boolean
+        get() = rootFragmentContainer?.canGoForward ?: false
+
+    override fun setFragment(fragment: Fragment) {
+        fragment.application = this
+        mainWindow.getOrCreateFragmentContainer().setFragment(fragment)
+    }
+
+    override fun pushFragment(fragment: Fragment) {
+        fragment.application = this
+        mainWindow.getOrCreateFragmentContainer().pushFragment(fragment)
+    }
+
+    override fun popFragment(): Boolean =
+        mainWindow.fragmentContainer?.popFragment() ?: false
+
+    override fun goForward(): Boolean =
+        mainWindow.fragmentContainer?.goForward() ?: false
+
+    override fun replaceFragment(fragment: Fragment) {
+        fragment.application = this
+        mainWindow.getOrCreateFragmentContainer().replaceFragment(fragment)
+    }
+
+    /**
+     * Overridable routine that instantiates the default `@MainAppFragment` on Desktop targets.
+     */
+    open fun createMainFragment(args: FragmentBundle? = launchArguments): Fragment? {
+        if (!inStringArrayCreate) {
+            inFragmentBundleCreate = true
+            try {
+                val rawArgs = args?.getCommandLineArgsArray() ?: emptyArray()
+                val fromArray = createMainFragment(rawArgs)
+                if (fromArray != null) {
+                    if (fromArray.arguments == null && args != null) {
+                        fromArray.arguments = args
+                    }
+                    fromArray.application = this
+                    return fromArray
+                }
+            } finally {
+                inFragmentBundleCreate = false
+            }
+        }
+        val effectiveArgs = args ?: launchArguments
+        val created = mainFragmentFactory?.invoke(effectiveArgs)
+            ?: defaultMainFragmentFactory?.invoke(effectiveArgs?.getCommandLineArgsArray() ?: emptyArray())
+            ?: mainFragmentClass?.let { FragmentRegistry.instantiate(it, effectiveArgs) }
+        if (created != null) {
+            if (created.arguments == null && effectiveArgs != null) {
+                created.arguments = effectiveArgs
+            }
+            created.application = this
+        }
+        return created
+    }
+
+    /**
+     * Overridable routine that instantiates the default `@MainAppFragment` on Desktop targets using raw CLI `args`.
+     */
+    open fun createMainFragment(args: Array<String>): Fragment? {
+        if (!inFragmentBundleCreate) {
+            inStringArrayCreate = true
+            try {
+                val bundle = launchArguments ?: if (args.isNotEmpty()) FragmentBundle.fromCommandLineArgs(args) else null
+                return createMainFragment(bundle)
+            } finally {
+                inStringArrayCreate = false
+            }
+        }
+        val effectiveArgs = launchArguments ?: if (args.isNotEmpty()) FragmentBundle.fromCommandLineArgs(args) else null
+        val created = defaultMainFragmentFactory?.invoke(args)
+            ?: mainFragmentFactory?.invoke(effectiveArgs)
+            ?: mainFragmentClass?.let { FragmentRegistry.instantiate(it, effectiveArgs) }
+        if (created != null) {
+            if (created.arguments == null && effectiveArgs != null) {
+                created.arguments = effectiveArgs
+            }
+            created.application = this
+        }
+        return created
+    }
+
+    /**
+     * Overridable routine invoked on Desktop targets to create and mount the main [Fragment] into [mainWindow].
+     */
+    open fun onCreateMainFragment(args: FragmentBundle? = launchArguments): Fragment? {
+        if (!inStringArrayOnCreate) {
+            inFragmentBundleOnCreate = true
+            try {
+                val rawArgs = args?.getCommandLineArgsArray() ?: emptyArray()
+                return onCreateMainFragment(rawArgs)
+            } finally {
+                inFragmentBundleOnCreate = false
+            }
+        }
+        val effectiveArgs = args ?: launchArguments
+        val fragment = createMainFragment(effectiveArgs) ?: return null
+        if (fragment.arguments == null && effectiveArgs != null) {
+            fragment.arguments = effectiveArgs
+        }
+        fragment.application = this
+        if (mainWindow.fragmentContainer?.currentFragment !== fragment) {
+            setFragment(fragment)
+        }
+        return fragment
+    }
+
+    /**
+     * Overridable routine invoked on Desktop targets to create and mount the main [Fragment] into [mainWindow].
+     */
+    open fun onCreateMainFragment(args: Array<String>): Fragment? {
+        if (!inFragmentBundleOnCreate) {
+            inStringArrayOnCreate = true
+            try {
+                val bundle = launchArguments ?: if (args.isNotEmpty()) FragmentBundle.fromCommandLineArgs(args) else null
+                return onCreateMainFragment(bundle)
+            } finally {
+                inStringArrayOnCreate = false
+            }
+        }
+        val effectiveArgs = launchArguments ?: if (args.isNotEmpty()) FragmentBundle.fromCommandLineArgs(args) else null
+        val fragment = createMainFragment(args) ?: return null
+        if (fragment.arguments == null && effectiveArgs != null) {
+            fragment.arguments = effectiveArgs
+        }
+        fragment.application = this
+        if (mainWindow.fragmentContainer?.currentFragment !== fragment) {
+            setFragment(fragment)
+        }
+        return fragment
+    }
+
     private var themeModeState: ThemeMode = GenericUI.defaultThemeMode
     private var themeColorState: String? = initialThemeColor
+    private var themeConfigState: ThemeConfig = GenericUI.defaultThemeConfig.let { base ->
+        if (!initialThemeColor.isNullOrBlank()) base.withPrimaryAccentColor(initialThemeColor) else base
+    }
     private val activeStyleSheets = mutableListOf<PrecompiledStyleSheet>()
     private val builtInStyleSheets = mutableListOf<PrecompiledStyleSheet>()
     private val themeChangeListeners = mutableListOf<(ThemeMode) -> Unit>()
@@ -58,6 +229,7 @@ open class Application(
             try {
                 val resolved = if (!detected.isAuto) detected else getResolvedTheme()
                 appNativeImpl?.setThemeMode(ThemeMode.AUTO)
+                SystemThemeDetector.onThemeConfigChangedHook?.invoke(this, themeConfigState, resolved)
                 SystemThemeDetector.onThemeAppliedHook?.invoke(ThemeMode.AUTO, resolved)
                 notifyThemeChangeListeners(resolved)
             } finally {
@@ -179,8 +351,11 @@ open class Application(
 
     override fun setThemeMode(mode: ThemeMode) {
         themeModeState = mode
+        themeConfigState = themeConfigState.withMode(mode)
         appNativeImpl?.setThemeMode(mode)
+        appNativeImpl?.setThemeConfig(themeConfigState)
         val resolved = getResolvedTheme()
+        SystemThemeDetector.onThemeConfigChangedHook?.invoke(this, themeConfigState, resolved)
         SystemThemeDetector.onThemeAppliedHook?.invoke(mode, resolved)
         notifyThemeChangeListeners(resolved)
     }
@@ -403,6 +578,9 @@ open class Application(
         if (component is com.nexustools.genericui.component.content.ImageView) {
             component.onThemeChanged()
         }
+        if (component is com.nexustools.genericui.component.action.Button) {
+            component.onThemeChanged()
+        }
         if (component is com.nexustools.genericui.core.AbstractContainer) {
             for (child in component.children) {
                 refreshThemeDependentTree(child)
@@ -430,10 +608,35 @@ open class Application(
      */
     override fun setThemeColor(colorHex: String?) {
         themeColorState = colorHex
+        if (!colorHex.isNullOrBlank()) {
+            themeConfigState = themeConfigState.withPrimaryAccentColor(colorHex)
+        }
         appNativeImpl?.setThemeColor(colorHex)
+        appNativeImpl?.setThemeConfig(themeConfigState)
+        SystemThemeDetector.onThemeConfigChangedHook?.invoke(this, themeConfigState, getResolvedTheme())
     }
 
     override fun getThemeColor(): String? = appNativeImpl?.getThemeColor() ?: themeColorState
+
+    override fun setThemeConfig(config: ThemeConfig) {
+        themeConfigState = config
+        themeModeState = config.mode
+        val primaryColor = config.colors.primary ?: config.colors.accent
+        if (primaryColor != null) {
+            themeColorState = primaryColor.toHex()
+        }
+        appNativeImpl?.setThemeConfig(config)
+        appNativeImpl?.setThemeMode(config.mode)
+        if (themeColorState != null) {
+            appNativeImpl?.setThemeColor(themeColorState)
+        }
+        val resolved = getResolvedTheme()
+        SystemThemeDetector.onThemeConfigChangedHook?.invoke(this, config, resolved)
+        SystemThemeDetector.onThemeAppliedHook?.invoke(config.mode, resolved)
+        notifyThemeChangeListeners(resolved)
+    }
+
+    override fun getThemeConfig(): ThemeConfig = themeConfigState
 
     override fun getPreferenceStore(): PreferenceStore {
         val existing = defaultPreferenceStore
@@ -453,6 +656,7 @@ open class Application(
         val impl = factory.createApplication()
         appNativeImpl = impl
         impl.setOnOfflineChanged(onOfflineChangedCallback)
+        impl.setThemeConfig(themeConfigState)
         impl.setThemeMode(themeModeState)
         if (themeColorState != null) {
             impl.setThemeColor(themeColorState)
@@ -471,9 +675,18 @@ open class Application(
             impl.addStyleSheet(sheet)
         }
         val resolved = getResolvedTheme()
+        SystemThemeDetector.onThemeConfigChangedHook?.invoke(this, themeConfigState, resolved)
         SystemThemeDetector.onThemeAppliedHook?.invoke(themeModeState, resolved)
         notifyThemeChangeListeners(resolved)
         impl.runEventLoop {
+            if (mainWindow.getContent() == null && mainWindow.fragmentContainer?.currentFragment == null &&
+                (mainFragmentFactory != null || defaultMainFragmentFactory != null || mainFragmentClass != null)
+            ) {
+                val created = onCreateMainFragment(launchArguments)
+                if (created != null && mainWindow.fragmentContainer?.currentFragment == null && mainWindow.getContent() == null) {
+                    setFragment(created)
+                }
+            }
             onApplicationStarted()
             applyActiveStyleSheetsToRootContent()
             mainWindow.show(factory)

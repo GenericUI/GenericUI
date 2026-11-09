@@ -22,6 +22,13 @@ object InputFocusManager {
         }
     }
 
+    fun setEditableInputFocused(focused: Boolean) {
+        isNativeTextInputFocused = focused
+        if (!focused && focusedComponent?.isTextInputComponent == true) {
+            focusedComponent = null
+        }
+    }
+
     fun shouldIgnoreShortcutKeyEvent(event: KeyEvent, listenerOwner: AbstractComponent? = null): Boolean {
         if (listenerOwner?.isTextInputComponent == true) return false
         val ignoreWhenTyping = listenerOwner?.ignoreKeyEventsWhenTypingInTextInput ?: true

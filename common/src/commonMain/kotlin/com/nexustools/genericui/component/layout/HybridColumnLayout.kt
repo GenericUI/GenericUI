@@ -205,22 +205,26 @@ open class HybridColumnLayout(
     val columnsRow: HStack = HStack().apply {
         addClass("gui-hybrid-columns-row")
         alignItems = AlignItems.STRETCH
-        setStyleProperty("width", "100%")
-        setStyleProperty("height", "100%")
-        setStyleProperty("flex-wrap", "nowrap")
-        setStyleProperty("min-height", "0")
-        setStyleProperty("overflow", "hidden")
+        getStyle().apply {
+            setWidth(com.nexustools.genericui.style.css.CssLength.PERCENT_100)
+            setHeight(com.nexustools.genericui.style.css.CssLength.PERCENT_100)
+            setFlexWrap(com.nexustools.genericui.enums.bootstrap.FlexWrap.NOWRAP)
+            setMinHeight(com.nexustools.genericui.style.css.CssLength.ZERO)
+            setOverflow(com.nexustools.genericui.enums.bootstrap.OverflowBehavior.HIDDEN)
+        }
     }
     val singleStack: VStack = VStack(gapPx = 0).apply {
         addClass("gui-hybrid-single-stack")
-        setStyleProperty("width", "100%")
-        setStyleProperty("height", "100%")
-        setStyleProperty("min-height", "0")
-        setStyleProperty("overflow", "hidden")
+        getStyle().apply {
+            setWidth(com.nexustools.genericui.style.css.CssLength.PERCENT_100)
+            setHeight(com.nexustools.genericui.style.css.CssLength.PERCENT_100)
+            setMinHeight(com.nexustools.genericui.style.css.CssLength.ZERO)
+            setOverflow(com.nexustools.genericui.enums.bootstrap.OverflowBehavior.HIDDEN)
+        }
     }
     val rightTabbedColumn: VStack = VStack().apply {
         addClass("col gui-hybrid-tabbed-column")
-        setStyleProperty("min-width", "0")
+        getStyle().setMinWidth(com.nexustools.genericui.style.css.CssLength.ZERO)
     }
     val topTabBar: TabContainer = TabContainer().apply { addClass("gui-hybrid-top-tabs") }
     val bottomNavBar: BottomNavigationBar = BottomNavigationBar().apply { addClass("gui-hybrid-bottom-nav") }
@@ -243,11 +247,13 @@ open class HybridColumnLayout(
         host.addClass("hybrid-column-layout")
         host.setDisplay(DisplayMode.FLEX)
         host.setFlexDirection(FlexDirection.COLUMN)
-        host.setStyleProperty("width", "100%")
-        host.setStyleProperty("height", "100%")
-        host.setStyleProperty("min-height", "0")
-        host.setStyleProperty("flex-grow", "1")
-        host.setStyleProperty("overflow", "hidden")
+        host.getStyle().apply {
+            setWidth(com.nexustools.genericui.style.css.CssLength.PERCENT_100)
+            setHeight(com.nexustools.genericui.style.css.CssLength.PERCENT_100)
+            setMinHeight(com.nexustools.genericui.style.css.CssLength.ZERO)
+            setFlexGrow(1f)
+            setOverflow(com.nexustools.genericui.enums.bootstrap.OverflowBehavior.HIDDEN)
+        }
         fullscreenController?.let { wireFullscreenController(it) }
 
         topTabBar.setOnTabSelected { tabId ->
@@ -599,8 +605,8 @@ open class HybridColumnLayout(
                 val targetReg = visibleRegs.getOrNull(fullscreenTargetColumnIndex) ?: visibleRegs.firstOrNull()
                 if (targetReg != null) {
                     targetReg.component.isVisible = true
-                    targetReg.component.setStyleProperty("width", "100%")
-                    targetReg.component.setStyleProperty("height", "100%")
+                    targetReg.component.getStyle().setWidth(com.nexustools.genericui.style.css.CssLength.PERCENT_100)
+                    targetReg.component.getStyle().setHeight(com.nexustools.genericui.style.css.CssLength.PERCENT_100)
                     targetReg.component.setFlexGrow(1f)
                     host.addChild(targetReg.component)
                 }
@@ -688,11 +694,13 @@ open class HybridColumnLayout(
                 columnsRow.isVisible = false
                 singleStack.isVisible = true
                 singleStack.setFlexGrow(1f)
-                singleStack.setStyleProperty("flex", "1 1 0%")
-                singleStack.setStyleProperty("width", "100%")
-                singleStack.setStyleProperty("height", "100%")
-                singleStack.setStyleProperty("min-height", "0")
-                singleStack.setStyleProperty("overflow", "hidden")
+                singleStack.getStyle().apply {
+                    setFlex(1f, 1f, com.nexustools.genericui.style.css.CssLength.percent(0))
+                    setWidth(com.nexustools.genericui.style.css.CssLength.PERCENT_100)
+                    setHeight(com.nexustools.genericui.style.css.CssLength.PERCENT_100)
+                    setMinHeight(com.nexustools.genericui.style.css.CssLength.ZERO)
+                    setOverflow(com.nexustools.genericui.enums.bootstrap.OverflowBehavior.HIDDEN)
+                }
                 host.addChild(singleStack)
 
                 val tabsOnTop = tabPlacement == HybridTabPlacement.TOP_TABS
@@ -912,13 +920,13 @@ open class HybridColumnLayout(
         comp.getBootstrap().flexGrow = null
         comp.removeClass("w-100")
         comp.removeClass("flex-grow-1")
-        comp.removeStyleProperty("width")
+        comp.getStyle().setWidth(null)
 
         comp.setFlexGrow(spec.weight)
-        comp.setStyleProperty("flex-shrink", "1")
-        comp.setStyleProperty("flex-basis", "0%")
-        comp.setStyleProperty("min-width", "0")
-        comp.setStyleProperty("min-height", "0")
+        comp.getStyle().setFlexShrink(1f)
+        comp.getStyle().setFlexBasis(com.nexustools.genericui.style.css.CssLength.percent(0))
+        comp.getStyle().setMinWidth(com.nexustools.genericui.style.css.CssLength.ZERO)
+        comp.getStyle().setMinHeight(com.nexustools.genericui.style.css.CssLength.ZERO)
         spec.minWidthPx?.let { comp.minWidthPx = it }
         spec.maxWidthPx?.let { comp.maxWidthPx = it }
     }
@@ -990,10 +998,12 @@ open class HybridColumnLayout(
         val spec = reg.spec
         val comp = reg.component
         val effectiveRatio = spec.compactAspectRatio ?: if (spec.compactHeightPx == null) (16f / 9f) else null
-        comp.setStyleProperty("width", "100%")
-        comp.setStyleProperty("flex-grow", "0")
-        comp.setStyleProperty("flex-shrink", "0")
-        comp.setStyleProperty("flex-basis", "auto")
+        comp.getStyle().apply {
+            setWidth(com.nexustools.genericui.style.css.CssLength.PERCENT_100)
+            setFlexGrow(0f)
+            setFlexShrink(0f)
+            setFlexBasis(com.nexustools.genericui.style.css.CssLength.AUTO)
+        }
         if (spec.compactHeightPx != null) {
             comp.heightPx = spec.compactHeightPx
             reg.compactSizingApplied = true
@@ -1009,10 +1019,12 @@ open class HybridColumnLayout(
         val comp = reg.component
         val weight = spec.weight.coerceAtLeast(1f)
         comp.setFlexGrow(weight)
-        comp.setStyleProperty("flex-shrink", "1")
-        comp.setStyleProperty("flex-basis", "0%")
-        comp.setStyleProperty("width", "100%")
-        comp.setStyleProperty("min-height", "0")
+        comp.getStyle().apply {
+            setFlexShrink(1f)
+            setFlexBasis(com.nexustools.genericui.style.css.CssLength.percent(0))
+            setWidth(com.nexustools.genericui.style.css.CssLength.PERCENT_100)
+            setMinHeight(com.nexustools.genericui.style.css.CssLength.ZERO)
+        }
         if (spec.scrollableInSingleMode) {
             comp.addClass("overflow-auto")
             reg.appliedGridClasses.add("overflow-auto")
@@ -1032,15 +1044,16 @@ open class HybridColumnLayout(
         }
         singleStack.clearChildConstraint(comp)
         columnsRow.clearChildConstraint(comp)
-        comp.setStyleProperty("width", "")
-        comp.setStyleProperty("height", "")
-        comp.setStyleProperty("flex", "")
-        comp.setStyleProperty("flex-grow", "")
-        comp.setStyleProperty("flex-shrink", "")
-        comp.setStyleProperty("flex-basis", "")
-        comp.setStyleProperty("aspect-ratio", "")
-        comp.setStyleProperty("min-width", "")
-        comp.setStyleProperty("min-height", "")
+        comp.getStyle().apply {
+            setWidth(null)
+            setHeight(null)
+            setFlexGrow(null)
+            setFlexShrink(null)
+            setFlexBasis(null)
+            setAspectRatio(null)
+            setMinWidth(null)
+            setMinHeight(null)
+        }
     }
 
     private fun detachFromParent(component: AbstractComponent) {
@@ -1048,6 +1061,6 @@ open class HybridColumnLayout(
     }
 
     private fun AbstractComponent.setFlexGrow(weight: Float) {
-        setStyleProperty("flex-grow", weight.toString())
+        getStyle().setFlexGrow(weight)
     }
 }

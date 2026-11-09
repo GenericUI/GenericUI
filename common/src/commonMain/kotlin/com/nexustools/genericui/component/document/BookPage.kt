@@ -11,9 +11,17 @@ import com.nexustools.genericui.component.typography.Label
 import com.nexustools.genericui.component.typography.MarkdownView
 import com.nexustools.genericui.core.AbstractComponent
 import com.nexustools.genericui.core.AbstractContainer
+import com.nexustools.genericui.enums.css.CssBoxSizing
+import com.nexustools.genericui.enums.css.CssPosition
 import com.nexustools.genericui.enums.document.PrintPageOrientation
 import com.nexustools.genericui.enums.document.PrintPageSize
 import com.nexustools.genericui.geometry.Size
+import com.nexustools.genericui.style.color.RgbaColor
+import com.nexustools.genericui.style.css.CssAspectRatio
+import com.nexustools.genericui.style.css.CssEdgeLengths
+import com.nexustools.genericui.style.css.CssLength
+import com.nexustools.genericui.style.css.CssShadow
+import com.nexustools.genericui.style.css.CssShadowList
 
 /**
  * Single printable page container inside a [BookContainer], sized to the aspect ratio and physical
@@ -71,12 +79,8 @@ open class BookPage(
             super.backgroundImageUrl = value
             if (!value.isNullOrBlank()) {
                 setAttribute("data-bg-image", value)
-                setStyleProperty("background-image", "url('$value')")
-                setStyleProperty("background-size", "100% 100%")
-                setStyleProperty("background-repeat", "no-repeat")
             } else {
                 removeAttribute("data-bg-image")
-                setStyleProperty("background-image", "")
             }
         }
 
@@ -112,6 +116,7 @@ open class BookPage(
         val hMm = heightMm
         val wPx = pageWidthPx
         val hPx = pageHeightPx
+        val padPx = (marginMm * (96f / 25.4f)).toInt()
         widthPx = wPx
         heightPx = hPx
         setPreferredSize(Size(wPx, hPx))
@@ -119,18 +124,34 @@ open class BookPage(
         setAttribute("data-page-orientation", orientation.cssOrientation)
         setAttribute("data-page-width-mm", wMm.toString())
         setAttribute("data-page-height-mm", hMm.toString())
-        setStyleProperty("width", "${wMm}mm")
-        setStyleProperty("min-height", "${hMm}mm")
-        setStyleProperty("aspect-ratio", "$wMm / $hMm")
-        setStyleProperty("padding", "${marginMm}mm")
-        setStyleProperty("background-color", "#ffffff")
-        setStyleProperty("color", "#000000")
-        setStyleProperty("box-sizing", "border-box")
-        setStyleProperty("position", "relative")
-        setStyleProperty("page-break-after", "always")
-        setStyleProperty("break-after", "page")
-        setStyleProperty("margin", "0 auto 12px auto")
-        setStyleProperty("box-shadow", "0 2px 8px rgba(0, 0, 0, 0.22)")
+        getStyle().apply {
+            setWidth(CssLength.px(wPx))
+            setMinHeight(CssLength.px(hPx))
+            setAspectRatio(CssAspectRatio(wMm, hMm))
+            setPadding(CssEdgeLengths.px(padPx))
+            setBackgroundColor(RgbaColor.WHITE)
+            setColor(RgbaColor.BLACK)
+            setBoxSizing(CssBoxSizing.BORDER_BOX)
+            setPosition(CssPosition.RELATIVE)
+            setMargin(
+                CssEdgeLengths(
+                    top = CssLength.ZERO,
+                    right = CssLength.AUTO,
+                    bottom = CssLength.px(12),
+                    left = CssLength.AUTO
+                )
+            )
+            setBoxShadow(
+                CssShadowList.of(
+                    CssShadow.px(
+                        offsetX = 0f,
+                        offsetY = 2f,
+                        blurRadius = 8f,
+                        color = RgbaColor(0, 0, 0, 56)
+                    )
+                )
+            )
+        }
     }
 
     /**

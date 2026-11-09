@@ -128,11 +128,13 @@ open class AspectRatioLayout(
         if (component.positionMode == PositionMode.RELATIVE) {
             component.positionMode = null
         }
-        component.setStyleProperty("position", "absolute")
-        component.setStyleProperty("top", "0")
-        component.setStyleProperty("left", "0")
-        component.setStyleProperty("width", "100%")
-        component.setStyleProperty("height", "100%")
+        component.getStyle().apply {
+            setPosition(com.nexustools.genericui.enums.css.CssPosition.ABSOLUTE)
+            setTop(com.nexustools.genericui.style.css.CssLength.ZERO)
+            setLeft(com.nexustools.genericui.style.css.CssLength.ZERO)
+            setWidth(com.nexustools.genericui.style.css.CssLength.PERCENT_100)
+            setHeight(com.nexustools.genericui.style.css.CssLength.PERCENT_100)
+        }
     }
 
     fun syncHostAspectRatioClassesAndStyles() {
@@ -154,8 +156,8 @@ open class AspectRatioLayout(
         } else {
             "${scaled / 100f}%"
         }
-        host.setStyleProperty("--bs-aspect-ratio", percentStr)
-        host.setStyleProperty("width", "100%")
+        host.setAttribute("data-bs-aspect-ratio", percentStr)
+        host.getStyle().setWidth(com.nexustools.genericui.style.css.CssLength.PERCENT_100)
         for (child in host.children) {
             formatAspectChild(child)
         }

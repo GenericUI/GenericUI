@@ -12,11 +12,12 @@ The `:gradle-plugin` module provides `id("com.nexustools.genericui")` (and the c
 When `id("com.nexustools.genericui")` is applied to a project:
 1. **Annotation-Driven Fragment & Application Discovery**: Scans Kotlin sources (`GenericUiFragmentScanner`) for [`@MainAppFragment`](../common/src/commonMain/kotlin/com/nexustools/genericui/component/fragment/MainAppFragment.kt), [`@AppFragment`](../common/src/commonMain/kotlin/com/nexustools/genericui/component/fragment/AppFragment.kt), and optional [`@AppApplication`](../common/src/commonMain/kotlin/com/nexustools/genericui/component/fragment/AppApplication.kt) classes.
 2. **Intelligent `@MainAppFragment` Target Specificity Resolution (`genericuiValidateApp`)**: Resolves the most specific `@MainAppFragment` for each enabled backend target along its [`AppTarget`](../common/src/commonMain/kotlin/com/nexustools/genericui/enums/system/AppTarget.kt) specificity chain (`5 → 4 → 3 → 2 → 1 → 0`), failing the build with a descriptive diagnostic if two `@MainAppFragment` classes tie at the highest specificity rank or if an enabled target has no matching `@MainAppFragment`.
-3. **Generated Per-Backend Launchers & `FragmentBundle` CLI Arguments (`generateGenericUiLaunchers`)**: Generates the `GenericUiAppDescriptor` and launcher bootstrap for every enabled target (`WindowsLauncher`, `MacosLauncher`, `GtkLauncher`, `QtLauncher`, `SwingLauncher`, `AndroidLauncher`, `IosLauncher`, `WebLauncher`), automatically registering all enabled extension providers and injecting process command-line arguments into the initial `FragmentBundle` on system targets (`savedState?.hasCommandLineArgs()`, `savedState?.getCommandLineArgs()`).
-4. **1:1 Generated Android `AppCompatActivity` Classes, `AndroidManifest.xml`, & Services**:
+3. **Generated Per-Backend Launchers, `ThemeConfig` Initialization, & `FragmentBundle` CLI Arguments (`generateGenericUiLaunchers`)**: Generates the `GenericUiAppDescriptor` and launcher bootstrap for every enabled target (`WindowsLauncher`, `MacosLauncher`, `GtkLauncher`, `QtLauncher`, `SwingLauncher`, `AndroidLauncher`, `IosLauncher`, `WebLauncher`), automatically registering all enabled extension providers, initializing `app.setThemeConfig(ThemeConfig(...))` and `app.addStyleSheet(...)` from the `genericui { theme { ... } }` and `styles { ... }` blocks, and injecting process command-line arguments into the initial `FragmentBundle` on system targets (`savedState?.hasCommandLineArgs()`, `savedState?.getCommandLineArgs()`).
+4. **1:1 Generated Android `AppCompatActivity` Classes, Material Theme XML (`@style/Theme.GenericUI.App`), `AndroidManifest.xml`, & Services**:
    - Synthesizes an Android application wrapper project via `GenericUiSettingsPlugin` when building Android APKs.
    - Generates a concrete 1:1 **`AppCompatActivity` subclass** (`class <FragmentName>Activity : GenericUiFragmentActivity()`) for every `@MainAppFragment` and `@AppFragment` applicable to Android (`generateGenericUiAndroidActivities`), registering each mapping in `AndroidActivityRegistry`.
-   - Generates `AndroidManifest.xml` (`generateGenericUiAndroidManifest`) with `<application>`, `<activity>` entries (with `MAIN`/`LAUNCHER` on the resolved Android `@MainAppFragment`), permissions, orientation, Picture-in-Picture flags, and `<service>` declarations from `android { services { ... } }`.
+   - Generates Android Material theme XML files (`res/values/genericui_theme_colors.xml`, `res/values/themes.xml`, and `res/values-night/themes.xml` defining `@style/Theme.GenericUI.App` with `colorPrimary`, `colorSecondary`, `colorAccent`, `colorError`, `android:colorBackground`, `colorSurface`, `android:statusBarColor`, and `android:navigationBarColor`) from `genericui { theme { ... } }`.
+   - Generates `AndroidManifest.xml` (`generateGenericUiAndroidManifest`) with `<application android:theme="@style/Theme.GenericUI.App">`, `<activity>` entries (with `MAIN`/`LAUNCHER` on the resolved Android `@MainAppFragment`), permissions, orientation, Picture-in-Picture flags, and `<service>` declarations from `android { services { ... } }`.
 5. **Android-Style `Resource` / `Resource.ResourceID` Generation & Multi-Backend Translation**: Generates `<package>.Resource` (and `R` / `RC`) with [`ResourceID`](../common/src/commonMain/kotlin/com/nexustools/genericui/resources/ResourceID.kt) constants and translates resources into Web asset URLs, embedded Win32 `.rc`/`.res` `.exe` resources, Android `res/` XMLs & `R.*` IDs, Apple `NSBundle` assets, Linux `GResource`/`QResource` bundles, and JVM JAR resources. See the [**Resources Guide (`resources.md`)**](./resources.md).
 
 ---
@@ -53,8 +54,39 @@ genericui {
     }
 
     theme {
-        mode = "auto"       // "auto" (default, ThemeMode.AUTO), "dark" (ThemeMode.DARK), or "light" (ThemeMode.LIGHT)
-        color = "#2563EB"   // Propagated to Web meta/PWA, Android colors.xml, Apple AccentColor, Win32 .rc, Linux .desktop
+        mode = "auto"               // "auto" (default, ThemeMode.AUTO), "dark" (ThemeMode.DARK), or "light" (ThemeMode.LIGHT)
+        primaryColor = "#2563EB"    // Default primary / BootstrapType.PRIMARY color (alias: color = "#2563EB")
+        secondaryColor = "#64748B"  // Default secondary / BootstrapType.SECONDARY color
+        accentColor = "#4F46E5"     // Default accent color
+        successColor = "#16A34A"    // BootstrapType.SUCCESS color
+        dangerColor = "#DC2626"     // BootstrapType.DANGER color
+        warningColor = "#F59E0B"    // BootstrapType.WARNING color
+        infoColor = "#0EA5E9"       // BootstrapType.INFO color
+        lightColor = "#F8FAFC"      // BootstrapType.LIGHT color
+        darkColor = "#1E293B"       // BootstrapType.DARK color
+        backgroundColor = "#F8FAFC" // Default window/body background
+        surfaceColor = "#FFFFFF"    // Default card/panel surface
+        textPrimaryColor = "#0F172A"
+        textSecondaryColor = "#475569"
+        borderColor = "#CBD5E1"
+        light {
+            // Optional light-mode-specific overrides (ThemeColorSet)
+            backgroundColor = "#F8FAFC"
+            surfaceColor = "#FFFFFF"
+            textPrimaryColor = "#0F172A"
+            textSecondaryColor = "#475569"
+            borderColor = "#CBD5E1"
+        }
+        dark {
+            // Optional dark-mode-specific overrides (ThemeColorSet)
+            primaryColor = "#3B82F6"
+            accentColor = "#6366F1"
+            backgroundColor = "#0F172A"
+            surfaceColor = "#1E293B"
+            textPrimaryColor = "#F8FAFC"
+            textSecondaryColor = "#94A3B8"
+            borderColor = "#334155"
+        }
         styleSheet = "styles/main.scss" // Optional global stylesheet automatically attached via app.addStyleSheet(...)
     }
 
@@ -222,14 +254,14 @@ For each enabled backend, [`GenericUiVariantResolver`](../gradle-plugin/src/main
 | Task Name | Implementation Class | Description |
 | :--- | :--- | :--- |
 | `genericuiValidateApp` | `GenericUiValidateAppTask` | Validates `@MainAppFragment` and `@AppFragment` classes across all enabled targets, verifying specificity resolution and checking for conflicting `@MainAppFragment` declarations. |
-| `generateGenericUiLaunchers` | `GenericUiGenerateLaunchersTask` | Generates per-target launcher entry points, `GenericUiAppDescriptor` objects, `FragmentRegistry` registrations, provider registrations, automatic `app.addStyleSheet(...)` calls when `globalStyleSheet` is set, and visual test runners under `build/generated/genericui/<target>/kotlin`. |
+| `generateGenericUiLaunchers` | `GenericUiGenerateLaunchersTask` | Generates per-target launcher entry points, `GenericUiAppDescriptor` objects, `FragmentRegistry` registrations, provider registrations, automatic `app.setThemeConfig(ThemeConfig(...))` and `app.addStyleSheet(...)` calls, and visual test runners under `build/generated/genericui/<target>/kotlin`. |
 | `generateGenericUiResources`<br/>`compileGenericUiResources` | `GenericUiGenerateResourcesTask`<br/>`GenericUiResourceCompilerTask` | Generates `<package>.Resource` (`Resource.ResourceID`, including `Resource.style.<name>`), `R`, and `RC`, precompiles `.scss` into typed `PrecompiledStyleSheet` (`CompiledStyleRule`) objects on non-web and `.css` on `:web`, synthesizes Windows `.cur` cursor binaries, and translates `drawable/`, `values/`, `raw/`, `font/`, and `xml/` resources across all enabled backends. |
 | `compileGenericUiWindowsResources` | `GenericUiCompileWindowsResourcesTask` | Generates Win32 `.rc` and header files (`GenericUiWin32RcGenerator`), compiles them via `windres` into COFF `.res`, and links them into the Windows `.exe`. |
-| `generateGenericUiAndroidResources` | `GenericUiGenerateAndroidResourcesTask` | Translates and generates Android `res/` directories (`drawable/`, `mipmap-*/`, `values/*.xml`, `raw/`, `font/`, `xml/`). |
+| `generateGenericUiAndroidResources` | `GenericUiGenerateAndroidResourcesTask` | Translates and generates Android `res/` directories (`drawable/`, `mipmap-*/`, `values/*.xml`, `values/genericui_theme_colors.xml`, `values/themes.xml`, `values-night/themes.xml` with `@style/Theme.GenericUI.App`, `raw/`, `font/`, `xml/`). |
 | `generateGenericUiAndroidActivities` | `GenericUiGenerateAndroidActivitiesTask` | Generates 1:1 `AppCompatActivity` subclasses (`<FragmentName>Activity : GenericUiFragmentActivity()`) for every `@MainAppFragment` and `@AppFragment` applicable to Android. |
-| `generateGenericUiAndroidManifest` | `GenericUiGenerateAndroidManifestTask` | Generates `AndroidManifest.xml` with `<application>`, 1:1 `<activity>` entries, `<service>` entries, permissions, orientation, and PiP attributes. |
+| `generateGenericUiAndroidManifest` | `GenericUiGenerateAndroidManifestTask` | Generates `AndroidManifest.xml` with `<application android:theme="@style/Theme.GenericUI.App">`, 1:1 `<activity>` entries, `<service>` entries, permissions, orientation, and PiP attributes. |
 | `compileGenericUiSass` | `GenericUiSassCompileTask` | Compiles `.scss` / `.sass` stylesheets into `.css` bundles and zero-parse Kotlin `PrecompiledStyleSheet` objects. |
 | `bundleGenericUiAngle` | `AngleNativeBundleTask` | Stages Google ANGLE (`libEGL.dll`, `libGLESv2.dll`, `d3dcompiler_47.dll`) for Windows D3D11 OpenGL ES translation. |
 | `bundleGenericUiVulkan` | `VulkanNativeBundleTask` | Stages Vulkan runtime manifests, `MoltenVK_icd.json` on Apple targets, and `shaderc`. |
-| `packageGenericUiWebDistribution` | `GenericUiWebDistributionTask` | Packages the Kotlin/Wasm (`wasmJs`) primary bundle, Kotlin/JS IR (`js`) fallback bundle, `genericui-loader.js`, splash screen, `.svg` web icon, `manifest.webmanifest`, and SHA-1 cache-busted `index.html` into `build/dist/web`. |
+| `packageGenericUiWebDistribution` | `GenericUiWebDistributionTask` | Packages the Kotlin/Wasm (`wasmJs`) primary bundle, Kotlin/JS IR (`js`) fallback bundle, pre-generated `gui/genericui-theme.css` (`<link id="genericui-build-theme-css">`), `genericui-loader.js`, splash screen, `.svg` web icon, `manifest.webmanifest`, and SHA-1 cache-busted `index.html` into `build/dist/web`. |
 | `developmentWindows` / `productionWindows`<br/>`developmentMac` (`developmentMacos`) / `productionMac` (`productionMacos`)<br/>`developmentLinuxGtk` / `productionLinuxGtk`<br/>`developmentLinuxQt` / `productionLinuxQt`<br/>`developmentSwing` / `productionSwing`<br/>`developmentAndroid` / `productionAndroid`<br/>`developmentIos` / `productionIos`<br/>`developmentWeb` / `productionWeb` | `GenericUiPlugin` | Per-target lifecycle development and production build/package tasks across all 8 enabled backends. |

@@ -4,6 +4,7 @@ import com.nexustools.genericui.component.fragment.Fragment
 import com.nexustools.genericui.component.fragment.FragmentBundle
 import com.nexustools.genericui.component.shell.IApplication
 import com.nexustools.genericui.resources.ResourceID
+import com.nexustools.genericui.style.theme.ThemeConfig
 import kotlin.reflect.KClass
 
 /**
@@ -23,6 +24,7 @@ data class GenericUiAppDescriptor(
     val fullscreen: Boolean = false,
     val themeMode: String = "auto",
     val themeColor: String = "#0d6efd",
+    val themeConfig: ThemeConfig = ThemeConfig.DEFAULT,
     val iconPath: String? = null,
     val iconResourceId: ResourceID? = null,
     val globalStyleSheetPath: String? = null,

@@ -18,6 +18,11 @@ class Table : AbstractContainer() {
     private val _rows = mutableListOf<TableRow>()
     val rows: List<TableRow> get() = _rows
 
+    private var columnWeightsState: FloatArray = FloatArray(0)
+    val columnWeights: FloatArray
+        @kotlin.jvm.JvmName("obtainColumnWeights")
+        get() = columnWeightsState.copyOf()
+
     var isStriped: Boolean = true
         set(value) {
             field = value
@@ -29,6 +34,13 @@ class Table : AbstractContainer() {
             field = value
             typedNative<TableNativeImpl<*>>()?.setHoverable(value)
         }
+
+    fun setColumnWeights(vararg weights: Float): Table = apply {
+        columnWeightsState = weights.map { it.coerceAtLeast(0.1f) }.toFloatArray()
+        typedNative<TableNativeImpl<*>>()?.setColumnWeights(columnWeightsState)
+    }
+
+    fun getColumnWeights(): FloatArray = columnWeightsState.copyOf()
 
     fun setColumns(cols: List<TableColumn>): Table = apply {
         _columns.clear()
@@ -52,5 +64,8 @@ class Table : AbstractContainer() {
         impl.setRows(_rows.map { r -> r.cells.map { it.text } })
         impl.setStriped(isStriped)
         impl.setHoverable(isHoverable)
+        if (columnWeightsState.isNotEmpty()) {
+            impl.setColumnWeights(columnWeightsState)
+        }
     }
 }

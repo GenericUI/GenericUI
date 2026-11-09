@@ -28,6 +28,12 @@ open class StyledContainer(
     tagName: String = "genericui:styled-container"
 ) : Container(tagName, classPrefix) {
 
+    override val acceptsTypographyComponentStyles: Boolean
+        get() = true
+
+    override val acceptsAestheticSkinComponentStyles: Boolean
+        get() = true
+
     var backgroundColor: RgbaColor?
         get() = getStyle().backgroundColor ?: computedStyle?.backgroundColor
         set(value) {

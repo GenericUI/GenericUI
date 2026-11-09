@@ -72,10 +72,57 @@ GenericUI's [`ThemeMode`](../common/src/commonMain/kotlin/com/nexustools/generic
 | `app.getThemeMode(): ThemeMode` | `ThemeMode` | Returns the configured `ThemeMode` (`AUTO`, `DARK`, or `LIGHT`). |
 | `app.getResolvedTheme(): ThemeMode` | `ThemeMode` | Resolves `ThemeMode.AUTO` to the currently active concrete system theme (`ThemeMode.DARK` or `ThemeMode.LIGHT`). |
 | `app.addThemeChangeListener(listener)`<br/>`app.removeThemeChangeListener(listener)` | `Unit` | Registers or unregisters a callback `(ThemeMode) -> Unit` invoked whenever the theme or underlying OS dark/light mode changes. |
-| `app.setThemeColor(colorHex: String?)`<br/>`app.getThemeColor(): String?` | `Unit` / `String?` | Configures or queries the application's primary accent chrome color. |
+| `app.setThemeColor(colorHex: String?)`<br/>`app.getThemeColor(): String?` | `Unit` / `String?` | Configures or queries the application's primary accent chrome color (`themeConfig.primaryColor`). |
+| `app.setThemeConfig(config: ThemeConfig)`<br/>`app.getThemeConfig(): ThemeConfig` | `Unit` / `ThemeConfig` | Configures or queries the unified cross-platform [`ThemeConfig`](../common/src/commonMain/kotlin/com/nexustools/genericui/style/theme/ThemeConfig.kt) semantic palette and light/dark [`ThemeColorSet`](../common/src/commonMain/kotlin/com/nexustools/genericui/style/theme/ThemeColorSet.kt) overrides, updating [`BootstrapColorPalette.activeThemeConfig`](../common/src/commonMain/kotlin/com/nexustools/genericui/style/bootstrap/BootstrapColorPalette.kt) and propagating changes to all open windows and DOM stylesheets. |
 | `app.getPreferenceStore()` | `PreferenceStore` | Returns the application's shared cross-platform [`PreferenceStore`](../common/src/commonMain/kotlin/com/nexustools/genericui/component/system/PreferenceStore.kt) (also accessible on any `IFragment` via `fragment.getPreferenceStore()`). |
 
-### 2.2 8-Target OS Dark/Light Theme Detection & `:web` `data-bs-theme` Switching
+### 2.2 Unified Cross-Platform `ThemeConfig` & `ThemeColorSet` (`com.nexustools.genericui.style.theme.*`)
+
+[`ThemeConfig`](../common/src/commonMain/kotlin/com/nexustools/genericui/style/theme/ThemeConfig.kt) and [`ThemeColorSet`](../common/src/commonMain/kotlin/com/nexustools/genericui/style/theme/ThemeColorSet.kt) provide a single strongly-typed theme palette shared across Gradle build configuration (`genericui { theme { ... } }`), runtime `IApplication` APIs (`app.setThemeConfig(...)`), native control offscreen sprite tinting (`DesktopControlTintRenderUtil`), Android Material XML generation, and Web CSS custom properties:
+
+```kotlin
+import com.nexustools.genericui.enums.ui.ThemeMode
+import com.nexustools.genericui.style.color.RgbaColor
+import com.nexustools.genericui.style.theme.ThemeColorSet
+import com.nexustools.genericui.style.theme.ThemeConfig
+
+val customTheme = ThemeConfig(
+    mode = ThemeMode.AUTO,
+    primaryColor = RgbaColor.fromHex("#2563EB"),
+    secondaryColor = RgbaColor.fromHex("#64748B"),
+    accentColor = RgbaColor.fromHex("#3B82F6"),
+    successColor = RgbaColor.fromHex("#10B981"),
+    dangerColor = RgbaColor.fromHex("#EF4444"),
+    warningColor = RgbaColor.fromHex("#F59E0B"),
+    infoColor = RgbaColor.fromHex("#06B6D4"),
+    lightColors = ThemeColorSet(
+        backgroundColor = RgbaColor.fromHex("#F8FAFC"),
+        surfaceColor = RgbaColor.fromHex("#FFFFFF"),
+        textPrimaryColor = RgbaColor.fromHex("#0F172A"),
+        textSecondaryColor = RgbaColor.fromHex("#475569"),
+        borderColor = RgbaColor.fromHex("#E2E8F0")
+    ),
+    darkColors = ThemeColorSet(
+        backgroundColor = RgbaColor.fromHex("#0F172A"),
+        surfaceColor = RgbaColor.fromHex("#1E293B"),
+        textPrimaryColor = RgbaColor.fromHex("#F8FAFC"),
+        textSecondaryColor = RgbaColor.fromHex("#94A3B8"),
+        borderColor = RgbaColor.fromHex("#334155")
+    )
+)
+
+app.setThemeConfig(customTheme)
+```
+
+How `ThemeConfig` applies across all targets:
+- **`:common` & `BootstrapColorPalette`**: `BootstrapColorPalette.activeThemeConfig` resolves semantic `BootstrapType` colors (`PRIMARY`, `SECONDARY`, `SUCCESS`, `DANGER`, `WARNING`, `INFO`, `LIGHT`, `DARK`) and light/dark surface/background/text/border colors dynamically from the active `ThemeConfig`.
+- **Android Build-Time Material XML (`:gradle-plugin` + `:mobile:android`)**: `generateGenericUiAndroidActivities` automatically generates `res/values/genericui_theme_colors.xml`, `res/values/themes.xml` (`Theme.Material3.DayNight.NoActionBar` / `Theme.Material3.Light.NoActionBar`), and `res/values-night/themes.xml` (`Theme.Material3.Dark.NoActionBar`) defining `@style/Theme.GenericUI.App` with `colorPrimary`, `colorSecondary`, `colorTertiary`, `colorError`, `android:colorBackground`, `colorSurface`, `colorOnPrimary`, `colorOnSurface`, `android:statusBarColor`, and `android:navigationBarColor`, referenced automatically in the generated `AndroidManifest.xml`.
+- **Desktop & iOS Native Control Tinting**: Whenever a control sets `BootstrapType != BootstrapType.NONE`, `DesktopControlTintRenderUtil` (and mobile control tinting) tints the empty-text offscreen native OS control sprite using the resolved `ThemeConfig` color and overlays contrasting text on top.
+- **Web Build-Time Pre-Generated CSS (`gui/genericui-theme.css`) + Runtime `<style>` Injection (`:web`)**:
+  - At build time, `GenericUiWebDistributionTask` generates `gui/genericui-theme.css` containing `:root`, `[data-bs-theme="light"]`, and `[data-bs-theme="dark"]` Bootstrap CSS custom property overrides (`--bs-primary`, `--bs-primary-rgb`, `--bs-secondary`, `--bs-success`, `--bs-danger`, `--bs-warning`, `--bs-info`, `--bs-body-bg`, `--bs-body-color`, `--bs-border-color`, `.btn-primary`, `.btn-outline-primary`, etc.) and links it in `index.html` via `<link id="genericui-build-theme-css" rel="stylesheet" href="./gui/genericui-theme.css">`.
+  - At runtime, calling `app.setThemeConfig(...)` or `app.setThemeColor(...)` invokes `WebStyleSheetManager.applyThemeConfig(config, resolvedMode)` to inject or update `<style id="genericui-runtime-theme-css">` in `document.head` for zero-latency live theme switching.
+
+### 2.3 8-Target OS Dark/Light Theme Detection & `:web` `data-bs-theme` Switching
 - **Windows (`:desktop:windows`)**: Reads `HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize\AppsUseLightTheme`, listens to `WM_SETTINGCHANGE` (`"ImmersiveColorSet"`), toggles `DWMWA_USE_IMMERSIVE_DARK_MODE`, and switches Win32 `UxTheme` control themes (`"DarkMode_Explorer::BUTTON"` vs. `"Explorer::BUTTON"`).
 - **macOS (`:desktop:macos`)**: Inspects `NSApp.effectiveAppearance` (`NSAppearanceNameDarkAqua` vs. `NSAppearanceNameAqua`) and observes `AppleInterfaceThemeChangedNotification`.
 - **Linux GTK (`:desktop:gtk`) & Qt (`:desktop:qt`)**: Tracks `GtkSettings` (`gtk-application-prefer-dark-theme` / XDG Desktop Portal `color-scheme`) and `QStyleHints::colorSchemeChanged`.

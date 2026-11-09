@@ -4,6 +4,7 @@ import org.gradle.api.DefaultTask
 import org.gradle.api.GradleException
 import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.provider.ListProperty
+import org.gradle.api.provider.MapProperty
 import org.gradle.api.provider.Property
 import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.Optional
@@ -89,11 +90,27 @@ abstract class GenericUiGenerateAndroidActivitiesTask : DefaultTask() {
 
     @get:Input
     @get:Optional
+    abstract val lightThemeColors: MapProperty<String, String>
+
+    @get:Input
+    @get:Optional
+    abstract val darkThemeColors: MapProperty<String, String>
+
+    @get:Input
+    @get:Optional
+    abstract val hasCustomThemeOverrides: Property<Boolean>
+
+    @get:Input
+    @get:Optional
     abstract val iconPath: Property<String>
 
     @get:Input
     @get:Optional
     abstract val globalStyleSheet: Property<String>
+
+    @get:Input
+    @get:Optional
+    abstract val precompiledStyleSheetObjectFqn: Property<String>
 
     @get:Input
     @get:Optional
@@ -125,6 +142,7 @@ abstract class GenericUiGenerateAndroidActivitiesTask : DefaultTask() {
         val resolvedAppId = appId.orNull?.takeIf { it.isNotBlank() } ?: "com.nexustools.genericui.app"
         val resolvedAppName = appName.orNull?.takeIf { it.isNotBlank() } ?: "GenericUI"
         val resolvedPkg = packageName.orNull?.takeIf { it.isNotBlank() } ?: resolvedAppId
+        val resolvedPrimary = themeColor.orNull?.takeIf { it.isNotBlank() } ?: "#0d6efd"
         val resolvedConfig = GenericUiResolvedVariantConfig(
             targetScope = GenericUiVariantScope.ANDROID,
             appId = resolvedAppId,
@@ -139,7 +157,12 @@ abstract class GenericUiGenerateAndroidActivitiesTask : DefaultTask() {
             windowResizable = windowResizable.orNull ?: true,
             fullscreen = fullscreen.orNull ?: false,
             themeMode = themeMode.orNull?.takeIf { it.isNotBlank() } ?: "auto",
-            themeColor = themeColor.orNull?.takeIf { it.isNotBlank() } ?: "#0d6efd",
+            themeColor = resolvedPrimary,
+            lightThemeColors = lightThemeColors.orNull?.takeIf { it.isNotEmpty() }
+                ?: GenericUiThemeConfig.defaultLightColors(resolvedPrimary),
+            darkThemeColors = darkThemeColors.orNull?.takeIf { it.isNotEmpty() }
+                ?: GenericUiThemeConfig.defaultDarkColors(resolvedPrimary),
+            hasCustomThemeOverrides = hasCustomThemeOverrides.orNull ?: (resolvedPrimary != "#0d6efd"),
             iconPath = iconPath.orNull?.takeIf { it.isNotBlank() },
             globalStyleSheet = globalStyleSheet.orNull?.takeIf { it.isNotBlank() }
         )
@@ -149,7 +172,8 @@ abstract class GenericUiGenerateAndroidActivitiesTask : DefaultTask() {
             discoveredFragments = discovered,
             resolvedConfig = resolvedConfig,
             providerInstallerExpressions = providerInstallers.orNull.orEmpty(),
-            resourceRegistryInstallerExpr = resourceRegistryInstallerExpression.orNull?.takeIf { it.isNotBlank() }
+            resourceRegistryInstallerExpr = resourceRegistryInstallerExpression.orNull?.takeIf { it.isNotBlank() },
+            precompiledStyleSheetObjectFqn = precompiledStyleSheetObjectFqn.orNull?.takeIf { it.isNotBlank() }
         )
     }
 
@@ -220,7 +244,8 @@ abstract class GenericUiGenerateAndroidActivitiesTask : DefaultTask() {
             discoveredFragments: List<GenericUiDiscoveredFragment>,
             resolvedConfig: GenericUiResolvedVariantConfig,
             providerInstallerExpressions: List<String> = emptyList(),
-            resourceRegistryInstallerExpr: String? = null
+            resourceRegistryInstallerExpr: String? = null,
+            precompiledStyleSheetObjectFqn: String? = null
         ): List<File> {
             if (outputDir.exists()) {
                 outputDir.deleteRecursively()
@@ -258,7 +283,8 @@ abstract class GenericUiGenerateAndroidActivitiesTask : DefaultTask() {
                     resolvedConfig = resolvedConfig,
                     providerInstallerExpressions = providerInstallerExpressions,
                     resourceRegistryInstallerExpr = resourceRegistryInstallerExpr,
-                    applicationClassName = GENERATED_APPLICATION_SIMPLE_NAME
+                    applicationClassName = GENERATED_APPLICATION_SIMPLE_NAME,
+                    precompiledStyleSheetObjectFqn = precompiledStyleSheetObjectFqn
                 )
             )
             generatedFiles.add(appFile)
@@ -292,17 +318,73 @@ abstract class GenericUiGenerateAndroidActivitiesTask : DefaultTask() {
             resolvedConfig: GenericUiResolvedVariantConfig,
             providerInstallerExpressions: List<String> = emptyList(),
             resourceRegistryInstallerExpr: String? = null,
-            applicationClassName: String = GENERATED_APPLICATION_SIMPLE_NAME
+            applicationClassName: String = GENERATED_APPLICATION_SIMPLE_NAME,
+            precompiledStyleSheetObjectFqn: String? = null
         ): String = buildString {
+            val lightMap = GenericUiThemeConfig.defaultLightColors(resolvedConfig.themeColor).toMutableMap().apply {
+                putAll(resolvedConfig.lightThemeColors.filterValues { it.isNotBlank() })
+            }
+            val darkMap = GenericUiThemeConfig.defaultDarkColors(resolvedConfig.themeColor).toMutableMap().apply {
+                putAll(resolvedConfig.darkThemeColors.filterValues { it.isNotBlank() })
+            }
             if (appPackage.isNotEmpty()) {
                 appendLine("package $appPackage")
                 appendLine()
             }
             appendLine("import com.nexustools.genericui.android.AndroidActivityRegistry")
             appendLine("import com.nexustools.genericui.android.GenericUiAndroidApplication")
+            appendLine("import com.nexustools.genericui.core.GenericUI")
             appendLine("import com.nexustools.genericui.core.GenericUiAppDescriptor")
+            appendLine("import com.nexustools.genericui.enums.ui.ThemeMode")
+            appendLine("import com.nexustools.genericui.style.color.RgbaColor")
+            appendLine("import com.nexustools.genericui.style.theme.ThemeColorSet")
+            appendLine("import com.nexustools.genericui.style.theme.ThemeConfig")
             appendLine()
             appendLine("open class $applicationClassName : GenericUiAndroidApplication() {")
+            appendLine("    @Suppress(\"EXTENSION_SHADOWED_BY_MEMBER\", \"UnusedPrivateMember\")")
+            appendLine("    private fun ThemeColorSet.Companion.fromHex(")
+            appendLine("        primary: String = \"#0d6efd\",")
+            appendLine("        secondary: String = \"#6c757d\",")
+            appendLine("        accent: String = primary,")
+            appendLine("        success: String = \"#198754\",")
+            appendLine("        danger: String = \"#dc3545\",")
+            appendLine("        warning: String = \"#ffc107\",")
+            appendLine("        info: String = \"#0dcaf0\",")
+            appendLine("        light: String = \"#f8f9fa\",")
+            appendLine("        dark: String = \"#212529\",")
+            appendLine("        background: String = \"#ffffff\",")
+            appendLine("        surface: String = \"#f8f9fa\",")
+            appendLine("        textPrimary: String = \"#212529\",")
+            appendLine("        textSecondary: String = \"#6c757d\",")
+            appendLine("        border: String = \"#dee2e6\"")
+            appendLine("    ): ThemeColorSet = ThemeColorSet(")
+            appendLine("        primary = RgbaColor.fromHex(primary),")
+            appendLine("        secondary = RgbaColor.fromHex(secondary),")
+            appendLine("        accent = RgbaColor.fromHex(accent),")
+            appendLine("        success = RgbaColor.fromHex(success),")
+            appendLine("        danger = RgbaColor.fromHex(danger),")
+            appendLine("        warning = RgbaColor.fromHex(warning),")
+            appendLine("        info = RgbaColor.fromHex(info),")
+            appendLine("        light = RgbaColor.fromHex(light),")
+            appendLine("        dark = RgbaColor.fromHex(dark),")
+            appendLine("        background = RgbaColor.fromHex(background),")
+            appendLine("        onBackground = RgbaColor.fromHex(textPrimary),")
+            appendLine("        surface = RgbaColor.fromHex(surface),")
+            appendLine("        onSurface = RgbaColor.fromHex(textSecondary)")
+            appendLine("    )")
+            appendLine()
+            appendLine("    @Suppress(\"FunctionName\", \"UnusedPrivateMember\")")
+            appendLine("    private fun ThemeConfig(")
+            appendLine("        light: ThemeColorSet,")
+            appendLine("        dark: ThemeColorSet,")
+            appendLine("        mode: ThemeMode = ThemeMode.fromString(${quoteKotlin(resolvedConfig.themeMode)})")
+            appendLine("    ): ThemeConfig = com.nexustools.genericui.style.theme.ThemeConfig(")
+            appendLine("        mode = mode,")
+            appendLine("        colors = light,")
+            appendLine("        lightColors = light,")
+            appendLine("        darkColors = dark")
+            appendLine("    )")
+            appendLine()
             appendLine("    override fun createAppDescriptor(): GenericUiAppDescriptor = GenericUiAppDescriptor(")
             appendLine("        appId = ${quoteKotlin(resolvedConfig.appId)},")
             appendLine("        appName = ${quoteKotlin(resolvedConfig.appName)},")
@@ -316,11 +398,53 @@ abstract class GenericUiGenerateAndroidActivitiesTask : DefaultTask() {
             appendLine("        fullscreen = ${resolvedConfig.fullscreen},")
             appendLine("        themeMode = ${quoteKotlin(resolvedConfig.themeMode)},")
             appendLine("        themeColor = ${quoteKotlin(resolvedConfig.themeColor)},")
+            appendLine("        themeConfig = ThemeConfig(")
+            appendLine("            light = ThemeColorSet.fromHex(")
+            appendLine("                primary = ${quoteKotlin(lightMap.getValue(GenericUiThemeConfig.KEY_PRIMARY))},")
+            appendLine("                secondary = ${quoteKotlin(lightMap.getValue(GenericUiThemeConfig.KEY_SECONDARY))},")
+            appendLine("                accent = ${quoteKotlin(lightMap.getValue(GenericUiThemeConfig.KEY_ACCENT))},")
+            appendLine("                success = ${quoteKotlin(lightMap.getValue(GenericUiThemeConfig.KEY_SUCCESS))},")
+            appendLine("                danger = ${quoteKotlin(lightMap.getValue(GenericUiThemeConfig.KEY_DANGER))},")
+            appendLine("                warning = ${quoteKotlin(lightMap.getValue(GenericUiThemeConfig.KEY_WARNING))},")
+            appendLine("                info = ${quoteKotlin(lightMap.getValue(GenericUiThemeConfig.KEY_INFO))},")
+            appendLine("                light = ${quoteKotlin(lightMap.getValue(GenericUiThemeConfig.KEY_LIGHT))},")
+            appendLine("                dark = ${quoteKotlin(lightMap.getValue(GenericUiThemeConfig.KEY_DARK))},")
+            appendLine("                background = ${quoteKotlin(lightMap.getValue(GenericUiThemeConfig.KEY_BACKGROUND))},")
+            appendLine("                surface = ${quoteKotlin(lightMap.getValue(GenericUiThemeConfig.KEY_SURFACE))},")
+            appendLine("                textPrimary = ${quoteKotlin(lightMap.getValue(GenericUiThemeConfig.KEY_TEXT_PRIMARY))},")
+            appendLine("                textSecondary = ${quoteKotlin(lightMap.getValue(GenericUiThemeConfig.KEY_TEXT_SECONDARY))},")
+            appendLine("                border = ${quoteKotlin(lightMap.getValue(GenericUiThemeConfig.KEY_BORDER))}")
+            appendLine("            ),")
+            appendLine("            dark = ThemeColorSet.fromHex(")
+            appendLine("                primary = ${quoteKotlin(darkMap.getValue(GenericUiThemeConfig.KEY_PRIMARY))},")
+            appendLine("                secondary = ${quoteKotlin(darkMap.getValue(GenericUiThemeConfig.KEY_SECONDARY))},")
+            appendLine("                accent = ${quoteKotlin(darkMap.getValue(GenericUiThemeConfig.KEY_ACCENT))},")
+            appendLine("                success = ${quoteKotlin(darkMap.getValue(GenericUiThemeConfig.KEY_SUCCESS))},")
+            appendLine("                danger = ${quoteKotlin(darkMap.getValue(GenericUiThemeConfig.KEY_DANGER))},")
+            appendLine("                warning = ${quoteKotlin(darkMap.getValue(GenericUiThemeConfig.KEY_WARNING))},")
+            appendLine("                info = ${quoteKotlin(darkMap.getValue(GenericUiThemeConfig.KEY_INFO))},")
+            appendLine("                light = ${quoteKotlin(darkMap.getValue(GenericUiThemeConfig.KEY_LIGHT))},")
+            appendLine("                dark = ${quoteKotlin(darkMap.getValue(GenericUiThemeConfig.KEY_DARK))},")
+            appendLine("                background = ${quoteKotlin(darkMap.getValue(GenericUiThemeConfig.KEY_BACKGROUND))},")
+            appendLine("                surface = ${quoteKotlin(darkMap.getValue(GenericUiThemeConfig.KEY_SURFACE))},")
+            appendLine("                textPrimary = ${quoteKotlin(darkMap.getValue(GenericUiThemeConfig.KEY_TEXT_PRIMARY))},")
+            appendLine("                textSecondary = ${quoteKotlin(darkMap.getValue(GenericUiThemeConfig.KEY_TEXT_SECONDARY))},")
+            appendLine("                border = ${quoteKotlin(darkMap.getValue(GenericUiThemeConfig.KEY_BORDER))}")
+            appendLine("            )")
+            appendLine("        ),")
             appendLine("        iconPath = ${resolvedConfig.iconPath?.let { quoteKotlin(it) } ?: "null"},")
             val styleSheetPath = resolvedConfig.globalStyleSheet?.trim()?.takeIf { it.isNotEmpty() }
+            val resolvedStyleSheetObjectFqn = precompiledStyleSheetObjectFqn?.trim()?.takeIf { it.isNotEmpty() }
             if (styleSheetPath != null) {
                 appendLine("        globalStyleSheetPath = ${quoteKotlin(styleSheetPath)},")
-                appendLine("        precompiledStyleSheetInstaller = { app -> app.addStyleSheet(${quoteKotlin(styleSheetPath)}) },")
+                if (resolvedStyleSheetObjectFqn != null) {
+                    appendLine("        precompiledStyleSheetInstaller = { app ->")
+                    appendLine("            $resolvedStyleSheetObjectFqn.install(app)")
+                    appendLine("            app.addStyleSheet(${quoteKotlin(styleSheetPath)})")
+                    appendLine("        },")
+                } else {
+                    appendLine("        precompiledStyleSheetInstaller = { app -> app.addStyleSheet(${quoteKotlin(styleSheetPath)}) },")
+                }
             }
             if (mainFragment != null) {
                 appendLine("        mainFragmentClass = ${mainFragment.qualifiedName}::class,")
@@ -362,9 +486,18 @@ abstract class GenericUiGenerateAndroidActivitiesTask : DefaultTask() {
                 appendLine("        resourceRegistryInstaller = null")
             }
             appendLine("    )")
+            appendLine()
+            appendLine("    fun configureTheme(app: com.nexustools.genericui.component.shell.IApplication) {")
+            appendLine("        val descriptor = createAppDescriptor()")
+            appendLine("        GenericUI.defaultThemeConfig = descriptor.themeConfig")
+            appendLine("        app.setThemeConfig(descriptor.themeConfig)")
+            appendLine("    }")
             if (styleSheetPath != null) {
                 appendLine()
                 appendLine("    fun configureGlobalStyleSheet(app: com.nexustools.genericui.component.shell.IApplication) {")
+                if (resolvedStyleSheetObjectFqn != null) {
+                    appendLine("        $resolvedStyleSheetObjectFqn.install(app)")
+                }
                 appendLine("        app.addStyleSheet(${quoteKotlin(styleSheetPath)})")
                 appendLine("    }")
             }

@@ -71,8 +71,8 @@ class BrowserLayoutEngineAndStylePolicyTest {
     @Test
     fun episodeCaster1440x900LayoutMatchesBrowserGeometryWithoutAspectRatioClamping() {
         val root = VStack(gapPx = 0).apply {
-            setStyleProperty("width", "100%")
-            setStyleProperty("height", "100%")
+            getStyle().setWidth(CssLength.PERCENT_100)
+            getStyle().setHeight(CssLength.PERCENT_100)
         }
 
         val navbar = Navbar(brandTitle = "Episode Caster")
@@ -83,7 +83,7 @@ class BrowserLayoutEngineAndStylePolicyTest {
 
         // Left Column (8/12): 16:9 Video AspectRatioContainer + MediaControlBar
         val leftCol = VStack(gapPx = 0).apply {
-            setStyleProperty("height", "100%")
+            getStyle().setHeight(CssLength.PERCENT_100)
         }
         val videoAspectContainer = AspectRatioContainer(BootstrapAspectRatio.RATIO_16X9)
         val videoSurface = Container("div", "video-surface")
@@ -103,7 +103,7 @@ class BrowserLayoutEngineAndStylePolicyTest {
         videoAspectContainer.addChild(overlayLayer)
 
         val mediaControlBar = StyledContainer().apply {
-            setStyleProperty("width", "100%")
+            getStyle().setWidth(CssLength.PERCENT_100)
             heightPx = 84
         }
         leftCol.addChild(videoAspectContainer, StackConstraint.FIXED)
@@ -349,7 +349,7 @@ class BrowserLayoutEngineAndStylePolicyTest {
         // Matched .theme-dark .card-item on card1 and card2 (card2 should hit MatchedPropertiesCache)
         assertEquals(RgbaColor(30, 41, 59, 255), card1.computedStyle?.backgroundColor)
         assertEquals(RgbaColor(30, 41, 59, 255), card2.computedStyle?.backgroundColor)
-        assertEquals("12px", card1.computedStyle?.rawDeclarations?.get("padding-top"))
+        assertEquals("12px", card1.computedStyle?.paddingTop?.toCssString())
         assertTrue(BlinkStyleEngine.matchedPropertiesCache.hitCount >= 1L, "Identical sibling should hit BlinkMatchedPropertiesCache")
 
         // #featured-card overrides .theme-dark .card-item background-color due to higher ID specificity (1,0,0 > 0,2,0)
@@ -443,12 +443,8 @@ class BrowserLayoutEngineAndStylePolicyTest {
 
         val mutatedProperties = mutableListOf<CssProperty>()
         val box = object : Container() {
-            override fun onSingleInlineStylePropertyMutated(
-                property: CssProperty,
-                cssPropertyName: String,
-                cssValue: String?
-            ) {
-                super.onSingleInlineStylePropertyMutated(property, cssPropertyName, cssValue)
+            override fun onSingleInlineStylePropertyMutated(property: CssProperty) {
+                super.onSingleInlineStylePropertyMutated(property)
                 mutatedProperties.add(property)
             }
         }

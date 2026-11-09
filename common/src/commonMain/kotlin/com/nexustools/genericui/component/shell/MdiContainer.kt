@@ -81,6 +81,8 @@ open class MdiContainer(
     private var topZIndexCounter: Int = 100
     private var cascadeCounter: Int = 0
 
+    var autoTileInitialWindows: Boolean = true
+
     var onActiveWindowChanged: ((MdiWindow?) -> Unit)? = null
     var onWindowAdded: ((MdiWindow) -> Unit)? = null
     var onWindowRemoved: ((MdiWindow) -> Unit)? = null
@@ -119,6 +121,18 @@ open class MdiContainer(
         height: Int = 360
     ): Rect {
         val idx = cascadeCounter++
+        if (autoTileInitialWindows) {
+            val cols = 2
+            val col = idx % cols
+            val row = idx / cols
+            val gap = 14
+            return Rect(
+                x = startX + col * (width + gap),
+                y = startY + row * (height + gap),
+                width = width,
+                height = height
+            )
+        }
         val offset = idx % 8
         return Rect(
             x = startX + offset * stepX,
@@ -329,25 +343,42 @@ open class MdiContainer(
     }
 
     fun tileWindows(
-        columns: Int = 3,
+        columns: Int = 2,
         viewportWidth: Int = 1200,
         viewportHeight: Int = 680,
-        gapPx: Int = 12
+        gapPx: Int = 12,
+        paddingPx: Int = gapPx,
+        widthPx: Int = 0,
+        heightPx: Int = 0,
+        startY: Int = paddingPx
     ) {
-        val visibleWindows = _windows.filter { it.windowState != MdiWindowState.MINIMIZED }
-            .ifEmpty { _windows }
+        val visibleWindows = _windows.filter {
+            it.windowState != MdiWindowState.MINIMIZED && it.windowState != MdiWindowState.MAXIMIZED
+        }.ifEmpty {
+            _windows.filter { it.windowState != MdiWindowState.MINIMIZED }.ifEmpty { _windows }
+        }
         if (visibleWindows.isEmpty()) return
 
         val cols = columns.coerceAtLeast(1).coerceAtMost(visibleWindows.size)
         val rows = (visibleWindows.size + cols - 1) / cols
-        val cellWidth = ((viewportWidth - gapPx * (cols + 1)) / cols).coerceAtLeast(220)
-        val cellHeight = ((viewportHeight - gapPx * (rows + 1)) / rows).coerceAtLeast(180)
+        val surfaceW = desktopSurface.widthPx ?: viewportWidth
+        val surfaceH = desktopSurface.heightPx ?: viewportHeight
+        val cellWidth = if (widthPx > 0) {
+            widthPx
+        } else {
+            ((surfaceW - paddingPx * 2 - gapPx * (cols - 1)) / cols).coerceAtLeast(220)
+        }
+        val cellHeight = if (heightPx > 0) {
+            heightPx
+        } else {
+            ((surfaceH - startY - paddingPx - gapPx * (rows - 1)) / rows).coerceAtLeast(180)
+        }
 
         visibleWindows.forEachIndexed { index, win ->
             val col = index % cols
             val row = index / cols
-            val x = gapPx + col * (cellWidth + gapPx)
-            val y = gapPx + row * (cellHeight + gapPx)
+            val x = paddingPx + col * (cellWidth + gapPx)
+            val y = startY + row * (cellHeight + gapPx)
             val bounds = Rect(x, y, cellWidth, cellHeight)
             win.normalBounds = bounds
             win.windowBounds = bounds

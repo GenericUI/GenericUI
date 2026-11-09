@@ -7,5 +7,7 @@ interface ProgressBarNativeImpl<out W> : NativeImpl<W> {
     fun getProgress(): Float
     fun setIndeterminate(indeterminate: Boolean)
     fun isIndeterminate(): Boolean
+    fun setBusy(busy: Boolean) {}
+    fun isBusy(): Boolean = false
     fun setLabel(label: String?)
 }

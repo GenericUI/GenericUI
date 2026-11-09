@@ -25,66 +25,79 @@ open class GenericUiBackendsConfig(
     var androidEnabled: Boolean = false
     var iosEnabled: Boolean = false
     var webEnabled: Boolean = false
+    internal var onChanged: (() -> Unit)? = null
 
     /** Explicitly enables or disables the shared `:desktop` module (`:windows`, `:macos`, `:gtk`, `:qt` include it automatically). */
     fun desktop(enabled: Boolean = true) {
         desktopEnabled = enabled
+        onChanged?.invoke()
     }
 
     /** Explicitly enables or disables the shared `:mobile` module (`:android` and `:ios` include it automatically). */
     fun mobile(enabled: Boolean = true) {
         mobileEnabled = enabled
+        onChanged?.invoke()
     }
 
     /** Enables or disables the native `:windows` (Win32 / Direct2D / ANGLE / Vulkan + `:desktop` VLC) backend. */
     fun windows(enabled: Boolean = true) {
         windowsEnabled = enabled
+        onChanged?.invoke()
     }
 
     /** Enables or disables the native `:macos` (AppKit / CoreGraphics / MoltenVK + `:desktop` VLC) backend. */
     fun macos(enabled: Boolean = true) {
         macosEnabled = enabled
+        onChanged?.invoke()
     }
 
     /** Alias for [macos]: enables or disables the native `:macos` backend. */
     fun mac(enabled: Boolean = true) {
         macosEnabled = enabled
+        onChanged?.invoke()
     }
 
     /** Enables or disables the native `:gtk` (GTK3/4 / Cairo / EGL / Vulkan + `:desktop` VLC) backend. */
     fun gtk(enabled: Boolean = true) {
         gtkEnabled = enabled
+        onChanged?.invoke()
     }
 
     /** Enables or disables the native `:qt` (Qt5/6 / QPainter / QOpenGLWidget / QVulkanWindow + `:desktop` VLC) backend. */
     fun qt(enabled: Boolean = true) {
         qtEnabled = enabled
+        onChanged?.invoke()
     }
 
     /** Enables the `:swing` (Java/JVM AWT & Swing) backend with default settings. */
     fun swing(enabled: Boolean = true) {
         swingConfig.enabled = enabled
+        onChanged?.invoke()
     }
 
     /** Enables and configures the `:swing` backend (including optional `useLwjglGL` and `useVulkan`). */
     fun swing(action: Action<in SwingBackendConfig>) {
         swingConfig.enabled = true
         action.execute(swingConfig)
+        onChanged?.invoke()
     }
 
     /** Enables or disables the `:android` backend (automatically includes shared `:mobile`). */
     fun android(enabled: Boolean = true) {
         androidEnabled = enabled
+        onChanged?.invoke()
     }
 
     /** Enables or disables the `:ios` (UIKit / CoreGraphics / EAGL / MoltenVK + shared `:mobile`) backend. */
     fun ios(enabled: Boolean = true) {
         iosEnabled = enabled
+        onChanged?.invoke()
     }
 
     /** Enables or disables the `:web` (HTML5 DOM / Canvas2D / WebGL2 / WebGPU) backend. */
     fun web(enabled: Boolean = true) {
         webEnabled = enabled
+        onChanged?.invoke()
     }
 
     /**
@@ -95,6 +108,7 @@ open class GenericUiBackendsConfig(
         webEnabled = true
         webManifest.enabled = true
         action.execute(webManifest)
+        onChanged?.invoke()
     }
 
     /**

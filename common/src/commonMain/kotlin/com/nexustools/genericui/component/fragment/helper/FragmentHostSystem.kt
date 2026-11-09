@@ -103,20 +103,24 @@ class FragmentHostSystem(
         if (!rootContainer.hasClass("fragment-host")) {
             rootContainer.addClass("fragment-host")
         }
-        rootContainer.setStyleProperty("display", "flex")
-        rootContainer.setStyleProperty("flex-direction", "column")
-        rootContainer.setStyleProperty("width", "100%")
-        rootContainer.setStyleProperty("height", "100%")
-        rootContainer.setStyleProperty("min-height", "0")
-        rootContainer.setStyleProperty("flex-grow", "1")
-        rootContainer.setStyleProperty("overflow", "hidden")
+        rootContainer.getStyle().apply {
+            setDisplay(com.nexustools.genericui.enums.css.CssDisplay.FLEX)
+            setFlexDirection(com.nexustools.genericui.enums.bootstrap.FlexDirection.COLUMN)
+            setWidth(com.nexustools.genericui.style.css.CssLength.PERCENT_100)
+            setHeight(com.nexustools.genericui.style.css.CssLength.PERCENT_100)
+            setMinHeight(com.nexustools.genericui.style.css.CssLength.ZERO)
+            setFlexGrow(1f)
+            setOverflow(com.nexustools.genericui.enums.bootstrap.OverflowBehavior.HIDDEN)
+        }
 
-        stageContainer.setStyleProperty("position", "relative")
-        stageContainer.setStyleProperty("width", "100%")
-        stageContainer.setStyleProperty("height", "100%")
-        stageContainer.setStyleProperty("min-height", "0")
-        stageContainer.setStyleProperty("flex-grow", "1")
-        stageContainer.setStyleProperty("overflow", "hidden")
+        stageContainer.getStyle().apply {
+            setPosition(com.nexustools.genericui.enums.css.CssPosition.RELATIVE)
+            setWidth(com.nexustools.genericui.style.css.CssLength.PERCENT_100)
+            setHeight(com.nexustools.genericui.style.css.CssLength.PERCENT_100)
+            setMinHeight(com.nexustools.genericui.style.css.CssLength.ZERO)
+            setFlexGrow(1f)
+            setOverflow(com.nexustools.genericui.enums.bootstrap.OverflowBehavior.HIDDEN)
+        }
 
         loaderContainer.addChild(loaderSpinner)
         rootContainer.addChild(stageContainer)

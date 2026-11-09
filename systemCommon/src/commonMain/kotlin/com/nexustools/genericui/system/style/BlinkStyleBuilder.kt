@@ -138,6 +138,7 @@ object BlinkStyleBuilder {
             CssProperty.FLEX_GROW -> style.setFlexGrow(entry.floatVal, imp)
             CssProperty.FLEX_SHRINK -> style.setFlexShrink(entry.floatVal, imp)
             CssProperty.FLEX_BASIS -> style.setFlexBasis(entry.lengthVal, imp)
+            CssProperty.ORDER -> style.setOrder(entry.intVal, imp)
             CssProperty.GAP -> style.setGap(entry.lengthVal, imp)
             CssProperty.ROW_GAP -> style.setRowGap(entry.lengthVal, imp)
             CssProperty.COLUMN_GAP -> style.setColumnGap(entry.lengthVal, imp)
@@ -163,11 +164,7 @@ object BlinkStyleBuilder {
             CssProperty.TRANSITION -> style.setTransitions(entry.transitionsVal, imp)
             CssProperty.FILTER -> style.setFilter(entry.filterVal, imp)
             CssProperty.BACKDROP_FILTER -> style.setBackdropFilter(entry.filterVal, imp)
-            else -> {
-                if (entry.stringVal != null) {
-                    style.setRawDeclaration(entry.property.cssName, entry.stringVal, imp)
-                }
-            }
+            else -> Unit
         }
     }
 
@@ -175,8 +172,8 @@ object BlinkStyleBuilder {
         property: CssProperty,
         current: ComputedStyle,
         sheetBase: ComputedStyle?,
-        inlineStyle: ComponentStyle
-    ): ComputedStyle = inlineStyle.applySinglePropertyToComputed(property, current, sheetBase)
+        componentStyle: ComponentStyle
+    ): ComputedStyle = componentStyle.applySinglePropertyToComputed(property, current, sheetBase)
 
     fun buildComputedStyleFromRules(rules: List<BlinkCompiledRule>): ComputedStyle {
         if (rules.isEmpty()) return ComputedStyle.EMPTY

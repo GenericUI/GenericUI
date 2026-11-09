@@ -56,6 +56,14 @@ abstract class GenericUiGenerateAndroidManifestTask : DefaultTask() {
     @get:Optional
     abstract val theme: Property<String>
 
+    @get:org.gradle.api.tasks.Internal
+    val androidTheme: Property<String>
+        get() = theme
+
+    init {
+        theme.convention("@style/Theme.GenericUI.App")
+    }
+
     @get:Input
     @get:Optional
     abstract val screenOrientation: Property<String>
@@ -198,7 +206,7 @@ abstract class GenericUiGenerateAndroidManifestTask : DefaultTask() {
                 "$resolvedPkg.${GenericUiGenerateAndroidActivitiesTask.GENERATED_APPLICATION_SIMPLE_NAME}"
             }
             val resolvedTheme = manifestConfig.theme.trim().ifEmpty {
-                "@style/Theme.AppCompat.DayNight.NoActionBar"
+                "@style/Theme.GenericUI.App"
             }
             val defaultConfigChanges = manifestConfig.configChanges.trim().ifEmpty {
                 "orientation|screenSize|screenLayout|keyboardHidden|uiMode|density"

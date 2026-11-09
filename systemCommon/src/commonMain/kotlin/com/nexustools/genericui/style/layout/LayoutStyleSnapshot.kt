@@ -262,7 +262,78 @@ data class LayoutStyleSnapshot(
             allClasses.addAll(component.getClasses())
 
             val styleProps = linkedMapOf<String, String>()
-            computed?.rawDeclarations?.forEach { (k, v) -> styleProps[k.lowercase()] = v }
+            if (computed != null) {
+                computed.display?.let { styleProps["display"] = it }
+                computed.visibility?.cssValue?.let { styleProps["visibility"] = it }
+                computed.position?.let { styleProps["position"] = it }
+                computed.top?.let { styleProps["top"] = it }
+                computed.right?.let { styleProps["right"] = it }
+                computed.bottom?.let { styleProps["bottom"] = it }
+                computed.left?.let { styleProps["left"] = it }
+                computed.boxSizing?.cssValue?.let { styleProps["box-sizing"] = it }
+                computed.width?.let { styleProps["width"] = it }
+                computed.height?.let { styleProps["height"] = it }
+                computed.minWidth?.let { styleProps["min-width"] = it }
+                computed.minHeight?.let { styleProps["min-height"] = it }
+                computed.maxWidth?.let { styleProps["max-width"] = it }
+                computed.maxHeight?.let { styleProps["max-height"] = it }
+                computed.aspectRatio?.let { styleProps["aspect-ratio"] = it.toString() }
+                computed.padding?.toCssString()?.let { styleProps["padding"] = it }
+                computed.paddingTop?.toCssString()?.let { styleProps["padding-top"] = it }
+                computed.paddingRight?.toCssString()?.let { styleProps["padding-right"] = it }
+                computed.paddingBottom?.toCssString()?.let { styleProps["padding-bottom"] = it }
+                computed.paddingLeft?.toCssString()?.let { styleProps["padding-left"] = it }
+                computed.margin?.toCssString()?.let { styleProps["margin"] = it }
+                computed.marginTop?.toCssString()?.let { styleProps["margin-top"] = it }
+                computed.marginRight?.toCssString()?.let { styleProps["margin-right"] = it }
+                computed.marginBottom?.toCssString()?.let { styleProps["margin-bottom"] = it }
+                computed.marginLeft?.toCssString()?.let { styleProps["margin-left"] = it }
+                computed.borderWidthPx?.let { styleProps["border-width"] = "${it}px" }
+                computed.flexDirection?.let { styleProps["flex-direction"] = it.name.lowercase().replace('_', '-') }
+                computed.flexWrap?.let { styleProps["flex-wrap"] = it.name.lowercase().replace('_', '-') }
+                computed.justifyContent?.let {
+                    styleProps["justify-content"] = when (it) {
+                        JustifyContent.START -> "flex-start"
+                        JustifyContent.END -> "flex-end"
+                        JustifyContent.CENTER -> "center"
+                        JustifyContent.BETWEEN -> "space-between"
+                        JustifyContent.AROUND -> "space-around"
+                        JustifyContent.EVENLY -> "space-evenly"
+                    }
+                }
+                computed.alignItems?.let {
+                    styleProps["align-items"] = when (it) {
+                        AlignItems.START -> "flex-start"
+                        AlignItems.END -> "flex-end"
+                        AlignItems.CENTER -> "center"
+                        AlignItems.BASELINE -> "baseline"
+                        AlignItems.STRETCH -> "stretch"
+                    }
+                }
+                computed.alignSelf?.let {
+                    styleProps["align-self"] = when (it) {
+                        AlignSelf.AUTO -> "auto"
+                        AlignSelf.START -> "flex-start"
+                        AlignSelf.END -> "flex-end"
+                        AlignSelf.CENTER -> "center"
+                        AlignSelf.BASELINE -> "baseline"
+                        AlignSelf.STRETCH -> "stretch"
+                    }
+                }
+                computed.alignContent?.cssValue?.let { styleProps["align-content"] = it }
+                computed.flexGrow?.let { styleProps["flex-grow"] = it.toString() }
+                computed.flexShrink?.let { styleProps["flex-shrink"] = it.toString() }
+                computed.flexBasis?.toCssString()?.let { styleProps["flex-basis"] = it }
+                computed.order?.let { styleProps["order"] = it.toString() }
+                computed.gap?.toCssString()?.let { styleProps["gap"] = it }
+                computed.rowGap?.toCssString()?.let { styleProps["row-gap"] = it }
+                computed.columnGap?.toCssString()?.let { styleProps["column-gap"] = it }
+                computed.overflow?.let { styleProps["overflow"] = it }
+                computed.overflowX?.let { styleProps["overflow-x"] = it.name.lowercase() }
+                computed.overflowY?.let { styleProps["overflow-y"] = it.name.lowercase() }
+                computed.zIndex?.let { styleProps["z-index"] = it.toString() }
+                computed.transform?.let { styleProps["transform"] = it }
+            }
             if (!compStyle.isEmpty()) {
                 for ((k, pair) in compStyle.toCssPropertyMap()) {
                     styleProps[k.lowercase()] = pair.first

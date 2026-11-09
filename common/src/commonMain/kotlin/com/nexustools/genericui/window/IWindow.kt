@@ -90,6 +90,9 @@ interface IWindow : Disposable {
     /** `true` once the window has been shown and not yet closed/hidden. */
     val isWindowShown: Boolean
 
+    /** `true` when the window is currently visible on screen (`false` after [hide] until [show] is called). */
+    val isVisible: Boolean
+
     /** `true` while the window has input focus (active window). */
     val isWindowFocused: Boolean
     val isClosable: Boolean

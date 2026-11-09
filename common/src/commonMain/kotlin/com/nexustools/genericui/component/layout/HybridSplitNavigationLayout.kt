@@ -119,38 +119,45 @@ open class HybridSplitNavigationLayout(
         host.addClass("gui-hybrid-split-navigation")
         host.setDisplay(DisplayMode.FLEX)
         host.setFlexDirection(FlexDirection.COLUMN)
-        host.setStyleProperty("display", "flex")
-        host.setStyleProperty("flex-direction", "column")
-        host.setStyleProperty("width", "100%")
-        host.setStyleProperty("height", "100%")
-        host.setStyleProperty("min-height", "0")
-        host.setStyleProperty("flex", "1 1 0%")
-        host.setStyleProperty("overflow", "hidden")
+        host.getStyle().apply {
+            setDisplay(com.nexustools.genericui.enums.css.CssDisplay.FLEX)
+            setFlexDirection(FlexDirection.COLUMN)
+            setWidth(com.nexustools.genericui.style.css.CssLength.PERCENT_100)
+            setHeight(com.nexustools.genericui.style.css.CssLength.PERCENT_100)
+            setMinHeight(com.nexustools.genericui.style.css.CssLength.ZERO)
+            setFlex(1f, 1f, com.nexustools.genericui.style.css.CssLength.percent(0))
+            setOverflow(com.nexustools.genericui.enums.bootstrap.OverflowBehavior.HIDDEN)
+        }
 
-        topTabLayout.setStyleProperty("flex-shrink", "0")
-        topTabLayout.setStyleProperty("width", "100%")
+        topTabLayout.getStyle().apply {
+            setFlexShrink(0f)
+            setWidth(com.nexustools.genericui.style.css.CssLength.PERCENT_100)
+        }
 
-        headerSlot.setStyleProperty("flex-shrink", "0")
-        headerSlot.setStyleProperty("width", "100%")
+        headerSlot.getStyle().apply {
+            setFlexShrink(0f)
+            setWidth(com.nexustools.genericui.style.css.CssLength.PERCENT_100)
+        }
 
         contentHost.setDisplay(DisplayMode.FLEX)
         contentHost.setFlexDirection(FlexDirection.COLUMN)
-        contentHost.setStyleProperty("display", "flex")
-        contentHost.setStyleProperty("flex-direction", "column")
-        contentHost.setStyleProperty("flex", "1 1 0%")
-        contentHost.setStyleProperty("flex-grow", "1")
-        contentHost.setStyleProperty("flex-shrink", "1")
-        contentHost.setStyleProperty("flex-basis", "0%")
-        contentHost.setStyleProperty("min-height", "0")
-        contentHost.setStyleProperty("width", "100%")
-        contentHost.setStyleProperty("height", "100%")
-        contentHost.setStyleProperty("overflow", "hidden")
-        contentHost.setStyleProperty("overflow-x", "hidden")
-        contentHost.setStyleProperty("overflow-y", "hidden")
+        contentHost.getStyle().apply {
+            setDisplay(com.nexustools.genericui.enums.css.CssDisplay.FLEX)
+            setFlexDirection(FlexDirection.COLUMN)
+            setFlex(1f, 1f, com.nexustools.genericui.style.css.CssLength.percent(0))
+            setMinHeight(com.nexustools.genericui.style.css.CssLength.ZERO)
+            setWidth(com.nexustools.genericui.style.css.CssLength.PERCENT_100)
+            setHeight(com.nexustools.genericui.style.css.CssLength.PERCENT_100)
+            setOverflow(com.nexustools.genericui.enums.bootstrap.OverflowBehavior.HIDDEN)
+            setOverflowX(com.nexustools.genericui.enums.bootstrap.OverflowBehavior.HIDDEN)
+            setOverflowY(com.nexustools.genericui.enums.bootstrap.OverflowBehavior.HIDDEN)
+        }
         contentHost.addClass("flex-grow-1 overflow-hidden")
 
-        bottomNavigationBar.setStyleProperty("flex-shrink", "0")
-        bottomNavigationBar.setStyleProperty("width", "100%")
+        bottomNavigationBar.getStyle().apply {
+            setFlexShrink(0f)
+            setWidth(com.nexustools.genericui.style.css.CssLength.PERCENT_100)
+        }
         bottomNavigationBar.addClass("mt-auto w-100 flex-shrink-0")
 
         headerSlot.isVisible = false

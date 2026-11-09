@@ -68,17 +68,23 @@ open class LazyList(
         get() = activeHolders.keys.toSet()
 
     val loadedItemCount: Int
-        get() = activeHolders.size
+        get() {
+            if (activeHolders.isEmpty() && (adapter?.getItemCount() ?: totalItemCount) > 0 && !isRefreshingViewport) {
+                refreshLazyViewport()
+            }
+            return activeHolders.size
+        }
 
     private val adapterObserver: () -> Unit = {
         refreshLazyViewport()
     }
 
     private fun clearCachedItemHolders() {
-        for (holder in cachedItemHolders.values) {
+        val snapshot = runCatching { ArrayList(cachedItemHolders.values) }.getOrElse { emptyList() }
+        cachedItemHolders.clear()
+        for (holder in snapshot) {
             holder.itemView.dispose()
         }
-        cachedItemHolders.clear()
     }
 
     /**
@@ -90,6 +96,7 @@ open class LazyList(
         onUnloadItem: ((index: Int, component: AbstractComponent) -> Unit)? = null,
         initialScrollIndex: Int? = null
     ): LazyList = apply {
+        isRefreshingViewport = false
         unloadAllVisibleItems()
         clearCachedItemHolders()
         this.totalItemCount = count.coerceAtLeast(0)
@@ -155,6 +162,13 @@ open class LazyList(
                 onLoadIndex = { idx -> loadItemAtIndex(idx) }
             )
             activeViewportWindow = window
+            if (total > 0 && window.activeCount > 0 && activeHolders.size < window.activeCount) {
+                for (idx in window.firstActiveIndex..window.lastActiveIndex) {
+                    if (!activeHolders.containsKey(idx)) {
+                        loadItemAtIndex(idx)
+                    }
+                }
+            }
 
             // Ensure activeHolders remain ordered by ascending item index without detaching/re-attaching
             // already-mounted child views (which would cause DOM churn and scroll jumps on :web).

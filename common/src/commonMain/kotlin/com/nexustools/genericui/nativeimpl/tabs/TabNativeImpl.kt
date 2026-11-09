@@ -1,5 +1,6 @@
 package com.nexustools.genericui.nativeimpl.tabs
 
+import com.nexustools.genericui.component.tabs.TabIconPlacement
 import com.nexustools.genericui.core.AbstractContainerNativeImpl
 import com.nexustools.genericui.core.NativeImpl
 
@@ -23,6 +24,9 @@ interface TabNativeImpl<out W> : AbstractContainerNativeImpl<W> {
     fun setTabIdNative(id: String)
     fun setTitleNative(title: String)
     fun setIconNative(icon: String?)
+    fun setIconSizePxNative(sizePx: Int) {}
+    fun setIconPlacementNative(placement: TabIconPlacement) {}
+    fun setTintImageToThemeNative(tintToTheme: Boolean) {}
     fun setTooltipNative(tooltip: String?)
     fun setClosableNative(closable: Boolean)
     fun setDirtyNative(dirty: Boolean)

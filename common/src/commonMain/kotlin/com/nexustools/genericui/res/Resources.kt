@@ -1,6 +1,7 @@
 package com.nexustools.genericui.res
 
 import com.nexustools.genericui.image.ImageBuffer
+import com.nexustools.genericui.image.ImageDecodeOptions
 import com.nexustools.genericui.io.ByteBuffer
 import com.nexustools.genericui.io.Readable
 import com.nexustools.genericui.resources.ResourceID
@@ -159,7 +160,10 @@ object Resources {
 
     fun getUrl(resId: ResourceID): String = ResourceResolver.getUrl(resId)
 
-    fun getImageBuffer(resId: ResourceID): ImageBuffer? = ResourceResolver.getImageBuffer(resId)
+    fun getImageBuffer(
+        resId: ResourceID,
+        options: ImageDecodeOptions = ImageDecodeOptions()
+    ): ImageBuffer? = ResourceResolver.getImageBuffer(resId, options)
 
     fun getFontPath(resId: ResourceID): String = activeTable.getFontPath(resId) ?: resId.relativePath
 

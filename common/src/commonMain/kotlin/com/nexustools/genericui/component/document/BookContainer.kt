@@ -5,6 +5,11 @@ import com.nexustools.genericui.core.NativeFactory
 import com.nexustools.genericui.enums.document.PrintPageOrientation
 import com.nexustools.genericui.enums.document.PrintPageSize
 import com.nexustools.genericui.nativeimpl.document.BookContainerNativeImpl
+import com.nexustools.genericui.res.Resources
+import com.nexustools.genericui.resources.ResourceID
+import com.nexustools.genericui.style.css.CssStyleSheet
+import com.nexustools.genericui.style.css.PrecompiledStyleSheet
+import com.nexustools.genericui.style.css.StyleSheetRegistry
 
 /**
  * Multi-page printable book and document container (`BookContainer`) that renders a live onscreen
@@ -67,6 +72,8 @@ open class BookContainer(
     val pages: List<BookPage>
         get() = _pages
 
+    private val _styleSheets = mutableListOf<PrecompiledStyleSheet>()
+
     var currentPageIndex: Int = 0
         private set
 
@@ -79,12 +86,143 @@ open class BookContainer(
         setAttribute("data-page-orientation", orientation.cssOrientation)
         setAttribute("data-margin-mm", marginMm.toString())
         setAttribute("title", documentTitle)
-        setStyleProperty("width", "100%")
-        setStyleProperty("height", "100%")
-        setStyleProperty("border", "none")
-        setStyleProperty("background-color", "#ffffff")
-        setStyleProperty("display", "block")
-        setStyleProperty("overflow-y", "auto")
+        getStyle().apply {
+            setWidth(com.nexustools.genericui.style.css.CssLength.PERCENT_100)
+            setHeight(com.nexustools.genericui.style.css.CssLength.PERCENT_100)
+            setBorderStyle(com.nexustools.genericui.enums.css.CssBorderStyle.NONE)
+            setBackgroundColor(com.nexustools.genericui.style.color.RgbaColor.WHITE)
+            setDisplay(com.nexustools.genericui.enums.css.CssDisplay.BLOCK)
+            setOverflowY(com.nexustools.genericui.enums.bootstrap.OverflowBehavior.AUTO)
+        }
+    }
+
+    fun addStyleSheet(styleSheetPath: String) {
+        val normalized = StyleSheetRegistry.normalizePath(styleSheetPath)
+        if (normalized.isEmpty()) return
+        val resolved = StyleSheetRegistry.resolveByPath(normalized) ?: createFallbackStyleSheet(normalized)
+        addStyleSheet(resolved)
+    }
+
+    fun addStyleSheet(styleSheetResourceId: ResourceID) {
+        val resolved = StyleSheetRegistry.resolveByResourceId(styleSheetResourceId)
+            ?: Resources.getStyleSheet(styleSheetResourceId)
+            ?: createFallbackStyleSheet(styleSheetResourceId.toResourceUri())
+        StyleSheetRegistry.register(resolved, styleSheetResourceId)
+        addStyleSheet(resolved)
+    }
+
+    fun addStyleSheet(styleSheet: PrecompiledStyleSheet) {
+        val normSource = StyleSheetRegistry.normalizePath(styleSheet.sourcePath)
+        val existingIdx = _styleSheets.indexOfFirst {
+            it === styleSheet ||
+                (normSource.isNotEmpty() && StyleSheetRegistry.normalizePath(it.sourcePath) == normSource)
+        }
+        if (existingIdx >= 0) {
+            _styleSheets[existingIdx] = styleSheet
+        } else {
+            _styleSheets.add(styleSheet)
+        }
+        for (page in _pages) {
+            page.applyPrecompiledStyleSheet(styleSheet)
+        }
+        typedNative<BookContainerNativeImpl<*>>()?.addStyleSheet(styleSheet)
+    }
+
+    fun removeStyleSheet(styleSheetPath: String): Boolean {
+        val normalized = StyleSheetRegistry.normalizePath(styleSheetPath)
+        if (normalized.isEmpty()) return false
+        val target = _styleSheets.firstOrNull {
+            val src = StyleSheetRegistry.normalizePath(it.sourcePath)
+            val css = StyleSheetRegistry.normalizePath(it.cssResourcePath)
+            val name = StyleSheetRegistry.normalizePath(it.name)
+            src == normalized || css == normalized || name == normalized
+        } ?: return false
+        return removeStyleSheet(target)
+    }
+
+    fun removeStyleSheet(styleSheetResourceId: ResourceID): Boolean {
+        val registered = StyleSheetRegistry.resolveByResourceId(styleSheetResourceId)
+            ?: Resources.getStyleSheet(styleSheetResourceId)
+        if (registered != null && removeStyleSheet(registered)) return true
+        val uri = StyleSheetRegistry.normalizePath(styleSheetResourceId.toResourceUri())
+        val relPath = StyleSheetRegistry.normalizePath(styleSheetResourceId.relativePath)
+        val target = _styleSheets.firstOrNull {
+            val src = StyleSheetRegistry.normalizePath(it.sourcePath)
+            val css = StyleSheetRegistry.normalizePath(it.cssResourcePath)
+            val name = StyleSheetRegistry.normalizePath(it.name)
+            src == uri ||
+                (relPath.isNotEmpty() && (src == relPath || css == relPath)) ||
+                name == StyleSheetRegistry.normalizePath(styleSheetResourceId.name)
+        } ?: return false
+        return removeStyleSheet(target)
+    }
+
+    fun removeStyleSheet(styleSheet: PrecompiledStyleSheet): Boolean {
+        val normSource = StyleSheetRegistry.normalizePath(styleSheet.sourcePath)
+        val toRemove = _styleSheets.filter {
+            it === styleSheet ||
+                (normSource.isNotEmpty() && StyleSheetRegistry.normalizePath(it.sourcePath) == normSource)
+        }
+        if (toRemove.isEmpty()) return false
+        _styleSheets.removeAll(toRemove)
+        for (sheet in toRemove) {
+            typedNative<BookContainerNativeImpl<*>>()?.removeStyleSheet(sheet)
+        }
+        return true
+    }
+
+    fun hasStyleSheet(styleSheetPath: String): Boolean {
+        val normalized = StyleSheetRegistry.normalizePath(styleSheetPath)
+        if (normalized.isEmpty()) return false
+        return _styleSheets.any {
+            val src = StyleSheetRegistry.normalizePath(it.sourcePath)
+            val css = StyleSheetRegistry.normalizePath(it.cssResourcePath)
+            val name = StyleSheetRegistry.normalizePath(it.name)
+            src == normalized || css == normalized || name == normalized
+        }
+    }
+
+    fun hasStyleSheet(styleSheetResourceId: ResourceID): Boolean {
+        val registered = StyleSheetRegistry.resolveByResourceId(styleSheetResourceId)
+            ?: Resources.getStyleSheet(styleSheetResourceId)
+        if (registered != null && registered in _styleSheets) return true
+        val uri = StyleSheetRegistry.normalizePath(styleSheetResourceId.toResourceUri())
+        val relPath = StyleSheetRegistry.normalizePath(styleSheetResourceId.relativePath)
+        return _styleSheets.any {
+            val src = StyleSheetRegistry.normalizePath(it.sourcePath)
+            val css = StyleSheetRegistry.normalizePath(it.cssResourcePath)
+            val name = StyleSheetRegistry.normalizePath(it.name)
+            src == uri ||
+                (relPath.isNotEmpty() && (src == relPath || css == relPath)) ||
+                name == StyleSheetRegistry.normalizePath(styleSheetResourceId.name)
+        }
+    }
+
+    fun hasStyleSheet(styleSheet: PrecompiledStyleSheet): Boolean {
+        val normSource = StyleSheetRegistry.normalizePath(styleSheet.sourcePath)
+        return _styleSheets.any {
+            it === styleSheet ||
+                (normSource.isNotEmpty() && StyleSheetRegistry.normalizePath(it.sourcePath) == normSource)
+        }
+    }
+
+    fun clearStyleSheets() {
+        _styleSheets.clear()
+        typedNative<BookContainerNativeImpl<*>>()?.clearStyleSheets()
+    }
+
+    fun getStyleSheets(): List<PrecompiledStyleSheet> = _styleSheets.toList()
+
+    private fun createFallbackStyleSheet(sourcePath: String): PrecompiledStyleSheet {
+        val emptyCss = CssStyleSheet.empty()
+        val logicalName = sourcePath.substringAfterLast('/').substringBeforeLast('.').ifBlank { "StyleSheet" }
+        return object : PrecompiledStyleSheet {
+            override val name: String = logicalName
+            override val sourcePath: String = sourcePath
+            override val cssResourcePath: String = sourcePath
+            override val styleSheet: CssStyleSheet = emptyCss
+            override val rawCss: String = ""
+        }
     }
 
     /**
@@ -100,6 +238,9 @@ open class BookContainer(
             marginMm = marginMm
         )
         block?.invoke(page)
+        for (sheet in _styleSheets) {
+            page.applyPrecompiledStyleSheet(sheet)
+        }
         _pages.add(page)
         addChild(page)
         return page
@@ -156,5 +297,8 @@ open class BookContainer(
         val impl = typedNative<BookContainerNativeImpl<*>>() ?: return
         impl.setPageSize(pageSize, orientation, marginMm)
         impl.setDocumentTitle(documentTitle)
+        for (sheet in _styleSheets) {
+            impl.addStyleSheet(sheet)
+        }
     }
 }

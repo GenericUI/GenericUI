@@ -134,7 +134,7 @@ data class StyledVisualSpec(
 
         private fun resolveComponentStylePadding(componentStyle: ComponentStyle?): EdgeInsets? {
             if (componentStyle == null) return null
-            val base = componentStyle.paddingPx
+            val base = componentStyle.getPadding()?.toEdgeInsets()
             val top = resolveAbsolutePxInt(componentStyle.paddingTop)
             val right = resolveAbsolutePxInt(componentStyle.paddingRight)
             val bottom = resolveAbsolutePxInt(componentStyle.paddingBottom)
@@ -152,12 +152,11 @@ data class StyledVisualSpec(
 
         private fun resolveComputedStylePadding(computed: ComputedStyle?): EdgeInsets? {
             if (computed == null) return null
-            val raw = computed.rawDeclarations
-            val base = CssEdgeLengths.parse(raw["padding"])?.toEdgeInsets()
-            val top = parseCssPxInt(raw["padding-top"]) ?: parseCssPxInt(raw["padding-block"])
-            val right = parseCssPxInt(raw["padding-right"]) ?: parseCssPxInt(raw["padding-inline"])
-            val bottom = parseCssPxInt(raw["padding-bottom"]) ?: parseCssPxInt(raw["padding-block"])
-            val left = parseCssPxInt(raw["padding-left"]) ?: parseCssPxInt(raw["padding-inline"])
+            val base = computed.padding?.toEdgeInsets()
+            val top = resolveAbsolutePxInt(computed.paddingTop)
+            val right = resolveAbsolutePxInt(computed.paddingRight)
+            val bottom = resolveAbsolutePxInt(computed.paddingBottom)
+            val left = resolveAbsolutePxInt(computed.paddingLeft)
             if (base == null && top == null && right == null && bottom == null && left == null) {
                 return null
             }
@@ -189,28 +188,29 @@ data class StyledVisualSpec(
         fun fromComputedStyle(computed: ComputedStyle?): StyledVisualSpec? {
             if (computed == null) return null
             val borderStyleEnum = CssBorderStyle.fromCss(computed.borderStyle)
-            val outlineRaw = computed.rawDeclarations["outline"] ?: computed.rawDeclarations["box-shadow"]
-            val parsedFocusRingColor = outlineRaw?.let { raw ->
-                Regex("(rgba?\\([^)]+\\)|#[0-9a-fA-F]{3,8})").find(raw)?.value?.let { RgbaColor.fromCss(it) }
-            }
-            val parsedFocusRingWidth = outlineRaw?.let { raw ->
-                Regex("(\\d+(?:\\.\\d+)?)px").find(raw)?.groupValues?.getOrNull(1)?.toFloatOrNull()
-            }
+            val parsedFocusRingColor = computed.focusRingColor
+                ?: computed.outlineColor
+                ?: computed.boxShadow?.let { raw ->
+                    Regex("(rgba?\\([^)]+\\)|#[0-9a-fA-F]{3,8})").find(raw)?.value?.let { RgbaColor.fromCss(it) }
+                }
+            val parsedFocusRingWidth = computed.focusRingWidthPx
+                ?: computed.outlineWidthPx
+                ?: computed.boxShadow?.let { raw ->
+                    Regex("(\\d+(?:\\.\\d+)?)px").find(raw)?.groupValues?.getOrNull(1)?.toFloatOrNull()
+                }
             val parsedPadding = resolveComputedStylePadding(computed)
-            val parsedWidthPx = parseCssPxInt(computed.width ?: computed.rawDeclarations["width"])
-            val parsedHeightPx = parseCssPxInt(computed.height ?: computed.rawDeclarations["height"])
-            val parsedMinWidthPx = parseCssPxInt(computed.minWidth ?: computed.rawDeclarations["min-width"])
-            val parsedMinHeightPx = parseCssPxInt(computed.minHeight ?: computed.rawDeclarations["min-height"])
-            val parsedGapPx = parseCssPxInt(computed.rawDeclarations["gap"] ?: computed.rawDeclarations["column-gap"])
+            val parsedWidthPx = parseCssPxInt(computed.width)
+            val parsedHeightPx = parseCssPxInt(computed.height)
+            val parsedMinWidthPx = parseCssPxInt(computed.minWidth)
+            val parsedMinHeightPx = parseCssPxInt(computed.minHeight)
+            val parsedGapPx = resolveAbsolutePxInt(computed.gap ?: computed.columnGap)
 
-            val rawBackdropCss = computed.rawDeclarations["backdrop-filter"]
-                ?: computed.rawDeclarations["-webkit-backdrop-filter"]
-            val parsedBackdropFilter = CssFilter.parse(rawBackdropCss)
-            val parsedBackdropBlurPx = parseBackdropBlurPx(parsedBackdropFilter, rawBackdropCss)
-            val parsedFilter = computed.filter ?: CssFilter.parse(computed.rawDeclarations["filter"])
+            val parsedBackdropFilter = computed.backdropFilter
+            val parsedBackdropBlurPx = parseBackdropBlurPx(parsedBackdropFilter, null)
+            val parsedFilter = computed.filter
 
-            val rawBoxShadow = computed.boxShadow ?: computed.rawDeclarations["box-shadow"]
-            val parsedShadow = CssShadowList.parse(rawBoxShadow)?.shadows?.firstOrNull()
+            val rawBoxShadow = computed.boxShadow
+            val parsedShadow = (computed.boxShadowList ?: CssShadowList.parse(rawBoxShadow))?.shadows?.firstOrNull()
             val parsedShadowColor = parsedShadow?.color
             val parsedShadowBlurPx = parsedShadow?.blurRadius?.resolvePx()
 
@@ -221,7 +221,8 @@ data class StyledVisualSpec(
                 computed.borderWidthPx != null ||
                 borderStyleEnum != null ||
                 computed.borderRadiusPx != null ||
-                "opacity" in computed.rawDeclarations ||
+                computed.hasProperty(CssProperty.OPACITY) ||
+                computed.opacity != 1.0f ||
                 parsedPadding != null ||
                 parsedWidthPx != null ||
                 parsedHeightPx != null ||
@@ -243,7 +244,7 @@ data class StyledVisualSpec(
                 borderWidthPx = computed.borderWidthPx,
                 borderStyle = borderStyleEnum,
                 borderRadiusPx = computed.borderRadiusPx,
-                opacity = if ("opacity" in computed.rawDeclarations || computed.opacity != 1.0f) computed.opacity else null,
+                opacity = if (computed.hasProperty(CssProperty.OPACITY) || computed.opacity != 1.0f) computed.opacity else null,
                 padding = parsedPadding,
                 widthPx = parsedWidthPx,
                 heightPx = parsedHeightPx,
@@ -314,7 +315,7 @@ data class StyledVisualSpec(
                 ?: snapshotRadiusPx
 
             val resolvedOpacity = componentStyle?.opacity
-                ?: if (computedStyle != null && ("opacity" in computedStyle.rawDeclarations || computedStyle.opacity != 1.0f)) {
+                ?: if (computedStyle != null && (computedStyle.hasProperty(CssProperty.OPACITY) || computedStyle.opacity != 1.0f)) {
                     computedStyle.opacity
                 } else {
                     snapshot?.opacity?.alpha
@@ -325,23 +326,24 @@ data class StyledVisualSpec(
                 ?: resolveSnapshotPadding(snapshot)
 
             val resolvedWidthPx = resolveAbsolutePxInt(componentStyle?.width)
-                ?: parseCssPxInt(computedStyle?.width ?: computedStyle?.rawDeclarations?.get("width"))
+                ?: parseCssPxInt(computedStyle?.width)
 
             val resolvedHeightPx = resolveAbsolutePxInt(componentStyle?.height)
-                ?: parseCssPxInt(computedStyle?.height ?: computedStyle?.rawDeclarations?.get("height"))
+                ?: parseCssPxInt(computedStyle?.height)
 
             val resolvedMinWidthPx = resolveAbsolutePxInt(componentStyle?.minWidth)
-                ?: parseCssPxInt(computedStyle?.minWidth ?: computedStyle?.rawDeclarations?.get("min-width"))
+                ?: parseCssPxInt(computedStyle?.minWidth)
 
             val resolvedMinHeightPx = resolveAbsolutePxInt(componentStyle?.minHeight)
-                ?: parseCssPxInt(computedStyle?.minHeight ?: computedStyle?.rawDeclarations?.get("min-height"))
+                ?: parseCssPxInt(computedStyle?.minHeight)
 
             val resolvedGapPx = resolveAbsolutePxInt(componentStyle?.gap ?: componentStyle?.columnGap)
-                ?: parseCssPxInt(computedStyle?.rawDeclarations?.get("gap") ?: computedStyle?.rawDeclarations?.get("column-gap"))
+                ?: resolveAbsolutePxInt(computedStyle?.gap ?: computedStyle?.columnGap)
                 ?: (snapshot?.gap ?: snapshot?.columnGap)?.toPixels()
 
-            val rawBoxShadow = computedStyle?.boxShadow ?: computedStyle?.rawDeclarations?.get("box-shadow")
+            val rawBoxShadow = computedStyle?.boxShadow
             val firstShadow = componentStyle?.boxShadow?.shadows?.firstOrNull()
+                ?: computedStyle?.boxShadowList?.shadows?.firstOrNull()
                 ?: CssShadowList.parse(rawBoxShadow)?.shadows?.firstOrNull()
             val snapshotShadowBlur = when (snapshot?.shadow) {
                 ShadowElevation.NONE -> 0f
@@ -354,14 +356,11 @@ data class StyledVisualSpec(
                 ?: if ((snapshotShadowBlur ?: 0f) > 0f) RgbaColor(0, 0, 0, 0.35f) else null
             val resolvedShadowBlur = firstShadow?.blurRadius?.resolvePx() ?: snapshotShadowBlur
 
-            val rawBackdropCss = computedStyle?.rawDeclarations?.get("backdrop-filter")
-                ?: computedStyle?.rawDeclarations?.get("-webkit-backdrop-filter")
             val resolvedBackdropFilter = componentStyle?.backdropFilter
-                ?: CssFilter.parse(rawBackdropCss)
-            val resolvedBackdropBlurPx = parseBackdropBlurPx(resolvedBackdropFilter, rawBackdropCss)
+                ?: computedStyle?.backdropFilter
+            val resolvedBackdropBlurPx = parseBackdropBlurPx(resolvedBackdropFilter, null)
             val resolvedFilter = componentStyle?.filter
                 ?: computedStyle?.filter
-                ?: CssFilter.parse(computedStyle?.rawDeclarations?.get("filter"))
 
             return StyledVisualSpec(
                 backgroundColor = resolvedBg,

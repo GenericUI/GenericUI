@@ -18,6 +18,9 @@ open class Label(
         htmlTag = tagName
     }
 
+    override val acceptsTypographyComponentStyles: Boolean
+        get() = true
+
     var textRes: ResourceID? = null
         private set
 

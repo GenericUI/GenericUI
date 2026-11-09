@@ -672,6 +672,12 @@ abstract class GenericUiSassCompileTask : DefaultTask() {
             appendLine()
             appendLine("    override val ruleSet: BlinkRuleBucketMap = BlinkRuleBucketMap.fromCompiledStyleRules(compiledRules)")
             appendLine()
+            appendLine("    fun install(app: IApplication) {")
+            appendLine("        BlinkStyleEngine.registerStyleSheet(this)")
+            appendLine("        StyleSheetRegistry.register(name, cssResourcePath, this)")
+            appendLine("        attachTo(app)")
+            appendLine("    }")
+            appendLine()
             appendLine("    init {")
             appendLine("        BlinkStyleEngine.registerStyleSheet(this)")
             appendLine("        StyleSheetRegistry.register(name, cssResourcePath, this)")
@@ -851,9 +857,9 @@ abstract class GenericUiSassCompileTask : DefaultTask() {
             "font-weight" -> emitFontWeightStmt(cleanVal, isImp)?.let { out.add(it) }
             "font-style" -> emitFontStyleEnum(cleanVal)?.let { out.add("setFontStyle($it, $isImp)") }
             "font-family" -> {
-                val families = cleanVal.split(",").map { it.trim().trim('\'', '"') }.filter { it.isNotEmpty() }
-                if (families.isNotEmpty()) {
-                    out.add("setFontFamily(CssFontFamily(listOf(${families.joinToString(", ") { escapeKotlinString(it) }})), $isImp)")
+                val cleanedFontFamily = cleanVal.trim()
+                if (cleanedFontFamily.isNotEmpty()) {
+                    out.add("CssFontFamily.parse(${escapeKotlinString(cleanedFontFamily)})?.let { setFontFamily(it, $isImp) }")
                 }
             }
             "line-height" -> emitLengthExpr(cleanVal)?.let { out.add("setLineHeight($it, $isImp)") }
@@ -1452,13 +1458,17 @@ abstract class GenericUiSassCompileTask : DefaultTask() {
         return ids * 10000 + classes * 100 + elements
     }
 
-    private fun toPascalIdentifier(raw: String): String {
-        val parts = raw.split(Regex("[^a-zA-Z0-9]+")).filter { it.isNotEmpty() }
-        if (parts.isEmpty()) return "Generated"
-        val joined = parts.joinToString("") { part ->
-            part.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
+    private fun toPascalIdentifier(raw: String): String = Companion.toPascalIdentifier(raw)
+
+    companion object {
+        internal fun toPascalIdentifier(raw: String): String {
+            val parts = raw.split(Regex("[^a-zA-Z0-9]+")).filter { it.isNotEmpty() }
+            if (parts.isEmpty()) return "Generated"
+            val joined = parts.joinToString("") { part ->
+                part.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
+            }
+            return if (joined.first().isDigit()) "Style$joined" else joined
         }
-        return if (joined.first().isDigit()) "Style$joined" else joined
     }
 
     private fun escapeKotlinString(value: String): String = buildString {

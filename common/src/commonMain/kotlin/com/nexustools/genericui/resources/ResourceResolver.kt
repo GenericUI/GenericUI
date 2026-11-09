@@ -2,6 +2,7 @@ package com.nexustools.genericui.resources
 
 import com.nexustools.genericui.core.GenericUI
 import com.nexustools.genericui.image.ImageBuffer
+import com.nexustools.genericui.image.ImageDecodeOptions
 import com.nexustools.genericui.image.ImageLoader
 import com.nexustools.genericui.io.ByteBuffer
 import com.nexustools.genericui.io.Readable
@@ -73,10 +74,19 @@ object ResourceResolver {
     suspend fun openStream(resId: ResourceID): Readable? =
         openReadable(resId)
 
-    fun getImageBuffer(resId: ResourceID): ImageBuffer? {
+    fun getImageBuffer(
+        resId: ResourceID,
+        options: ImageDecodeOptions = ImageDecodeOptions()
+    ): ImageBuffer? {
+        runCatching {
+            val loaded = ImageLoader.load(resId, options)
+            if (loaded.width > 0 && loaded.height > 0) {
+                return loaded
+            }
+        }
         val bytes = getBytes(resId) ?: return null
         if (bytes.isEmpty()) return null
-        return ImageLoader.loadFromBytes(bytes)
+        return ImageLoader.loadFromBytes(bytes, options)
     }
 
     fun getDrawable(resId: ResourceID): DrawableResource? =

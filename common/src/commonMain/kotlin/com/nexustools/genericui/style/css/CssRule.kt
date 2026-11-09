@@ -140,13 +140,13 @@ data class CssRule(
 
     companion object {
         internal val NOT_DISABLED_REGEX =
-            Regex(":not\\(\\s*(?::disabled|\\[\\s*disabled(?:\\s*=[^]]*)?\\s*\\]|\\.disabled)\\s*\\)", RegexOption.IGNORE_CASE)
+            Regex(":not\\(\\s*(?::disabled|\\[\\s*disabled(?:\\s*=[^\\]]*)?\\s*\\]|\\.disabled)\\s*\\)", RegexOption.IGNORE_CASE)
         internal val NOT_PSEUDO_REGEX =
             Regex(":not\\([^)]*\\)", RegexOption.IGNORE_CASE)
         internal val DISABLED_ATTR_REGEX =
-            Regex("\\[\\s*disabled(?:\\s*=[^]]*)?\\s*\\]", RegexOption.IGNORE_CASE)
+            Regex("\\[\\s*disabled(?:\\s*=[^\\]]*)?\\s*\\]", RegexOption.IGNORE_CASE)
         internal val DISABLED_PSEUDO_OR_ATTR_REGEX =
-            Regex("(?::disabled\\b|\\[\\s*disabled(?:\\s*=[^]]*)?\\s*\\])", RegexOption.IGNORE_CASE)
+            Regex("(?::disabled\\b|\\[\\s*disabled(?:\\s*=[^\\]]*)?\\s*\\])", RegexOption.IGNORE_CASE)
         private val PSEUDO_CLASS_REGEX =
             Regex("(?<!\\\\):(hover|focus-visible|focus|active|visited|disabled|checked|first-child|last-child|nth-child\\([^)]*\\))\\b", RegexOption.IGNORE_CASE)
         private val COMBINATOR_SPLIT_REGEX = Regex("[\\s>+~]+")

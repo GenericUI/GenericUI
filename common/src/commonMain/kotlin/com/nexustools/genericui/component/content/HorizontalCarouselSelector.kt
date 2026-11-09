@@ -85,7 +85,7 @@ open class HorizontalCarouselSelector : VStack() {
         val entry = entries.firstOrNull { it.id == id } ?: return
         entry.scaleRatio = ratio.coerceIn(0.1f, 2.0f)
         val pct = (entry.scaleRatio * 100f).toInt()
-        entry.container.setStyleProperty("height", "$pct%")
+        entry.container.getStyle().setHeight(com.nexustools.genericui.style.css.CssLength.percent(pct))
     }
 
     fun setActiveEntryIndex(index: Int) {

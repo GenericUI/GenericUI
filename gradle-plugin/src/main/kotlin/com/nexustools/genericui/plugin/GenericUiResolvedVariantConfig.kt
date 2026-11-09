@@ -22,6 +22,9 @@ data class GenericUiResolvedVariantConfig(
     val fullscreen: Boolean = false,
     val themeMode: String = "auto",
     val themeColor: String = "#0d6efd",
+    val lightThemeColors: Map<String, String> = GenericUiThemeConfig.defaultLightColors(themeColor),
+    val darkThemeColors: Map<String, String> = GenericUiThemeConfig.defaultDarkColors(themeColor),
+    val hasCustomThemeOverrides: Boolean = false,
     val iconPath: String? = null,
     val globalStyleSheet: String? = null,
     val extensionOverrides: Map<String, Boolean> = emptyMap()

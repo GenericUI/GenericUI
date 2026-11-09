@@ -35,15 +35,20 @@ Designed to power professional desktop, mobile, and web applications from a **si
    - **`:desktop:gtk` & `:desktop:qt`**: Compiles and resolves via `GResource` (`g_resources_lookup_data`) and `QResource` (`:/genericui/...`).
    - **`:desktop:swing`**: Resolves from the JVM JAR classpath (`ClassLoader.getResourceAsStream`).
    - **Custom Cursors (`CssCustomCursor`)**: [`CssCustomCursor`](./common/src/commonMain/kotlin/com/nexustools/genericui/style/css/CssCustomCursor.kt) accepts PNG `ResourceID`s, SVG `ResourceID`s, inline SVG markup, or `ImageBuffer`s with `(hotspotX, hotspotY)` and a `CssCursor` fallback, automatically translating to `.cur` on Windows and `NSCursor` on macOS.
-6. **`ComponentStyle` (`getStyle()`), `ComponentBootstrap` (`getBootstrap()`), Native `UxTheme` Controls, & Precompiled `.scss` Stylesheets**
-   - **`component.getStyle(): ComponentStyle`**: Strongly-typed W3C inline CSS properties ([`ComponentStyle`](./common/src/commonMain/kotlin/com/nexustools/genericui/style/css/ComponentStyle.kt)) accepting typed CSS enums/value classes and `null` to clear, with per-property `important = true` (`!important`) support, standard `accentColor` (`accent-color`), and **zero** pseudo-states on inline `ComponentStyle` (pseudo-classes belong strictly in `.scss` stylesheets).
+6. **Zero-Allocation Strongly-Typed `ComponentStyle` (`getStyle()`), `ComponentBootstrap` (`getBootstrap()`), System Typography vs. Aesthetic Restraints, Native Offscreen Control Tinting, & Precompiled `.scss` Stylesheets**
+   - **Zero String-Keyed Style APIs & Bitmask-Driven `ComponentStyle`**: [`ComponentStyle`](./common/src/commonMain/kotlin/com/nexustools/genericui/style/css/ComponentStyle.kt) (`component.getStyle()`) and [`ComputedStyle`](./common/src/commonMain/kotlin/com/nexustools/genericui/style/css/ComputedStyle.kt) store 100% strongly-typed properties tracked via two 64-bit bitmasks (`activePropertiesBitmaskLow` / `activePropertiesBitmaskHigh`, `importantBitmaskLow` / `importantBitmaskHigh` via [`CssProperty`](./common/src/commonMain/kotlin/com/nexustools/genericui/enums/css/CssProperty.kt)) with **zero** `Map<String, String>` allocation or CSS string formatting on non-web backends. String-keyed style APIs (`setStyleProperty(String, String)`, `getStyleProperty`, `removeStyleProperty`, `clearStyleProperties`, `inlineStyle`, `setRawDeclaration`, `getRawDeclaration`, `fromDeclarations`, `rawDeclarations`) are strictly prohibited in `:common`. On `:web`, [`WebCssStyleTranslator`](./web/src/commonMain/kotlin/com/nexustools/genericui/web/WebCssStyleTranslator.kt) translates `ComponentStyle` and `ComponentBootstrap` into DOM CSS strings automatically.
    - **`component.getBootstrap(): ComponentBootstrap`**: Encapsulates all Bootstrap 5 properties and `Bootstrap*` utility enums ([`ComponentBootstrap`](./common/src/commonMain/kotlin/com/nexustools/genericui/style/bootstrap/ComponentBootstrap.kt): `BootstrapType` defaulting to `BootstrapType.NONE` / `BootstrapType.None`, `BootstrapSize`, `BootstrapWidth`, `BootstrapHeight`, directional `SpacingScale` margins/paddings/gaps including `SpacingScale.AUTO`, `BootstrapBorderWidth`, `BootstrapOpacity`, `BootstrapFontSize`, `BootstrapLineHeight`, `BootstrapFlexGrow`, `BootstrapFlexShrink`, `BootstrapFloat`, `BootstrapUserSelect`, `BootstrapPointerEvents`, `BootstrapObjectFit`, `BootstrapAspectRatio`, `BootstrapVisibility`).
-   - **Strict User CSS Class Isolation**: `addClass`, `removeClass`, `hasClass`, `getClasses()`, and `getClass()` operate strictly on user-added custom classes (`customClasses`), keeping enum-added classes 100% invisible.
-   - **Strict `:extensions:dsl` Isolation**: DSL builder functions (`style { ... }`, `bootstrap { ... }`, `important { ... }`) live exclusively in `:extensions:dsl` ([`DslStyleAndBootstrapBuilders.kt`](./extensions/dsl/src/commonMain/kotlin/com/nexustools/genericui/ext/dsl/DslStyleAndBootstrapBuilders.kt)) and are never part of `:common`.
-   - **Native System Controls vs. `:extensions:alien` Precompiled Bootstrap SCSS**: Native applications **never** use Bootstrap CSS styling—`BootstrapType.NONE` (default) renders the genuine OS system control (Win32 **`UxTheme`** on Windows), semantic `BootstrapType` (`DANGER`, `PRIMARY`, etc.) colors the native control, and unsupported CSS properties on native backends are silently ignored. Conversely, `:extensions:alien` precompiles `bootstrap.scss` into [`AlienPrecompiledBootstrapStyleSheet`](./extensions/alien/common/src/commonMain/kotlin/com/nexustools/genericui/ext/alien/AlienPrecompiledBootstrapStyleSheet.kt) and implements [`IAlien`](./extensions/alien/common/src/commonMain/kotlin/com/nexustools/genericui/ext/alien/IAlien.kt) on `AlienContainer`, `AlienFragment`, `AlienScrollFragment`, & `AlienFragmentHostFragment` (`IAlien.BOOTSTRAP_STYLE_SHEET_ID` active by default and removable via `removeStyleSheet(IAlien.BOOTSTRAP_STYLE_SHEET_ID)`, with `insertApplicationStyleSheets: Int = 1` by default or `-1` to disable application stylesheets), supporting 100% of all CSS properties and transitions.
+   - **System Backend Typography vs. Aesthetic Style Restraints**: On all 7 non-web system targets (`:desktop:windows`, `:desktop:macos`, `:desktop:gtk`, `:desktop:qt`, `:desktop:swing`, `:mobile:android`, `:mobile:ios`), standard UI controls cannot have their aesthetic styles redesigned to look alien without `:extensions:alien` (or `StyledContainer` / `StyledButton`):
+     - **Text / Typography Elements (`Label`, `Text`, `Heading`, `Badge`, `Blockquote`, `CodeBlock`, `MarkdownView`)**: Honor typography and text-color properties (`color` / `textColor`, `fontFamily`, `fontSize`, `fontWeight`, `fontStyle`, `lineHeight`, `letterSpacing`, `textAlign`, `textDecoration`, `textTransform`, `textOverflow`, `whiteSpace`, `wordBreak`, plus `bootstrap.textColorType`, `bootstrap.fontSize`, `bootstrap.fontWeight`, `bootstrap.textAlignment`).
+     - **Buttons, Inputs, Controls, & Standard Containers (`Button`, `IconButton`, `ToggleButton`, `CheckBox`, `RadioButton`, `Switch`, `Select`, `DropdownButton`, `TextField`, `TextArea`, `RangeSlider`, `ProgressBar`, `Spinner`, `TabContainer`, `Tab`, `Container`, `Card`, etc.)**: Aesthetic skinning and typography overrides on `ComponentStyle` (`backgroundColor`, `background`, `color`, `accentColor`, `borderColor`, `borderWidth`, `borderStyle`, `borderRadius`, `boxShadow`, `textShadow`, `filter`, `backdropFilter`, `fontFamily`, `fontSize`, `fontWeight`, `fontStyle`) are **silently ignored** on system backends. Standard components can **ONLY** be tinted via `BootstrapType` (`bootstrap.type`, `bootstrap.backgroundType`, `bootstrap.textColorType`, `bootstrap.borderType`, `bootstrap.outline`).
+     - **[`StyledContainer`](./common/src/commonMain/kotlin/com/nexustools/genericui/component/container/StyledContainer.kt) & [`StyledButton`](./common/src/commonMain/kotlin/com/nexustools/genericui/component/action/StyledButton.kt) (and `:extensions:alien`)**: Honor full `ComponentStyle` aesthetic (`backgroundColor`, `background` gradients, `borderColor`, `borderWidth`, `borderRadius`, `boxShadow`, `opacity`) and typography properties across all 8 backends.
+   - **Native Control Rendering (`BootstrapType.NONE`) vs. Offscreen Empty-Text Sprite + `ThemeConfig` Tint + Text Overlay (`BootstrapType != NONE`)**:
+     - When `BootstrapType == BootstrapType.NONE`: Renders the 100% unmodified genuine native OS component (`uxtheme.dll` / `comctl32.dll` / `user32.dll` on Windows, AppKit on macOS, GTK4 on GTK, Qt6 `QStyle` on Qt, system Look-And-Feel on Swing, Material/AppCompat on Android, UIKit on iOS).
+     - When `BootstrapType != BootstrapType.NONE`: Renders the native OS control **with NO text** into an offscreen ARGB buffer, color-tints the native control pixels via [`DesktopControlTintRenderUtil`](./desktop/nativeCommon/src/commonMain/kotlin/com/nexustools/genericui/desktop/nativecommon/DesktopControlTintRenderUtil.kt) / [`ThemeConfig`](./common/src/commonMain/kotlin/com/nexustools/genericui/style/theme/ThemeConfig.kt) while preserving native 3D bevels, borders, specular highlights, and hover/pressed/disabled states, blits the tinted native control, and renders the contrasting text and icon on top afterward.
+   - **Strict User CSS Class Isolation & `:extensions:dsl` Isolation**: `addClass`, `removeClass`, `hasClass`, `getClasses()`, and `getClass()` operate strictly on user-added custom classes (`customClasses`), keeping enum-added classes 100% invisible. DSL builder functions (`style { ... }`, `bootstrap { ... }`, `important { ... }`) live exclusively in `:extensions:dsl` ([`DslStyleAndBootstrapBuilders.kt`](./extensions/dsl/src/commonMain/kotlin/com/nexustools/genericui/ext/dsl/DslStyleAndBootstrapBuilders.kt)) and are never part of `:common`.
    - **Build-Time `.scss` Precompilation, Local NPM Bootstrap Packaging, `Resources.*` IDs, & `IApplication.addStyleSheet` / `removeStyleSheet`**: `.scss` files in `src/commonMain/resources/**` compile to `Resource.style.<name>` (`R.style.<name>`) backed by typed `PrecompiledStyleSheet` (`CompiledStyleRule`) on non-web and `.css` on `:web`. Instead of a CDN, `:web` packages local NPM Bootstrap (`npm i bootstrap`) bundling `bootstrap.min.css` and `bootstrap.bundle.min.js` directly into resources, and `Resources` provides built-in `Resources.BOOTSTRAP`, `Resources.BOOTSTRAP_JS`, `Resources.BOOTSTRAP_ICONS`, and `Resources.GENERICUI` `ResourceID`s that are mounted in `<head>` (deduplicated against HTML template `<link>` tags, with zero `<link>`, `<style>`, or `<script>` tags inside `<genericui:app>`) and can be removed from an `Application`'s stylesheets via `app.removeStyleSheet(Resources.BOOTSTRAP)` or `app.removeStyleSheet(Resources.GENERICUI)`. `IApplication.addStyleSheet` and `IApplication.removeStyleSheet` live on `IApplication` (NOT `IFragment`), with automatic `app.addStyleSheet(...)` injection in Gradle-generated `main()` when `styles { globalStyleSheet = "..." }` is configured in `build.gradle.kts`.
-7. **`IApplication`, `ThemeMode.AUTO` (Default) 8-Target OS Theme Detection, `getPreferenceStore()`, & `BackendTarget` Group Checks**
-   [`IApplication`](./common/src/commonMain/kotlin/com/nexustools/genericui/component/shell/IApplication.kt) (`app.backendTarget`) exposes [`BackendTarget`](./common/src/commonMain/kotlin/com/nexustools/genericui/enums/system/BackendTarget.kt) (`Windows`, `MacOS`, `Gtk`, `Qt`, `Swing`, `Android`, `IOS`, `Web`) with multi-target group checks (`isSystem`, `isDesktop`, `isNativeDesktop`, `isLinux`, `isMobile`, `isApple`, `isUnix`, `isPosix`, `isNative`, `isJvm`, `isTouchPrimary`, `isBrowser`), application-scoped preferences (`app.getPreferenceStore()`, also accessible on any fragment via `fragment.getPreferenceStore()`), and theming (`setThemeMode(ThemeMode)`, `getThemeMode()`, `getResolvedTheme()`) defaulting to **[`ThemeMode.AUTO`](./common/src/commonMain/kotlin/com/nexustools/genericui/enums/ui/ThemeMode.kt)** (`AUTO`, `DARK`, `LIGHT`) with live 8-target OS dark/light theme detection and `:web` Bootstrap `data-bs-theme="light|dark"` switching.
+7. **`IApplication`, `ThemeMode.AUTO` (Default) 8-Target OS Theme Detection, Unified Cross-Platform `ThemeConfig`, `getPreferenceStore()`, & `BackendTarget` Group Checks**
+   [`IApplication`](./common/src/commonMain/kotlin/com/nexustools/genericui/component/shell/IApplication.kt) (`app.backendTarget`) exposes [`BackendTarget`](./common/src/commonMain/kotlin/com/nexustools/genericui/enums/system/BackendTarget.kt) (`Windows`, `MacOS`, `Gtk`, `Qt`, `Swing`, `Android`, `IOS`, `Web`) with multi-target group checks (`isSystem`, `isDesktop`, `isNativeDesktop`, `isLinux`, `isMobile`, `isApple`, `isUnix`, `isPosix`, `isNative`, `isJvm`, `isTouchPrimary`, `isBrowser`), application-scoped preferences (`app.getPreferenceStore()`, also accessible on any fragment via `fragment.getPreferenceStore()`), and unified theming (`setThemeMode(ThemeMode)`, `getThemeMode()`, `getResolvedTheme()`, `setThemeConfig(ThemeConfig)`, `getThemeConfig()`, `setThemeColor(String?)`) defaulting to **[`ThemeMode.AUTO`](./common/src/commonMain/kotlin/com/nexustools/genericui/enums/ui/ThemeMode.kt)** (`AUTO`, `DARK`, `LIGHT`) with live 8-target OS dark/light theme detection, [`ThemeConfig`](./common/src/commonMain/kotlin/com/nexustools/genericui/style/theme/ThemeConfig.kt) / [`ThemeColorSet`](./common/src/commonMain/kotlin/com/nexustools/genericui/style/theme/ThemeColorSet.kt) / [`BootstrapColorPalette`](./common/src/commonMain/kotlin/com/nexustools/genericui/style/bootstrap/BootstrapColorPalette.kt) semantic palette overrides, automatic Android Material XML generation (`res/values/genericui_theme_colors.xml`, `res/values/themes.xml`, `res/values-night/themes.xml` with `@style/Theme.GenericUI.App`), and `:web` build-time pre-generated `gui/genericui-theme.css` (`<link id="genericui-build-theme-css">`) + runtime `<style id="genericui-runtime-theme-css">` injection + Bootstrap `data-bs-theme="light|dark"` switching.
 8. **7 Hybrid Responsive Layout Components, Fragment Helpers, & `TabbedFragment` Across Desktop, Tablet, Mobile, & Web**
    GenericUI includes 7 responsive layout systems and matching `*Fragment` helpers plus multi-tab `TabbedFragment` chrome adaptation (documented in [**`docs/layouts-and-helpers.md`**](./docs/layouts-and-helpers.md) and [**`docs/fragments-and-windows.md`**](./docs/fragments-and-windows.md)):
    - `HybridColumnLayout` & `HybridColumnFragment` (`HybridColumnSpec`, `HybridFoldMode`, `HybridTabPlacement`, `DynamicFullscreenController`, `HybridFullscreenPolicy` [`DISABLED` default])
@@ -153,8 +158,28 @@ genericui {
     }
 
     theme {
-        mode = "auto"     // Defaults to "auto" (ThemeMode.AUTO); supports "auto", "dark", "light"
-        color = "#2A80FF"
+        mode = "auto"           // Defaults to "auto" (ThemeMode.AUTO); supports "auto", "dark", "light"
+        primaryColor = "#2A80FF"
+        secondaryColor = "#64748B"
+        accentColor = "#2A80FF"
+        successColor = "#10B981"
+        dangerColor = "#EF4444"
+        warningColor = "#F59E0B"
+        infoColor = "#06B6D4"
+        light {
+            backgroundColor = "#F8FAFC"
+            surfaceColor = "#FFFFFF"
+            textPrimaryColor = "#0F172A"
+            textSecondaryColor = "#475569"
+            borderColor = "#E2E8F0"
+        }
+        dark {
+            backgroundColor = "#0F172A"
+            surfaceColor = "#1E293B"
+            textPrimaryColor = "#F8FAFC"
+            textSecondaryColor = "#94A3B8"
+            borderColor = "#334155"
+        }
     }
 
     styles {
@@ -275,10 +300,11 @@ class ProjectDashboardFragment : Fragment() {
                 padding = SpacingScale.S3
                 gap = SpacingScale.S2
             }
-            // 2. Strongly-typed W3C inline CSS style with !important and custom cursor (.cur on Windows, NSCursor on macOS)
+            // 2. Strongly-typed W3C inline CSS style:
+            //    Layout/cursor properties apply on all backends; aesthetic skinning (borderRadius, backgroundColor,
+            //    borderColor, boxShadow) applies on StyledContainer / StyledButton / :extensions:alien / :web
+            //    and is silently ignored on standard containers/controls on system targets:
             getStyle().apply {
-                setBorderRadius(CssCornerRadii.all(12f), important = true)
-                setAccentColor(RgbaColor.fromHex("#2A80FF"))
                 setCursor(
                     CssCustomCursor.fromResource(
                         resourceId = Resource.drawable.cursor_brush,
@@ -289,10 +315,16 @@ class ProjectDashboardFragment : Fragment() {
                 )
             }
 
-            addChild(Heading(Resource.string.welcome_heading.getString(), level = 3))
+            addChild(
+                Heading(Resource.string.welcome_heading.getString(), level = 3).apply {
+                    // Text / Typography elements honor fontFamily, fontSize, fontWeight, fontStyle, color, etc. on all 8 targets:
+                    getStyle().setColor(RgbaColor.fromHex("#2A80FF"), important = true)
+                }
+            )
             addChild(
                 Button("Primary Action").apply {
-                    // BootstrapType.NONE is default (native UxTheme control on Windows); PRIMARY colors native control:
+                    // BootstrapType.NONE is default (renders 100% unmodified genuine OS control);
+                    // PRIMARY renders an empty-text native control sprite, tints pixels via ThemeConfig, and overlays text:
                     getBootstrap().apply {
                         type = BootstrapType.PRIMARY
                         size = BootstrapSize.LG

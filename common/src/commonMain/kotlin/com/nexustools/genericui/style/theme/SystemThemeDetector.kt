@@ -14,6 +14,7 @@ object SystemThemeDetector {
     var overrideDetectedTheme: ThemeMode? = null
     var backendDetector: (() -> ThemeMode)? = null
     var onThemeAppliedHook: ((configuredTheme: ThemeMode, resolvedTheme: ThemeMode) -> Unit)? = null
+    var onThemeConfigChangedHook: ((IApplication, ThemeConfig, ThemeMode) -> Unit)? = null
     var onStyleSheetChangedHook: ((IApplication) -> Unit)? = null
     var fallbackSystemTheme: ThemeMode = ThemeMode.DARK
     private val systemThemeListeners = mutableListOf<(ThemeMode) -> Unit>()

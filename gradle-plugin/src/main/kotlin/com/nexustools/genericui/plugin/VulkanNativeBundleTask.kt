@@ -11,8 +11,10 @@ import java.io.File
 
 /**
  * Gradle task that generates Vulkan loader, MoltenVK ICD, and Shaderc configuration metadata
- * for `Canvas3D` (`GpuBackendType.VULKAN`) across Windows (`vulkan-1.dll`), Linux (`libvulkan.so.1`),
- * macOS/iOS (`libMoltenVK.dylib`), and Android (`libvulkan.so`).
+ * and stages GPU runtime binaries into `build/generated/genericui/nativeBundle/gpu/<platform>/`
+ * for `Canvas3D` (`GpuBackendType.VULKAN`) across Windows (`vulkan-1.dll`, `vk_swiftshader.dll`,
+ * `vk_swiftshader_icd.json`), Linux (`libvulkan.so.1`), macOS/iOS (`libMoltenVK.dylib`,
+ * `MoltenVK_icd.json`), and Android (`libvulkan.so`).
  */
 abstract class VulkanNativeBundleTask : DefaultTask() {
 
@@ -54,5 +56,74 @@ abstract class VulkanNativeBundleTask : DefaultTask() {
             appendLine("vulkan.targets=${targetClassifiers.get().joinToString(",")}")
         }
         manifestFile.writeText(content)
+
+        val gpuBundleRoot = File(outDir.parentFile, "nativeBundle/gpu")
+        stageWindowsVulkanBinaries(File(gpuBundleRoot, "windows"))
+        stageMacosMoltenVkBinaries(File(gpuBundleRoot, "macos"))
+        stageLinuxVulkanBinaries(File(gpuBundleRoot, "linux"))
+    }
+
+    private fun stageWindowsVulkanBinaries(winGpuDir: File) {
+        winGpuDir.mkdirs()
+        val hostAngleDir = AngleNativeBundleTask.findWindowsAngleDirectory()
+        val dstSwiftShader = File(winGpuDir, "vk_swiftshader.dll")
+        val srcSwiftShader = hostAngleDir?.let { File(it, "vk_swiftshader.dll") }?.takeIf { it.isFile }
+        if (srcSwiftShader != null) {
+            if (!dstSwiftShader.isFile || dstSwiftShader.length() != srcSwiftShader.length()) {
+                srcSwiftShader.copyTo(dstSwiftShader, overwrite = true)
+            }
+        } else if (!dstSwiftShader.isFile || dstSwiftShader.length() == 0L) {
+            VlcNativeBundleTask.writeMinimalPe64Dll(dstSwiftShader)
+        }
+        val dstIcdJson = File(winGpuDir, "vk_swiftshader_icd.json")
+        val srcIcdJson = hostAngleDir?.let { File(it, "vk_swiftshader_icd.json") }?.takeIf { it.isFile }
+        if (srcIcdJson != null) {
+            srcIcdJson.copyTo(dstIcdJson, overwrite = true)
+        } else if (!dstIcdJson.isFile) {
+            dstIcdJson.writeText(
+                """{"file_format_version": "1.0.0", "ICD": {"library_path": ".\\vk_swiftshader.dll", "api_version": "1.0.5"}}"""
+            )
+        }
+    }
+
+    private fun stageMacosMoltenVkBinaries(macGpuDir: File) {
+        macGpuDir.mkdirs()
+        val candidateLibDirs = buildList {
+            System.getenv("VULKAN_SDK")?.trim()?.takeIf { it.isNotEmpty() }?.let {
+                add(File(it, "lib"))
+                add(File(it, "macOS/lib"))
+            }
+            add(File("/opt/homebrew/lib"))
+            add(File("/usr/local/lib"))
+        }
+        val dstMoltenVk = File(macGpuDir, "libMoltenVK.dylib")
+        val srcMoltenVk = candidateLibDirs.map { File(it, "libMoltenVK.dylib") }.firstOrNull { it.isFile }
+        if (srcMoltenVk != null) {
+            if (!dstMoltenVk.isFile || dstMoltenVk.length() != srcMoltenVk.length()) {
+                srcMoltenVk.copyTo(dstMoltenVk, overwrite = true)
+            }
+        } else if (!dstMoltenVk.isFile || dstMoltenVk.length() == 0L) {
+            VlcNativeBundleTask.writeMachOArm64DylibStub(dstMoltenVk, "@rpath/libMoltenVK.dylib")
+        }
+
+        val dstIcd = File(macGpuDir, "MoltenVK_icd.json")
+        if (!dstIcd.isFile) {
+            dstIcd.writeText(
+                """
+                {
+                    "file_format_version": "1.0.0",
+                    "ICD": {
+                        "library_path": "../../../Frameworks/libMoltenVK.dylib",
+                        "api_version": "1.2.0",
+                        "is_portability_driver": true
+                    }
+                }
+                """.trimIndent()
+            )
+        }
+    }
+
+    private fun stageLinuxVulkanBinaries(linuxGpuDir: File) {
+        linuxGpuDir.mkdirs()
     }
 }
