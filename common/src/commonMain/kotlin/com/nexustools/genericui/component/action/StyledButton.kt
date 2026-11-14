@@ -19,6 +19,7 @@ import com.nexustools.genericui.style.css.CssEdgeLengths
 import com.nexustools.genericui.style.css.StyledVisualSpec
 import com.nexustools.genericui.style.gradient.Gradient.Gradient
 import com.nexustools.genericui.style.mapper.BootstrapStyleSnapshot
+import com.nexustools.genericui.style.theme.SystemThemeDetector
 
 /**
  * Cross-platform styled button (`<button class="styled-btn">`) extending [Button] with consistent
@@ -373,7 +374,8 @@ open class StyledButton(
     }
 
     fun resolveBaseVisualSpec(): StyledVisualSpec {
-        val isDark = Application.current?.getResolvedTheme() != ThemeMode.LIGHT
+        val effectiveTheme = Application.current?.getResolvedTheme() ?: SystemThemeDetector.detectSystemTheme()
+        val isDark = effectiveTheme != ThemeMode.LIGHT
         val snapshot = getBootstrap().applyToSnapshot(BootstrapStyleSnapshot(componentPrefix = componentClassPrefix))
         val baseSpec = StyledVisualSpec.fromComponentAndComputed(
             componentStyle = getStyle(),
@@ -511,6 +513,16 @@ open class StyledButton(
 
     override fun applyComputedStyle(style: ComputedStyle) {
         super.applyComputedStyle(style)
+        syncVisualsToNative()
+    }
+
+    internal override fun onAfterBootstrapChanged() {
+        super.onAfterBootstrapChanged()
+        syncVisualsToNative()
+    }
+
+    internal override fun onButtonVisualContentChanged() {
+        super.onButtonVisualContentChanged()
         syncVisualsToNative()
     }
 

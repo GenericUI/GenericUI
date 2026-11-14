@@ -39,6 +39,22 @@ abstract class VlcNativeBundleTask : DefaultTask() {
         bundleVlcOnDesktop.convention(true)
         enableVlcHdrToneMapping.convention(true)
         enableVlcHardwareDecode.convention(true)
+        outputs.upToDateWhen {
+            if (!bundleVlcOnDesktop.getOrElse(true)) {
+                true
+            } else {
+                val out = outputDirectory.get().asFile
+                val macPlugins = File(out, "macos/plugins")
+                val hostMacPlugins = File("/Applications/VLC.app/Contents/MacOS/plugins")
+                if (hostMacPlugins.isDirectory) {
+                    File(out, "macos/libvlccore.dylib").isFile &&
+                        File(out, "macos/libvlc.dylib").isFile &&
+                        (macPlugins.listFiles()?.any { it.isFile && it.name.endsWith(".dylib") } == true)
+                } else {
+                    true
+                }
+            }
+        }
     }
 
     @TaskAction
@@ -96,7 +112,9 @@ abstract class VlcNativeBundleTask : DefaultTask() {
     private fun stageMacosVlc(macOutDir: File) {
         macOutDir.mkdirs()
         val dstLibVlc = File(macOutDir, "libvlc.5.dylib")
+        val dstLibVlcUnversioned = File(macOutDir, "libvlc.dylib")
         val dstLibVlcCore = File(macOutDir, "libvlccore.9.dylib")
+        val dstLibVlcCoreUnversioned = File(macOutDir, "libvlccore.dylib")
         val dstPluginsDir = File(macOutDir, "plugins")
 
         val candidateLibDirs = buildList {
@@ -123,16 +141,24 @@ abstract class VlcNativeBundleTask : DefaultTask() {
             val srcVlc = File(foundLibDir, "libvlc.5.dylib").takeIf { it.isFile } ?: File(foundLibDir, "libvlc.dylib")
             val srcCore = File(foundLibDir, "libvlccore.9.dylib").takeIf { it.isFile } ?: File(foundLibDir, "libvlccore.dylib")
             copyFileIfChanged(srcVlc, dstLibVlc)
+            createOrUpdateSymlinkOrCopy(dstLibVlcUnversioned, "libvlc.5.dylib", srcVlc)
             copyFileIfChanged(srcCore, dstLibVlcCore)
-            val srcPlugins = File(foundLibDir.parentFile, "plugins")
-            if (srcPlugins.isDirectory) {
+            createOrUpdateSymlinkOrCopy(dstLibVlcCoreUnversioned, "libvlccore.9.dylib", srcCore)
+            val srcPlugins = listOf(
+                File(foundLibDir.parentFile, "plugins"),
+                File(foundLibDir, "vlc/plugins"),
+                File(foundLibDir, "plugins")
+            ).firstOrNull { it.isDirectory }
+            if (srcPlugins != null) {
                 copyVlcPluginsFiltered(srcPlugins, dstPluginsDir)
             } else {
                 ensureMinimalPluginsDir(dstPluginsDir)
             }
         } else {
             writeMachOArm64DylibStub(dstLibVlcCore, "@rpath/libvlccore.9.dylib")
+            writeMachOArm64DylibStub(dstLibVlcCoreUnversioned, "@rpath/libvlccore.dylib")
             writeMachOArm64DylibStub(dstLibVlc, "@rpath/libvlc.5.dylib")
+            writeMachOArm64DylibStub(dstLibVlcUnversioned, "@rpath/libvlc.dylib")
             ensureMinimalPluginsDir(dstPluginsDir)
         }
     }
@@ -203,19 +229,32 @@ abstract class VlcNativeBundleTask : DefaultTask() {
             "video_output"
         )
 
-        private val EXCLUDED_HEAVY_VLC_PLUGINS: Set<String> = setOf(
-            "libvnc_plugin.dll",
-            "libaccess_srt_plugin.dll",
-            "libdcp_plugin.dll",
-            "liblibbluray_plugin.dll",
-            "libx264_plugin.dll",
-            "libx26410b_plugin.dll",
-            "libx265_plugin.dll",
-            "libcaca_plugin.dll",
-            "libschroedinger_plugin.dll",
-            "libsdl_image_plugin.dll",
-            "libzvbi_plugin.dll"
+        private val EXCLUDED_HEAVY_VLC_PLUGIN_STEMS: Set<String> = setOf(
+            "libvnc_plugin",
+            "libaccess_srt_plugin",
+            "libaccess_output_srt_plugin",
+            "librist_plugin",
+            "libaccess_output_rist_plugin",
+            "libdcp_plugin",
+            "liblibbluray_plugin",
+            "libx264_plugin",
+            "libx26410b_plugin",
+            "libx265_plugin",
+            "libcaca_plugin",
+            "libschroedinger_plugin",
+            "libsdl_image_plugin",
+            "libzvbi_plugin",
+            "libmacosx_plugin",
+            "libqt_plugin",
+            "libskins2_plugin"
         )
+
+        private fun isExcludedVlcPluginFile(file: File): Boolean {
+            val lower = file.name.lowercase()
+            if (lower.endsWith(".jar")) return true
+            val stem = lower.substringBefore('.')
+            return stem in EXCLUDED_HEAVY_VLC_PLUGIN_STEMS
+        }
 
         fun findWindowsVlcDirectory(): File? {
             val candidates = buildList {
@@ -239,9 +278,29 @@ abstract class VlcNativeBundleTask : DefaultTask() {
 
         private fun copyFileIfChanged(src: File, dst: File) {
             if (!src.isFile) return
+            if (java.nio.file.Files.isSymbolicLink(dst.toPath())) {
+                java.nio.file.Files.deleteIfExists(dst.toPath())
+            }
             if (dst.isFile && dst.length() == src.length()) return
             dst.parentFile?.mkdirs()
             src.copyTo(dst, overwrite = true)
+        }
+
+        private fun createOrUpdateSymlinkOrCopy(dstLink: File, targetFileName: String, fallbackSrc: File) {
+            dstLink.parentFile?.mkdirs()
+            val linkPath = dstLink.toPath()
+            val targetPath = java.nio.file.Paths.get(targetFileName)
+            try {
+                if (java.nio.file.Files.isSymbolicLink(linkPath) &&
+                    java.nio.file.Files.readSymbolicLink(linkPath) == targetPath
+                ) {
+                    return
+                }
+                java.nio.file.Files.deleteIfExists(linkPath)
+                java.nio.file.Files.createSymbolicLink(linkPath, targetPath)
+            } catch (_: Throwable) {
+                copyFileIfChanged(fallbackSrc, dstLink)
+            }
         }
 
         private fun copyVlcPluginsFiltered(srcPluginsDir: File, dstPluginsDir: File) {
@@ -250,17 +309,23 @@ abstract class VlcNativeBundleTask : DefaultTask() {
             if (pluginsDat.isFile) {
                 copyFileIfChanged(pluginsDat, File(dstPluginsDir, "plugins.dat"))
             }
-            srcPluginsDir.listFiles()?.forEach { subDir ->
-                if (!subDir.isDirectory || subDir.name !in ESSENTIAL_VLC_PLUGIN_SUBDIRS) return@forEach
-                val targetSubDir = File(dstPluginsDir, subDir.name)
-                targetSubDir.mkdirs()
-                subDir.listFiles()?.forEach { file ->
-                    if (!file.isFile) return@forEach
-                    val lower = file.name.lowercase()
-                    if (lower.endsWith(".jar")) return@forEach
-                    if (lower in EXCLUDED_HEAVY_VLC_PLUGINS) return@forEach
-                    if (GenericUiMultiplatformConfigurator.isExcludedStaticCoreLibrary(file)) return@forEach
-                    copyFileIfChanged(file, File(targetSubDir, file.name))
+            srcPluginsDir.listFiles()?.forEach { entry ->
+                if (entry.isFile) {
+                    // macOS VLC.app stores all *_plugin.dylib modules flat inside Contents/MacOS/plugins/
+                    val lower = entry.name.lowercase()
+                    if (!lower.endsWith(".dylib") && !lower.endsWith(".so") && !lower.endsWith(".dll")) return@forEach
+                    if (isExcludedVlcPluginFile(entry)) return@forEach
+                    if (GenericUiMultiplatformConfigurator.isExcludedStaticCoreLibrary(entry)) return@forEach
+                    copyFileIfChanged(entry, File(dstPluginsDir, entry.name))
+                } else if (entry.isDirectory && entry.name in ESSENTIAL_VLC_PLUGIN_SUBDIRS) {
+                    val targetSubDir = File(dstPluginsDir, entry.name)
+                    targetSubDir.mkdirs()
+                    entry.listFiles()?.forEach { file ->
+                        if (!file.isFile) return@forEach
+                        if (isExcludedVlcPluginFile(file)) return@forEach
+                        if (GenericUiMultiplatformConfigurator.isExcludedStaticCoreLibrary(file)) return@forEach
+                        copyFileIfChanged(file, File(targetSubDir, file.name))
+                    }
                 }
             }
         }

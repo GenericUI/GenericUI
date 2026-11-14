@@ -253,7 +253,13 @@ object ImageCacheManager {
         if (cleanUrl.isEmpty()) return null
 
         cacheDirectory.getCached(cleanUrl)?.let { cached ->
-            if (cached.isNotEmpty()) return cached
+            if (cached.isNotEmpty()) {
+                val cachedBytes = cached.toByteArray()
+                if (!isPoisonedRemoteDrawableEntry(cleanUrl, cachedBytes)) {
+                    return cached
+                }
+                cacheDirectory.evictCachedEntry(cleanUrl)
+            }
         }
 
         val resolvedBytes = resolveBytesWithoutDiskCache(cleanUrl, preferAsync = true) ?: return null
@@ -274,7 +280,12 @@ object ImageCacheManager {
 
         // 1. Check OS CacheDirectory first
         cacheDirectory.getCachedBytes(cleanUrl)?.let { cached ->
-            if (cached.isNotEmpty()) return cached
+            if (cached.isNotEmpty()) {
+                if (!isPoisonedRemoteDrawableEntry(cleanUrl, cached)) {
+                    return cached
+                }
+                cacheDirectory.evictCachedEntry(cleanUrl)
+            }
         }
 
         // 2. Resolve from data URI, Resources, or hooks
@@ -442,6 +453,38 @@ object ImageCacheManager {
         return decodeOrFetchImmediate(cleanUrl)
     }
 
+    private fun isRemoteHttpUrl(url: String): Boolean =
+        url.startsWith("http://", ignoreCase = true) || url.startsWith("https://", ignoreCase = true)
+
+    private fun isExternalUriOrFilesystemPath(urlOrName: String): Boolean {
+        val trimmed = urlOrName.trim()
+        if (trimmed.isEmpty()) return false
+        if (isRemoteHttpUrl(trimmed) ||
+            trimmed.startsWith("file://", ignoreCase = true) ||
+            trimmed.startsWith("blob:", ignoreCase = true) ||
+            trimmed.startsWith("data:", ignoreCase = true) ||
+            trimmed.startsWith("memory://", ignoreCase = true) ||
+            trimmed.startsWith("/")
+        ) {
+            return true
+        }
+        return trimmed.length >= 3 &&
+            trimmed[0].isLetter() &&
+            trimmed[1] == ':' &&
+            (trimmed[2] == '/' || trimmed[2] == '\\')
+    }
+
+    private fun isPoisonedRemoteDrawableEntry(cleanUrl: String, cachedBytes: ByteArray): Boolean {
+        if (!isRemoteHttpUrl(cleanUrl)) return false
+        val cleanNoQuery = cleanUrl.substringBefore('?').substringBefore('#').trim()
+        val baseName = cleanNoQuery.substringAfterLast('/').substringAfterLast('\\').substringBeforeLast('.')
+        if (baseName.isEmpty()) return false
+        val drawable = Resources.getDrawable(baseName) ?: return false
+        val svgBytes = drawable.svgSource?.takeIf { it.isNotBlank() }?.encodeToByteArray()
+        if (svgBytes != null && cachedBytes.contentEquals(svgBytes)) return true
+        return false
+    }
+
     private fun decodeOrFetchImmediate(cleanUrl: String): ByteArray? {
         // Inline data:image/...;base64,... URI
         if (cleanUrl.startsWith("data:", ignoreCase = true)) {
@@ -456,20 +499,19 @@ object ImageCacheManager {
                 }
                 if (bytes.isNotEmpty()) return bytes
             }
+            return null
+        }
+
+        // Remote HTTP / HTTPS URL via urlFetcherHook (never match compiled drawables by URL basename!)
+        if (isRemoteHttpUrl(cleanUrl)) {
+            val fetched = urlFetcherHook?.invoke(cleanUrl)
+            if (fetched != null && fetched.isNotEmpty()) return fetched
+            return null
         }
 
         // Compiled Resources table (e.g. "res://drawable/logo" or "logo.png?2")
         resolveDrawableResourceBytes(cleanUrl)?.let { drawableBytes ->
             if (drawableBytes.isNotEmpty()) return drawableBytes
-        }
-
-        // Remote HTTP / HTTPS URL via urlFetcherHook
-        if (cleanUrl.startsWith("http://", ignoreCase = true) ||
-            cleanUrl.startsWith("https://", ignoreCase = true)
-        ) {
-            val fetched = urlFetcherHook?.invoke(cleanUrl)
-            if (fetched != null && fetched.isNotEmpty()) return fetched
-            return null
         }
 
         // Local file or relative resource path via localResourceReaderHook or urlFetcherHook
@@ -492,6 +534,7 @@ object ImageCacheManager {
     }
 
     private fun resolveDrawableResourceBytes(urlOrName: String): ByteArray? {
+        if (isExternalUriOrFilesystemPath(urlOrName)) return null
         val clean = urlOrName.substringBefore('?').substringBefore('#').trim()
         val baseName = clean.substringAfterLast('/').substringAfterLast('\\').substringBeforeLast('.')
         val drawable = Resources.getDrawable(clean)

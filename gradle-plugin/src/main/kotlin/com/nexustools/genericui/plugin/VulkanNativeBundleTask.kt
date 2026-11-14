@@ -36,6 +36,14 @@ abstract class VulkanNativeBundleTask : DefaultTask() {
     @get:OutputDirectory
     abstract val outputDirectory: DirectoryProperty
 
+    init {
+        outputs.upToDateWhen {
+            val gpuBundleRoot = File(outputDirectory.get().asFile.parentFile, "nativeBundle/gpu")
+            File(gpuBundleRoot, "macos/libMoltenVK.dylib").isFile &&
+                File(gpuBundleRoot, "macos/MoltenVK_icd.json").isFile
+        }
+    }
+
     @TaskAction
     fun generateVulkanBundleManifest() {
         val outDir = outputDirectory.get().asFile

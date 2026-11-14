@@ -213,14 +213,15 @@ open class Window(
         val wImpl = impl as? WindowNativeImpl<*> ?: return
         wImpl.setTitle(titleState)
         minWindowSizeState?.let { wImpl.setMinWindowSize(it) }
-        installNativeWindowResizeForwarder(wImpl)
         wImpl.setWindowSize(sizeState)
-        wImpl.setWindowState(windowStateVal)
         if (fullscreenState || fullscreenElement != null) {
             val target = fullscreenElement ?: contentContainer ?: this
             val elImpl = if (target === this) wImpl else target.ensureNativeImpl()
             wImpl.setFullscreenElement(elImpl, cutoutModeState)
+        } else {
+            wImpl.setWindowState(windowStateVal)
         }
+        installNativeWindowResizeForwarder(wImpl)
         syncTitleBarAndMenuBarToNative(wImpl)
         syncNavBarToNative(wImpl)
         syncBottomNavToNative(wImpl)
@@ -236,7 +237,19 @@ open class Window(
     private fun installNativeWindowResizeForwarder(wImpl: WindowNativeImpl<*>) {
         wImpl.setOnWindowResize { config ->
             sizeState = Size(config.widthPx, config.heightPx)
-            if (!config.isFullscreen && (fullscreenState || fullscreenElement != null)) {
+            if (config.isFullscreen && !fullscreenState) {
+                fullscreenState = true
+                if (fullscreenElement == null) {
+                    val target = contentContainer ?: this
+                    fullscreenElement = target
+                    target.updateFullscreenElementState(true, cutoutModeState)
+                    if (target !== this) {
+                        updateFullscreenElementState(true, cutoutModeState)
+                    }
+                }
+                syncNavBarToNative(wImpl)
+                syncBottomNavToNative(wImpl)
+            } else if (!config.isFullscreen && (fullscreenState || fullscreenElement != null)) {
                 val prev = fullscreenElement
                 fullscreenElement = null
                 fullscreenState = false
@@ -371,6 +384,7 @@ open class Window(
         }
         fullscreenElement = element
         fullscreenState = true
+        windowStateVal = WindowState.FULLSCREEN
         cutoutModeState = cutoutMode
         element.updateFullscreenElementState(true, cutoutMode)
         if (element !== this) {
@@ -388,6 +402,9 @@ open class Window(
         val prev = fullscreenElement
         fullscreenElement = null
         fullscreenState = false
+        if (windowStateVal == WindowState.FULLSCREEN) {
+            windowStateVal = WindowState.NORMAL
+        }
         prev?.updateFullscreenElementState(false, cutoutModeState)
         updateFullscreenElementState(false, cutoutModeState)
         winImpl?.let { impl ->

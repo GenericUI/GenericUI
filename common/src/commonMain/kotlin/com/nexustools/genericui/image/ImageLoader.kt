@@ -506,29 +506,58 @@ object ImageLoader {
                     }
                 }
 
-                activeNativeCodec?.decode(source, options)?.let { nativeDecoded ->
+                val isRemoteHttpSource = source.encodedBytes == null &&
+                    !uri.isNullOrEmpty() &&
+                    (uri.startsWith("http://", ignoreCase = true) || uri.startsWith("https://", ignoreCase = true))
+                val prefetchedRemoteBytes = if (isRemoteHttpSource && uri != null) {
+                    ImageCacheManager.fetchAndCacheBuffer(uri)?.toByteArray()
+                        ?: ImageCacheManager.fetchAndCacheBytes(uri)
+                } else {
+                    null
+                }
+                if (isRemoteHttpSource && (prefetchedRemoteBytes == null || prefetchedRemoteBytes.isEmpty())) {
+                    val fallbackW = options.targetWidth ?: 64
+                    val fallbackH = options.targetHeight ?: 64
+                    return@withPermit ImageBuffer(fallbackW, fallbackH, options.preferredPixelFormat)
+                }
+                val decodeSource = if (prefetchedRemoteBytes != null) {
+                    ImageSource.fromBytes(prefetchedRemoteBytes)
+                } else {
+                    source
+                }
+
+                activeNativeCodec?.decode(decodeSource, options)?.let { nativeDecoded ->
                     val result = applyPostDecodeOptions(nativeDecoded, options)
                     if (!isWebBrowserManaged) {
                         if (weakCacheKey != null) trackWeakImageReference(weakCacheKey, result)
                         if (!uri.isNullOrEmpty() && !hasCustomSize) {
-                            ImageCacheManager.putInCache(uri, result)
+                            if (prefetchedRemoteBytes != null) {
+                                ImageCacheManager.putInCache(uri, prefetchedRemoteBytes, result)
+                            } else {
+                                ImageCacheManager.putInCache(uri, result)
+                            }
                         }
                     }
                     return@withPermit result
                 }
 
-                platformDecoderHook?.invoke(source, options)?.let { hookDecoded ->
+                platformDecoderHook?.invoke(decodeSource, options)?.let { hookDecoded ->
                     val result = applyPostDecodeOptions(hookDecoded, options)
                     if (!isWebBrowserManaged) {
                         if (weakCacheKey != null) trackWeakImageReference(weakCacheKey, result)
                         if (!uri.isNullOrEmpty() && !hasCustomSize) {
-                            ImageCacheManager.putInCache(uri, result)
+                            if (prefetchedRemoteBytes != null) {
+                                ImageCacheManager.putInCache(uri, prefetchedRemoteBytes, result)
+                            } else {
+                                ImageCacheManager.putInCache(uri, result)
+                            }
                         }
                     }
                     return@withPermit result
                 }
 
-                val bytes = source.encodedBytes
+                val bytes = prefetchedRemoteBytes
+                    ?: source.encodedBytes
                     ?: resolveResourceBytes(source, uri)
                     ?: uri?.let { pathOrUrl ->
                         ImageCacheManager.fetchAndCacheBuffer(pathOrUrl)?.toByteArray()
@@ -686,7 +715,25 @@ object ImageLoader {
         return loaderScope.launch {
             try {
                 val decoded = loadAsync(source, options)
+                val isExternalFetch = !isWebBrowserManaged &&
+                    source.encodedBytes == null &&
+                    source.resId == null &&
+                    source.memoryBuffer == null &&
+                    !uri.isNullOrEmpty() &&
+                    (uri.startsWith("http://", ignoreCase = true) ||
+                        uri.startsWith("https://", ignoreCase = true) ||
+                        uri.startsWith("file://", ignoreCase = true))
+                if (isExternalFetch &&
+                    weakCacheKey != null &&
+                    getWeakImageReference(weakCacheKey) == null &&
+                    !ImageCacheManager.isCached(uri!!)
+                ) {
+                    onError(IllegalStateException("Failed to load image from $uri"))
+                    return@launch
+                }
                 onLoaded(decoded)
+            } catch (ce: kotlinx.coroutines.CancellationException) {
+                throw ce
             } catch (t: Throwable) {
                 onError(t)
             }
@@ -830,6 +877,17 @@ object ImageLoader {
             Resources.activeTable.getRawBytes(id)?.takeIf { it.isNotEmpty() }?.let { return it }
         }
         val clean = uri?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+        if (clean.startsWith("http://", ignoreCase = true) ||
+            clean.startsWith("https://", ignoreCase = true) ||
+            clean.startsWith("file://", ignoreCase = true) ||
+            clean.startsWith("blob:", ignoreCase = true) ||
+            clean.startsWith("data:", ignoreCase = true) ||
+            clean.startsWith("memory://", ignoreCase = true) ||
+            clean.startsWith("/") ||
+            (clean.length >= 3 && clean[0].isLetter() && clean[1] == ':' && (clean[2] == '/' || clean[2] == '\\'))
+        ) {
+            return null
+        }
         Resources.activeTable.findResourceId(ResourceType.DRAWABLE, clean)?.let { id ->
             ResourceResolver.getBytes(id)?.takeIf { it.isNotEmpty() }?.let { return it }
             Resources.activeTable.getRawBytes(id)?.takeIf { it.isNotEmpty() }?.let { return it }

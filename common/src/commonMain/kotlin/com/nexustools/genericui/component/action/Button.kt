@@ -127,11 +127,14 @@ open class Button(
     /**
      * Controls whether button [image] / SVG [icon] drawables are automatically tinted to match the active theme.
      */
+    internal open fun onButtonVisualContentChanged() {}
+
     var tintImageToTheme: Boolean = true
         set(value) {
             field = value
             image?.setMonocolorThemeRecolor(value)
             typedNative<ButtonNativeImpl<*>>()?.setIcon(icon)
+            onButtonVisualContentChanged()
         }
 
     /**
@@ -158,6 +161,7 @@ open class Button(
             }
             notifyParentCacheDirty()
             typedNative<ButtonNativeImpl<*>>()?.setIcon(icon)
+            onButtonVisualContentChanged()
         }
 
     fun setText(resId: ResourceID, vararg formatArgs: Any) {
@@ -236,6 +240,7 @@ open class Button(
                 field = value
                 notifyParentCacheDirty()
                 typedNative<ButtonNativeImpl<*>>()?.setIcon(value)
+                onButtonVisualContentChanged()
             }
         }
 

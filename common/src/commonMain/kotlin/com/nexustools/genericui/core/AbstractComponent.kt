@@ -246,22 +246,34 @@ abstract class AbstractComponent(
         if (factory != null && !factory.ignoresAestheticStylesOnStandardComponents) {
             return true
         }
-        var curr = parent
+        var curr: AbstractComponent? = this
         while (curr != null) {
-            if (curr.isHostedInCustomStyleEngine()) return true
+            val prefix = curr.componentClassPrefix
+            if (prefix.contains("unalien", ignoreCase = true)) {
+                return false
+            }
+            if (curr.getAttribute("data-style-engine") == "custom" ||
+                prefix.contains("alien", ignoreCase = true)
+            ) {
+                return true
+            }
             curr = curr.parent
         }
         return false
     }
 
-    internal fun shouldFilterAestheticStylesForSystemBackend(): Boolean {
-        val factory = resolveActiveFactory() ?: GenericUI.activeFactory ?: return false
+    internal fun shouldFilterAestheticStylesForSystemBackend(
+        resolvedFactory: NativeFactory? = resolveActiveFactory() ?: GenericUI.activeFactory
+    ): Boolean {
+        val factory = resolvedFactory ?: return false
         if (!factory.ignoresAestheticStylesOnStandardComponents) return false
         return !isHostedInCustomStyleEngine()
     }
 
-    internal fun effectiveComponentStyle(): ComponentStyle {
-        return if (shouldFilterAestheticStylesForSystemBackend()) {
+    internal fun effectiveComponentStyle(
+        filterSystem: Boolean = shouldFilterAestheticStylesForSystemBackend()
+    ): ComponentStyle {
+        return if (filterSystem) {
             componentStyleInstance.copyFilteredForSystemComponent(
                 allowTypography = acceptsTypographyComponentStyles,
                 allowAestheticSkin = acceptsAestheticSkinComponentStyles
@@ -276,7 +288,7 @@ abstract class AbstractComponent(
         val activeFactory = resolveActiveFactory() ?: GenericUI.activeFactory
         val engineEnabled = activeFactory?.isStyleSheetEngineEnabled ?: true
         val rawSheetBase = if (engineEnabled) resolveOrGetCachedSheetBaseStyle() else null
-        val filterSystem = shouldFilterAestheticStylesForSystemBackend()
+        val filterSystem = shouldFilterAestheticStylesForSystemBackend(activeFactory)
         val sheetBase = if (filterSystem && rawSheetBase != null) {
             rawSheetBase.copyFilteredForSystemComponent(
                 allowTypography = acceptsTypographyComponentStyles,
@@ -285,7 +297,7 @@ abstract class AbstractComponent(
         } else {
             rawSheetBase
         }
-        val effectiveStyle = effectiveComponentStyle()
+        val effectiveStyle = effectiveComponentStyle(filterSystem)
         val currentBase = computedStyleState ?: sheetBase ?: ComputedStyle.EMPTY
         val updatedRaw = effectiveStyle.applySinglePropertyToComputed(property, currentBase, sheetBase)
         val updated = if (filterSystem) {
@@ -316,7 +328,7 @@ abstract class AbstractComponent(
         } else {
             computedStyleState
         }
-        val filterSystem = shouldFilterAestheticStylesForSystemBackend()
+        val filterSystem = shouldFilterAestheticStylesForSystemBackend(activeFactory)
         val base = if (filterSystem && rawBase != null) {
             rawBase.copyFilteredForSystemComponent(
                 allowTypography = acceptsTypographyComponentStyles,
@@ -325,7 +337,7 @@ abstract class AbstractComponent(
         } else {
             rawBase
         }
-        val effectiveStyle = effectiveComponentStyle()
+        val effectiveStyle = effectiveComponentStyle(filterSystem)
         val updated = effectiveStyle.toComputedStyle(base)
         applyComputedStyle(updated)
         runOnNativeUi {
@@ -334,6 +346,8 @@ abstract class AbstractComponent(
             it.setCustomCursor(updated.customCursor)
         }
     }
+
+    internal open fun onAfterBootstrapChanged() {}
 
     private fun onComponentBootstrapChanged(bootstrap: ComponentBootstrap) {
         val nextSnapshot = bootstrap.applyToSnapshot(styleSnapshot)
@@ -346,6 +360,7 @@ abstract class AbstractComponent(
             syncBootstrapEnumsToNative(impl)
             impl.applyComponentBootstrap(bootstrap)
         }
+        onAfterBootstrapChanged()
     }
 
     /**
@@ -1699,7 +1714,7 @@ abstract class AbstractComponent(
             lastStyleSheetDarkTheme = isDark
             val rawResolved = styleSheet.resolveSheetStyleForComponent(this, viewportWidthPx = viewportWidthPx)
             cachedSheetBaseStyle = rawResolved
-            val filterSystem = shouldFilterAestheticStylesForSystemBackend()
+            val filterSystem = shouldFilterAestheticStylesForSystemBackend(activeFactory)
             val resolved = if (filterSystem) {
                 rawResolved.copyFilteredForSystemComponent(
                     allowTypography = acceptsTypographyComponentStyles,
@@ -1708,7 +1723,7 @@ abstract class AbstractComponent(
             } else {
                 rawResolved
             }
-            val effectiveStyle = effectiveComponentStyle()
+            val effectiveStyle = effectiveComponentStyle(filterSystem)
             val effective = if (effectiveStyle.isEmpty()) {
                 resolved
             } else {
