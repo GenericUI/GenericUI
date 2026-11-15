@@ -143,7 +143,50 @@ open class DefaultUdpSocketNativeImpl(
         }
     }
 
-    internal fun enqueueDatagram(datagram: UdpDatagram) {
+    protected fun registerBoundLoopbackPort(localHost: String, assignedPort: Int) {
+        this.localAddress = localHost
+        this.localPort = assignedPort
+        this.isBound = true
+        this.endedState = false
+        this.finishedState = false
+        boundSockets[assignedPort] = this
+    }
+
+    protected fun recordJoinedMulticastGroup(multicastAddress: String) {
+        joinedMulticastGroups.add(multicastAddress)
+        multicastSubscribers.getOrPut(multicastAddress) { mutableSetOf() }.add(this)
+    }
+
+    protected fun recordLeftMulticastGroup(multicastAddress: String): Boolean {
+        val removed = joinedMulticastGroups.remove(multicastAddress)
+        multicastSubscribers[multicastAddress]?.remove(this)
+        return removed
+    }
+
+    protected fun hasBufferedDatagrams(): Boolean = receiveQueue.isNotEmpty()
+
+    protected fun dequeueBufferedDatagram(maxBytes: Int): UdpDatagram? {
+        if (receiveQueue.isEmpty()) return null
+        val datagram = receiveQueue.removeFirst()
+        return if (datagram.data.size > maxBytes) {
+            datagram.copy(data = datagram.data.copyOf(maxBytes))
+        } else {
+            datagram
+        }
+    }
+
+    protected fun recordOutboundWrite(slice: ByteArray): Boolean {
+        outboundHistory.byteOrder = byteOrder
+        outboundHistory.writeBytes(slice)
+        totalWritten += slice.size
+        if (writeListeners.isNotEmpty()) {
+            val bufSlice = ByteBuffer.wrap(slice.copyOf(), byteOrder = byteOrder)
+            writeListeners.toList().forEach { it(bufSlice) }
+        }
+        return outboundHistory.size < highWaterMark
+    }
+
+    fun enqueueDatagram(datagram: UdpDatagram) {
         if (disposedState) return
         receiveQueue.addLast(datagram)
         endedState = false

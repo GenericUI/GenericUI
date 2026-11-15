@@ -98,6 +98,55 @@ open class DefaultTcpSocketNativeImpl(
         return true
     }
 
+    protected fun hasLoopbackServer(port: Int): Boolean =
+        loopbackHandlers.containsKey(port) || loopbackGreetings.containsKey(port)
+
+    protected fun hasBufferedInbound(): Boolean =
+        inboundChunks.isNotEmpty()
+
+    protected fun markConnected(host: String, port: Int, assignedLocalPort: Int = 0) {
+        remoteHost = host
+        remotePort = port
+        localPort = if (assignedLocalPort > 0) assignedLocalPort else nextEphemeralPort++
+        isConnected = true
+        endedState = false
+        finishedState = false
+    }
+
+    protected fun markDisconnectedByPeer() {
+        isConnected = false
+        if (!endedState) {
+            endedState = true
+            endListeners.toList().forEach { listener ->
+                val notifyBlock: suspend () -> Unit = { listener() }
+                notifyBlock.startCoroutine(Continuation(EmptyCoroutineContext) {})
+            }
+        }
+    }
+
+    protected fun notifyInboundBytes(bytes: ByteArray) {
+        if (bytes.isEmpty() || disposedState) return
+        pushInboundBytes(bytes)
+        if (dataListeners.isNotEmpty()) {
+            val buf = ByteBuffer.wrap(bytes.copyOf(), byteOrder = byteOrder)
+            dataListeners.toList().forEach { listener ->
+                val notifyBlock: suspend () -> Unit = { listener(buf.duplicate()) }
+                notifyBlock.startCoroutine(Continuation(EmptyCoroutineContext) {})
+            }
+        }
+    }
+
+    protected fun recordOutboundWrite(slice: ByteArray): Boolean {
+        outboundHistory.byteOrder = byteOrder
+        outboundHistory.writeBytes(slice)
+        totalWritten += slice.size
+        if (writeListeners.isNotEmpty()) {
+            val bufSlice = ByteBuffer.wrap(slice.copyOf(), byteOrder = byteOrder)
+            writeListeners.toList().forEach { it(bufSlice) }
+        }
+        return outboundHistory.size < highWaterMark
+    }
+
     /**
      * Enqueues inbound [bytes] into this socket's readable buffer.
      */

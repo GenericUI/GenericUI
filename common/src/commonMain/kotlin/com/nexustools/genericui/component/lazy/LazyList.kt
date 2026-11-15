@@ -83,7 +83,7 @@ open class LazyList(
         val snapshot = runCatching { ArrayList(cachedItemHolders.values) }.getOrElse { emptyList() }
         cachedItemHolders.clear()
         for (holder in snapshot) {
-            holder.itemView.dispose()
+            holder?.itemView?.dispose()
         }
     }
 
@@ -307,7 +307,7 @@ open class LazyList(
 
     fun unloadAllVisibleItems() {
         viewportTracker.unloadAll { idx -> unloadItemAtIndex(idx) }
-        val remaining = activeHolders.keys.toList()
+        val remaining = runCatching { ArrayList(activeHolders.keys) }.getOrElse { emptyList() }
         for (idx in remaining) {
             unloadItemAtIndex(idx)
         }
