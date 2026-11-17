@@ -10,6 +10,7 @@ import com.nexustools.genericui.core.Disposable
 import com.nexustools.genericui.enums.fragment.FragmentLaunchMode
 import com.nexustools.genericui.enums.fragment.FragmentState
 import com.nexustools.genericui.enums.window.DisplayCutoutMode
+import com.nexustools.genericui.enums.window.SoftInputMode
 import com.nexustools.genericui.window.IWindow
 import com.nexustools.genericui.window.TitleBar
 import com.nexustools.genericui.window.TitleCapabilities
@@ -83,6 +84,9 @@ interface IFragment : Disposable {
     fun setFullscreen(fullscreen: Boolean, cutoutMode: DisplayCutoutMode = DisplayCutoutMode.SHORT_EDGES)
     fun isFullscreen(): Boolean
     fun getDisplayCutoutMode(): DisplayCutoutMode
+
+    /** Controls how the hosting window adjusts for the on-screen soft keyboard while this fragment is active. */
+    var softInputMode: SoftInputMode
 
     val isWindowVisible: Boolean
         get() = hostingWindow?.isVisible ?: false

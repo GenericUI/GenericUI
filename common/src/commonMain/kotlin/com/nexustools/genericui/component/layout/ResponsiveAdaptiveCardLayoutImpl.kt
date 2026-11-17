@@ -7,7 +7,7 @@ open class ResponsiveAdaptiveCardLayoutImpl(
     override val layout: AdaptiveCardLayout
 ) : AdaptiveCardLayoutImpl {
 
-    override var isCardActive: Boolean = true
+    override var isCardActive: Boolean = false
         protected set
 
     override var isDisposed: Boolean = false
@@ -18,6 +18,9 @@ open class ResponsiveAdaptiveCardLayoutImpl(
         viewportHeightDp: Float,
         smallestScreenWidthDp: Int
     ): Boolean {
+        if (!layout.isViewportKnown) {
+            return layout.cardMode == AdaptiveCardMode.ALWAYS_CARD
+        }
         val threshold = layout.cardBreakpointDp
         val isSmallScreen = viewportWidthDp < threshold ||
             (smallestScreenWidthDp in 1 until threshold.toInt())

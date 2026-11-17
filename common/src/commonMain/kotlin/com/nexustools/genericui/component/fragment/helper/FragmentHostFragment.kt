@@ -13,6 +13,7 @@ import com.nexustools.genericui.component.typography.Label
 import com.nexustools.genericui.enums.bootstrap.BootstrapSize
 import com.nexustools.genericui.enums.bootstrap.BootstrapType
 import com.nexustools.genericui.enums.fragment.FragmentState
+import com.nexustools.genericui.enums.window.SoftInputMode
 import com.nexustools.genericui.style.css.CssStyleSheet
 import com.nexustools.genericui.style.css.PrecompiledStyleSheet
 import com.nexustools.genericui.window.TitleBar
@@ -58,6 +59,12 @@ open class FragmentHostFragment(
         get() = hostSystem.transitionSpec
         set(value) {
             hostSystem.transitionSpec = value
+        }
+
+    var onActiveFragmentSoftInputModeChanged: ((SoftInputMode) -> Unit)?
+        get() = hostSystem.onActiveFragmentSoftInputModeChanged
+        set(value) {
+            hostSystem.onActiveFragmentSoftInputModeChanged = value
         }
 
     val stageContainer: LayeredContainer
@@ -117,6 +124,25 @@ open class FragmentHostFragment(
         }
         refreshNavigationChrome()
     }
+
+    internal val ownSoftInputMode: SoftInputMode
+        get() = super.softInputMode
+
+    override var softInputMode: SoftInputMode
+        get() {
+            val childMode = currentFragment?.softInputMode
+            return if (childMode != null && childMode != SoftInputMode.UNSPECIFIED) {
+                childMode
+            } else {
+                super.softInputMode
+            }
+        }
+        set(value) {
+            if (super.softInputMode != value) {
+                super.softInputMode = value
+                hostSystem.notifySoftInputModeChanged()
+            }
+        }
 
     override val currentFragment: Fragment?
         get() = hostSystem.currentFragment

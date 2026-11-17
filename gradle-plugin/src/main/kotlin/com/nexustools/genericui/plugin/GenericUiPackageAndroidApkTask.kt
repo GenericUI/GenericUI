@@ -82,6 +82,10 @@ abstract class GenericUiPackageAndroidApkTask : DefaultTask() {
 
     @get:Input
     @get:Optional
+    abstract val versionCode: Property<Int>
+
+    @get:Input
+    @get:Optional
     abstract val minSdk: Property<Int>
 
     @get:Input
@@ -110,6 +114,9 @@ abstract class GenericUiPackageAndroidApkTask : DefaultTask() {
 
     @get:Internal
     abstract val manifestFile: RegularFileProperty
+
+    @get:Internal
+    abstract val generatedManifestResDir: DirectoryProperty
 
     @get:Internal
     abstract val generatedAndroidResDir: DirectoryProperty
@@ -153,6 +160,8 @@ abstract class GenericUiPackageAndroidApkTask : DefaultTask() {
         val resolvedBaseName = baseName.orNull?.trim()?.ifEmpty { project.name } ?: project.name
         val resolvedAppId = appId.orNull?.trim()?.ifEmpty { "com.nexustools.genericui.app" } ?: "com.nexustools.genericui.app"
         val resolvedVersion = appVersion.orNull?.trim()?.ifEmpty { "1.0.0" } ?: "1.0.0"
+        val resolvedVersionCode = (versionCode.orNull ?: GenericUiAndroidManifestXmlGenerator.deriveVersionCode(resolvedVersion))
+            .coerceAtLeast(1)
         val resolvedMinSdk = (minSdk.orNull ?: 24).coerceAtLeast(21)
         val resolvedCompileSdk = (compileSdk.orNull ?: 35).coerceAtLeast(resolvedMinSdk)
         val resolvedTargetSdk = (targetSdk.orNull ?: resolvedCompileSdk).coerceAtLeast(resolvedMinSdk)
@@ -190,10 +199,19 @@ abstract class GenericUiPackageAndroidApkTask : DefaultTask() {
         val stagedAppResDir = File(workDir, "staged-app-res").apply { mkdirs() }
         val genResDir = generatedAndroidResDir.orNull?.asFile
             ?: File(buildDir, "generated/genericui/resources/backends/android/res")
+        val genManifestResDir = generatedManifestResDir.orNull?.asFile
+            ?: File(buildDir, "generated/genericui/android-manifest/res")
         stageAppResources(
             rootDir = rootDir,
             genResDir = genResDir,
-            stagedAppResDir = stagedAppResDir
+            genManifestResDir = genManifestResDir,
+            stagedAppResDir = stagedAppResDir,
+            extractedAars = extractedAars
+        )
+        validateManifestResourceReferences(
+            manifestFile = manifest,
+            stagedAppResDir = stagedAppResDir,
+            extractedAars = extractedAars
         )
 
         // 6. Compile AAR resources and app resources with aapt2 compile
@@ -213,6 +231,7 @@ abstract class GenericUiPackageAndroidApkTask : DefaultTask() {
             androidJar = sdkTools.androidJar,
             manifestFile = manifest,
             appId = resolvedAppId,
+            versionCode = resolvedVersionCode,
             appVersion = resolvedVersion,
             minSdk = resolvedMinSdk,
             targetSdk = resolvedTargetSdk,
@@ -965,7 +984,9 @@ abstract class GenericUiPackageAndroidApkTask : DefaultTask() {
     private fun stageAppResources(
         rootDir: File,
         genResDir: File?,
-        stagedAppResDir: File
+        genManifestResDir: File?,
+        stagedAppResDir: File,
+        extractedAars: List<ExtractedAar> = emptyList()
     ) {
         val validResPrefixes = setOf(
             "drawable",
@@ -1016,6 +1037,9 @@ abstract class GenericUiPackageAndroidApkTask : DefaultTask() {
             add(File(rootDir, "src/androidMain/res"))
             if (genResDir != null) {
                 add(genResDir)
+            }
+            if (genManifestResDir != null) {
+                add(genManifestResDir)
             }
         }.filter { it.isDirectory }
 
@@ -1099,6 +1123,118 @@ abstract class GenericUiPackageAndroidApkTask : DefaultTask() {
                 """.trimIndent() + "\n"
             )
         }
+
+        val hasMaterialAar = extractedAars.any {
+            it.packageName == "com.google.android.material" || it.name.contains("material-", ignoreCase = true)
+        }
+        val hasAppCompatAar = extractedAars.any {
+            it.packageName == "androidx.appcompat" || it.name.contains("appcompat-", ignoreCase = true)
+        }
+        if (hasMaterialAar || hasAppCompatAar) {
+            val lightParent = if (hasMaterialAar) "Theme.MaterialComponents.Light.NoActionBar" else "Theme.AppCompat.Light.NoActionBar"
+            val darkParent = if (hasMaterialAar) "Theme.MaterialComponents.NoActionBar" else "Theme.AppCompat.NoActionBar"
+            stagedAppResDir.listFiles()
+                ?.filter { it.isDirectory && it.name.startsWith("values") }
+                ?.forEach { valDir ->
+                    val themesFile = File(valDir, "themes.xml")
+                    if (themesFile.isFile) {
+                        var xml = themesFile.readText()
+                        xml = xml.replace("@android:style/Theme.Material.Light.NoActionBar", lightParent)
+                        xml = xml.replace("@android:style/Theme.Material.NoActionBar", darkParent)
+                        if (hasAppCompatAar && !xml.contains("name=\"colorPrimary\"")) {
+                            val prefix = if (xml.contains("genericui_dark_primary")) "genericui_dark" else "genericui_light"
+                            val extraItems = buildString {
+                                appendLine("        <item name=\"colorPrimary\">@color/${prefix}_primary</item>")
+                                appendLine("        <item name=\"colorPrimaryDark\">@color/${prefix}_primary_dark</item>")
+                                appendLine("        <item name=\"colorAccent\">@color/${prefix}_accent</item>")
+                                if (hasMaterialAar) {
+                                    appendLine("        <item name=\"colorPrimaryVariant\">@color/${prefix}_primary_dark</item>")
+                                    appendLine("        <item name=\"colorSecondary\">@color/${prefix}_accent</item>")
+                                }
+                            }
+                            xml = xml.replace("</style>", "$extraItems    </style>")
+                        }
+                        themesFile.writeText(xml)
+                    }
+                }
+        }
+    }
+
+    private fun validateManifestResourceReferences(
+        manifestFile: File,
+        stagedAppResDir: File,
+        extractedAars: List<ExtractedAar>
+    ) {
+        val manifestText = manifestFile.readText()
+        val refRegex = Regex("""@(drawable|mipmap|xml|color|string)/([A-Za-z0-9_.]+)""")
+        val resRoots = buildList {
+            if (stagedAppResDir.isDirectory) add(stagedAppResDir)
+            for (aar in extractedAars) {
+                val resDir = aar.resDir
+                if (resDir != null && resDir.isDirectory) add(resDir)
+            }
+        }
+
+        val definedFileResources = mutableSetOf<String>()
+        val definedValueResources = mutableSetOf<String>()
+        val valuesTagRegex = Regex("""<(string|color)\b[^>]*\bname\s*=\s*"([^"]+)"""")
+        val itemTagRegex = Regex("""<item\b[^>]*\btype\s*=\s*"(string|color)"[^>]*\bname\s*=\s*"([^"]+)"|<item\b[^>]*\bname\s*=\s*"([^"]+)"[^>]*\btype\s*=\s*"(string|color)"""")
+
+        for (root in resRoots) {
+            val dirs = root.listFiles()?.filter { it.isDirectory }.orEmpty()
+            for (dir in dirs) {
+                val baseType = dir.name.substringBefore('-').lowercase()
+                val files = dir.listFiles()?.filter { it.isFile }.orEmpty()
+                if (baseType == "values") {
+                    for (xmlFile in files) {
+                        if (!xmlFile.extension.equals("xml", ignoreCase = true)) continue
+                        val content = runCatching { xmlFile.readText() }.getOrNull().orEmpty()
+                        for (m in valuesTagRegex.findAll(content)) {
+                            definedValueResources.add("${m.groupValues[1].lowercase()}/${m.groupValues[2].trim()}")
+                        }
+                        for (m in itemTagRegex.findAll(content)) {
+                            val type = m.groupValues[1].ifEmpty { m.groupValues[4] }.lowercase()
+                            val name = m.groupValues[2].ifEmpty { m.groupValues[3] }.trim()
+                            if (type.isNotEmpty() && name.isNotEmpty()) {
+                                definedValueResources.add("$type/$name")
+                            }
+                        }
+                    }
+                } else if (baseType in setOf("drawable", "mipmap", "xml", "color")) {
+                    for (resFile in files) {
+                        val fileName = resFile.name
+                        val stem = when {
+                            fileName.endsWith(".9.png", ignoreCase = true) -> fileName.dropLast(6)
+                            else -> resFile.nameWithoutExtension
+                        }
+                        definedFileResources.add("$baseType/$stem")
+                    }
+                }
+            }
+        }
+
+        val missingRefs = linkedSetOf<String>()
+        for (match in refRegex.findAll(manifestText)) {
+            val type = match.groupValues[1].lowercase()
+            val entryName = match.groupValues[2]
+            val key = "$type/$entryName"
+            val exists = when (type) {
+                "string" -> key in definedValueResources
+                "color" -> key in definedValueResources || key in definedFileResources
+                else -> key in definedFileResources
+            }
+            if (!exists) {
+                missingRefs.add("@$key")
+            }
+        }
+
+        if (missingRefs.isNotEmpty()) {
+            throw GradleException(
+                "AndroidManifest.xml references missing resources not found in staged resources or AARs: " +
+                    missingRefs.sorted().joinToString(", ") +
+                    ". Staged directory: ${stagedAppResDir.absolutePath}"
+            )
+        }
     }
 
     private fun sanitizeAndroidResFileStem(stem: String): String {
@@ -1170,6 +1306,7 @@ abstract class GenericUiPackageAndroidApkTask : DefaultTask() {
         androidJar: File,
         manifestFile: File,
         appId: String,
+        versionCode: Int,
         appVersion: String,
         minSdk: Int,
         targetSdk: Int,
@@ -1224,7 +1361,7 @@ abstract class GenericUiPackageAndroidApkTask : DefaultTask() {
             "--target-sdk-version",
             targetSdk.toString(),
             "--version-code",
-            "1",
+            versionCode.coerceAtLeast(1).toString(),
             "--version-name",
             appVersion,
             "--auto-add-overlay",

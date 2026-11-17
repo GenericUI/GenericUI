@@ -1,6 +1,7 @@
 package com.nexustools.genericui.plugin
 
 import org.w3c.dom.Element
+import java.awt.AlphaComposite
 import java.awt.BasicStroke
 import java.awt.Color
 import java.awt.GradientPaint
@@ -8,6 +9,7 @@ import java.awt.Graphics2D
 import java.awt.Paint
 import java.awt.RenderingHints
 import java.awt.Shape
+import java.awt.geom.Area
 import java.awt.geom.Ellipse2D
 import java.awt.geom.GeneralPath
 import java.awt.geom.Line2D
@@ -19,8 +21,9 @@ import java.io.ByteArrayOutputStream
 import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.util.Locale
 import javax.imageio.ImageIO
-import javax.xml.parsers.DocumentBuilderFactory
+import kotlin.math.roundToInt
 
 /**
  * Provides the default GenericUI 6-platform `icon.svg`, `icon.png`, and `icon.ico`
@@ -445,36 +448,240 @@ object GenericUiDefaultIconProvider {
         return buf.array()
     }
 
-    internal fun renderSvgTextToPngBytes(svgText: String, targetSize: Int): ByteArray {
-        val supersampled = renderSvgTextToImage(svgText, (targetSize * 2).coerceAtLeast(512))
-        val finalImg = downscaleStepwise(supersampled, targetSize)
+    private data class SvgPaintState(
+        val fill: String? = null,
+        val fillOpacity: Float = 1f,
+        val stroke: String? = null,
+        val strokeWidth: Float = 1f,
+        val strokeLineCap: Int = BasicStroke.CAP_BUTT,
+        val strokeLineJoin: Int = BasicStroke.JOIN_MITER,
+        val strokeOpacity: Float = 1f,
+        val opacity: Float = 1f,
+        val displayNone: Boolean = false
+    )
+
+    internal fun renderSvgTextToPngBytes(svgText: String, targetSize: Int): ByteArray =
+        renderSvgTextToPngBytes(svgText, targetSize, targetSize)
+
+    /**
+     * Renders [svgText] into a PNG byte array of dimensions [targetWidth] x [targetHeight],
+     * supersampling at 2x (at least 512px) for anti-aliased quality.
+     */
+    fun renderSvgTextToPngBytes(svgText: String, targetWidth: Int, targetHeight: Int): ByteArray {
+        val w = targetWidth.coerceAtLeast(1)
+        val h = targetHeight.coerceAtLeast(1)
+        val scaleUp = maxOf(2.0, 512.0 / maxOf(w, h))
+        val superW = (w * scaleUp).roundToInt().coerceAtLeast(w)
+        val superH = (h * scaleUp).roundToInt().coerceAtLeast(h)
+        val supersampled = renderSvgTextToImage(svgText, superW, superH)
+        val finalImg = if (superW == w && superH == h) {
+            supersampled
+        } else {
+            downscaleStepwiseRect(supersampled, w, h)
+        }
         val out = ByteArrayOutputStream()
         ImageIO.write(finalImg, "PNG", out)
         return out.toByteArray()
     }
 
-    private fun downscaleStepwise(source: BufferedImage, targetSize: Int): BufferedImage {
+    /**
+     * Rasterizes a launcher icon PNG at [targetSize]×[targetSize] over a solid [backgroundColorHex]
+     * (and/or [backgroundDrawableFile]) with [insetPercent] padding and optional [circularMask]
+     * (`ic_launcher_round.png`) or [roundedSquareMask] (`ic_launcher.png`).
+     */
+    fun renderLauncherIconPngBytes(
+        sourceIconFile: File?,
+        fallbackSvgText: String?,
+        targetSize: Int,
+        backgroundColorHex: String? = "#FFFFFF",
+        backgroundDrawableFile: File? = null,
+        insetPercent: Int = 16,
+        circularMask: Boolean = false,
+        roundedSquareMask: Boolean = !circularMask
+    ): ByteArray {
+        val size = targetSize.coerceAtLeast(1)
+        val out = BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB)
+        val g2 = out.createGraphics()
+        g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+        g2.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY)
+        g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC)
+
+        val margin = (size * 0.04f)
+        val innerSize = (size - 2f * margin).coerceAtLeast(1f)
+        val clipShape: Shape? = when {
+            circularMask -> Ellipse2D.Float(margin, margin, innerSize, innerSize)
+            roundedSquareMask -> {
+                val radius = size * 0.22f
+                RoundRectangle2D.Float(margin, margin, innerSize, innerSize, radius, radius)
+            }
+            else -> null
+        }
+
+        if (clipShape != null) {
+            g2.clip(clipShape)
+        }
+
+        val bgColor = parseCssColorOrNull(backgroundColorHex, 1f) ?: Color.WHITE
+        g2.color = bgColor
+        g2.fillRect(0, 0, size, size)
+
+        if (backgroundDrawableFile != null && backgroundDrawableFile.isFile) {
+            val bgImg = if (backgroundDrawableFile.extension.equals("svg", ignoreCase = true)) {
+                runCatching {
+                    val svg = backgroundDrawableFile.readText(Charsets.UTF_8)
+                    renderSvgTextToImage(svg, size * 2, size * 2)
+                }.getOrNull()
+            } else {
+                decodeImageFromFile(backgroundDrawableFile)
+            }
+            if (bgImg != null) {
+                val scaledBg = if (bgImg.width != size || bgImg.height != size) {
+                    downscaleStepwiseRect(bgImg, size, size)
+                } else {
+                    bgImg
+                }
+                g2.drawImage(scaledBg, 0, 0, size, size, null)
+            }
+        }
+
+        val clampedInset = insetPercent.coerceIn(0, 45)
+        val pad = size * (clampedInset / 100.0)
+        val fgSize = (size - 2.0 * pad).roundToInt().coerceAtLeast(1)
+        val fgOffset = ((size - fgSize) / 2.0).roundToInt()
+
+        val fgImg: BufferedImage? = when {
+            sourceIconFile != null && sourceIconFile.isFile -> {
+                if (sourceIconFile.extension.equals("svg", ignoreCase = true)) {
+                    val svg = runCatching { sourceIconFile.readText(Charsets.UTF_8) }.getOrNull()
+                    svg?.let {
+                        val superFg = renderSvgTextToImage(it, (fgSize * 2).coerceAtLeast(256), (fgSize * 2).coerceAtLeast(256))
+                        downscaleStepwiseRect(superFg, fgSize, fgSize)
+                    }
+                } else {
+                    decodeImageFromFile(sourceIconFile)?.let { decoded ->
+                        scaleImageContain(decoded, fgSize, fgSize)
+                    }
+                }
+            }
+            !fallbackSvgText.isNullOrBlank() -> {
+                val superFg = renderSvgTextToImage(
+                    fallbackSvgText,
+                    (fgSize * 2).coerceAtLeast(256),
+                    (fgSize * 2).coerceAtLeast(256)
+                )
+                downscaleStepwiseRect(superFg, fgSize, fgSize)
+            }
+            else -> null
+        }
+
+        if (fgImg != null) {
+            g2.drawImage(fgImg, fgOffset, fgOffset, null)
+        }
+        g2.dispose()
+
+        val baos = ByteArrayOutputStream()
+        ImageIO.write(out, "PNG", baos)
+        return baos.toByteArray()
+    }
+
+    /**
+     * Rasterizes a monochrome white (`#FFFFFFFF`) silhouette PNG from a raster or SVG icon
+     * for Android 13+ themed icon fallback when vector output is unavailable.
+     */
+    fun renderMonochromeRasterPngBytes(
+        sourceIconFile: File?,
+        fallbackSvgText: String?,
+        targetSize: Int,
+        insetPercent: Int = 16
+    ): ByteArray {
+        val size = targetSize.coerceAtLeast(1)
+        val clampedInset = insetPercent.coerceIn(0, 45)
+        val pad = size * (clampedInset / 100.0)
+        val fgSize = (size - 2.0 * pad).roundToInt().coerceAtLeast(1)
+        val fgOffset = ((size - fgSize) / 2.0).roundToInt()
+
+        val fgImg: BufferedImage? = when {
+            sourceIconFile != null && sourceIconFile.isFile -> {
+                if (sourceIconFile.extension.equals("svg", ignoreCase = true)) {
+                    val svg = runCatching { sourceIconFile.readText(Charsets.UTF_8) }.getOrNull()
+                    svg?.let {
+                        val superFg = renderSvgTextToImage(it, (fgSize * 2).coerceAtLeast(256), (fgSize * 2).coerceAtLeast(256))
+                        downscaleStepwiseRect(superFg, fgSize, fgSize)
+                    }
+                } else {
+                    decodeImageFromFile(sourceIconFile)?.let { scaleImageContain(it, fgSize, fgSize) }
+                }
+            }
+            !fallbackSvgText.isNullOrBlank() -> {
+                val superFg = renderSvgTextToImage(fallbackSvgText, (fgSize * 2).coerceAtLeast(256), (fgSize * 2).coerceAtLeast(256))
+                downscaleStepwiseRect(superFg, fgSize, fgSize)
+            }
+            else -> null
+        }
+
+        val out = BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB)
+        if (fgImg != null) {
+            val g2 = out.createGraphics()
+            g2.drawImage(fgImg, fgOffset, fgOffset, null)
+            g2.composite = AlphaComposite.SrcIn
+            g2.color = Color.WHITE
+            g2.fillRect(0, 0, size, size)
+            g2.dispose()
+        }
+        val baos = ByteArrayOutputStream()
+        ImageIO.write(out, "PNG", baos)
+        return baos.toByteArray()
+    }
+
+    /**
+     * Parses `#RGB`, `#RGBA`, `#RRGGBB`, `#AARRGGBB`, `rgb(...)`, `rgba(...)`, `currentColor`,
+     * and standard CSS named colors into an AWT [Color].
+     */
+    fun parseCssColorOrNull(rawColor: String?, opacity: Float = 1f): Color? =
+        parseColor(rawColor, opacity)
+
+    private fun scaleImageContain(source: BufferedImage, boxW: Int, boxH: Int): BufferedImage {
+        val sw = source.width.coerceAtLeast(1)
+        val sh = source.height.coerceAtLeast(1)
+        val scale = minOf(boxW.toDouble() / sw, boxH.toDouble() / sh)
+        val drawW = (sw * scale).roundToInt().coerceAtLeast(1)
+        val drawH = (sh * scale).roundToInt().coerceAtLeast(1)
+        val resized = downscaleStepwiseRect(source, drawW, drawH)
+        val out = BufferedImage(boxW, boxH, BufferedImage.TYPE_INT_ARGB)
+        val g2 = out.createGraphics()
+        g2.drawImage(resized, (boxW - drawW) / 2, (boxH - drawH) / 2, null)
+        g2.dispose()
+        return out
+    }
+
+    private fun downscaleStepwise(source: BufferedImage, targetSize: Int): BufferedImage =
+        downscaleStepwiseRect(source, targetSize, targetSize)
+
+    private fun downscaleStepwiseRect(source: BufferedImage, targetW: Int, targetH: Int): BufferedImage {
         var current = source
-        var currentSize = source.width
-        while (currentSize / 2 >= targetSize && currentSize > targetSize) {
-            val nextSize = currentSize / 2
-            val step = BufferedImage(nextSize, nextSize, BufferedImage.TYPE_INT_ARGB)
+        var curW = source.width.coerceAtLeast(1)
+        var curH = source.height.coerceAtLeast(1)
+        while ((curW / 2 >= targetW && curW > targetW) || (curH / 2 >= targetH && curH > targetH)) {
+            val nextW = if (curW / 2 >= targetW && curW > targetW) curW / 2 else curW
+            val nextH = if (curH / 2 >= targetH && curH > targetH) curH / 2 else curH
+            val step = BufferedImage(nextW, nextH, BufferedImage.TYPE_INT_ARGB)
             val g2 = step.createGraphics()
             g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC)
             g2.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY)
             g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
-            g2.drawImage(current, 0, 0, nextSize, nextSize, null)
+            g2.drawImage(current, 0, 0, nextW, nextH, null)
             g2.dispose()
             current = step
-            currentSize = nextSize
+            curW = nextW
+            curH = nextH
         }
-        if (currentSize != targetSize) {
-            val step = BufferedImage(targetSize, targetSize, BufferedImage.TYPE_INT_ARGB)
+        if (curW != targetW || curH != targetH) {
+            val step = BufferedImage(targetW, targetH, BufferedImage.TYPE_INT_ARGB)
             val g2 = step.createGraphics()
             g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC)
             g2.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY)
             g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
-            g2.drawImage(current, 0, 0, targetSize, targetSize, null)
+            g2.drawImage(current, 0, 0, targetW, targetH, null)
             g2.dispose()
             current = step
         }
@@ -568,16 +775,15 @@ object GenericUiDefaultIconProvider {
         return buf.array()
     }
 
-    private fun renderSvgTextToImage(svgText: String, size: Int): BufferedImage {
-        val img = BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB)
+    private fun renderSvgTextToImage(svgText: String, width: Int, height: Int = width): BufferedImage {
+        val img = BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB)
         val g2 = img.createGraphics()
         g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
         g2.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY)
         g2.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE)
 
         runCatching {
-            val dbf = DocumentBuilderFactory.newInstance()
-            dbf.isNamespaceAware = false
+            val dbf = GenericUiBuiltinSvgToVectorConverter.createSecureDocumentBuilderFactory(namespaceAware = false)
             val doc = dbf.newDocumentBuilder().parse(ByteArrayInputStream(svgText.toByteArray(Charsets.UTF_8)))
             val root = doc.documentElement
 
@@ -592,16 +798,15 @@ object GenericUiDefaultIconProvider {
                 val children = defs.childNodes
                 for (j in 0 until children.length) {
                     val el = children.item(j) as? Element ?: continue
-                    when (el.tagName) {
-                        "clipPath" -> {
+                    when (el.tagName.substringAfter(':').lowercase(Locale.US)) {
+                        "clippath" -> {
                             val id = el.getAttribute("id")
-                            val polys = el.getElementsByTagName("polygon")
-                            if (polys.length > 0) {
-                                val poly = polys.item(0) as Element
-                                clipPaths[id] = parsePolygon(poly.getAttribute("points"))
+                            val clipShape = extractClipShape(el)
+                            if (id.isNotEmpty() && clipShape != null) {
+                                clipPaths[id] = clipShape
                             }
                         }
-                        "linearGradient" -> {
+                        "lineargradient" -> {
                             val id = el.getAttribute("id")
                             val coords = floatArrayOf(
                                 parsePercent(el.getAttribute("x1"), 0f),
@@ -611,10 +816,14 @@ object GenericUiDefaultIconProvider {
                             )
                             val stops = el.getElementsByTagName("stop")
                             val c1 = if (stops.length > 0) {
-                                parseColor((stops.item(0) as Element).getAttribute("stop-color"), 1f) ?: Color.BLACK
+                                val st = stops.item(0) as Element
+                                val stOp = parseFloat(st.getAttribute("stop-opacity"), 1f)
+                                parseSvgColor(st.getAttribute("stop-color"), stOp) ?: Color.BLACK
                             } else Color.BLACK
                             val c2 = if (stops.length > 1) {
-                                parseColor((stops.item(stops.length - 1) as Element).getAttribute("stop-color"), 1f) ?: c1
+                                val st = stops.item(stops.length - 1) as Element
+                                val stOp = parseFloat(st.getAttribute("stop-opacity"), 1f)
+                                parseSvgColor(st.getAttribute("stop-color"), stOp) ?: c1
                             } else c1
                             gradients[id] = coords to (c1 to c2)
                         }
@@ -623,24 +832,40 @@ object GenericUiDefaultIconProvider {
             }
 
             val (minX, minY, vbW, vbH) = parseSvgViewBox(root)
-            val scaleX = size.toDouble() / vbW.coerceAtLeast(1.0)
-            val scaleY = size.toDouble() / vbH.coerceAtLeast(1.0)
+            val scaleX = width.toDouble() / vbW.coerceAtLeast(1.0)
+            val scaleY = height.toDouble() / vbH.coerceAtLeast(1.0)
             val uniformScale = minOf(scaleX, scaleY)
-            val offsetX = (size.toDouble() - vbW * uniformScale) / 2.0
-            val offsetY = (size.toDouble() - vbH * uniformScale) / 2.0
+            val offsetX = (width.toDouble() - vbW * uniformScale) / 2.0
+            val offsetY = (height.toDouble() - vbH * uniformScale) / 2.0
             g2.translate(offsetX, offsetY)
             g2.scale(uniformScale, uniformScale)
             if (minX != 0.0 || minY != 0.0) {
                 g2.translate(-minX, -minY)
             }
-            renderSvgElements(g2, root, clipPaths, gradients)
+            val rootPaint = applyElementPaintState(SvgPaintState(), root)
+            renderSvgElements(g2, root, rootPaint, clipPaths, gradients)
         }.onFailure {
             g2.color = Color(0x18, 0x19, 0x20)
-            g2.fillRect(0, 0, size, size)
+            g2.fillRect(0, 0, width, height)
         }
 
         g2.dispose()
         return img
+    }
+
+    private fun extractClipShape(clipEl: Element): Shape? {
+        val children = clipEl.childNodes
+        var combined: Area? = null
+        for (i in 0 until children.length) {
+            val child = children.item(i) as? Element ?: continue
+            val shape = buildShapeForElement(child)?.first ?: continue
+            if (combined == null) {
+                combined = Area(shape)
+            } else {
+                combined.add(Area(shape))
+            }
+        }
+        return combined
     }
 
     private fun parseSvgViewBox(root: Element): DoubleArray {
@@ -651,8 +876,8 @@ object GenericUiDefaultIconProvider {
                 return doubleArrayOf(parts[0], parts[1], parts[2], parts[3])
             }
         }
-        val wAttr = root.getAttribute("width")?.replace("px", "")?.replace("pt", "")?.trim()?.toDoubleOrNull()
-        val hAttr = root.getAttribute("height")?.replace("px", "")?.replace("pt", "")?.trim()?.toDoubleOrNull()
+        val wAttr = root.getAttribute("width")?.replace("px", "")?.replace("dp", "")?.replace("pt", "")?.trim()?.toDoubleOrNull()
+        val hAttr = root.getAttribute("height")?.replace("px", "")?.replace("dp", "")?.replace("pt", "")?.trim()?.toDoubleOrNull()
         val w = if (wAttr != null && wAttr > 0.0) wAttr else 512.0
         val h = if (hAttr != null && hAttr > 0.0) hAttr else w
         return doubleArrayOf(0.0, 0.0, w, h)
@@ -661,42 +886,86 @@ object GenericUiDefaultIconProvider {
     private fun renderSvgElements(
         g2: Graphics2D,
         parent: Element,
+        parentState: SvgPaintState,
         clipPaths: Map<String, Shape>,
         gradients: Map<String, Pair<FloatArray, Pair<Color, Color>>>
     ) {
         val children = parent.childNodes
         for (i in 0 until children.length) {
             val el = children.item(i) as? Element ?: continue
-            val tag = el.tagName
-            if (tag == "defs") continue
-            if (tag == "g") {
-                val sub = g2.create() as Graphics2D
-                val clipAttr = el.getAttribute("clip-path")
-                if (clipAttr.startsWith("url(#") && clipAttr.endsWith(")")) {
-                    val clipId = clipAttr.substring(5, clipAttr.length - 1)
-                    clipPaths[clipId]?.let { sub.clip(it) }
-                }
-                renderSvgElements(sub, el, clipPaths, gradients)
-                sub.dispose()
-            } else {
-                drawSvgShapeElement(g2, el, gradients)
+            val tag = el.tagName.substringAfter(':').lowercase(Locale.US)
+            if (tag == "defs" || tag == "style" || tag == "title" || tag == "desc" || tag == "metadata") continue
+            val elState = applyElementPaintState(parentState, el)
+            if (elState.displayNone) continue
+
+            val sub = g2.create() as Graphics2D
+            GenericUiBuiltinSvgToVectorConverter.parseTransformAttribute(el.getAttribute("transform"))?.let {
+                sub.transform(it)
             }
+            val clipAttr = el.getAttribute("clip-path")
+            if (clipAttr.startsWith("url(#") && clipAttr.endsWith(")")) {
+                val clipId = clipAttr.substring(5, clipAttr.length - 1)
+                clipPaths[clipId]?.let { sub.clip(it) }
+            }
+
+            if (tag == "g") {
+                renderSvgElements(sub, el, elState, clipPaths, gradients)
+            } else {
+                drawSvgShapeElement(sub, el, elState, gradients)
+            }
+            sub.dispose()
         }
     }
 
-    private fun drawSvgShapeElement(
-        g2: Graphics2D,
-        el: Element,
-        gradients: Map<String, Pair<FloatArray, Pair<Color, Color>>>
-    ) {
-        val shapeAndBounds: Pair<Shape, Rectangle2D>? = when (el.tagName) {
+    private fun applyElementPaintState(parent: SvgPaintState, el: Element): SvgPaintState {
+        val inline = GenericUiBuiltinSvgToVectorConverter.parseInlineStyle(el.getAttribute("style"))
+        fun attr(name: String): String? =
+            inline[name]?.takeIf { it.isNotEmpty() } ?: el.getAttribute(name).trim().takeIf { it.isNotEmpty() }
+
+        val disp = attr("display")?.lowercase(Locale.US)
+        val vis = attr("visibility")?.lowercase(Locale.US)
+        val displayNone = parent.displayNone || disp == "none" || vis == "hidden" || vis == "collapse"
+
+        val cap = when (attr("stroke-linecap")?.lowercase(Locale.US)) {
+            "round" -> BasicStroke.CAP_ROUND
+            "square" -> BasicStroke.CAP_SQUARE
+            "butt" -> BasicStroke.CAP_BUTT
+            else -> parent.strokeLineCap
+        }
+        val join = when (attr("stroke-linejoin")?.lowercase(Locale.US)) {
+            "round" -> BasicStroke.JOIN_ROUND
+            "bevel" -> BasicStroke.JOIN_BEVEL
+            "miter" -> BasicStroke.JOIN_MITER
+            else -> parent.strokeLineJoin
+        }
+        val localOpacity = attr("opacity")?.let { parseFloat(it, 1f) } ?: 1f
+
+        return SvgPaintState(
+            fill = attr("fill") ?: parent.fill,
+            fillOpacity = attr("fill-opacity")?.let { parseFloat(it, parent.fillOpacity) } ?: parent.fillOpacity,
+            stroke = attr("stroke") ?: parent.stroke,
+            strokeWidth = attr("stroke-width")?.let { parseFloat(it.removeSuffix("px"), parent.strokeWidth) } ?: parent.strokeWidth,
+            strokeLineCap = cap,
+            strokeLineJoin = join,
+            strokeOpacity = attr("stroke-opacity")?.let { parseFloat(it, parent.strokeOpacity) } ?: parent.strokeOpacity,
+            opacity = (parent.opacity * localOpacity).coerceIn(0f, 1f),
+            displayNone = displayNone
+        )
+    }
+
+    private fun buildShapeForElement(el: Element): Pair<Shape, Rectangle2D>? =
+        when (el.tagName.substringAfter(':').lowercase(Locale.US)) {
             "rect" -> {
                 val x = parseFloat(el.getAttribute("x"), 0f)
                 val y = parseFloat(el.getAttribute("y"), 0f)
                 val w = parseFloat(el.getAttribute("width"), 0f)
                 val h = parseFloat(el.getAttribute("height"), 0f)
-                val rx = parseFloat(el.getAttribute("rx"), 0f)
-                val ry = parseFloat(el.getAttribute("ry"), rx)
+                val hasRx = el.getAttribute("rx").isNotBlank()
+                val hasRy = el.getAttribute("ry").isNotBlank()
+                val rawRx = parseFloat(el.getAttribute("rx"), 0f)
+                val rawRy = parseFloat(el.getAttribute("ry"), 0f)
+                val rx = if (hasRx) rawRx else if (hasRy) rawRy else 0f
+                val ry = if (hasRy) rawRy else if (hasRx) rawRx else 0f
                 val s = if (rx > 0f || ry > 0f) {
                     RoundRectangle2D.Float(x, y, w, h, rx * 2f, ry * 2f)
                 } else {
@@ -741,51 +1010,33 @@ object GenericUiDefaultIconProvider {
             }
             else -> null
         }
-        val (shape, bounds) = shapeAndBounds ?: return
 
-        val opacity = parseFloat(el.getAttribute("opacity"), 1f)
-        val rawFill = el.getAttribute("fill")
-        val inheritedFill = if (rawFill.isNotEmpty()) {
-            rawFill
-        } else {
-            var p = el.parentNode
-            var found = ""
-            while (p is Element) {
-                val pf = p.getAttribute("fill")
-                if (pf.isNotEmpty()) {
-                    found = pf
-                    break
-                }
-                p = p.parentNode
-            }
-            found
-        }
-        if (!inheritedFill.equals("none", ignoreCase = true) && (inheritedFill.isNotEmpty() || el.getAttribute("stroke").isEmpty())) {
-            val effectiveFill = inheritedFill.ifEmpty { "#000000" }
-            val fillOpacity = opacity * parseFloat(el.getAttribute("fill-opacity"), 1f)
+    private fun drawSvgShapeElement(
+        g2: Graphics2D,
+        el: Element,
+        state: SvgPaintState,
+        gradients: Map<String, Pair<FloatArray, Pair<Color, Color>>>
+    ) {
+        val (shape, bounds) = buildShapeForElement(el) ?: return
+
+        val fillSpec = state.fill
+        val isFillNone = fillSpec != null && (fillSpec.equals("none", ignoreCase = true) || fillSpec.equals("transparent", ignoreCase = true))
+        if (!isFillNone) {
+            val effectiveFill = fillSpec?.takeIf { it.isNotEmpty() } ?: "#000000"
+            val fillOpacity = (state.opacity * state.fillOpacity).coerceIn(0f, 1f)
             resolvePaint(effectiveFill, bounds, gradients, fillOpacity)?.let {
                 g2.paint = it
                 g2.fill(shape)
             }
         }
 
-        val stroke = el.getAttribute("stroke")
-        if (stroke.isNotEmpty() && !stroke.equals("none", ignoreCase = true)) {
-            val strokeOpacity = opacity * parseFloat(el.getAttribute("stroke-opacity"), 1f)
-            val strokeWidth = parseFloat(el.getAttribute("stroke-width"), 1f)
-            val cap = when (el.getAttribute("stroke-linecap").lowercase()) {
-                "round" -> BasicStroke.CAP_ROUND
-                "square" -> BasicStroke.CAP_SQUARE
-                else -> BasicStroke.CAP_BUTT
-            }
-            val join = when (el.getAttribute("stroke-linejoin").lowercase()) {
-                "round" -> BasicStroke.JOIN_ROUND
-                "bevel" -> BasicStroke.JOIN_BEVEL
-                else -> BasicStroke.JOIN_MITER
-            }
-            resolvePaint(stroke, bounds, gradients, strokeOpacity)?.let {
+        val strokeSpec = state.stroke
+        val isStrokeNone = strokeSpec.isNullOrEmpty() || strokeSpec.equals("none", ignoreCase = true) || strokeSpec.equals("transparent", ignoreCase = true)
+        if (!isStrokeNone && state.strokeWidth > 0f) {
+            val strokeOpacity = (state.opacity * state.strokeOpacity).coerceIn(0f, 1f)
+            resolvePaint(strokeSpec!!, bounds, gradients, strokeOpacity)?.let {
                 g2.paint = it
-                g2.stroke = BasicStroke(strokeWidth, cap, join)
+                g2.stroke = BasicStroke(state.strokeWidth, state.strokeLineCap, state.strokeLineJoin)
                 g2.draw(shape)
             }
         }
@@ -808,26 +1059,56 @@ object GenericUiDefaultIconProvider {
             val y2 = (bounds.y + coords[3] * bounds.height).toFloat()
             return GradientPaint(x1, y1, c1, x2, y2, c2)
         }
-        return parseColor(paintSpec, opacity)
+        return parseSvgColor(paintSpec, opacity)
+    }
+
+    private fun parseSvgColor(raw: String?, opacity: Float): Color? {
+        val hexArgb = GenericUiBuiltinSvgToVectorConverter.svgColorToAndroidHex(raw, opacity) ?: return null
+        return parseColor(hexArgb, 1f)
     }
 
     private fun parseColor(hex: String?, opacity: Float): Color? {
-        if (hex.isNullOrBlank() || hex.equals("none", ignoreCase = true)) return null
-        val clean = hex.trim().removePrefix("#")
-        val rgb = when (clean.length) {
-            3 -> {
-                val r = clean[0].digitToIntOrNull(16) ?: return null
-                val g = clean[1].digitToIntOrNull(16) ?: return null
-                val b = clean[2].digitToIntOrNull(16) ?: return null
-                ((r * 17) shl 16) or ((g * 17) shl 8) or (b * 17)
-            }
-            else -> clean.take(6).toIntOrNull(16) ?: return null
+        if (hex.isNullOrBlank() || hex.equals("none", ignoreCase = true) || hex.equals("transparent", ignoreCase = true)) {
+            return null
         }
-        val r = (rgb ushr 16) and 0xFF
-        val g = (rgb ushr 8) and 0xFF
-        val b = rgb and 0xFF
-        val a = (opacity * 255f).toInt().coerceIn(0, 255)
-        return Color(r, g, b, a)
+        val trimmed = hex.trim()
+        if (trimmed.equals("currentColor", ignoreCase = true)) {
+            val a = (opacity.coerceIn(0f, 1f) * 255f).roundToInt().coerceIn(0, 255)
+            return Color(0, 0, 0, a)
+        }
+        if (!trimmed.startsWith("#")) {
+            val argbHex = GenericUiBuiltinSvgToVectorConverter.svgColorToAndroidHex(trimmed, opacity) ?: return null
+            return parseColor(argbHex, 1f)
+        }
+        val clean = trimmed.removePrefix("#")
+        return when (clean.length) {
+            3 -> {
+                val r = (clean[0].digitToIntOrNull(16) ?: return null) * 17
+                val g = (clean[1].digitToIntOrNull(16) ?: return null) * 17
+                val b = (clean[2].digitToIntOrNull(16) ?: return null) * 17
+                val a = (opacity.coerceIn(0f, 1f) * 255f).roundToInt().coerceIn(0, 255)
+                Color(r, g, b, a)
+            }
+            6 -> {
+                val rgb = clean.toIntOrNull(16) ?: return null
+                val r = (rgb ushr 16) and 0xFF
+                val g = (rgb ushr 8) and 0xFF
+                val b = rgb and 0xFF
+                val a = (opacity.coerceIn(0f, 1f) * 255f).roundToInt().coerceIn(0, 255)
+                Color(r, g, b, a)
+            }
+            8 -> {
+                // #AARRGGBB
+                val argb = clean.toLongOrNull(16)?.toInt() ?: return null
+                val baseA = (argb ushr 24) and 0xFF
+                val r = (argb ushr 16) and 0xFF
+                val g = (argb ushr 8) and 0xFF
+                val b = argb and 0xFF
+                val a = ((baseA / 255f) * opacity.coerceIn(0f, 1f) * 255f).roundToInt().coerceIn(0, 255)
+                Color(r, g, b, a)
+            }
+            else -> null
+        }
     }
 
     private fun parsePolygon(pointsAttr: String, close: Boolean = true): Shape {

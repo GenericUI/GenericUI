@@ -7,6 +7,8 @@ interface TextInputNativeImpl<out W> : NativeImpl<W> {
     fun getValue(): String
     fun setPlaceholder(placeholder: String)
     fun getPlaceholder(): String
+    fun setLabel(label: String?)
+    fun getLabel(): String?
     fun setReadOnly(readOnly: Boolean)
     fun setPasswordMode(password: Boolean)
     fun setMultiline(multiline: Boolean)

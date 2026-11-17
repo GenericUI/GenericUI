@@ -7,8 +7,9 @@ class NumberField(
     numericValue: Double = 0.0,
     var minValue: Double = -Double.MAX_VALUE,
     var maxValue: Double = Double.MAX_VALUE,
-    var step: Double = 1.0
-) : TextField(value = numericValue.toString()) {
+    var step: Double = 1.0,
+    label: String? = null
+) : TextField(value = numericValue.toString(), label = label) {
     var numericValue: Double
         get() = value.toDoubleOrNull()?.coerceIn(minValue, maxValue) ?: 0.0
         set(newVal) {

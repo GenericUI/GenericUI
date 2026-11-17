@@ -8,6 +8,8 @@ import com.nexustools.genericui.component.layout.LayerSizingMode
 import com.nexustools.genericui.component.shell.FragmentApplication
 import com.nexustools.genericui.component.shell.Window
 import com.nexustools.genericui.core.UiTimerScheduler
+import com.nexustools.genericui.enums.window.SoftInputMode
+import com.nexustools.genericui.window.WindowConfiguration
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -124,6 +126,28 @@ class FragmentHostFragmentTest {
         override fun onSaveInstanceState(outState: FragmentBundle) {
             super.onSaveInstanceState(outState)
             outState.putString("level", levelId)
+        }
+    }
+
+    private class SoftInputConfigTrackingFragment(
+        val tag: String,
+        mode: SoftInputMode,
+        private val observedConfigs: MutableList<Pair<String, WindowConfiguration>>,
+        private val observedResizes: MutableList<Triple<String, Int, Int>>
+    ) : Fragment() {
+        init {
+            softInputMode = mode
+            pageTitle = tag
+        }
+
+        override fun onConfigurationChanged(config: WindowConfiguration) {
+            super.onConfigurationChanged(config)
+            observedConfigs.add(tag to config)
+        }
+
+        override fun onResize(viewportWidth: Int, viewportHeight: Int) {
+            super.onResize(viewportWidth, viewportHeight)
+            observedResizes.add(Triple(tag, viewportWidth, viewportHeight))
         }
     }
 
@@ -353,5 +377,68 @@ class FragmentHostFragmentTest {
 
         assertEquals("", host.currentRoute)
         assertTrue(host.currentFragment is MenuRouteFragment)
+    }
+
+    @Test
+    fun testFragmentHostCachesViewportConfigurationAndPropagatesSoftInputModes() {
+        val observedConfigs = mutableListOf<Pair<String, WindowConfiguration>>()
+        val observedResizes = mutableListOf<Triple<String, Int, Int>>()
+
+        val hostFragment = FragmentHostFragment(
+            appTitle = "SoftInputTest",
+            transitionSpec = FragmentTransitionSpec.None
+        )
+        hostFragment.softInputMode = SoftInputMode.ADJUST_PAN
+
+        val softInputChanges = mutableListOf<SoftInputMode>()
+        hostFragment.onActiveFragmentSoftInputModeChanged = { mode ->
+            softInputChanges.add(mode)
+        }
+
+        hostFragment.registerRoute("connect", SoftInputConfigTrackingFragment::class, title = "Connect") {
+            SoftInputConfigTrackingFragment("connect", SoftInputMode.ADJUST_RESIZE, observedConfigs, observedResizes)
+        }
+        hostFragment.registerRoute("player", SoftInputConfigTrackingFragment::class, title = "Player") {
+            SoftInputConfigTrackingFragment("player", SoftInputMode.ADJUST_NOTHING, observedConfigs, observedResizes)
+        }
+        hostFragment.registerRoute("fallback", SoftInputConfigTrackingFragment::class, title = "Fallback") {
+            SoftInputConfigTrackingFragment("fallback", SoftInputMode.UNSPECIFIED, observedConfigs, observedResizes)
+        }
+
+        val phoneConfig = WindowConfiguration(
+            widthPx = 1440,
+            heightPx = 3120,
+            densityScale = 3.75f,
+            smallestScreenWidthDp = 384
+        )
+        hostFragment.onConfigurationChanged(phoneConfig)
+        hostFragment.onResize(1440, 3120)
+
+        val connect = hostFragment.navigateToRoute("connect", addToBackStack = false) as SoftInputConfigTrackingFragment
+        assertEquals(SoftInputMode.ADJUST_RESIZE, hostFragment.softInputMode)
+        assertEquals(SoftInputMode.ADJUST_RESIZE, softInputChanges.lastOrNull())
+        assertTrue(observedConfigs.any { it.first == "connect" && it.second.densityScale == 3.75f && it.second.widthPx == 1440 })
+        assertTrue(observedResizes.any { it.first == "connect" && it.second == 1440 && it.third == 3120 })
+
+        val player = hostFragment.navigateToRoute("player", addToBackStack = true) as SoftInputConfigTrackingFragment
+        assertEquals(SoftInputMode.ADJUST_NOTHING, hostFragment.softInputMode)
+        assertEquals(SoftInputMode.ADJUST_NOTHING, softInputChanges.lastOrNull())
+        assertTrue(observedConfigs.any { it.first == "player" && it.second.densityScale == 3.75f && it.second.smallestScreenWidthDp == 384 })
+
+        // Dynamic softInputMode mutation on active child notifies host observer live
+        player.softInputMode = SoftInputMode.ADJUST_PAN
+        assertEquals(SoftInputMode.ADJUST_PAN, hostFragment.softInputMode)
+        assertEquals(SoftInputMode.ADJUST_PAN, softInputChanges.lastOrNull())
+
+        // Navigating to a fragment with UNSPECIFIED inherits FragmentHostFragment's own softInputMode (ADJUST_PAN)
+        hostFragment.navigateToRoute("fallback", addToBackStack = true)
+        assertEquals(SoftInputMode.ADJUST_PAN, hostFragment.softInputMode)
+
+        // Popping back twice returns to Connect (ADJUST_RESIZE)
+        assertTrue(hostFragment.popBackStack())
+        assertTrue(hostFragment.popBackStack())
+        assertSame(connect, hostFragment.currentFragment)
+        assertEquals(SoftInputMode.ADJUST_RESIZE, hostFragment.softInputMode)
+        assertEquals(SoftInputMode.ADJUST_RESIZE, softInputChanges.lastOrNull())
     }
 }

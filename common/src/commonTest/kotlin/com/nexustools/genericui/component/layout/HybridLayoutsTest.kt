@@ -3,6 +3,11 @@ package com.nexustools.genericui.component.layout
 import com.nexustools.genericui.component.dock.DockMobileDrawerPolicy
 import com.nexustools.genericui.component.dock.DockPanel
 import com.nexustools.genericui.component.dock.DockWorkspace
+import com.nexustools.genericui.component.form.NumberField
+import com.nexustools.genericui.component.form.PasswordField
+import com.nexustools.genericui.component.form.SearchField
+import com.nexustools.genericui.component.form.TextArea
+import com.nexustools.genericui.component.form.TextField
 import com.nexustools.genericui.component.fragment.Fragment
 import com.nexustools.genericui.component.fragment.helper.AdaptiveNavigationScaffoldFragment
 import com.nexustools.genericui.component.fragment.helper.CardLayoutFragment
@@ -989,5 +994,88 @@ class HybridLayoutsTest {
         assertEquals(4, tabContainer.selectedIndex)
         assertTrue(tabContainer.entries[4].content?.isVisible == true)
         assertEquals(listOf<com.nexustools.genericui.core.AbstractComponent>(podcastsPane), splitNav.contentHost.children)
+    }
+
+    @Test
+    fun testAdaptiveCardLayoutUnknownViewportAndDensityConversion() {
+        val largeScreenCard = AdaptiveCardContainer(
+            cardTitle = "Connect",
+            cardMode = AdaptiveCardMode.CARD_ON_LARGE_SCREENS,
+            cardBreakpointDp = 600f
+        )
+        assertFalse(largeScreenCard.layout.isViewportKnown)
+        assertFalse(largeScreenCard.isCardActive, "CARD_ON_LARGE_SCREENS must NOT flash card chrome before viewport is known")
+        assertTrue(largeScreenCard.inlineContentStack.isVisible)
+
+        val smallScreenCard = AdaptiveCardContainer(
+            cardTitle = "Compact",
+            cardMode = AdaptiveCardMode.CARD_ON_SMALL_SCREENS,
+            cardBreakpointDp = 600f
+        )
+        assertFalse(smallScreenCard.layout.isViewportKnown)
+        assertFalse(smallScreenCard.isCardActive, "CARD_ON_SMALL_SCREENS must NOT show card chrome before viewport is known")
+
+        val alwaysCard = AdaptiveCardContainer(
+            cardTitle = "Always",
+            cardMode = AdaptiveCardMode.ALWAYS_CARD,
+            cardBreakpointDp = 600f
+        )
+        assertFalse(alwaysCard.layout.isViewportKnown)
+        assertTrue(alwaysCard.isCardActive, "ALWAYS_CARD must remain active even before viewport is known")
+
+        // High-DPI mobile phone: 1440x3120 px at 3.75x density == 384x832 dp (< 600dp breakpoint)
+        largeScreenCard.onConfigurationChanged(
+            WindowConfiguration(
+                widthPx = 1440,
+                heightPx = 3120,
+                densityScale = 3.75f,
+                smallestScreenWidthDp = 384
+            )
+        )
+        assertTrue(largeScreenCard.layout.isViewportKnown)
+        assertFalse(largeScreenCard.isCardActive, "384dp phone must stay inline after density-aware onConfigurationChanged")
+
+        // Subsequent pixel onResize(1440, 3120) must divide by cached densityScale (3.75f -> 384dp), NOT treat px as dp!
+        largeScreenCard.onResize(1440, 3120)
+        assertFalse(largeScreenCard.isCardActive, "onResize(1440, 3120) at 3.75f density must resolve 384dp, not 1440dp")
+
+        // Desktop window configuration (1440x900 px at 1.0x density == 1440x900 dp >= 600dp)
+        largeScreenCard.onConfigurationChanged(
+            WindowConfiguration(
+                widthPx = 1440,
+                heightPx = 900,
+                densityScale = 1f,
+                smallestScreenWidthDp = 900
+            )
+        )
+        assertTrue(largeScreenCard.isCardActive)
+        largeScreenCard.onResize(1280, 800)
+        assertTrue(largeScreenCard.isCardActive)
+    }
+
+    @Test
+    fun testFormInputLabelConstructorsAndProperties() {
+        val textField = TextField(value = "https://example.org", placeholder = "Enter URL", label = "Server URL")
+        assertEquals("Server URL", textField.label)
+        assertEquals("https://example.org", textField.value)
+        assertEquals("Enter URL", textField.placeholder)
+        textField.label = "Updated URL"
+        assertEquals("Updated URL", textField.label)
+        textField.label = null
+        assertNull(textField.label)
+
+        val passwordField = PasswordField(placeholder = "Secret", label = "API Token")
+        assertEquals("API Token", passwordField.label)
+        assertEquals("Secret", passwordField.placeholder)
+
+        val numberField = NumberField(numericValue = 8080.0, label = "Port")
+        assertEquals("Port", numberField.label)
+        assertEquals(8080.0, numberField.numericValue)
+
+        val searchField = SearchField(placeholder = "Filter", label = "Search")
+        assertEquals("Search", searchField.label)
+
+        val textArea = TextArea(placeholder = "Notes", label = "Description")
+        assertEquals("Description", textArea.label)
     }
 }

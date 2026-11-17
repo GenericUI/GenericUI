@@ -12,6 +12,7 @@ import com.nexustools.genericui.component.system.PreferenceStore
 import com.nexustools.genericui.core.UiTimerScheduler
 import com.nexustools.genericui.enums.fragment.FragmentState
 import com.nexustools.genericui.enums.window.DisplayCutoutMode
+import com.nexustools.genericui.enums.window.SoftInputMode
 import com.nexustools.genericui.window.IWindow
 import com.nexustools.genericui.window.TitleBar
 import com.nexustools.genericui.window.WindowConfiguration
@@ -72,6 +73,25 @@ open class Fragment : Container("fragment"), IFragment {
     private var fullscreenMode: Boolean = false
     private var fullscreenExplicitlySetOnFragment: Boolean = false
     private var displayCutoutMode: DisplayCutoutMode = DisplayCutoutMode.DEFAULT
+
+    internal var onSoftInputModeChanged: ((SoftInputMode) -> Unit)? = null
+
+    internal fun dispatchSoftInputModeChanged(effectiveMode: SoftInputMode) {
+        onSoftInputModeChanged?.invoke(effectiveMode)
+    }
+
+    override var softInputMode: SoftInputMode = SoftInputMode.UNSPECIFIED
+        set(value) {
+            if (field == value) return
+            field = value
+            val hostSys = (fragmentHost as? com.nexustools.genericui.component.fragment.helper.FragmentHostSystem)
+                ?: (fragmentHost as? com.nexustools.genericui.component.fragment.helper.FragmentHostFragment)?.hostSystem
+            if (hostSys != null) {
+                hostSys.notifySoftInputModeChanged()
+            } else {
+                dispatchSoftInputModeChanged(this.softInputMode)
+            }
+        }
 
     override fun setNavBar(navBar: Navbar?) {
         this.navBar = navBar

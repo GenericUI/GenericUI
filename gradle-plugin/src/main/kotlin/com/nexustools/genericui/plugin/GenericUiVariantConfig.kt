@@ -70,4 +70,26 @@ open class GenericUiVariantConfig(val scope: GenericUiVariantScope) {
                 "genericui { android { manifest { ... } } } block (attempted in scope '${scope.id}')."
         )
     }
+
+    /**
+     * Android-only `launcherIcon { ... }` block. Throws [GradleException] when invoked on any scope
+     * other than [GenericUiVariantScope.ANDROID] (`genericui { android { launcherIcon { ... } } }`).
+     */
+    open fun launcherIcon(action: Action<in GenericUiAndroidLauncherIconConfig>) {
+        throw GradleException(
+            "launcherIcon { ... } is Android-only and can only be configured inside the " +
+                "genericui { android { launcherIcon { ... } } } block (attempted in scope '${scope.id}')."
+        )
+    }
+
+    /**
+     * Android-only `variant(name) { ... }` block. Throws [GradleException] when invoked on any scope
+     * other than [GenericUiVariantScope.ANDROID] (`genericui { android { variant("...") { ... } } }`).
+     */
+    open fun variant(name: String, action: Action<in GenericUiAndroidVariantOverrideConfig>) {
+        throw GradleException(
+            "variant(...) { ... } is Android-only and can only be configured inside the " +
+                "genericui { android { variant(\"...\") { ... } } } block (attempted in scope '${scope.id}')."
+        )
+    }
 }

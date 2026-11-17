@@ -5,5 +5,6 @@ package com.nexustools.genericui.component.form
  */
 class SearchField(
     query: String = "",
-    placeholder: String = "Search..."
-) : TextField(value = query, placeholder = placeholder)
+    placeholder: String = "Search...",
+    label: String? = null
+) : TextField(value = query, placeholder = placeholder, label = label)

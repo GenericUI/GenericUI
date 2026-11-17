@@ -103,6 +103,9 @@ interface NativeFactory {
     val layoutFactory: LayoutFactory
         get() = DefaultLayoutFactory
 
+    val displayDensityScale: Float
+        get() = 1f
+
     /**
      * `true` when the active backend supports the HTML5/Bootstrap Web Splash Screen (`:web`).
      * `false` on all other backends.

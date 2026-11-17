@@ -5,10 +5,12 @@ package com.nexustools.genericui.component.form
  */
 class PasswordField(
     value: String = "",
-    placeholder: String = "Password"
+    placeholder: String = "Password",
+    label: String? = null
 ) : TextField(
     value = value,
     placeholder = placeholder,
     multilineMode = false,
-    passwordMode = true
+    passwordMode = true,
+    label = label
 )

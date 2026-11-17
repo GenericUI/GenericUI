@@ -6,12 +6,14 @@ package com.nexustools.genericui.component.form
 class TextArea(
     value: String = "",
     placeholder: String = "",
-    var rows: Int = 4
+    var rows: Int = 4,
+    label: String? = null
 ) : TextField(
     value = value,
     placeholder = placeholder,
     multilineMode = true,
-    passwordMode = false
+    passwordMode = false,
+    label = label
 ) {
     init {
         htmlTag = "textarea"

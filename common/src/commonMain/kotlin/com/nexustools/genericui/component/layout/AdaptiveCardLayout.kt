@@ -3,6 +3,7 @@ package com.nexustools.genericui.component.layout
 import com.nexustools.genericui.component.surface.Card
 import com.nexustools.genericui.core.AbstractComponent
 import com.nexustools.genericui.core.AbstractContainer
+import com.nexustools.genericui.core.GenericUI
 import com.nexustools.genericui.enums.bootstrap.AlignItems
 import com.nexustools.genericui.enums.bootstrap.BootstrapWidth
 import com.nexustools.genericui.enums.bootstrap.DisplayMode
@@ -34,6 +35,10 @@ open class AdaptiveCardLayout(
 
     private val _contentItems = mutableListOf<AbstractComponent>()
     private var lastAppliedCardState: Boolean? = null
+
+    var isViewportKnown: Boolean = false
+        private set
+    private var lastDensityScale: Float = 0f
 
     private var lastViewportWidthDp: Float = 1280f
     private var lastViewportHeightDp: Float = 800f
@@ -238,6 +243,7 @@ open class AdaptiveCardLayout(
         } else {
             min(lastViewportWidthDp.toInt(), lastViewportHeightDp.toInt())
         }
+        isViewportKnown = true
         impl.syncLayout(lastViewportWidthDp, lastViewportHeightDp, lastSmallestScreenWidthDp)
     }
 
@@ -246,8 +252,10 @@ open class AdaptiveCardLayout(
         viewportHeightPx: Int,
         densityScale: Float = 1f
     ) {
-        val widthDp = breakpointSpec.toDp(viewportWidthPx, densityScale).toFloat()
-        val heightDp = breakpointSpec.toDp(viewportHeightPx, densityScale).toFloat()
+        val safeDensity = densityScale.takeIf { it > 0f } ?: 1f
+        lastDensityScale = safeDensity
+        val widthDp = breakpointSpec.toDp(viewportWidthPx, safeDensity).toFloat()
+        val heightDp = breakpointSpec.toDp(viewportHeightPx, safeDensity).toFloat()
         val smallestDp = min(widthDp.toInt(), heightDp.toInt())
         updateViewport(widthDp, heightDp, smallestDp)
     }
@@ -258,13 +266,23 @@ open class AdaptiveCardLayout(
 
     override fun onConfigurationChanged(config: WindowConfiguration) {
         super.onConfigurationChanged(config)
-        val widthDp = breakpointSpec.toDp(config.widthPx, config.densityScale).toFloat()
-        val heightDp = breakpointSpec.toDp(config.heightPx, config.densityScale).toFloat()
+        lastDensityScale = config.densityScale.takeIf { it > 0f } ?: 1f
+        val widthDp = breakpointSpec.toDp(config.widthPx, lastDensityScale).toFloat()
+        val heightDp = breakpointSpec.toDp(config.heightPx, lastDensityScale).toFloat()
         updateViewport(widthDp, heightDp, config.smallestScreenWidthDp)
     }
 
     override fun onResize(viewportWidth: Int, viewportHeight: Int) {
         super.onResize(viewportWidth, viewportHeight)
-        updateViewport(viewportWidth.toFloat(), viewportHeight.toFloat(), min(viewportWidth, viewportHeight))
+        val density = (
+            if (isViewportKnown && lastDensityScale > 0f) {
+                lastDensityScale
+            } else {
+                (host.resolveActiveFactory() ?: GenericUI.activeFactory)?.displayDensityScale ?: 1f
+            }
+        ).coerceAtLeast(0.1f)
+        val widthDp = breakpointSpec.toDp(viewportWidth, density).toFloat()
+        val heightDp = breakpointSpec.toDp(viewportHeight, density).toFloat()
+        updateViewport(widthDp, heightDp, min(widthDp.toInt(), heightDp.toInt()))
     }
 }

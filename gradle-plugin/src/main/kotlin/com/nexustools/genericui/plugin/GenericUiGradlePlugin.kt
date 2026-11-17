@@ -142,6 +142,15 @@ class GenericUiGradlePlugin : Plugin<Project> {
                     }
                 }
             })
+            androidLauncherIconConfig.set(project.provider {
+                extension.android.launcherIconConfig.toSerializedString()
+            })
+            androidSvgConverterVersion.set(project.provider {
+                extension.android.svgConverterVersion
+            })
+            failOnSvgConversionWarnings.set(project.provider {
+                extension.android.failOnSvgConversionWarnings
+            })
             kotlinOutputDirectory.set(project.layout.buildDirectory.dir("generated/genericui/resources/kotlin/commonMain"))
             backendOutputDirectory.set(project.layout.buildDirectory.dir("generated/genericui/resources/backends"))
         }
@@ -384,18 +393,20 @@ class GenericUiGradlePlugin : Plugin<Project> {
             })
             appId.set(project.provider { resolveAndroidVariant(project, extension).appId })
             appName.set(project.provider { resolveAndroidVariant(project, extension).appName })
+            appVersion.set(project.provider { resolveAndroidVariant(project, extension).appVersion })
             packageName.set(project.provider { resolveAndroidVariant(project, extension).packageName })
-            applicationClass.set(project.provider { extension.android.manifestConfig.applicationClass })
-            theme.set(project.provider { extension.android.manifestConfig.theme })
-            screenOrientation.set(project.provider { extension.android.manifestConfig.screenOrientation })
-            configChanges.set(project.provider { extension.android.manifestConfig.configChanges })
-            supportsPictureInPicture.set(project.provider { extension.android.manifestConfig.supportsPictureInPicture })
-            permissions.set(project.provider { extension.android.manifestConfig.permissions.toList() })
-            serializedServices.set(project.provider {
-                extension.android.servicesConfig.services.map { GenericUiGenerateAndroidManifestTask.serializeServiceSpec(it) }
+            manifestModelJson.set(project.provider {
+                GenericUiAndroidManifestModelSerializer.toJson(
+                    manifestConfig = extension.android.manifestConfig,
+                    services = extension.android.servicesConfig.services,
+                    variantOverrides = extension.android.variants,
+                    inheritedWebShortcuts = extension.application.desktop.webManifest.shortcuts
+                )
             })
+            manifestMergerVersion.set(project.provider { extension.android.manifestMergerVersion })
             outputDirectory.set(project.layout.buildDirectory.dir("generated/genericui/android-manifest"))
             outputManifestFile.set(project.layout.buildDirectory.file("generated/genericui/android-manifest/AndroidManifest.xml"))
+            outputResDirectory.set(project.layout.buildDirectory.dir("generated/genericui/android-manifest/res"))
         }
 
         val generateIosAppTask = project.tasks.register(
@@ -532,16 +543,45 @@ class GenericUiGradlePlugin : Plugin<Project> {
             task.baseName.set(project.provider {
                 extension.application.baseName.trim().ifEmpty { project.name }
             })
-            task.appId.set(project.provider { resolveAndroidVariant(project, extension).appId })
-            task.appVersion.set(project.provider { resolveAndroidVariant(project, extension).appVersion })
+            task.appId.set(project.provider {
+                val baseId = resolveAndroidVariant(project, extension).appId
+                val suffix = extension.android.variants[variant]?.applicationIdSuffix.orEmpty()
+                baseId + suffix
+            })
+            task.appVersion.set(project.provider {
+                val variantCfg = extension.android.variants[variant]
+                val explicitName = variantCfg?.manifestConfig?.versionName?.trim()?.takeIf { it.isNotEmpty() }
+                    ?: extension.android.manifestConfig.versionName?.trim()?.takeIf { it.isNotEmpty() }
+                    ?: resolveAndroidVariant(project, extension).appVersion
+                val suffix = variantCfg?.versionNameSuffix.orEmpty()
+                explicitName + suffix
+            })
+            task.versionCode.set(project.provider {
+                val variantCfg = extension.android.variants[variant]
+                val resolvedVerName = variantCfg?.manifestConfig?.versionName?.trim()?.takeIf { it.isNotEmpty() }
+                    ?: extension.android.manifestConfig.versionName?.trim()?.takeIf { it.isNotEmpty() }
+                    ?: resolveAndroidVariant(project, extension).appVersion
+                variantCfg?.manifestConfig?.versionCode
+                    ?: extension.android.manifestConfig.versionCode
+                    ?: GenericUiAndroidManifestXmlGenerator.deriveVersionCode(resolvedVerName)
+            })
             task.minSdk.set(project.provider {
-                extension.android.manifestConfig.minSdk.takeIf { it > 0 } ?: extension.application.androidMinSdk
+                val variantMin = extension.android.variants[variant]?.manifestConfig?.takeIf {
+                    "minSdk" in it.explicitFields
+                }?.minSdk
+                variantMin ?: extension.android.manifestConfig.minSdk.takeIf { it > 0 } ?: extension.application.androidMinSdk
             })
             task.compileSdk.set(project.provider {
-                extension.android.manifestConfig.compileSdk.takeIf { it > 0 } ?: extension.application.androidCompileSdk
+                val variantCompile = extension.android.variants[variant]?.manifestConfig?.takeIf {
+                    "compileSdk" in it.explicitFields
+                }?.compileSdk
+                variantCompile ?: extension.android.manifestConfig.compileSdk.takeIf { it > 0 } ?: extension.application.androidCompileSdk
             })
             task.targetSdk.set(project.provider {
-                extension.android.manifestConfig.targetSdk.takeIf { it > 0 }
+                val variantCfg = extension.android.variants[variant]?.manifestConfig
+                val variantTarget = variantCfg?.takeIf { "targetSdk" in it.explicitFields }?.targetSdk
+                variantTarget
+                    ?: extension.android.manifestConfig.targetSdk.takeIf { it > 0 }
                     ?: extension.android.manifestConfig.compileSdk.takeIf { it > 0 }
                     ?: extension.application.androidCompileSdk
             })
@@ -573,7 +613,22 @@ class GenericUiGradlePlugin : Plugin<Project> {
                 }
                 roots.toList()
             })
-            task.manifestFile.set(generateAndroidManifestTask.flatMap { it.outputManifestFile })
+            task.manifestFile.set(
+                project.layout.file(
+                    generateAndroidManifestTask.map { genTask ->
+                        val variantFile = genTask.outputDirectory.file("variants/$variant/AndroidManifest.xml").get().asFile
+                        if (variantFile.isFile) variantFile else genTask.outputManifestFile.get().asFile
+                    }
+                )
+            )
+            task.generatedManifestResDir.set(
+                project.layout.dir(
+                    generateAndroidManifestTask.map { genTask ->
+                        val variantRes = genTask.outputDirectory.dir("variants/$variant/res").get().asFile
+                        if (variantRes.isDirectory) variantRes else genTask.outputResDirectory.get().asFile
+                    }
+                )
+            )
             task.generatedAndroidResDir.set(project.layout.buildDirectory.dir("generated/genericui/resources/backends/android/res"))
             task.outputDirectory.set(project.layout.buildDirectory.dir(outputRelPath))
             if (secondaryOutputRelPath != null) {

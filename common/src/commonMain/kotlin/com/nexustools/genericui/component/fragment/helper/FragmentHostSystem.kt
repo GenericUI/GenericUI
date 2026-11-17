@@ -11,6 +11,7 @@ import com.nexustools.genericui.component.layout.LayeredLayout
 import com.nexustools.genericui.component.shell.Window
 import com.nexustools.genericui.core.Disposable
 import com.nexustools.genericui.enums.fragment.FragmentState
+import com.nexustools.genericui.enums.window.SoftInputMode
 import com.nexustools.genericui.style.css.CssStyleSheet
 import com.nexustools.genericui.style.css.PrecompiledStyleSheet
 import com.nexustools.genericui.window.IWindow
@@ -83,6 +84,10 @@ class FragmentHostSystem(
         private set
     var viewportHeightPx: Int = 720
         private set
+    var lastWindowConfiguration: WindowConfiguration? = null
+        private set
+    var lastViewportSizePx: Pair<Int, Int>? = null
+        private set
 
     var themeStyleSheet: CssStyleSheet? = null
     var precompiledStyleSheet: PrecompiledStyleSheet? = null
@@ -95,6 +100,7 @@ class FragmentHostSystem(
     var onActiveFragmentChanged: ((Fragment?) -> Unit)? = null
     var onFragmentChanged: ((Fragment) -> Unit)? = null
     var onLoadingChanged: ((Boolean) -> Unit)? = null
+    var onActiveFragmentSoftInputModeChanged: ((SoftInputMode) -> Unit)? = null
 
     val registeredRoutes: Map<String, FragmentRouteEntry>
         get() = routes.toMap()
@@ -738,6 +744,12 @@ class FragmentHostSystem(
                 } else if (restoredState != null) {
                     frag.onRestoreInstanceState(restoredState)
                 }
+                lastWindowConfiguration?.let { cfg ->
+                    frag.onConfigurationChanged(cfg)
+                }
+                lastViewportSizePx?.let { (vpW, vpH) ->
+                    frag.onResize(vpW, vpH)
+                }
                 frag.performStart()
                 frag.performResume()
             },
@@ -763,7 +775,12 @@ class FragmentHostSystem(
             onIncomingActivated = { frag ->
                 if (frag === currentFragment) {
                     syncGlobalLoaderVisibility()
-                    frag.onResize(viewportWidthPx, viewportHeightPx)
+                    lastWindowConfiguration?.let { cfg ->
+                        frag.onConfigurationChanged(cfg)
+                    }
+                    lastViewportSizePx?.let { (vpW, vpH) ->
+                        frag.onResize(vpW, vpH)
+                    }
                 }
             }
         )
@@ -771,6 +788,25 @@ class FragmentHostSystem(
         syncGlobalLoaderVisibility()
         onActiveFragmentChanged?.invoke(incoming)
         onFragmentChanged?.invoke(incoming)
+        notifySoftInputModeChanged()
+    }
+
+    fun resolveEffectiveSoftInputMode(fallbackMode: SoftInputMode = SoftInputMode.UNSPECIFIED): SoftInputMode {
+        val childMode = currentFragment?.softInputMode
+        return if (childMode != null && childMode != SoftInputMode.UNSPECIFIED) {
+            childMode
+        } else {
+            fallbackMode
+        }
+    }
+
+    internal fun notifySoftInputModeChanged() {
+        val hostFallback = (hostFragmentReference as? FragmentHostFragment)?.ownSoftInputMode
+            ?: (hostFragmentReference as? Fragment)?.softInputMode
+            ?: SoftInputMode.UNSPECIFIED
+        val effective = resolveEffectiveSoftInputMode(hostFallback)
+        onActiveFragmentSoftInputModeChanged?.invoke(effective)
+        (hostFragmentReference as? Fragment)?.dispatchSoftInputModeChanged(effective)
     }
 
     fun syncGlobalLoaderVisibility() {
@@ -795,7 +831,9 @@ class FragmentHostSystem(
         if (active != null) {
             applyStoredStyleSheetTo(active)
             if (!loading) {
-                active.onResize(viewportWidthPx, viewportHeightPx)
+                lastViewportSizePx?.let { (vpW, vpH) ->
+                    active.onResize(vpW, vpH)
+                }
             }
         }
         onLoadingChanged?.invoke(loading)
@@ -830,6 +868,7 @@ class FragmentHostSystem(
         val nextH = heightPx.coerceAtLeast(1)
         viewportWidthPx = nextW
         viewportHeightPx = nextH
+        lastViewportSizePx = nextW to nextH
         resolveHostingIWindow()?.let { stageLayout.onAttachWindow(it) }
         stageLayout.onResize(nextW, nextH)
         val active = currentFragment ?: return
@@ -845,11 +884,13 @@ class FragmentHostSystem(
     }
 
     override fun onConfigurationChanged(newConfig: WindowConfiguration) {
+        lastWindowConfiguration = newConfig
         val nextW = newConfig.widthPx.coerceAtLeast(1)
         val nextH = newConfig.heightPx.coerceAtLeast(1)
-        val sizeChanged = nextW != viewportWidthPx || nextH != viewportHeightPx
+        val sizeChanged = nextW != viewportWidthPx || nextH != viewportHeightPx || lastViewportSizePx == null
         viewportWidthPx = nextW
         viewportHeightPx = nextH
+        lastViewportSizePx = nextW to nextH
         resolveHostingIWindow()?.let { stageLayout.onAttachWindow(it) }
         stageLayout.onConfigurationChanged(newConfig)
         val active = currentFragment ?: return

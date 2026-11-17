@@ -1,16 +1,21 @@
 package com.nexustools.genericui.plugin
 
 import org.gradle.api.DefaultTask
+import org.gradle.api.file.ConfigurableFileCollection
 import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.provider.ListProperty
 import org.gradle.api.provider.MapProperty
 import org.gradle.api.provider.Property
+import org.gradle.api.tasks.Classpath
 import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.Optional
 import org.gradle.api.tasks.OutputDirectory
 import org.gradle.api.tasks.TaskAction
 import java.io.File
 import java.util.Base64
+import java.util.Locale
+import kotlin.math.max
+import kotlin.math.roundToInt
 
 /**
  * Gradle task (`compileGenericUiResources`) that implements an Android-like `R` / `RC` / `Resource`
@@ -71,11 +76,42 @@ abstract class GenericUiResourceCompilerTask : DefaultTask() {
     @get:Optional
     abstract val configuredIconPath: Property<String>
 
+    @get:Input
+    @get:Optional
+    abstract val androidLauncherIconConfig: Property<String>
+
+    @get:Input
+    @get:Optional
+    abstract val androidSvgConverterVersion: Property<String>
+
+    @get:Input
+    @get:Optional
+    abstract val failOnSvgConversionWarnings: Property<Boolean>
+
+    @get:Classpath
+    @get:Optional
+    abstract val svgConverterClasspath: ConfigurableFileCollection
+
+    @get:Input
+    @get:Optional
+    abstract val gradleUserHomePath: Property<String>
+
+    @get:Input
+    @get:Optional
+    abstract val offlineMode: Property<Boolean>
+
     @get:OutputDirectory
     abstract val kotlinOutputDirectory: DirectoryProperty
 
     @get:OutputDirectory
     abstract val backendOutputDirectory: DirectoryProperty
+
+    init {
+        androidSvgConverterVersion.convention(GenericUiAndroidSvgConverter.DEFAULT_SDK_COMMON_VERSION)
+        failOnSvgConversionWarnings.convention(false)
+        gradleUserHomePath.convention(project.gradle.gradleUserHomeDir.absolutePath)
+        offlineMode.convention(project.gradle.startParameter.isOffline)
+    }
 
     private data class DrawableEntry(
         val name: String,
@@ -91,6 +127,17 @@ abstract class GenericUiResourceCompilerTask : DefaultTask() {
         val win32ResourceId: Int
             get() = win32IdFor(0x01, numericId)
     }
+
+    private data class AndroidDrawableVariant(
+        val name: String,
+        val resourceKind: String,
+        val qualifierSuffix: String,
+        val format: String,
+        val svgSource: String?,
+        val viewBoxWidth: Float,
+        val viewBoxHeight: Float,
+        val base64Data: String?
+    )
 
     private data class ValueEntry(
         val name: String,
@@ -131,6 +178,7 @@ abstract class GenericUiResourceCompilerTask : DefaultTask() {
             .filter { it.exists() && it.isDirectory }
 
         val drawables = linkedMapOf<String, DrawableEntry>()
+        val androidVariants = linkedMapOf<String, AndroidDrawableVariant>()
         val strings = linkedMapOf<String, ValueEntry>()
         val colors = linkedMapOf<String, ValueEntry>()
         val dimens = linkedMapOf<String, ValueEntry>()
@@ -165,8 +213,8 @@ abstract class GenericUiResourceCompilerTask : DefaultTask() {
             val numId = (0x7f01 shl 16) or (nextDrawableIdx++ and 0xFFFF)
             return if (ext == "svg") {
                 val svgText = file.readText()
-                val (vbW, vbH) = extractSvgViewBox(svgText)
-                val pathList = extractSvgPaths(svgText)
+                val (vbPair, pathList) = GenericUiBuiltinSvgToVectorConverter.extractViewBoxAndPaths(svgText)
+                val (vbW, vbH) = vbPair
                 DrawableEntry(
                     name = entryName,
                     numericId = numId,
@@ -194,6 +242,23 @@ abstract class GenericUiResourceCompilerTask : DefaultTask() {
             }
         }
 
+        fun recordAndroidVariant(entry: DrawableEntry, parentDirLower: String) {
+            val (kind, qualifier) = extractAndroidKindAndQualifier(parentDirLower)
+            val key = "$kind$qualifier/${entry.name}"
+            if (key !in androidVariants) {
+                androidVariants[key] = AndroidDrawableVariant(
+                    name = entry.name,
+                    resourceKind = kind,
+                    qualifierSuffix = qualifier,
+                    format = entry.format,
+                    svgSource = entry.svgSource,
+                    viewBoxWidth = entry.viewBoxWidth,
+                    viewBoxHeight = entry.viewBoxHeight,
+                    base64Data = entry.base64Data
+                )
+            }
+        }
+
         fun isExcludedDrawableFolderSegment(segment: String): Boolean {
             val lower = segment.lowercase()
             return lower.startsWith("values") ||
@@ -217,7 +282,11 @@ abstract class GenericUiResourceCompilerTask : DefaultTask() {
 
         for (root in existingDirs) {
             root.walkTopDown().filter { it.isFile }
-                .sortedBy { it.relativeTo(root).invariantSeparatorsPath.count { ch -> ch == '/' } }
+                .sortedWith(
+                    compareBy<File> { it.relativeTo(root).invariantSeparatorsPath.count { ch -> ch == '/' } }
+                        .thenBy { it.parentFile?.name?.contains('-') == true }
+                        .thenBy { it.relativeTo(root).invariantSeparatorsPath }
+                )
                 .forEach { file ->
                 val relPath = file.relativeTo(root).invariantSeparatorsPath
                 val parentDir = file.parentFile?.name?.lowercase() ?: ""
@@ -229,19 +298,25 @@ abstract class GenericUiResourceCompilerTask : DefaultTask() {
                     parentDir == "cursors" || parentDir == "cursor" || ext == "cur" -> {
                         if (ident.isNotEmpty() && (ext == "cur" || ext in drawableExts)) {
                             cursors.putIfAbsent(ident, file)
+                            val entry = buildDrawableEntry(ident, file, relPath, ext, defaultViewBox = 32f)
                             if (ident !in drawables) {
-                                drawables[ident] = buildDrawableEntry(ident, file, relPath, ext, defaultViewBox = 32f)
+                                drawables[ident] = entry
                             }
+                            recordAndroidVariant(entry, parentDir)
                         }
                     }
                     parentDir.startsWith("drawable") || parentDir.startsWith("mipmap") ||
                         parentDir == "icons" || parentDir == "images" ||
                         (file.parentFile == root && ext in drawableExts) -> {
-                        if (ident.isNotEmpty() && ident !in drawables && ext in drawableExts) {
+                        if (ident.isNotEmpty() && ext in drawableExts) {
                             if (ident.contains("cursor")) {
                                 cursors.putIfAbsent(ident, file)
                             }
-                            drawables[ident] = buildDrawableEntry(ident, file, relPath, ext, defaultViewBox = 24f)
+                            val entry = buildDrawableEntry(ident, file, relPath, ext, defaultViewBox = 24f)
+                            if (ident !in drawables) {
+                                drawables[ident] = entry
+                            }
+                            recordAndroidVariant(entry, parentDir)
                         }
                     }
                     (parentDir in setOf("styles", "style", "css", "scss", "sass") || file.parentFile == root) &&
@@ -328,7 +403,9 @@ abstract class GenericUiResourceCompilerTask : DefaultTask() {
                         val relPathWithoutExt = relPath.substringBeforeLast('.', relPath)
                         val subdirIdent = sanitizeIdentifier(relPathWithoutExt.replace('/', '_'))
                         if (subdirIdent.isNotEmpty() && subdirIdent !in drawables) {
-                            drawables[subdirIdent] = buildDrawableEntry(subdirIdent, file, relPath, ext, defaultViewBox = 24f)
+                            val entry = buildDrawableEntry(subdirIdent, file, relPath, ext, defaultViewBox = 24f)
+                            drawables[subdirIdent] = entry
+                            recordAndroidVariant(entry, parentDir)
                         }
                         if (ident.isNotEmpty() && ident != subdirIdent) {
                             subdirUnprefixedCandidates.getOrPut(ident) { mutableListOf() }.add(
@@ -344,7 +421,9 @@ abstract class GenericUiResourceCompilerTask : DefaultTask() {
             if (ident !in drawables) {
                 val uniqueBySubdir = candidates.distinctBy { it.first }
                 if (uniqueBySubdir.size == 1) {
-                    drawables[ident] = uniqueBySubdir[0].second()
+                    val entry = uniqueBySubdir[0].second()
+                    drawables[ident] = entry
+                    recordAndroidVariant(entry, "drawable")
                 }
             }
         }
@@ -365,6 +444,7 @@ abstract class GenericUiResourceCompilerTask : DefaultTask() {
                 mergeUpstreamManifest(
                     manifestFile = manifestFile,
                     drawables = drawables,
+                    androidVariants = androidVariants,
                     strings = strings,
                     colors = colors,
                     dimens = dimens,
@@ -527,10 +607,12 @@ abstract class GenericUiResourceCompilerTask : DefaultTask() {
             emitAndroidResourceTranslations(
                 projDir = projDir,
                 outDir = File(backendOutRoot, "android/res"),
+                androidVariants = androidVariants.values.toList(),
                 drawables = drawables.values.toList(),
                 strings = strings.values.toList(),
                 colors = colors.values.toList(),
-                dimens = dimens.values.toList()
+                dimens = dimens.values.toList(),
+                svgCacheDir = File(backendOutRoot.parentFile, "svg-cache")
             )
             emitAppleResourceTranslations(
                 projDir = projDir,
@@ -1089,6 +1171,7 @@ object RC {
     private fun mergeUpstreamManifest(
         manifestFile: File,
         drawables: MutableMap<String, DrawableEntry>,
+        androidVariants: MutableMap<String, AndroidDrawableVariant> = linkedMapOf(),
         strings: MutableMap<String, ValueEntry>,
         colors: MutableMap<String, ValueEntry>,
         dimens: MutableMap<String, ValueEntry>,
@@ -1115,7 +1198,7 @@ object RC {
             val type = extractJsonField(line, "type") ?: return@forEach
             val name = extractJsonField(line, "name") ?: return@forEach
             when (type) {
-                "DRAWABLE" -> if (name !in drawables) {
+                "DRAWABLE" -> {
                     val relPath = extractJsonField(line, "relativePath") ?: "drawable/$name.svg"
                     val format = extractJsonField(line, "format") ?: "svg"
                     val vbW = extractJsonNumber(line, "viewBoxWidth")?.toFloatOrNull() ?: 24f
@@ -1127,17 +1210,34 @@ object RC {
                         null
                     }
                     val dataB64 = extractJsonField(line, "base64Data")?.takeIf { it.isNotEmpty() }
-                    drawables[name] = DrawableEntry(
-                        name = name,
-                        numericId = nextDrawableId(),
-                        relativePath = relPath,
-                        format = format,
-                        svgSource = svgSource,
-                        svgPaths = svgSource?.let { extractSvgPaths(it) } ?: emptyList(),
-                        viewBoxWidth = vbW,
-                        viewBoxHeight = vbH,
-                        base64Data = dataB64
-                    )
+                    val parentDirLower = relPath.substringBeforeLast('/', "").substringAfterLast('/').lowercase(Locale.US)
+                    val (kind, qualifier) = extractAndroidKindAndQualifier(parentDirLower)
+                    val variantKey = "$kind$qualifier/$name"
+                    if (variantKey !in androidVariants) {
+                        androidVariants[variantKey] = AndroidDrawableVariant(
+                            name = name,
+                            resourceKind = kind,
+                            qualifierSuffix = qualifier,
+                            format = format,
+                            svgSource = svgSource,
+                            viewBoxWidth = vbW,
+                            viewBoxHeight = vbH,
+                            base64Data = dataB64
+                        )
+                    }
+                    if (name !in drawables) {
+                        drawables[name] = DrawableEntry(
+                            name = name,
+                            numericId = nextDrawableId(),
+                            relativePath = relPath,
+                            format = format,
+                            svgSource = svgSource,
+                            svgPaths = svgSource?.let { extractSvgPaths(it) } ?: emptyList(),
+                            viewBoxWidth = vbW,
+                            viewBoxHeight = vbH,
+                            base64Data = dataB64
+                        )
+                    }
                 }
                 "STRING" -> if (name !in strings) {
                     strings[name] = ValueEntry(name, nextStringId(), extractJsonField(line, "value").orEmpty())
@@ -1206,7 +1306,7 @@ object RC {
             val f = File(explicit).let { if (it.isAbsolute) it else File(projDir, explicit) }
             if (f.exists() && f.isFile) return f
         }
-        val candidates = listOf(
+        val candidates = mutableListOf(
             "src/commonMain/resources/icon.svg",
             "src/commonMain/resources/icon.png",
             "src/commonMain/resources/icon.ico",
@@ -1214,12 +1314,25 @@ object RC {
             "src/commonMain/resources/drawable/icon.svg",
             "src/commonMain/resources/drawable/icon.png",
             "src/commonMain/resources/drawable/icon.ico",
-            "src/commonMain/resources/drawable/favicon.ico",
-            "icon.svg",
-            "icon.png",
-            "icon.ico",
-            "favicon.ico"
+            "src/commonMain/resources/drawable/favicon.ico"
         )
+        for (srcDir in candidateSourceDirs.getOrElse(emptyList())) {
+            val clean = srcDir.trim().trimEnd('/', '\\')
+            if (clean.isEmpty()) continue
+            for (rel in listOf(
+                "$clean/icon.svg",
+                "$clean/icon.png",
+                "$clean/icon.ico",
+                "$clean/favicon.ico",
+                "$clean/drawable/icon.svg",
+                "$clean/drawable/icon.png",
+                "$clean/drawable/icon.ico",
+                "$clean/drawable/favicon.ico"
+            )) {
+                if (rel !in candidates) candidates.add(rel)
+            }
+        }
+        candidates.addAll(listOf("icon.svg", "icon.png", "icon.ico", "favicon.ico"))
         return candidates.map { File(projDir, it) }.firstOrNull { it.exists() && it.isFile }
     }
 
@@ -1352,16 +1465,16 @@ object RC {
     private fun emitAndroidResourceTranslations(
         projDir: File,
         outDir: File,
+        androidVariants: List<AndroidDrawableVariant>,
         drawables: List<DrawableEntry>,
         strings: List<ValueEntry>,
         colors: List<ValueEntry>,
-        dimens: List<ValueEntry>
+        dimens: List<ValueEntry>,
+        svgCacheDir: File? = null
     ) {
         val valuesDir = File(outDir, "values").apply { mkdirs() }
         val valuesNightDir = File(outDir, "values-night").apply { mkdirs() }
-        val drawableDir = File(outDir, "drawable").apply { mkdirs() }
-        val sourceIconFile = resolveProjectIconSourceFile(projDir)
-        GenericUiDefaultIconProvider.ensurePngFromSourceOrDefault(sourceIconFile, projDir, drawableDir)
+        File(outDir, "drawable").mkdirs()
 
         val resolvedLight = GenericUiThemeConfig.defaultLightColors(themeColor.orNull).toMutableMap().apply {
             putAll(lightThemeColors.orNull.orEmpty().filterValues { it.isNotBlank() })
@@ -1379,13 +1492,13 @@ object RC {
         val nightUsesLight = modeLower == "light"
         File(valuesDir, "themes.xml").writeText(
             buildAndroidThemesXml(
-                parentTheme = if (dayUsesDark) "@android:style/Theme.Material.NoActionBar" else "@android:style/Theme.Material.Light.NoActionBar",
+                parentTheme = if (dayUsesDark) "Theme.MaterialComponents.NoActionBar" else "Theme.MaterialComponents.Light.NoActionBar",
                 colorPrefix = if (dayUsesDark) "genericui_dark" else "genericui_light"
             )
         )
         File(valuesNightDir, "themes.xml").writeText(
             buildAndroidThemesXml(
-                parentTheme = if (nightUsesLight) "@android:style/Theme.Material.Light.NoActionBar" else "@android:style/Theme.Material.NoActionBar",
+                parentTheme = if (nightUsesLight) "Theme.MaterialComponents.Light.NoActionBar" else "Theme.MaterialComponents.NoActionBar",
                 colorPrefix = if (nightUsesLight) "genericui_light" else "genericui_dark"
             )
         )
@@ -1417,26 +1530,164 @@ object RC {
             File(valuesDir, "dimens.xml").writeText(sb.toString())
         }
 
-        for (d in drawables) {
-            if (d.format == "svg" && d.svgPaths.isNotEmpty()) {
-                val vd = StringBuilder()
-                vd.appendLine("<?xml version=\"1.0\" encoding=\"utf-8\"?>")
-                vd.appendLine("<vector xmlns:android=\"http://schemas.android.com/apk/res/android\"")
-                vd.appendLine("    android:width=\"${d.viewBoxWidth.toInt()}dp\"")
-                vd.appendLine("    android:height=\"${d.viewBoxHeight.toInt()}dp\"")
-                vd.appendLine("    android:viewportWidth=\"${d.viewBoxWidth}\"")
-                vd.appendLine("    android:viewportHeight=\"${d.viewBoxHeight}\">")
-                for (pathData in d.svgPaths) {
-                    vd.appendLine("    <path")
-                    vd.appendLine("        android:fillColor=\"#FF000000\"")
-                    vd.appendLine("        android:strokeColor=\"#FF000000\"")
-                    vd.appendLine("        android:strokeWidth=\"1.8\"")
-                    vd.appendLine("        android:pathData=\"${escapeXml(pathData)}\" />")
-                }
-                vd.appendLine("</vector>")
-                File(drawableDir, "${d.name}.xml").writeText(vd.toString())
+        val sdkVer = androidSvgConverterVersion.orNull?.trim()?.takeIf { it.isNotEmpty() }
+            ?: GenericUiAndroidSvgConverter.DEFAULT_SDK_COMMON_VERSION
+        val failWarnings = failOnSvgConversionWarnings.orNull ?: false
+        val gradleUserHome = gradleUserHomePath.orNull?.trim()?.takeIf { it.isNotEmpty() }?.let { File(it) }
+        val isOffline = offlineMode.orNull ?: false
+        val explicitClasspath = svgConverterClasspath.files.toList()
+
+        val colorLookup = linkedMapOf<String, String>()
+        for (c in colors) {
+            colorLookup[c.name] = c.rawValue
+        }
+        resolvedLight.forEach { (k, v) -> colorLookup.putIfAbsent("genericui_light_$k", v) }
+        resolvedDark.forEach { (k, v) -> colorLookup.putIfAbsent("genericui_dark_$k", v) }
+
+        val sourceIconFile = resolveProjectIconSourceFile(projDir)
+        val launcherConfig = GenericUiAndroidLauncherIconConfig.fromSerializedString(androidLauncherIconConfig.orNull)
+        GenericUiAndroidLauncherIconGenerator.generate(
+            projDir = projDir,
+            androidResDir = outDir,
+            launcherConfig = launcherConfig,
+            fallbackSourceIconFile = sourceIconFile,
+            resolvedColors = colorLookup,
+            svgConverterVersion = sdkVer,
+            failOnSvgWarnings = failWarnings,
+            svgCacheDir = svgCacheDir,
+            svgConverterClasspath = explicitClasspath,
+            gradleUserHomeDir = gradleUserHome,
+            offlineMode = isOffline,
+            logger = logger
+        )
+
+        val androidSupportedRasterExts = setOf("png", "webp", "jpg", "jpeg", "gif")
+        val variantsToEmit = if (androidVariants.isNotEmpty()) {
+            androidVariants
+        } else {
+            drawables.map { d ->
+                val parentLower = d.relativePath.substringBeforeLast('/', "").substringAfterLast('/').lowercase(Locale.US)
+                val (kind, qual) = extractAndroidKindAndQualifier(parentLower)
+                AndroidDrawableVariant(
+                    name = d.name,
+                    resourceKind = kind,
+                    qualifierSuffix = qual,
+                    format = d.format,
+                    svgSource = d.svgSource,
+                    viewBoxWidth = d.viewBoxWidth,
+                    viewBoxHeight = d.viewBoxHeight,
+                    base64Data = d.base64Data
+                )
             }
         }
+
+        for (v in variantsToEmit) {
+            if (v.name == "icon" && v.resourceKind == "drawable" && v.qualifierSuffix.isEmpty()) {
+                continue
+            }
+            if (v.format == "svg" && v.svgSource != null) {
+                val conv = GenericUiAndroidSvgConverter.convertSvgText(
+                    svgText = v.svgSource,
+                    sourceName = "${v.name}.svg",
+                    sdkCommonVersion = sdkVer,
+                    failOnWarnings = failWarnings,
+                    cacheDir = svgCacheDir,
+                    classpathFiles = explicitClasspath,
+                    gradleUserHomeDir = gradleUserHome,
+                    logger = logger,
+                    allowNetworkDownload = !isOffline
+                )
+                val targetFolder = "${v.resourceKind}${v.qualifierSuffix}"
+                if (conv.vectorXml != null) {
+                    val dir = File(outDir, targetFolder).apply { mkdirs() }
+                    File(dir, "${v.name}.xml").writeText(conv.vectorXml, Charsets.UTF_8)
+                } else {
+                    emitRasterFallbackDrawables(
+                        outDir = outDir,
+                        variant = v
+                    )
+                }
+            } else if (v.format in androidSupportedRasterExts && v.base64Data != null) {
+                val targetFolder = "${v.resourceKind}${v.qualifierSuffix}"
+                val dir = File(outDir, targetFolder).apply { mkdirs() }
+                File(dir, "${v.name}.${v.format}").writeBytes(Base64.getDecoder().decode(v.base64Data))
+            }
+        }
+    }
+
+    private fun emitRasterFallbackDrawables(
+        outDir: File,
+        variant: AndroidDrawableVariant
+    ) {
+        val svgText = variant.svgSource ?: return
+        var baseW = variant.viewBoxWidth.toDouble().coerceAtLeast(1.0)
+        var baseH = variant.viewBoxHeight.toDouble().coerceAtLeast(1.0)
+        val maxBase = max(baseW, baseH)
+        if (maxBase > 108.0) {
+            val scale = 108.0 / maxBase
+            baseW *= scale
+            baseH *= scale
+        }
+
+        val qualifierTokens = variant.qualifierSuffix.split('-').filter { it.isNotEmpty() }.map { it.lowercase(Locale.US) }
+        val fixedDensityMap = mapOf(
+            "ldpi" to 0.75,
+            "mdpi" to 1.0,
+            "hdpi" to 1.5,
+            "xhdpi" to 2.0,
+            "xxhdpi" to 3.0,
+            "xxxhdpi" to 4.0,
+            "tvdpi" to 1.33
+        )
+        val explicitDensity = qualifierTokens.firstOrNull { it in fixedDensityMap }
+        if (explicitDensity != null) {
+            val factor = fixedDensityMap[explicitDensity] ?: 1.0
+            val wPx = (baseW * factor).roundToInt().coerceAtLeast(1)
+            val hPx = (baseH * factor).roundToInt().coerceAtLeast(1)
+            val dir = File(outDir, "${variant.resourceKind}${variant.qualifierSuffix}").apply { mkdirs() }
+            File(dir, "${variant.name}.png").writeBytes(
+                GenericUiDefaultIconProvider.renderSvgTextToPngBytes(svgText, wPx, hPx)
+            )
+            return
+        }
+
+        val densities = listOf(
+            "mdpi" to 1.0,
+            "hdpi" to 1.5,
+            "xhdpi" to 2.0,
+            "xxhdpi" to 3.0,
+            "xxxhdpi" to 4.0
+        )
+        for ((density, factor) in densities) {
+            val wPx = (baseW * factor).roundToInt().coerceAtLeast(1)
+            val hPx = (baseH * factor).roundToInt().coerceAtLeast(1)
+            val folderName = appendDensityQualifier(variant.resourceKind, variant.qualifierSuffix, density)
+            val dir = File(outDir, folderName).apply { mkdirs() }
+            File(dir, "${variant.name}.png").writeBytes(
+                GenericUiDefaultIconProvider.renderSvgTextToPngBytes(svgText, wPx, hPx)
+            )
+        }
+    }
+
+    private fun extractAndroidKindAndQualifier(parentDirLower: String): Pair<String, String> = when {
+        parentDirLower == "drawable" -> "drawable" to ""
+        parentDirLower.startsWith("drawable-") -> "drawable" to parentDirLower.removePrefix("drawable")
+        parentDirLower == "mipmap" -> "mipmap" to ""
+        parentDirLower.startsWith("mipmap-") -> "mipmap" to parentDirLower.removePrefix("mipmap")
+        else -> "drawable" to ""
+    }
+
+    private fun appendDensityQualifier(kind: String, qualifierSuffix: String, density: String): String {
+        val tokens = qualifierSuffix.split('-')
+            .filter { it.isNotEmpty() }
+            .filterNot { it == "anydpi" || it == "nodpi" }
+            .toMutableList()
+        val versionRegex = Regex("^v\\d+$")
+        val afterDensityTokens = setOf("notouch", "finger", "keyssoft", "keysexposed", "keyshidden", "qwerty", "12key", "navexposed", "navhidden", "nonav", "dpad", "trackball", "wheel")
+        val insertIdx = tokens.indexOfFirst { versionRegex.matches(it) || it in afterDensityTokens }
+            .let { if (it < 0) tokens.size else it }
+        tokens.add(insertIdx, density)
+        return if (tokens.isEmpty()) kind else "$kind-${tokens.joinToString("-")}"
     }
 
     private fun buildAndroidThemeColorsXml(
@@ -1495,6 +1746,11 @@ object RC {
         appendLine("<?xml version=\"1.0\" encoding=\"utf-8\"?>")
         appendLine("<resources>")
         appendLine("    <style name=\"Theme.GenericUI.App\" parent=\"${escapeXml(parentTheme)}\">")
+        appendLine("        <item name=\"colorPrimary\">@color/${colorPrefix}_primary</item>")
+        appendLine("        <item name=\"colorPrimaryDark\">@color/${colorPrefix}_primary_dark</item>")
+        appendLine("        <item name=\"colorAccent\">@color/${colorPrefix}_accent</item>")
+        appendLine("        <item name=\"colorPrimaryVariant\">@color/${colorPrefix}_primary_dark</item>")
+        appendLine("        <item name=\"colorSecondary\">@color/${colorPrefix}_accent</item>")
         appendLine("        <item name=\"android:colorPrimary\">@color/${colorPrefix}_primary</item>")
         appendLine("        <item name=\"android:colorPrimaryDark\">@color/${colorPrefix}_primary_dark</item>")
         appendLine("        <item name=\"android:colorAccent\">@color/${colorPrefix}_accent</item>")
@@ -1754,86 +2010,11 @@ object RC {
         }
     }
 
-    private fun extractSvgViewBox(svg: String): Pair<Float, Float> {
-        val vbMatch = Regex("viewBox\\s*=\\s*\"([^\"]+)\"").find(svg)
-        if (vbMatch != null) {
-            val nums = vbMatch.groupValues[1].trim().split(Regex("[\\s,]+")).mapNotNull { it.toFloatOrNull() }
-            if (nums.size >= 4) {
-                return nums[2].coerceAtLeast(1f) to nums[3].coerceAtLeast(1f)
-            }
-        }
-        return 24f to 24f
-    }
+    private fun extractSvgViewBox(svg: String): Pair<Float, Float> =
+        GenericUiBuiltinSvgToVectorConverter.extractViewBoxAndPaths(svg).first
 
-    private fun extractSvgPaths(svg: String): List<String> {
-        val result = mutableListOf<String>()
-        for (m in Regex("<path[^>]*\\bd\\s*=\\s*\"([^\"]+)\"[^>]*>").findAll(svg)) {
-            val d = m.groupValues[1].trim()
-            if (d.isNotEmpty()) result.add(d)
-        }
-        for (m in Regex("<rect[^>]*>").findAll(svg)) {
-            val tag = m.value
-            val x = attrFloat(tag, "x", 3f)
-            val y = attrFloat(tag, "y", 3f)
-            val w = attrFloat(tag, "width", 18f)
-            val h = attrFloat(tag, "height", 18f)
-            result.add("M $x $y L ${x + w} $y L ${x + w} ${y + h} L $x ${y + h} Z")
-        }
-        for (m in Regex("<line[^>]*>").findAll(svg)) {
-            val tag = m.value
-            val x1 = attrFloat(tag, "x1", 0f)
-            val y1 = attrFloat(tag, "y1", 0f)
-            val x2 = attrFloat(tag, "x2", 24f)
-            val y2 = attrFloat(tag, "y2", 24f)
-            result.add("M $x1 $y1 L $x2 $y2")
-        }
-        for (m in Regex("<polyline[^>]*\\bpoints\\s*=\\s*\"([^\"]+)\"[^>]*>").findAll(svg)) {
-            val pts = m.groupValues[1].trim().split(Regex("[\\s,]+")).mapNotNull { it.toFloatOrNull() }
-            if (pts.size >= 4) {
-                val sb = StringBuilder("M ${pts[0]} ${pts[1]}")
-                var i = 2
-                while (i + 1 < pts.size) {
-                    sb.append(" L ${pts[i]} ${pts[i + 1]}")
-                    i += 2
-                }
-                result.add(sb.toString())
-            }
-        }
-        for (m in Regex("<polygon[^>]*\\bpoints\\s*=\\s*\"([^\"]+)\"[^>]*>").findAll(svg)) {
-            val pts = m.groupValues[1].trim().split(Regex("[\\s,]+")).mapNotNull { it.toFloatOrNull() }
-            if (pts.size >= 4) {
-                val sb = StringBuilder("M ${pts[0]} ${pts[1]}")
-                var i = 2
-                while (i + 1 < pts.size) {
-                    sb.append(" L ${pts[i]} ${pts[i + 1]}")
-                    i += 2
-                }
-                sb.append(" Z")
-                result.add(sb.toString())
-            }
-        }
-        for (m in Regex("<circle[^>]*>").findAll(svg)) {
-            val tag = m.value
-            val cx = attrFloat(tag, "cx", 12f)
-            val cy = attrFloat(tag, "cy", 12f)
-            val r = attrFloat(tag, "r", 6f)
-            result.add("M ${cx - r} $cy Q ${cx - r} ${cy - r} $cx ${cy - r} Q ${cx + r} ${cy - r} ${cx + r} $cy Q ${cx + r} ${cy + r} $cx ${cy + r} Q ${cx - r} ${cy + r} ${cx - r} $cy Z")
-        }
-        for (m in Regex("<ellipse[^>]*>").findAll(svg)) {
-            val tag = m.value
-            val cx = attrFloat(tag, "cx", 12f)
-            val cy = attrFloat(tag, "cy", 12f)
-            val rx = attrFloat(tag, "rx", 8f)
-            val ry = attrFloat(tag, "ry", 6f)
-            result.add("M ${cx - rx} $cy Q ${cx - rx} ${cy - ry} $cx ${cy - ry} Q ${cx + rx} ${cy - ry} ${cx + rx} $cy Q ${cx + rx} ${cy + ry} $cx ${cy + ry} Q ${cx - rx} ${cy + ry} ${cx - rx} $cy Z")
-        }
-        return result
-    }
-
-    private fun attrFloat(tag: String, attrName: String, defaultVal: Float): Float {
-        val m = Regex("\\b$attrName\\s*=\\s*\"([^\"]+)\"").find(tag) ?: return defaultVal
-        return m.groupValues[1].replace("px", "").trim().toFloatOrNull() ?: defaultVal
-    }
+    private fun extractSvgPaths(svg: String): List<String> =
+        GenericUiBuiltinSvgToVectorConverter.extractViewBoxAndPaths(svg).second
 
     private fun sanitizeIdentifier(raw: String): String {
         val cleaned = raw.trim()

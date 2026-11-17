@@ -11,7 +11,8 @@ open class TextField(
     value: String = "",
     placeholder: String = "",
     protected val multilineMode: Boolean = false,
-    protected val passwordMode: Boolean = false
+    protected val passwordMode: Boolean = false,
+    label: String? = null
 ) : AbstractComponent(htmlTag = if (multilineMode) "textarea" else "input") {
     override val isTextInputComponent: Boolean
         get() = true
@@ -33,6 +34,13 @@ open class TextField(
             typedNative<TextInputNativeImpl<*>>()?.setPlaceholder(newVal)
         }
 
+    var label: String? = label
+        set(newVal) {
+            if (field == newVal) return
+            field = newVal
+            typedNative<TextInputNativeImpl<*>>()?.setLabel(newVal?.takeIf { it.isNotEmpty() })
+        }
+
     var isReadOnly: Boolean = false
         set(newVal) {
             field = newVal
@@ -51,6 +59,7 @@ open class TextField(
         impl.setMultiline(multilineMode)
         impl.setPasswordMode(passwordMode)
         impl.setValue(value)
+        impl.setLabel(label?.takeIf { it.isNotEmpty() })
         impl.setPlaceholder(placeholder)
         impl.setReadOnly(isReadOnly)
         impl.setOnValueChanged { updated ->

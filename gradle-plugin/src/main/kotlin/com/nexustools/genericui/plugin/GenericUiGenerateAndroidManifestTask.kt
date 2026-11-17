@@ -1,6 +1,7 @@
 package com.nexustools.genericui.plugin
 
 import org.gradle.api.DefaultTask
+import org.gradle.api.GradleException
 import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.provider.ListProperty
@@ -14,14 +15,15 @@ import org.gradle.work.DisableCachingByDefault
 import java.io.File
 
 /**
- * Gradle task (`generateGenericUiAndroidManifest`) that generates `AndroidManifest.xml` from:
- * - Resolved `appId`, `appName`, and `packageName`
- * - `genericui { android { manifest { ... } } }` ([GenericUiAndroidManifestConfig])
- * - `genericui { android { services { ... } } }` ([GenericUiAndroidServiceSpec])
- * - Discovered Android `@MainAppFragment` (with `MAIN` + `LAUNCHER` `<intent-filter>`) and
- *   `@AppFragment` classes (each mapped 1:1 to `<frag.generatedActivityQualifiedName>`).
+ * Gradle task (`generateGenericUiAndroidManifest`) that generates `AndroidManifest.xml` and companion
+ * Android `res/` XMLs from:
+ * - Resolved `appId`, `appName`, `appVersion`, and `packageName`
+ * - Serialized [GenericUiAndroidManifestModel] ([manifestModelJson])
+ * - Discovered Android `@MainAppFragment` and `@AppFragment` classes
+ * - Auto-detected `src/androidMain/AndroidManifest.xml` and configured `mergeManifest(...)` overlays
+ *   via Google's `ManifestMerger2` ([GenericUiAndroidManifestMergerRunner]).
  */
-@DisableCachingByDefault(because = "Generates AndroidManifest.xml")
+@DisableCachingByDefault(because = "Generates AndroidManifest.xml and companion Android XML resources")
 abstract class GenericUiGenerateAndroidManifestTask : DefaultTask() {
 
     @get:Input
@@ -46,43 +48,23 @@ abstract class GenericUiGenerateAndroidManifestTask : DefaultTask() {
 
     @get:Input
     @get:Optional
+    abstract val appVersion: Property<String>
+
+    @get:Input
+    @get:Optional
     abstract val packageName: Property<String>
 
     @get:Input
     @get:Optional
-    abstract val applicationClass: Property<String>
+    abstract val manifestModelJson: Property<String>
 
     @get:Input
     @get:Optional
-    abstract val theme: Property<String>
-
-    @get:org.gradle.api.tasks.Internal
-    val androidTheme: Property<String>
-        get() = theme
-
-    init {
-        theme.convention("@style/Theme.GenericUI.App")
-    }
+    abstract val manifestMergerVersion: Property<String>
 
     @get:Input
     @get:Optional
-    abstract val screenOrientation: Property<String>
-
-    @get:Input
-    @get:Optional
-    abstract val configChanges: Property<String>
-
-    @get:Input
-    @get:Optional
-    abstract val supportsPictureInPicture: Property<Boolean>
-
-    @get:Input
-    @get:Optional
-    abstract val permissions: ListProperty<String>
-
-    @get:Input
-    @get:Optional
-    abstract val serializedServices: ListProperty<String>
+    abstract val overlayManifestPaths: ListProperty<String>
 
     @get:OutputDirectory
     @get:Optional
@@ -92,16 +74,30 @@ abstract class GenericUiGenerateAndroidManifestTask : DefaultTask() {
     @get:Optional
     abstract val outputManifestFile: RegularFileProperty
 
+    @get:OutputDirectory
+    @get:Optional
+    abstract val outputResDirectory: DirectoryProperty
+
+    init {
+        manifestMergerVersion.convention(GenericUiAndroidManifestMergerRunner.DEFAULT_MERGER_VERSION)
+    }
+
     @TaskAction
     fun generate() {
         val targetFile: File = when {
             outputManifestFile.isPresent -> outputManifestFile.get().asFile
             outputDirectory.isPresent -> File(outputDirectory.get().asFile, "AndroidManifest.xml")
-            else -> File(project.layout.buildDirectory.asFile.get(), "generated/genericui/android-manifest/AndroidManifest.xml")
+            else -> File(
+                project.layout.buildDirectory.asFile.get(),
+                "generated/genericui/android-manifest/AndroidManifest.xml"
+            )
         }
+        val baseOutDir = outputDirectory.orNull?.asFile ?: targetFile.parentFile
+        val targetResDir: File = outputResDirectory.orNull?.asFile ?: File(baseOutDir, "res")
 
         if (androidEnabled.orNull == false) {
             targetFile.parentFile?.mkdirs()
+            targetResDir.mkdirs()
             return
         }
 
@@ -117,79 +113,156 @@ abstract class GenericUiGenerateAndroidManifestTask : DefaultTask() {
 
         val resolvedAppId = appId.orNull?.takeIf { it.isNotBlank() } ?: "com.nexustools.genericui.app"
         val resolvedAppName = appName.orNull?.takeIf { it.isNotBlank() } ?: "GenericUI"
+        val resolvedAppVersion = appVersion.orNull?.takeIf { it.isNotBlank() } ?: "1.0.0"
         val resolvedPkg = packageName.orNull?.takeIf { it.isNotBlank() } ?: resolvedAppId
 
-        val manifestConfig = GenericUiAndroidManifestConfig().apply {
-            permissions.addAll(this@GenericUiGenerateAndroidManifestTask.permissions.orNull.orEmpty())
-            this@GenericUiGenerateAndroidManifestTask.screenOrientation.orNull?.takeIf { it.isNotBlank() }?.let {
-                screenOrientation = it
-            }
-            this@GenericUiGenerateAndroidManifestTask.configChanges.orNull?.takeIf { it.isNotBlank() }?.let {
-                configChanges = it
-            }
-            this@GenericUiGenerateAndroidManifestTask.supportsPictureInPicture.orNull?.let {
-                supportsPictureInPicture = it
-            }
-            this@GenericUiGenerateAndroidManifestTask.applicationClass.orNull?.takeIf { it.isNotBlank() }?.let {
-                applicationClass = it
-            }
-            this@GenericUiGenerateAndroidManifestTask.theme.orNull?.takeIf { it.isNotBlank() }?.let {
-                theme = it
-            }
+        val rawJson = manifestModelJson.orNull?.trim().orEmpty()
+        val model = if (rawJson.isNotEmpty()) {
+            GenericUiAndroidManifestModelSerializer.fromJson(rawJson)
+        } else {
+            GenericUiAndroidManifestModel()
         }
 
-        val parsedServices = serializedServices.orNull.orEmpty().mapNotNull { deserializeServiceSpec(it) }
+        val mergerVersion = manifestMergerVersion.orNull?.trim()?.ifEmpty { null }
+            ?: GenericUiAndroidManifestMergerRunner.DEFAULT_MERGER_VERSION
 
-        val xml = generateManifestXml(
+        val baseOutput = GenericUiAndroidManifestXmlGenerator.generate(
             appId = resolvedAppId,
             appName = resolvedAppName,
-            manifestConfig = manifestConfig,
-            services = parsedServices,
+            appVersion = resolvedAppVersion,
+            model = model,
             fragments = androidFragments,
             winningMainFragment = winningMain,
             defaultPackageName = resolvedPkg
         )
 
+        val baseOverlays = collectOverlayManifestFiles(rootDir, model.mergeManifestPaths)
+        val finalManifestXml = mergeWithOverlaysIfPresent(
+            baseXml = baseOutput.manifestXml,
+            overlayFiles = baseOverlays,
+            placeholders = baseOutput.resolvedPlaceholders,
+            mergerVersion = mergerVersion,
+            minSdk = model.minSdk,
+            targetSdk = model.targetSdk,
+            stagingBaseFile = File(baseOutDir, "intermediates/base-AndroidManifest.xml")
+        )
+
         targetFile.parentFile?.mkdirs()
-        targetFile.writeText(xml)
+        targetFile.writeText(finalManifestXml)
+        baseOutput.writeResFiles(targetResDir, cleanExisting = true)
+
+        val variantsRootDir = File(baseOutDir, "variants")
+        if (model.variantOverrides.isEmpty()) {
+            if (variantsRootDir.exists()) {
+                variantsRootDir.deleteRecursively()
+            }
+        } else {
+            if (variantsRootDir.exists()) {
+                variantsRootDir.deleteRecursively()
+            }
+            for ((variantName, variantModel) in model.variantOverrides) {
+                val variantAppId = resolvedAppId + variantModel.applicationIdSuffix
+                val variantAppVersion = resolvedAppVersion + variantModel.versionNameSuffix
+                val variantOutput = GenericUiAndroidManifestXmlGenerator.generate(
+                    appId = variantAppId,
+                    appName = resolvedAppName,
+                    appVersion = variantAppVersion,
+                    model = variantModel.manifest,
+                    fragments = androidFragments,
+                    winningMainFragment = winningMain,
+                    defaultPackageName = resolvedPkg
+                )
+                val variantDir = File(variantsRootDir, variantName).apply { mkdirs() }
+                val variantOverlays = collectVariantOverlayFiles(
+                    rootDir = rootDir,
+                    variantName = variantName,
+                    configuredPaths = variantModel.manifest.mergeManifestPaths
+                )
+                val variantManifestXml = mergeWithOverlaysIfPresent(
+                    baseXml = variantOutput.manifestXml,
+                    overlayFiles = variantOverlays,
+                    placeholders = variantOutput.resolvedPlaceholders,
+                    mergerVersion = mergerVersion,
+                    minSdk = variantModel.manifest.minSdk,
+                    targetSdk = variantModel.manifest.targetSdk,
+                    stagingBaseFile = File(variantDir, "base-AndroidManifest.xml")
+                )
+                File(variantDir, "AndroidManifest.xml").writeText(variantManifestXml)
+                variantOutput.writeResFiles(File(variantDir, "res"), cleanExisting = true)
+            }
+        }
+    }
+
+    private fun mergeWithOverlaysIfPresent(
+        baseXml: String,
+        overlayFiles: List<File>,
+        placeholders: Map<String, String>,
+        mergerVersion: String,
+        minSdk: Int,
+        targetSdk: Int,
+        stagingBaseFile: File
+    ): String {
+        if (overlayFiles.isEmpty()) {
+            return baseXml
+        }
+        stagingBaseFile.parentFile?.mkdirs()
+        stagingBaseFile.writeText(baseXml)
+        return try {
+            GenericUiAndroidManifestMergerRunner.merge(
+                baseManifestFile = stagingBaseFile,
+                overlayFiles = overlayFiles,
+                placeholders = placeholders,
+                mergerVersion = mergerVersion,
+                minSdk = minSdk,
+                targetSdk = targetSdk,
+                project = project,
+                logger = logger
+            )
+        } finally {
+            runCatching { stagingBaseFile.delete() }
+        }
+    }
+
+    private fun collectOverlayManifestFiles(rootDir: File, configuredPaths: List<String>): List<File> {
+        val result = LinkedHashMap<String, File>()
+        val autoAndroidMain = File(rootDir, "src/androidMain/AndroidManifest.xml")
+        if (autoAndroidMain.isFile) {
+            result[autoAndroidMain.canonicalPath] = autoAndroidMain
+        }
+        for (rawPath in configuredPaths + overlayManifestPaths.orNull.orEmpty()) {
+            val trimmed = rawPath.trim()
+            if (trimmed.isEmpty()) continue
+            val candidate = File(trimmed).let { if (it.isAbsolute) it else File(rootDir, trimmed) }
+            if (!candidate.isFile) {
+                throw GradleException(
+                    "Configured Android mergeManifest file does not exist: ${candidate.absolutePath}"
+                )
+            }
+            result[candidate.canonicalPath] = candidate
+        }
+        return result.values.toList()
+    }
+
+    private fun collectVariantOverlayFiles(
+        rootDir: File,
+        variantName: String,
+        configuredPaths: List<String>
+    ): List<File> {
+        val result = LinkedHashMap<String, File>()
+        for (f in collectOverlayManifestFiles(rootDir, configuredPaths)) {
+            result[f.canonicalPath] = f
+        }
+        val capVariant = variantName.replaceFirstChar { it.uppercase() }
+        val variantManifest = File(rootDir, "src/android$capVariant/AndroidManifest.xml")
+        if (variantManifest.isFile) {
+            result[variantManifest.canonicalPath] = variantManifest
+        }
+        return result.values.toList()
     }
 
     companion object {
         /**
-         * Encodes a [GenericUiAndroidServiceSpec] into a deterministic string for Gradle task input tracking.
-         */
-        fun serializeServiceSpec(spec: GenericUiAndroidServiceSpec): String = listOf(
-            spec.className,
-            spec.exported.toString(),
-            spec.enabled.toString(),
-            spec.foregroundServiceType,
-            spec.permission,
-            spec.process,
-            spec.intentActions.joinToString(",")
-        ).joinToString("|")
-
-        /**
-         * Decodes a [GenericUiAndroidServiceSpec] produced by [serializeServiceSpec].
-         */
-        fun deserializeServiceSpec(raw: String): GenericUiAndroidServiceSpec? {
-            val parts = raw.split("|")
-            val className = parts.getOrNull(0)?.trim().orEmpty()
-            if (className.isEmpty()) return null
-            return GenericUiAndroidServiceSpec(className).apply {
-                exported = parts.getOrNull(1)?.toBooleanStrictOrNull() ?: false
-                enabled = parts.getOrNull(2)?.toBooleanStrictOrNull() ?: true
-                foregroundServiceType = parts.getOrNull(3).orEmpty()
-                permission = parts.getOrNull(4).orEmpty()
-                process = parts.getOrNull(5).orEmpty()
-                val actions = parts.getOrNull(6).orEmpty()
-                if (actions.isNotBlank()) {
-                    actions.split(",").map { it.trim() }.filter { it.isNotEmpty() }.forEach { intentAction(it) }
-                }
-            }
-        }
-
-        /**
-         * Generates the complete `AndroidManifest.xml` content.
+         * Generates the complete `AndroidManifest.xml` content directly from DSL configuration specs.
          */
         fun generateManifestXml(
             appId: String,
@@ -198,125 +271,22 @@ abstract class GenericUiGenerateAndroidManifestTask : DefaultTask() {
             services: List<GenericUiAndroidServiceSpec>,
             fragments: List<GenericUiDiscoveredFragment>,
             winningMainFragment: GenericUiDiscoveredFragment? = fragments.firstOrNull { it.isMainFragment },
-            defaultPackageName: String = appId
-        ): String = buildString {
-            val resolvedAppId = appId.trim().ifEmpty { "com.nexustools.genericui.app" }
-            val resolvedPkg = defaultPackageName.trim().ifEmpty { resolvedAppId }
-            val resolvedAppClass = manifestConfig.applicationClass.trim().ifEmpty {
-                "$resolvedPkg.${GenericUiGenerateAndroidActivitiesTask.GENERATED_APPLICATION_SIMPLE_NAME}"
-            }
-            val resolvedTheme = manifestConfig.theme.trim().ifEmpty {
-                "@style/Theme.GenericUI.App"
-            }
-            val defaultConfigChanges = manifestConfig.configChanges.trim().ifEmpty {
-                "orientation|screenSize|screenLayout|keyboardHidden|uiMode|density"
-            }
-            val defaultOrientation = manifestConfig.screenOrientation.trim()
-
-            appendLine("""<?xml version="1.0" encoding="utf-8"?>""")
-            appendLine("""<manifest xmlns:android="http://schemas.android.com/apk/res/android"""")
-            appendLine("""    package="${escapeXml(resolvedAppId)}">""")
-
-            for (perm in manifestConfig.permissions) {
-                val trimmedPerm = perm.trim()
-                if (trimmedPerm.isNotEmpty()) {
-                    appendLine("""    <uses-permission android:name="${escapeXml(trimmedPerm)}" />""")
-                }
-            }
-
-            appendLine()
-            appendLine("""    <application""")
-            appendLine("""        android:name="${escapeXml(resolvedAppClass)}"""")
-            appendLine("""        android:label="${escapeXml(appName)}"""")
-            appendLine("""        android:theme="${escapeXml(resolvedTheme)}"""")
-            appendLine("""        android:supportsRtl="true">""")
-
-            for (frag in fragments) {
-                val isMain = winningMainFragment != null && frag.qualifiedName == winningMainFragment.qualifiedName
-                val exported = frag.exported || isMain
-                val activityLabel = frag.label.trim().ifEmpty {
-                    if (isMain) appName else frag.simpleName
-                }
-                val orientation = frag.screenOrientation.trim().ifEmpty { defaultOrientation }
-
-                appendLine("""        <activity""")
-                appendLine("""            android:name="${escapeXml(frag.generatedActivityQualifiedName)}"""")
-                appendLine("""            android:label="${escapeXml(activityLabel)}"""")
-                appendLine("""            android:exported="$exported"""")
-                appendLine("""            android:configChanges="${escapeXml(defaultConfigChanges)}"""")
-                appendLine("""            android:supportsPictureInPicture="${manifestConfig.supportsPictureInPicture}"""")
-                if (orientation.isNotEmpty()) {
-                    appendLine("""            android:screenOrientation="${escapeXml(orientation)}">""")
-                } else {
-                    appendLine("""            android:screenOrientation="unspecified">""")
-                }
-
-                if (isMain) {
-                    appendLine("""            <intent-filter>""")
-                    appendLine("""                <action android:name="android.intent.action.MAIN" />""")
-                    appendLine("""                <category android:name="android.intent.category.LAUNCHER" />""")
-                    appendLine("""            </intent-filter>""")
-                }
-                appendLine("""        </activity>""")
-            }
-
-            for (service in services) {
-                appendLine("""        <service""")
-                appendLine("""            android:name="${escapeXml(service.className)}"""")
-                appendLine("""            android:exported="${service.exported}"""")
-                val optionalAttrs = mutableListOf<String>()
-                if (service.foregroundServiceType.isNotBlank()) {
-                    optionalAttrs.add("""android:foregroundServiceType="${escapeXml(service.foregroundServiceType.trim())}"""")
-                }
-                if (service.permission.isNotBlank()) {
-                    optionalAttrs.add("""android:permission="${escapeXml(service.permission.trim())}"""")
-                }
-                if (service.process.isNotBlank()) {
-                    optionalAttrs.add("""android:process="${escapeXml(service.process.trim())}"""")
-                }
-                if (optionalAttrs.isEmpty() && service.intentActions.isEmpty()) {
-                    appendLine("""            android:enabled="${service.enabled}" />""")
-                } else {
-                    appendLine("""            android:enabled="${service.enabled}"""")
-                    optionalAttrs.forEachIndexed { index, attr ->
-                        val isLast = index == optionalAttrs.lastIndex
-                        if (isLast && service.intentActions.isEmpty()) {
-                            appendLine("""            $attr />""")
-                        } else if (isLast) {
-                            appendLine("""            $attr>""")
-                        } else {
-                            appendLine("""            $attr""")
-                        }
-                    }
-                    if (optionalAttrs.isEmpty()) {
-                        appendLine("""            >""")
-                    }
-                    if (service.intentActions.isNotEmpty()) {
-                        appendLine("""            <intent-filter>""")
-                        for (action in service.intentActions) {
-                            appendLine("""                <action android:name="${escapeXml(action)}" />""")
-                        }
-                        appendLine("""            </intent-filter>""")
-                        appendLine("""        </service>""")
-                    }
-                }
-            }
-
-            appendLine("""    </application>""")
-            appendLine("""</manifest>""")
-        }
-
-        private fun escapeXml(value: String): String = buildString(value.length) {
-            for (ch in value) {
-                when (ch) {
-                    '&' -> append("&amp;")
-                    '<' -> append("&lt;")
-                    '>' -> append("&gt;")
-                    '"' -> append("&quot;")
-                    '\'' -> append("&apos;")
-                    else -> append(ch)
-                }
-            }
+            defaultPackageName: String = appId,
+            appVersion: String = "1.0.0"
+        ): String {
+            val model = GenericUiAndroidManifestModelSerializer.toModel(
+                manifestConfig = manifestConfig,
+                services = services
+            )
+            return GenericUiAndroidManifestXmlGenerator.generate(
+                appId = appId,
+                appName = appName,
+                appVersion = appVersion,
+                model = model,
+                fragments = fragments,
+                winningMainFragment = winningMainFragment,
+                defaultPackageName = defaultPackageName
+            ).manifestXml
         }
     }
 }
