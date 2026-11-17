@@ -14,6 +14,7 @@ object GenericUI {
     var applicationName: String = "GenericUI"
     var defaultThemeMode: ThemeMode = ThemeMode.AUTO
     var defaultThemeConfig: ThemeConfig = ThemeConfig.DEFAULT
+    var appleIconExplicitlyProvided: Boolean = false
 
     val GENERICUI: ResourceID
         get() = Resources.GENERICUI

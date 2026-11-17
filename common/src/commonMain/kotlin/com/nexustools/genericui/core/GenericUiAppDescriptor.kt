@@ -35,5 +35,8 @@ data class GenericUiAppDescriptor(
     val fragmentRegistrations: List<Pair<KClass<out Fragment>, (FragmentBundle?) -> Fragment>> = emptyList(),
     val providerInstallers: List<() -> Unit> = emptyList(),
     val resourceRegistryInstaller: (() -> Unit)? = null,
-    val precompiledStyleSheetInstaller: ((IApplication) -> Unit)? = null
+    val precompiledStyleSheetInstaller: ((IApplication) -> Unit)? = null,
+    val windowAlwaysOnTop: Boolean = false,
+    val windowAspectRatio: Double? = null,
+    val appleIconExplicitlyProvided: Boolean = false
 )

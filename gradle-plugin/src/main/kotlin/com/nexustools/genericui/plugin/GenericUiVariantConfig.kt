@@ -34,9 +34,9 @@ open class GenericUiVariantConfig(val scope: GenericUiVariantScope) {
         action.execute(theme)
     }
 
-    /** Sets the icon path for this scope. */
-    fun icon(path: String) {
-        this.icon = path
+    /** Sets the icon path for this scope (`String`, `File`, etc.). */
+    fun icon(path: Any?) {
+        this.icon = GenericUiAppleIconConfig.normalizeIconValue(path).takeIf { it.isNotEmpty() }
     }
 
     /** Sets the primary theme color for this scope. */

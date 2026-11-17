@@ -186,6 +186,10 @@ object PreferenceObjectCodec {
                         defaultValue
                     )
                 } else if (element.isObject || element.isMap) {
+                    (defaultValue as? PreferenceSerializable)?.fromPreferenceElements(element.mapEntries)
+                        ?.let { reconstructed ->
+                            return (reconstructed as? T) ?: defaultValue
+                        }
                     PreferencePlatformReflector.instantiateObject(
                         targetClass = targetClass,
                         fields = element.mapEntries,

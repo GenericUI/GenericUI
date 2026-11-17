@@ -35,6 +35,7 @@ object GenericUiLaunchSequence {
         isSystemTarget: Boolean = factory?.backendTarget?.isSystem ?: true
     ): IApplication {
         GenericUI.applicationName = descriptor.appName
+        GenericUI.appleIconExplicitlyProvided = descriptor.appleIconExplicitlyProvided
         if (factory != null) {
             GenericUI.initialize(factory, descriptor.appName)
         }
@@ -84,7 +85,13 @@ object GenericUiLaunchSequence {
             ) {
                 mainWindow.setTitle(descriptor.windowTitle)
             }
+            if (descriptor.windowAlwaysOnTop) {
+                mainWindow.setAlwaysOnTop(true)
+            }
             mainWindow.setWindowSize(Size(descriptor.windowWidth, descriptor.windowHeight))
+            descriptor.windowAspectRatio?.let { ratio ->
+                mainWindow.setAspectRatio(ratio)
+            }
             if (descriptor.fullscreen) {
                 mainWindow.setFullscreen(true)
             }
@@ -138,7 +145,13 @@ object GenericUiLaunchSequence {
         if (descriptor.windowTitle.isNotBlank()) {
             mainWindow.setTitle(descriptor.windowTitle)
         }
+        if (descriptor.windowAlwaysOnTop) {
+            mainWindow.setAlwaysOnTop(true)
+        }
         mainWindow.setWindowSize(Size(descriptor.windowWidth, descriptor.windowHeight))
+        descriptor.windowAspectRatio?.let { ratio ->
+            mainWindow.setAspectRatio(ratio)
+        }
         if (descriptor.fullscreen) {
             mainWindow.setFullscreen(true)
         }

@@ -15,8 +15,8 @@ import com.nexustools.genericui.enums.system.BackendTarget
  *
  * 1. **Explicitly Styled Components** ([StyledContainer], [StyledButton], [TextBubble], [Card], [Badge], [Alert]):
  *    - Support full custom backgrounds, alpha translucency, gradients, borders, corner radii, shadows,
- *      and focus rings across all 8 backends.
- *    - Support `backdrop-filter: blur(...)` (`backdropBlurPx`) on Web, Android, and iOS; on Desktop
+ *      and focus rings across all 9 backends.
+ *    - Support `backdrop-filter: blur(...)` (`backdropBlurPx`) on Web, Android, iOS, and iPadOS; on Desktop
  *      backends (`WINDOWS`, `MACOS`, `GTK`, `QT`, `SWING`), fall back cleanly to alpha-translucent
  *      solid/gradient fills.
  * 2. **Standard System-Themed Controls** (`Button`, `Container`, `TextInput`, `Select`, `CheckBox`, etc.):
@@ -81,7 +81,7 @@ object AestheticStylePolicy {
     /**
      * Returns `true` when [component] supports `backdrop-filter: blur(...)` on [backendTarget]:
      * - `WEB`: `true` for all components.
-     * - `ANDROID`, `IOS`: `true` for explicitly styled components ([StyledContainer], [StyledButton], [TextBubble], etc.).
+     * - `ANDROID`, `IOS`, `IPADOS`: `true` for explicitly styled components ([StyledContainer], [StyledButton], [TextBubble], etc.).
      * - `WINDOWS`, `MACOS`, `GTK`, `QT`, `SWING`: `false` (Desktop backends use alpha-translucent fills instead).
      */
     fun supportsBackdropFilterBlur(
@@ -89,7 +89,9 @@ object AestheticStylePolicy {
         backendTarget: LayoutBackendTarget
     ): Boolean = when (backendTarget) {
         LayoutBackendTarget.WEB -> true
-        LayoutBackendTarget.ANDROID, LayoutBackendTarget.IOS -> isExplicitlyStyledComponent(component)
+        LayoutBackendTarget.ANDROID,
+        LayoutBackendTarget.IOS,
+        LayoutBackendTarget.IPADOS -> isExplicitlyStyledComponent(component)
         LayoutBackendTarget.WINDOWS,
         LayoutBackendTarget.MACOS,
         LayoutBackendTarget.GTK,

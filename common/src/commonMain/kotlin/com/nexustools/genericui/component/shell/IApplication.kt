@@ -47,11 +47,11 @@ interface IApplication : Disposable {
     val backendName: String
         get() = GenericUI.activeFactory?.backendName.orEmpty()
 
-    /** Active platform [BackendTarget] (`Windows`, `MacOS`, `Gtk`, `Qt`, `Swing`, `Android`, `IOS`, `Web`). */
+    /** Active platform [BackendTarget] (`Windows`, `MacOS`, `Gtk`, `Qt`, `Swing`, `Android`, `IOS`, `IPadOS`, `Web`). */
     val backendTarget: BackendTarget
         get() = GenericUI.activeFactory?.backendTarget ?: BackendTarget.Windows
 
-    /** Operating system family name (e.g., `"Windows"`, `"macOS"`, `"Linux"`, `"Android"`, `"iOS"`, `"Web Browser"`). */
+    /** Operating system family name (e.g., `"Windows"`, `"macOS"`, `"Linux"`, `"Android"`, `"iOS"`, `"iPadOS"`, `"Web Browser"`). */
     val systemOsName: String
         get() = backendTarget.osFamilyName
 
@@ -110,7 +110,7 @@ interface IApplication : Disposable {
     val supportsSystemMenuBar: Boolean
         get() = GenericUI.activeFactory?.supportsSystemMenuBar ?: false
 
-    /** `true` if the platform renders `MenuBar` as a top `Navbar` with dropdown trigger (`Android`, `IOS`). */
+    /** `true` if the platform renders `MenuBar` as a top `Navbar` with dropdown trigger (`Android`, `IOS`, `IPadOS`). */
     val supportsNavbarMenuBar: Boolean
         get() = titleCapabilities.supportsNavbarMenuBar
 

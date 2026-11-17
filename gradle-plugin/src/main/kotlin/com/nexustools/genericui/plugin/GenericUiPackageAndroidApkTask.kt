@@ -657,7 +657,7 @@ abstract class GenericUiPackageAndroidApkTask : DefaultTask() {
             if (dir.isDirectory) candidateGenericUiRoots.add(dir)
         }
         if (project.rootProject.name.equals("GenericUI", ignoreCase = true) ||
-            File(project.rootProject.projectDir, "mobile/android/build.gradle.kts").isFile
+            File(project.rootProject.projectDir, "mobile/build.gradle.kts").isFile
         ) {
             candidateGenericUiRoots.add(project.rootProject.projectDir)
         }
@@ -880,7 +880,7 @@ abstract class GenericUiPackageAndroidApkTask : DefaultTask() {
             throw GradleException(
                 "Android APK packaging failed: required manifest/GenericUI classes are missing from merged program classes (${mergedProgramJar.absolutePath}): " +
                     missingFromJar.joinToString(", ") + ". " +
-                    "Ensure all GenericUI modules (:common, :systemCommon, :mobile:common, :mobile:android) and app classes are compiled."
+                    "Ensure all GenericUI modules (:common, :system, :jvm, :mobile) and app classes are compiled."
             )
         }
 
@@ -1029,7 +1029,9 @@ abstract class GenericUiPackageAndroidApkTask : DefaultTask() {
         val candidateResRoots = buildList {
             add(File(rootDir, "src/commonMain/resources"))
             add(File(rootDir, "src/common/resources"))
+            add(File(rootDir, "src/systemMain/resources"))
             add(File(rootDir, "src/systemCommon/resources"))
+            add(File(rootDir, "src/jvmCommon/resources"))
             add(File(rootDir, "src/mobileCommon/resources"))
             add(File(rootDir, "src/mobileMain/resources"))
             add(File(rootDir, "src/android/resources"))

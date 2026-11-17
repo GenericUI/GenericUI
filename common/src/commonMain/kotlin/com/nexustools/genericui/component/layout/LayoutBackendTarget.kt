@@ -16,13 +16,14 @@ enum class LayoutBackendTarget {
     SWING,
     ANDROID,
     IOS,
+    IPADOS,
     WEB;
 
     val isDesktop: Boolean
         get() = this == WINDOWS || this == MACOS || this == GTK || this == QT || this == SWING
 
     val isMobile: Boolean
-        get() = this == ANDROID || this == IOS
+        get() = this == ANDROID || this == IOS || this == IPADOS
 
     val isWeb: Boolean
         get() = this == WEB
@@ -35,6 +36,7 @@ enum class LayoutBackendTarget {
         SWING -> BackendTarget.Swing
         ANDROID -> BackendTarget.Android
         IOS -> BackendTarget.IOS
+        IPADOS -> BackendTarget.IPadOS
         WEB -> BackendTarget.Web
     }
 
@@ -47,6 +49,7 @@ enum class LayoutBackendTarget {
             BackendTarget.Swing -> SWING
             BackendTarget.Android -> ANDROID
             BackendTarget.IOS -> IOS
+            BackendTarget.IPadOS -> IPADOS
             BackendTarget.Web -> WEB
         }
 
@@ -60,6 +63,7 @@ enum class LayoutBackendTarget {
                 "swing", "awt", "jvm" -> SWING
                 "android" -> ANDROID
                 "ios", "uikit" -> IOS
+                "ipados" -> IPADOS
                 "web", "browser", "js", "wasm" -> WEB
                 else -> entries.firstOrNull { it.name.equals(normalized, ignoreCase = true) }
             }

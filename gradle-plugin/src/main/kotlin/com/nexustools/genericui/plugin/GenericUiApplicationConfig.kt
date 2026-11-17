@@ -176,6 +176,13 @@ open class GenericUiApplicationConfig(
             desktop.windowsIcon = value
         }
 
+    /** Shared Apple icon path across macOS, iOS, and iPadOS (`"apple.png"`, `"icon.icns"`, etc.). */
+    var appleIcon: String
+        get() = desktop.appleIcon
+        set(value) {
+            desktop.appleIcon = value
+        }
+
     /** macOS `.icns` or `.png` icon path relative to project root (e.g. `"icon.icns"` or `"icon.png"`). */
     var macIcon: String
         get() = desktop.macIcon
@@ -188,6 +195,27 @@ open class GenericUiApplicationConfig(
         get() = desktop.macosIcon
         set(value) {
             desktop.macosIcon = value
+        }
+
+    /** iOS-specific icon path overriding [appleIcon] and [icon] for iPhone. */
+    var iosIcon: String
+        get() = desktop.iosIcon
+        set(value) {
+            desktop.iosIcon = value
+        }
+
+    /** iPadOS-specific icon path overriding [appleIcon] and [icon] for iPad. */
+    var ipadosIcon: String
+        get() = desktop.ipadosIcon
+        set(value) {
+            desktop.ipadosIcon = value
+        }
+
+    /** Alias for [ipadosIcon]. */
+    var ipadIcon: String
+        get() = desktop.ipadIcon
+        set(value) {
+            desktop.ipadIcon = value
         }
 
     /** Linux `.png` or `.svg` icon path relative to project root (e.g. `"icon.png"`). */
@@ -228,28 +256,78 @@ open class GenericUiApplicationConfig(
         action.execute(desktop)
     }
 
-    /** Sets the general fallback icon path. */
-    fun icon(path: String) {
+    /** Sets the general fallback icon path (`String`, `File`, etc.). */
+    fun icon(path: Any?) {
         desktop.icon(path)
     }
 
     /** Sets the Windows `.ico` icon path (e.g. `"icon.ico"`). */
-    fun windowsIcon(path: String) {
+    fun windowsIcon(path: Any?) {
         desktop.windowsIcon(path)
     }
 
+    /** Sets the shared Apple icon path across macOS, iOS, and iPadOS. */
+    fun appleIcon(path: Any?) {
+        desktop.appleIcon(path)
+    }
+
+    /** Configures the shared Apple icon (`apple { icon = ... }`). */
+    fun apple(action: Action<in GenericUiAppleIconConfig>) {
+        desktop.apple(action)
+    }
+
     /** Sets the macOS `.icns` / `.png` icon path (e.g. `"icon.icns"` or `"icon.png"`). */
-    fun macIcon(path: String) {
+    fun macIcon(path: Any?) {
         desktop.macIcon(path)
     }
 
     /** Alias for [macIcon]. */
-    fun macosIcon(path: String) {
+    fun macosIcon(path: Any?) {
         desktop.macosIcon(path)
     }
 
+    /** Configures the macOS-specific icon (`mac { icon = ... }`). */
+    fun mac(action: Action<in GenericUiAppleIconConfig>) {
+        desktop.mac(action)
+    }
+
+    /** Alias for [mac] (`macos { icon = ... }`). */
+    fun macos(action: Action<in GenericUiAppleIconConfig>) {
+        desktop.macos(action)
+    }
+
+    /** Sets the iOS-specific icon path (e.g. `"ios-icon.png"`). */
+    fun iosIcon(path: Any?) {
+        desktop.iosIcon(path)
+    }
+
+    /** Configures the iOS-specific icon (`ios { icon = ... }`). */
+    fun ios(action: Action<in GenericUiAppleIconConfig>) {
+        desktop.ios(action)
+    }
+
+    /** Sets the iPadOS-specific icon path (e.g. `"ipados-icon.png"`). */
+    fun ipadosIcon(path: Any?) {
+        desktop.ipadosIcon(path)
+    }
+
+    /** Alias for [ipadosIcon]. */
+    fun ipadIcon(path: Any?) {
+        desktop.ipadIcon(path)
+    }
+
+    /** Configures the iPadOS-specific icon (`ipados { icon = ... }`). */
+    fun ipados(action: Action<in GenericUiAppleIconConfig>) {
+        desktop.ipados(action)
+    }
+
+    /** Alias for [ipados] (`ipad { icon = ... }`). */
+    fun ipad(action: Action<in GenericUiAppleIconConfig>) {
+        desktop.ipad(action)
+    }
+
     /** Sets the Linux `.png` / `.svg` icon path (e.g. `"icon.png"`). */
-    fun linuxIcon(path: String) {
+    fun linuxIcon(path: Any?) {
         desktop.linuxIcon(path)
     }
 
@@ -257,7 +335,7 @@ open class GenericUiApplicationConfig(
      * Sets the Web icon path overriding the default project icon for the Web splash screen and
      * `index.html` favicon. `.svg` icons (e.g. `"icon.svg"`) are preferred for the Web target.
      */
-    fun webIcon(path: String) {
+    fun webIcon(path: Any?) {
         desktop.webIcon(path)
     }
 
@@ -273,9 +351,21 @@ open class GenericUiApplicationConfig(
         mac: String = desktop.macIcon,
         linux: String = desktop.linuxIcon,
         web: String = desktop.webIcon,
-        common: String = desktop.icon
+        common: String = desktop.icon,
+        apple: String = desktop.appleIcon,
+        ios: String = desktop.iosIcon,
+        ipados: String = desktop.ipadosIcon
     ) {
-        desktop.icons(windows = windows, mac = mac, linux = linux, web = web, common = common)
+        desktop.icons(
+            windows = windows,
+            mac = mac,
+            linux = linux,
+            web = web,
+            common = common,
+            apple = apple,
+            ios = ios,
+            ipados = ipados
+        )
     }
 
     /**

@@ -187,15 +187,23 @@ object GenericUiDefaultIconProvider {
 
     /**
      * Materializes the default Apple `.icns` icon bundle (`16×16..1024×1024`) into [outputDir].
+     * When [wrapInAppleTile] is `true`, the artwork is wrapped inside a Chrome-style white squircle tile.
      */
+    @JvmOverloads
     fun ensureDefaultIcnsIcon(
         projectRootDir: File?,
         outputDir: File,
-        fileName: String = DEFAULT_ICON_ICNS_FILE_NAME
+        fileName: String = DEFAULT_ICON_ICNS_FILE_NAME,
+        wrapInAppleTile: Boolean = false
     ): File {
         outputDir.mkdirs()
         val icnsFile = File(outputDir, fileName)
-        val master = renderSvgTextToImage(loadDefaultIconSvgText(projectRootDir), 1024)
+        val rawMaster = renderSvgTextToImage(loadDefaultIconSvgText(projectRootDir), 1024)
+        val master = if (wrapInAppleTile) {
+            GenericUiAppleIconTileComposer.composeImage(rawMaster, 1024, fullBleedSquare = false)
+        } else {
+            rawMaster
+        }
         icnsFile.writeBytes(buildAppleIcnsBytes(master))
         return icnsFile
     }
@@ -203,18 +211,22 @@ object GenericUiDefaultIconProvider {
     /**
      * Ensures a valid multi-resolution Apple `.icns` icon container (`icp4` 16×16 through `ic10` 1024×1024)
      * in [outputDir] generated from [sourceIconFile] (`.svg`, `.png`, `.ico`, or `.icns`) or the default GenericUI icon.
+     * When [wrapInAppleTile] is `true`, rasterizes/decodes [sourceIconFile] (or the default icon) and wraps it
+     * inside a Chrome-style white squircle tile (`fullBleedSquare = false`).
      */
+    @JvmOverloads
     fun ensureAppleIcnsFromSourceOrDefault(
         sourceIconFile: File?,
         projectRootDir: File?,
         outputDir: File,
-        fileName: String = DEFAULT_ICON_ICNS_FILE_NAME
+        fileName: String = DEFAULT_ICON_ICNS_FILE_NAME,
+        wrapInAppleTile: Boolean = false
     ): File {
         outputDir.mkdirs()
         val outFile = File(outputDir, fileName)
         if (sourceIconFile != null && sourceIconFile.exists() && sourceIconFile.isFile) {
             val ext = sourceIconFile.extension.lowercase()
-            if (ext == "icns") {
+            if (!wrapInAppleTile && ext == "icns") {
                 val bytes = runCatching { sourceIconFile.readBytes() }.getOrNull()
                 if (bytes != null && isIcnsMagic(bytes)) {
                     if (sourceIconFile.canonicalFile != outFile.canonicalFile) {
@@ -230,41 +242,64 @@ object GenericUiDefaultIconProvider {
                 decodeImageFromFile(sourceIconFile)
             }
             if (decoded != null) {
-                outFile.writeBytes(buildAppleIcnsBytes(decoded))
+                val master = if (wrapInAppleTile) {
+                    GenericUiAppleIconTileComposer.composeImage(decoded, 1024, fullBleedSquare = false)
+                } else {
+                    decoded
+                }
+                outFile.writeBytes(buildAppleIcnsBytes(master))
                 return outFile
             }
         }
-        return ensureDefaultIcnsIcon(projectRootDir, outputDir, fileName)
+        return ensureDefaultIcnsIcon(projectRootDir, outputDir, fileName, wrapInAppleTile = wrapInAppleTile)
     }
 
     /**
-     * Ensures a valid `.png` icon file in [outputDir] from [sourceIconFile] (supporting `.png`, `.ico`, and `.svg`
-     * source icons) or the default `icon.png`.
+     * Ensures a valid `.png` icon file in [outputDir] from [sourceIconFile] (supporting `.png`, `.ico`, `.icns`,
+     * and `.svg` source icons) or the default `icon.png`.
+     * When [wrapInAppleTile] is `true`, wraps the decoded artwork in a Chrome-style white Apple icon tile
+     * (`fullBleedSquare = false` for macOS squircle, `true` for opaque iOS/iPadOS App Store icon).
      */
+    @JvmOverloads
     fun ensurePngFromSourceOrDefault(
         sourceIconFile: File?,
         projectRootDir: File?,
         outputDir: File,
-        fileName: String = DEFAULT_ICON_PNG_FILE_NAME
+        fileName: String = DEFAULT_ICON_PNG_FILE_NAME,
+        wrapInAppleTile: Boolean = false,
+        fullBleedSquare: Boolean = false,
+        requestedSizeOverride: Int? = null
     ): File {
         outputDir.mkdirs()
         val outFile = File(outputDir, fileName)
-        val requestedSize = when {
+        val requestedSize = requestedSizeOverride ?: when {
+            fileName.contains("1024") -> 1024
             fileName.contains("192") -> 192
             fileName.contains("512") -> 512
             else -> 512
         }
         if (sourceIconFile != null && sourceIconFile.exists() && sourceIconFile.isFile) {
             val ext = sourceIconFile.extension.lowercase()
-            if (ext == "png" && fileName == DEFAULT_ICON_PNG_FILE_NAME) {
+            if (!wrapInAppleTile && ext == "png" && fileName == DEFAULT_ICON_PNG_FILE_NAME && requestedSizeOverride == null) {
                 if (sourceIconFile.canonicalFile != outFile.canonicalFile) {
                     sourceIconFile.copyTo(outFile, overwrite = true)
                 }
                 return outFile
             }
-            val decoded = decodeImageFromFile(sourceIconFile)
+            val decoded = if (ext == "svg" && requestedSize >= 512) {
+                val svgText = runCatching { sourceIconFile.readText(Charsets.UTF_8) }.getOrNull()
+                svgText?.let { runCatching { renderSvgTextToImage(it, requestedSize) }.getOrNull() }
+            } else {
+                decodeImageFromFile(sourceIconFile)
+            }
             if (decoded != null) {
-                val finalImg = if (decoded.width != requestedSize || decoded.height != requestedSize) {
+                val finalImg = if (wrapInAppleTile) {
+                    GenericUiAppleIconTileComposer.composeImage(
+                        source = decoded,
+                        targetSize = requestedSize,
+                        fullBleedSquare = fullBleedSquare
+                    )
+                } else if (decoded.width != requestedSize || decoded.height != requestedSize) {
                     scaleImageBicubic(decoded, requestedSize)
                 } else {
                     decoded
@@ -275,11 +310,32 @@ object GenericUiDefaultIconProvider {
                 return outFile
             }
         }
-        return ensureDefaultPngIcon(projectRootDir, outputDir, fileName)
+        if (wrapInAppleTile) {
+            val rawMaster = renderSvgTextToImage(loadDefaultIconSvgText(projectRootDir), requestedSize.coerceAtLeast(512))
+            val wrapped = GenericUiAppleIconTileComposer.composeImage(
+                source = rawMaster,
+                targetSize = requestedSize,
+                fullBleedSquare = fullBleedSquare
+            )
+            val baos = ByteArrayOutputStream()
+            ImageIO.write(wrapped, "PNG", baos)
+            outFile.writeBytes(baos.toByteArray())
+            return outFile
+        }
+        val defaultPng = ensureDefaultPngIcon(projectRootDir, outputDir, fileName)
+        if (requestedSizeOverride != null) {
+            val decoded = decodeImageFromFile(defaultPng)
+            if (decoded != null && (decoded.width != requestedSize || decoded.height != requestedSize)) {
+                val baos = ByteArrayOutputStream()
+                ImageIO.write(scaleImageBicubic(decoded, requestedSize), "PNG", baos)
+                outFile.writeBytes(baos.toByteArray())
+            }
+        }
+        return defaultPng
     }
 
     /**
-     * Decodes any `.png`, `.ico`, `.svg`, `.jpg`, `.bmp`, or `.gif` icon file into an ARGB [BufferedImage].
+     * Decodes any `.png`, `.ico`, `.icns`, `.svg`, `.jpg`, `.bmp`, or `.gif` icon file into an ARGB [BufferedImage].
      */
     fun decodeImageFromFile(file: File): BufferedImage? {
         if (!file.exists() || !file.isFile) return null
@@ -289,8 +345,36 @@ object GenericUiDefaultIconProvider {
                 runCatching { downscaleStepwise(renderSvgTextToImage(svgText, 1024), 512) }.getOrNull()
             }
             "ico" -> decodeLargestIcoEntry(file)
+            "icns" -> decodeLargestIcnsEntry(file)
             else -> runCatching { ImageIO.read(file) }.getOrNull()
         }
+    }
+
+    private fun decodeLargestIcnsEntry(icnsFile: File): BufferedImage? {
+        val bytes = runCatching { icnsFile.readBytes() }.getOrNull() ?: return null
+        if (!isIcnsMagic(bytes) || bytes.size < 16) return null
+        val declaredLen = ByteBuffer.wrap(bytes, 4, 4).order(ByteOrder.BIG_ENDIAN).int
+        val limit = declaredLen.coerceAtMost(bytes.size)
+        var offset = 8
+        var bestImg: BufferedImage? = null
+        var bestArea = -1
+        while (offset + 8 <= limit) {
+            val chunkLen = ByteBuffer.wrap(bytes, offset + 4, 4).order(ByteOrder.BIG_ENDIAN).int
+            if (chunkLen < 8 || offset + chunkLen > limit) break
+            val payload = bytes.copyOfRange(offset + 8, offset + chunkLen)
+            if (isPngMagic(payload)) {
+                val decoded = runCatching { ImageIO.read(ByteArrayInputStream(payload)) }.getOrNull()
+                if (decoded != null) {
+                    val area = decoded.width * decoded.height
+                    if (area > bestArea) {
+                        bestImg = decoded
+                        bestArea = area
+                    }
+                }
+            }
+            offset += chunkLen
+        }
+        return bestImg
     }
 
     private fun hasMultiResolutionIcoEntries(icoFile: File, minEntries: Int): Boolean {

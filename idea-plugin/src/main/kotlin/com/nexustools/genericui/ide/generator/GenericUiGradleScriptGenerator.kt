@@ -60,13 +60,13 @@ class GenericUiGradleScriptGenerator {
     }
 
     /**
-     * Generates the `genericui { ... }` Gradle DSL block configuring `application`,
-     * `backends`, `graphics`, `extensions`, and `styles`.
+     * Generates the `genericui { ... }` Gradle DSL block configuring `app`, `application`,
+     * optional `window`, `theme`, `backends`, per-target Apple icons, `graphics`, `extensions`,
+     * `styles`, and `testing` (`JestElectricRunner` via `:tests`).
      *
      * `id("com.nexustools.genericui")` automatically configures the Kotlin Multiplatform
-     * targets, the GenericUI sourceSet hierarchy (`common`, `desktopCommon`, `nativeDesktopCommon`,
-     * `windowsMain`, `macMain`, `linuxCommon`, `gtkMain`, `qtMain`, `swingMain`, `mobileCommon`,
-     * `androidMain`, `iosMain`, `webMain`), and Development/Production build target tasks.
+     * targets, the consolidated GenericUI module hierarchy (`:common`, `:system`, `:jvm`,
+     * `:apple`, `:desktop`, `:mobile`, `:web`, `:tests`), and Development/Production build target tasks.
      */
     fun generateGenericUiDslBlock(config: GenericUiProjectConfig): String = buildString {
         val backends = config.selectedBackends
@@ -80,7 +80,20 @@ class GenericUiGradleScriptGenerator {
         appendLine("    }")
         appendLine("    application {")
         appendLine("        baseName = \"${config.projectName}\"")
+        if (config.appleIcon.isNotBlank()) {
+            appendLine("        appleIcon = \"${config.appleIcon}\"")
+        }
         appendLine("    }")
+        if (config.windowAlwaysOnTop || (config.windowAspectRatioWidth != null && config.windowAspectRatioHeight != null)) {
+            appendLine("    window {")
+            if (config.windowAlwaysOnTop) {
+                appendLine("        alwaysOnTop = true")
+            }
+            if (config.windowAspectRatioWidth != null && config.windowAspectRatioHeight != null) {
+                appendLine("        aspectRatio(${config.windowAspectRatioWidth}, ${config.windowAspectRatioHeight})")
+            }
+            appendLine("    }")
+        }
         appendLine("    theme {")
         appendLine("        mode = \"${config.themeMode}\"")
         appendLine("    }")
@@ -112,6 +125,22 @@ class GenericUiGradleScriptGenerator {
         }
         appendLine("    }")
 
+        if (config.macIcon.isNotBlank()) {
+            appendLine("    macos {")
+            appendLine("        icon(\"${config.macIcon}\")")
+            appendLine("    }")
+        }
+        if (config.iosIcon.isNotBlank()) {
+            appendLine("    ios {")
+            appendLine("        icon(\"${config.iosIcon}\")")
+            appendLine("    }")
+        }
+        if (config.ipadosIcon.isNotBlank()) {
+            appendLine("    ipados {")
+            appendLine("        icon(\"${config.ipadosIcon}\")")
+            appendLine("    }")
+        }
+
         if (config.bundleAngleOnWindows || config.bundleMoltenVkOnApple || config.bundleShaderc) {
             appendLine("    graphics {")
             appendLine("        bundleAngleOnWindows = ${config.bundleAngleOnWindows}")
@@ -136,6 +165,9 @@ class GenericUiGradleScriptGenerator {
             appendLine("        globalStyleSheet = \"${config.globalStyleSheet}\"")
         }
         appendLine("        sourceDir = \"src/commonMain/resources/styles\"")
+        appendLine("    }")
+        appendLine("    testing {")
+        appendLine("        enabled = ${config.enableTesting}")
         appendLine("    }")
         append("}")
     }

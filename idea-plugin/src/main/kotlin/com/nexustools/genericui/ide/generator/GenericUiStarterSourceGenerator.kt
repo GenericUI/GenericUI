@@ -13,12 +13,13 @@ class GenericUiStarterSourceGenerator {
     /**
      * Generates `src/commonMain/kotlin/<packagePath>/MainFragment.kt` matching [GenericUiProjectConfig.templateType].
      *
-     * When [GenericUiExtensionModule.DSL] is enabled, demonstrates the `:extensions:dsl` `bootstrap { ... }`
-     * and `style { ... }` builders; otherwise demonstrates core `getBootstrap().apply { ... }` and
-     * `getStyle().apply { ... }` configuration.
+     * When [GenericUiExtensionModule.DSL] is enabled, demonstrates the `:extensions:ui:dsl` `bootstrap { ... }`
+     * and `style { ... }` builders (plus companion `:dsl` game/extension builders); otherwise demonstrates
+     * core `getBootstrap().apply { ... }` and `getStyle().apply { ... }` configuration.
      */
     fun generateMainFragmentKt(config: GenericUiProjectConfig): String = buildString {
-        val useDsl = GenericUiExtensionModule.DSL in config.resolvedExtensions()
+        val resolvedExtensions = config.resolvedExtensions()
+        val useDsl = GenericUiExtensionModule.DSL in resolvedExtensions
 
         appendLine("package ${config.packageName}")
         appendLine()
@@ -28,6 +29,23 @@ class GenericUiStarterSourceGenerator {
         if (useDsl) {
             appendLine("import com.nexustools.genericui.ext.dsl.bootstrap")
             appendLine("import com.nexustools.genericui.ext.dsl.style")
+        }
+        when (config.templateType) {
+            GenericUiProjectTemplateType.GAME_2D -> {
+                if (useDsl) {
+                    appendLine("import com.nexustools.genericui.ext.engine2d.dsl.game2DCanvas")
+                } else {
+                    appendLine("import com.nexustools.genericui.ext.engine2d.Game2DCanvasHost")
+                }
+            }
+            GenericUiProjectTemplateType.GAME_3D -> {
+                if (useDsl) {
+                    appendLine("import com.nexustools.genericui.ext.engine3d.dsl.game3DCanvas")
+                } else {
+                    appendLine("import com.nexustools.genericui.ext.engine3d.Game3DCanvasHost")
+                }
+            }
+            else -> Unit
         }
         appendLine("import com.nexustools.genericui.style.CssCursor")
         appendLine("import com.nexustools.genericui.theme.SpacingScale")
@@ -97,6 +115,50 @@ class GenericUiStarterSourceGenerator {
                 appendLine("    }")
                 appendLine("}")
             }
+            GenericUiProjectTemplateType.GAME_2D -> {
+                appendLine("/**")
+                appendLine(" * Hardware-accelerated 2D Game Engine stage fragment for ${config.projectName}.")
+                appendLine(" * Integrates :extensions:game:engine2d, :extensions:physics:box2d, and :extensions:game:gamepad.")
+                appendLine(" */")
+                appendLine("@MainAppFragment")
+                appendLine("class MainFragment : Fragment() {")
+                appendLine("    val title: String = \"${config.projectName} - 2D Game\"")
+                appendLine()
+                appendLine("    override fun onCreate(savedState: FragmentBundle?) {")
+                appendLine("        super.onCreate(savedState)")
+                appendStylingSnippet(useDsl)
+                if (useDsl) {
+                    appendLine("        game2DCanvas(width = 1280, height = 720, autoStart = true)")
+                } else {
+                    appendLine("        val host = Game2DCanvasHost()")
+                    appendLine("        addChild(host.canvas)")
+                    appendLine("        host.start()")
+                }
+                appendLine("    }")
+                appendLine("}")
+            }
+            GenericUiProjectTemplateType.GAME_3D -> {
+                appendLine("/**")
+                appendLine(" * Hardware-accelerated 3D Game Engine stage fragment for ${config.projectName}.")
+                appendLine(" * Integrates :extensions:game:engine3d, :extensions:graphics:threejs, :extensions:physics:box3d, and :extensions:game:gamepad.")
+                appendLine(" */")
+                appendLine("@MainAppFragment")
+                appendLine("class MainFragment : Fragment() {")
+                appendLine("    val title: String = \"${config.projectName} - 3D Game\"")
+                appendLine()
+                appendLine("    override fun onCreate(savedState: FragmentBundle?) {")
+                appendLine("        super.onCreate(savedState)")
+                appendStylingSnippet(useDsl)
+                if (useDsl) {
+                    appendLine("        game3DCanvas(width = 1280, height = 720, autoStart = true)")
+                } else {
+                    appendLine("        val host = Game3DCanvasHost()")
+                    appendLine("        addChild(host.canvas)")
+                    appendLine("        host.start()")
+                }
+                appendLine("    }")
+                appendLine("}")
+            }
             GenericUiProjectTemplateType.WIZARD_PAGE_SYSTEM -> {
                 appendLine("/**")
                 appendLine(" * Multi-step CenteredMenuPageFragment & ValidatedStepPageFragment workflow for ${config.projectName}.")
@@ -113,6 +175,36 @@ class GenericUiStarterSourceGenerator {
                 appendLine("}")
             }
         }
+    }
+
+    /**
+     * Generates `src/commonTest/kotlin/<packagePath>/MainFragmentTest.kt` powered by the
+     * unified `:tests` (`JestElectricRunner`) cross-platform UI test suite.
+     */
+    fun generateMainFragmentTestKt(config: GenericUiProjectConfig): String = buildString {
+        appendLine("package ${config.packageName}")
+        appendLine()
+        appendLine("import com.nexustools.genericui.tests.JestElectricRunner")
+        appendLine("import kotlin.test.Test")
+        appendLine()
+        appendLine("/**")
+        appendLine(" * Multi-backend UI test suite for ${config.projectName} powered by `:tests` (`JestElectricRunner`).")
+        appendLine(" */")
+        appendLine("class MainFragmentTest {")
+        appendLine()
+        appendLine("    @Test")
+        appendLine("    fun testMainFragmentMountsSuccessfully() {")
+        appendLine("        JestElectricRunner.runSuite(")
+        appendLine("            suiteName = \"${config.projectName}\",")
+        appendLine("            visualOnWindows = false")
+        appendLine("        ) {")
+        appendLine("            it(\"creates and resumes MainFragment\") {")
+        appendLine("                val controller = launchFragment { MainFragment() }")
+        appendLine("                expect(controller.fragment.title.isNotBlank()).toBe(true)")
+        appendLine("            }")
+        appendLine("        }")
+        appendLine("    }")
+        append("}")
     }
 
     private fun StringBuilder.appendStylingSnippet(useDsl: Boolean) {

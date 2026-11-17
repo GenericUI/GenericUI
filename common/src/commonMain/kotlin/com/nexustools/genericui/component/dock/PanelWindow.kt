@@ -58,6 +58,7 @@ class PanelWindow(
 
     init {
         htmlTag = "genericui:panelwindow"
+        setAlwaysOnTop(true)
         windowBounds = Rect(
             x = initialBounds.x,
             y = initialBounds.y,

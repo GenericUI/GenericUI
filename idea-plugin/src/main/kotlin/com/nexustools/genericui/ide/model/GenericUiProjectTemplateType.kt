@@ -41,8 +41,25 @@ enum class GenericUiProjectTemplateType(
         displayName = "HybridColumnFragment (Desktop/Mobile Responsive Media App)",
         description = "Adaptive master-detail split view on Desktop/Tablet that automatically transitions to tabbed navigation on Mobile.",
         defaultExtensions = linkedSetOf(
-            GenericUiExtensionModule.GPU,
             GenericUiExtensionModule.MEDIA
+        )
+    ),
+    GAME_2D(
+        id = "game_2d",
+        displayName = "2D Game Stage (Engine2D + Box2D + Gamepad DSL)",
+        description = "Hardware-accelerated 2D game loop with Game2DCanvasHost, Box2D physics, tilemaps, sprites, and gamepad navigation.",
+        defaultExtensions = linkedSetOf(
+            GenericUiExtensionModule.ENGINE_2D,
+            GenericUiExtensionModule.DSL
+        )
+    ),
+    GAME_3D(
+        id = "game_3d",
+        displayName = "3D Game Stage (Engine3D + Three.js + Box3D + Gamepad DSL)",
+        description = "Hardware-accelerated 3D game loop with Game3DCanvasHost, Three.js scene graph, Box3D physics, and gamepad navigation.",
+        defaultExtensions = linkedSetOf(
+            GenericUiExtensionModule.ENGINE_3D,
+            GenericUiExtensionModule.DSL
         )
     ),
     WIZARD_PAGE_SYSTEM(

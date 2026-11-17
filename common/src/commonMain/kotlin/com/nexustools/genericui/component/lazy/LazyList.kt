@@ -3,9 +3,11 @@ package com.nexustools.genericui.component.lazy
 import com.nexustools.genericui.component.shell.Application
 import com.nexustools.genericui.core.AbstractComponent
 import com.nexustools.genericui.core.AbstractContainer
+import com.nexustools.genericui.core.GenericUI
 import com.nexustools.genericui.core.NativeFactory
 import com.nexustools.genericui.enums.ui.Orientation
 import com.nexustools.genericui.nativeimpl.lazy.LazyListNativeImpl
+import com.nexustools.genericui.threading.GenericUiThreading
 
 /**
  * True virtualized lazy list component ([Orientation.VERTICAL] or [Orientation.HORIZONTAL]).
@@ -173,11 +175,12 @@ open class LazyList(
             // Ensure activeHolders remain ordered by ascending item index without detaching/re-attaching
             // already-mounted child views (which would cause DOM churn and scroll jumps on :web).
             if (activeHolders.size > 1) {
-                val sortedEntries = activeHolders.entries.sortedBy { it.key }.map { it.key to it.value }
+                val entrySnapshot = runCatching { activeHolders.entries.map { it.key to it.value } }.getOrElse { emptyList() }
+                val sortedEntries = entrySnapshot.sortedBy { it.first }
                 var orderChanged = false
                 var idx = 0
-                for (key in activeHolders.keys) {
-                    if (key != sortedEntries[idx].first) {
+                for ((key, _) in entrySnapshot) {
+                    if (idx >= sortedEntries.size || key != sortedEntries[idx].first) {
                         orderChanged = true
                         break
                     }
@@ -253,7 +256,7 @@ open class LazyList(
         val currentAdapter = adapter
         val cached = if (currentAdapter == null && itemUnloader == null) cachedItemHolders.remove(index) else null
         if (cached != null) {
-            val insertPos = activeHolders.keys.count { it < index }
+            val insertPos = runCatching { activeHolders.keys.toList() }.getOrElse { emptyList() }.count { it < index }
             activeHolders[index] = cached
             addChild(cached.itemView, insertPos)
             return cached
@@ -273,7 +276,7 @@ open class LazyList(
             }
         }
         holder.itemView.setAttribute("data-lazy-index", index.toString())
-        val insertPos = activeHolders.keys.count { it < index }
+        val insertPos = runCatching { activeHolders.keys.toList() }.getOrElse { emptyList() }.count { it < index }
         activeHolders[index] = holder
         holder.itemView.parent = this
         if ((resolveActiveFactory() ?: com.nexustools.genericui.core.GenericUI.activeFactory)?.isStyleSheetEngineEnabled != false) {
@@ -322,7 +325,7 @@ open class LazyList(
             ?: if (nativeImpl != null) com.nexustools.genericui.core.GenericUI.activeFactory else null
     }
 
-    internal override fun ensureNativeImpl(): com.nexustools.genericui.core.NativeImpl<*>? {
+    override fun ensureNativeImpl(): com.nexustools.genericui.core.NativeImpl<*>? {
         val wasAlreadyCreated = (nativeImpl != null)
         val impl = super.ensureNativeImpl() ?: return null
         if (wasAlreadyCreated && activeHolders.isEmpty() && (adapter?.getItemCount() ?: totalItemCount) > 0) {
@@ -343,7 +346,16 @@ open class LazyList(
         impl.setOrientation(orientation)
         impl.setEstimatedItemExtent(estimatedItemExtentPx, viewportTracker.overscanItems)
         impl.setOnViewportScrollChanged { scrollPx, extentPx ->
-            if (!isRefreshingViewport) {
+            if (GenericUI.activeFactory != null &&
+                GenericUiThreading.isSplitThreadingEnabled &&
+                !GenericUiThreading.isOnLogicThread()
+            ) {
+                GenericUiThreading.runOnLogic {
+                    if (!isDisposed && !isRefreshingViewport) {
+                        onViewportChanged(scrollPx, extentPx)
+                    }
+                }
+            } else if (!isRefreshingViewport) {
                 onViewportChanged(scrollPx, extentPx)
             }
         }

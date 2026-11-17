@@ -404,14 +404,7 @@ abstract class AbstractComponent(
     // Event listeners
     var onClick: (() -> Unit)? = null
         set(value) {
-            val wrapped: (() -> Unit)? = if (value == null) null else {
-                {
-                    GenericUiThreading.runOnLogic {
-                        value()
-                    }
-                }
-            }
-            field = wrapped
+            field = value
             runOnNativeUi { it.setOnClick(buildEffectiveClickListener()) }
         }
 
@@ -448,12 +441,7 @@ abstract class AbstractComponent(
         }
     var onContextMenu: ((PointerEvent) -> Unit)? = null
         set(value) {
-            val wrapped: ((PointerEvent) -> Unit)? = if (value == null) null else { ev ->
-                GenericUiThreading.runOnLogic {
-                    value(ev)
-                }
-            }
-            field = wrapped
+            field = value
             syncContextMenuListener()
         }
 
@@ -723,7 +711,7 @@ abstract class AbstractComponent(
 
     protected abstract fun createNativeImpl(factory: NativeFactory): NativeImpl<*>
 
-    internal open fun ensureNativeImpl(): NativeImpl<*>? {
+    open fun ensureNativeImpl(): NativeImpl<*>? {
         if (!visibleState) return null
         val existing = nativeImpl
         if (existing != null) return existing

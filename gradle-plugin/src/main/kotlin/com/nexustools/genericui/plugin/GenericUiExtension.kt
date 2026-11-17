@@ -52,6 +52,16 @@ open class GenericUiExtension {
     /** Variant scope configuration for [GenericUiVariantScope.SYSTEM_COMMON]. */
     val systemCommon: GenericUiVariantConfig = GenericUiVariantConfig(GenericUiVariantScope.SYSTEM_COMMON)
 
+    /** Variant scope configuration for [GenericUiVariantScope.APPLE_COMMON]. */
+    val appleCommon: GenericUiVariantConfig = GenericUiVariantConfig(GenericUiVariantScope.APPLE_COMMON)
+
+    /** Alias for [appleCommon]. */
+    val apple: GenericUiVariantConfig
+        get() = appleCommon
+
+    /** Variant scope configuration for [GenericUiVariantScope.JVM_COMMON]. */
+    val jvmCommon: GenericUiVariantConfig = GenericUiVariantConfig(GenericUiVariantScope.JVM_COMMON)
+
     /** Variant scope configuration for [GenericUiVariantScope.DESKTOP_COMMON]. */
     val desktopCommon: GenericUiVariantConfig = GenericUiVariantConfig(GenericUiVariantScope.DESKTOP_COMMON)
 
@@ -68,6 +78,9 @@ open class GenericUiExtension {
 
     /** Variant scope configuration for [GenericUiVariantScope.MOBILE_COMMON]. */
     val mobileCommon: GenericUiVariantConfig = GenericUiVariantConfig(GenericUiVariantScope.MOBILE_COMMON)
+
+    /** Variant scope configuration for [GenericUiVariantScope.IOS_COMMON]. */
+    val iosCommon: GenericUiVariantConfig = GenericUiVariantConfig(GenericUiVariantScope.IOS_COMMON)
 
     /** Variant scope configuration for [GenericUiVariantScope.WINDOWS]. */
     val windows: GenericUiVariantConfig = GenericUiVariantConfig(GenericUiVariantScope.WINDOWS)
@@ -93,6 +106,13 @@ open class GenericUiExtension {
 
     /** Variant scope configuration for [GenericUiVariantScope.IOS]. */
     val ios: GenericUiVariantConfig = GenericUiVariantConfig(GenericUiVariantScope.IOS)
+
+    /** Variant scope configuration for [GenericUiVariantScope.IPADOS]. */
+    val ipados: GenericUiVariantConfig = GenericUiVariantConfig(GenericUiVariantScope.IPADOS)
+
+    /** Alias for [ipados]. */
+    val ipad: GenericUiVariantConfig
+        get() = ipados
 
     /** Variant scope configuration for [GenericUiVariantScope.WEB]. */
     val web: GenericUiVariantConfig = GenericUiVariantConfig(GenericUiVariantScope.WEB)
@@ -297,37 +317,61 @@ open class GenericUiExtension {
     }
 
     /** Sets the default fallback icon path across all desktop platforms (`icon.png` / `icon.ico` / `icon.icns`). */
-    fun icon(path: String) {
+    fun icon(path: Any?) {
         application.icon(path)
         onConfiguredCallback?.invoke()
     }
 
     /** Sets the Windows desktop executable & titlebar icon path (`.ico`). */
-    fun windowsIcon(path: String) {
+    fun windowsIcon(path: Any?) {
         application.windowsIcon(path)
         onConfiguredCallback?.invoke()
     }
 
+    /** Sets the shared Apple icon path across macOS, iOS, and iPadOS. */
+    fun appleIcon(path: Any?) {
+        application.appleIcon(path)
+        onConfiguredCallback?.invoke()
+    }
+
     /** Sets the macOS application bundle icon path (`.icns` or `.png`). */
-    fun macIcon(path: String) {
+    fun macIcon(path: Any?) {
         application.macIcon(path)
         onConfiguredCallback?.invoke()
     }
 
     /** Alias for [macIcon]. */
-    fun macosIcon(path: String) {
+    fun macosIcon(path: Any?) {
         application.macosIcon(path)
         onConfiguredCallback?.invoke()
     }
 
+    /** Sets the iOS application icon path overriding [appleIcon] and [icon]. */
+    fun iosIcon(path: Any?) {
+        application.iosIcon(path)
+        onConfiguredCallback?.invoke()
+    }
+
+    /** Sets the iPadOS application icon path overriding [appleIcon] and [icon]. */
+    fun ipadosIcon(path: Any?) {
+        application.ipadosIcon(path)
+        onConfiguredCallback?.invoke()
+    }
+
+    /** Alias for [ipadosIcon]. */
+    fun ipadIcon(path: Any?) {
+        application.ipadIcon(path)
+        onConfiguredCallback?.invoke()
+    }
+
     /** Sets the Linux GTK/Qt desktop application icon path (`.png` or `.svg`). */
-    fun linuxIcon(path: String) {
+    fun linuxIcon(path: Any?) {
         application.linuxIcon(path)
         onConfiguredCallback?.invoke()
     }
 
     /** Sets the Web icon path overriding the default project icon for the Web splash screen and `index.html` favicon. */
-    fun webIcon(path: String) {
+    fun webIcon(path: Any?) {
         application.webIcon(path)
         onConfiguredCallback?.invoke()
     }
@@ -374,15 +418,27 @@ open class GenericUiExtension {
         onConfiguredCallback?.invoke()
     }
 
-    /** Configures platform-specific desktop and web icons in a single call. */
+    /** Configures platform-specific desktop, mobile, and web icons in a single call. */
     fun icons(
         windows: String = application.desktop.windowsIcon,
         mac: String = application.desktop.macIcon,
         linux: String = application.desktop.linuxIcon,
         web: String = application.desktop.webIcon,
-        common: String = application.desktop.icon
+        common: String = application.desktop.icon,
+        apple: String = application.desktop.appleIcon,
+        ios: String = application.desktop.iosIcon,
+        ipados: String = application.desktop.ipadosIcon
     ) {
-        application.icons(windows = windows, mac = mac, linux = linux, web = web, common = common)
+        application.icons(
+            windows = windows,
+            mac = mac,
+            linux = linux,
+            web = web,
+            common = common,
+            apple = apple,
+            ios = ios,
+            ipados = ipados
+        )
         onConfiguredCallback?.invoke()
     }
 
@@ -560,6 +616,23 @@ open class GenericUiExtension {
         onConfiguredCallback?.invoke()
     }
 
+    /** Configures the `appleCommon` scope (`genericui { appleCommon { ... } }`). */
+    fun appleCommon(action: Action<in GenericUiVariantConfig>) {
+        action.execute(appleCommon)
+        onConfiguredCallback?.invoke()
+    }
+
+    /** Alias for [appleCommon] (`genericui { apple { ... } }`). */
+    fun apple(action: Action<in GenericUiVariantConfig>) {
+        appleCommon(action)
+    }
+
+    /** Configures the `jvmCommon` scope (`genericui { jvmCommon { ... } }`). */
+    fun jvmCommon(action: Action<in GenericUiVariantConfig>) {
+        action.execute(jvmCommon)
+        onConfiguredCallback?.invoke()
+    }
+
     /** Configures the `desktopCommon` scope (`genericui { desktopCommon { ... } }`). */
     fun desktopCommon(action: Action<in GenericUiVariantConfig>) {
         action.execute(desktopCommon)
@@ -588,6 +661,12 @@ open class GenericUiExtension {
     /** Configures the `mobileCommon` scope (`genericui { mobileCommon { ... } }`). */
     fun mobileCommon(action: Action<in GenericUiVariantConfig>) {
         action.execute(mobileCommon)
+        onConfiguredCallback?.invoke()
+    }
+
+    /** Configures the `iosCommon` scope (`genericui { iosCommon { ... } }`). */
+    fun iosCommon(action: Action<in GenericUiVariantConfig>) {
+        action.execute(iosCommon)
         onConfiguredCallback?.invoke()
     }
 
@@ -639,6 +718,17 @@ open class GenericUiExtension {
         onConfiguredCallback?.invoke()
     }
 
+    /** Configures the `ipados` scope (`genericui { ipados { ... } }`). */
+    fun ipados(action: Action<in GenericUiVariantConfig>) {
+        action.execute(ipados)
+        onConfiguredCallback?.invoke()
+    }
+
+    /** Alias for [ipados] (`genericui { ipad { ... } }`). */
+    fun ipad(action: Action<in GenericUiVariantConfig>) {
+        ipados(action)
+    }
+
     /** Configures the `web` scope (`genericui { web { ... } }`). */
     fun web(action: Action<in GenericUiVariantConfig>) {
         action.execute(web)
@@ -649,10 +739,13 @@ open class GenericUiExtension {
     fun variantConfigFor(scope: GenericUiVariantScope): GenericUiVariantConfig = when (scope) {
         GenericUiVariantScope.COMMON -> common
         GenericUiVariantScope.SYSTEM_COMMON -> systemCommon
+        GenericUiVariantScope.APPLE_COMMON -> appleCommon
+        GenericUiVariantScope.JVM_COMMON -> jvmCommon
         GenericUiVariantScope.DESKTOP_COMMON -> desktopCommon
         GenericUiVariantScope.MOBILE_COMMON -> mobileCommon
         GenericUiVariantScope.NATIVE_DESKTOP_COMMON -> nativeDesktopCommon
         GenericUiVariantScope.LINUX_COMMON -> linuxCommon
+        GenericUiVariantScope.IOS_COMMON -> iosCommon
         GenericUiVariantScope.WINDOWS -> windows
         GenericUiVariantScope.MACOS -> macos
         GenericUiVariantScope.GTK -> gtk
@@ -660,6 +753,7 @@ open class GenericUiExtension {
         GenericUiVariantScope.SWING -> swing
         GenericUiVariantScope.ANDROID -> android
         GenericUiVariantScope.IOS -> ios
+        GenericUiVariantScope.IPADOS -> ipados
         GenericUiVariantScope.WEB -> web
     }
 

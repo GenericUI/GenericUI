@@ -123,12 +123,13 @@ object GenericUiMultiplatformConfigurator {
             }
         }
 
-        val iosArm64Target: Any? = if (backends.iosEnabled) {
+        val anyAppleMobile = backends.iosEnabled || backends.ipadosEnabled
+        val iosArm64Target: Any? = if (anyAppleMobile) {
             targets.findByName("iosArm64") ?: invokeNoArg(kmp, "iosArm64")
         } else {
             targets.findByName("iosArm64")
         }
-        val iosSimArm64Target: Any? = if (backends.iosEnabled) {
+        val iosSimArm64Target: Any? = if (anyAppleMobile) {
             targets.findByName("iosSimulatorArm64") ?: invokeNoArg(kmp, "iosSimulatorArm64")
         } else {
             targets.findByName("iosSimulatorArm64")
@@ -211,7 +212,9 @@ object GenericUiMultiplatformConfigurator {
             backends.gtkEnabled ||
             backends.qtEnabled
 
-        val anyMobile = backends.androidEnabled || backends.iosEnabled
+        val anyMobile = backends.androidEnabled || backends.iosEnabled || backends.ipadosEnabled
+        val anyApple = backends.macosEnabled || backends.iosEnabled || backends.ipadosEnabled
+        val anyJvm = backends.swingConfig.enabled || backends.androidEnabled
         val anySystem = anyDesktop || anyMobile
 
         var systemCommon: Any? = null
@@ -234,6 +237,43 @@ object GenericUiMultiplatformConfigurator {
                 dependsOnIfNotConnected(it, commonTest)
                 addKotlinSrcDir(it, "src/systemTest/kotlin")
                 addKotlinSrcDir(it, "src/systemCommonTest/kotlin")
+            }
+        }
+
+        var appleCommon: Any? = null
+        var appleMain: Any? = null
+        var appleTest: Any? = null
+        if (anyApple && systemMain != null && systemTest != null) {
+            appleCommon = ss.maybeCreate("appleCommon").also {
+                dependsOnIfNotConnected(it, systemMain)
+                addKotlinSrcDir(it, "src/appleCommon/kotlin")
+                addResourcesSrcDir(it, "src/appleCommon/resources")
+            }
+            appleMain = ss.maybeCreate("appleMain").also {
+                dependsOnIfNotConnected(it, appleCommon)
+                addKotlinSrcDir(it, "src/appleMain/kotlin")
+                addKotlinSrcDir(it, "src/appleCommon/kotlin")
+                addResourcesSrcDir(it, "src/appleMain/resources")
+                addResourcesSrcDir(it, "src/appleCommon/resources")
+            }
+            appleTest = ss.maybeCreate("appleTest").also {
+                dependsOnIfNotConnected(it, systemTest)
+                addKotlinSrcDir(it, "src/appleTest/kotlin")
+                addKotlinSrcDir(it, "src/appleCommonTest/kotlin")
+            }
+        }
+
+        var jvmCommon: Any? = null
+        var jvmCommonTest: Any? = null
+        if (anyJvm && systemMain != null && systemTest != null) {
+            jvmCommon = ss.maybeCreate("jvmCommon").also {
+                dependsOnIfNotConnected(it, systemMain)
+                addKotlinSrcDir(it, "src/jvmCommon/kotlin")
+                addResourcesSrcDir(it, "src/jvmCommon/resources")
+            }
+            jvmCommonTest = ss.maybeCreate("jvmCommonTest").also {
+                dependsOnIfNotConnected(it, systemTest)
+                addKotlinSrcDir(it, "src/jvmCommonTest/kotlin")
             }
         }
 
@@ -262,6 +302,7 @@ object GenericUiMultiplatformConfigurator {
         if (backends.swingConfig.enabled && desktopMain != null && desktopTest != null) {
             val swing = ss.maybeCreate("swing").also {
                 dependsOnIfNotConnected(it, desktopMain)
+                if (jvmCommon != null) dependsOnIfNotConnected(it, jvmCommon)
                 addKotlinSrcDir(it, "src/swing/kotlin")
                 addResourcesSrcDir(it, "src/swing/resources")
             }
@@ -275,6 +316,7 @@ object GenericUiMultiplatformConfigurator {
             }
             val swingTest = ss.maybeCreate("swingTest").also {
                 dependsOnIfNotConnected(it, desktopTest)
+                if (jvmCommonTest != null) dependsOnIfNotConnected(it, jvmCommonTest)
                 addKotlinSrcDir(it, "src/swingTest/kotlin")
                 addKotlinSrcDir(it, project.layout.buildDirectory.dir("generated/genericui/launchers/swingTest/kotlin"))
             }
@@ -347,6 +389,7 @@ object GenericUiMultiplatformConfigurator {
         if (backends.macosEnabled && nativeDesktopMain != null && nativeDesktopTest != null) {
             val mac = ss.maybeCreate("mac").also {
                 dependsOnIfNotConnected(it, nativeDesktopMain)
+                if (appleMain != null) dependsOnIfNotConnected(it, appleMain)
                 addKotlinSrcDir(it, "src/mac/kotlin")
                 addResourcesSrcDir(it, "src/mac/resources")
             }
@@ -365,6 +408,7 @@ object GenericUiMultiplatformConfigurator {
             }
             val macTest = ss.maybeCreate("macTest").also {
                 dependsOnIfNotConnected(it, nativeDesktopTest)
+                if (appleTest != null) dependsOnIfNotConnected(it, appleTest)
                 addKotlinSrcDir(it, "src/macTest/kotlin")
             }
             val macosTest = ss.maybeCreate("macosTest").also {
@@ -495,6 +539,7 @@ object GenericUiMultiplatformConfigurator {
             if (backends.androidEnabled) {
                 val android = ss.maybeCreate("android").also {
                     dependsOnIfNotConnected(it, mobileMain)
+                    if (jvmCommon != null) dependsOnIfNotConnected(it, jvmCommon)
                     addKotlinSrcDir(it, "src/android/kotlin")
                     addResourcesSrcDir(it, "src/android/resources")
                 }
@@ -508,6 +553,7 @@ object GenericUiMultiplatformConfigurator {
                 }
                 val androidTest = ss.maybeCreate("androidTest").also {
                     dependsOnIfNotConnected(it, mobileTest)
+                    if (jvmCommonTest != null) dependsOnIfNotConnected(it, jvmCommonTest)
                     addKotlinSrcDir(it, "src/androidTest/kotlin")
                     addKotlinSrcDir(it, project.layout.buildDirectory.dir("generated/genericui/launchers/androidTest/kotlin"))
                 }
@@ -515,29 +561,86 @@ object GenericUiMultiplatformConfigurator {
                 ss.findByName("androidHostTest")?.let { dependsOnIfNotConnected(it, androidTest) }
             }
 
-            if (backends.iosEnabled) {
-                val ios = ss.maybeCreate("ios").also {
+            if (backends.iosEnabled || backends.ipadosEnabled) {
+                val iosCommon = ss.maybeCreate("iosCommon").also {
                     dependsOnIfNotConnected(it, mobileMain)
-                    addKotlinSrcDir(it, "src/ios/kotlin")
-                    addResourcesSrcDir(it, "src/ios/resources")
+                    if (appleMain != null) dependsOnIfNotConnected(it, appleMain)
+                    addKotlinSrcDir(it, "src/iosCommonMain/kotlin")
+                    addKotlinSrcDir(it, "src/iosCommon/kotlin")
+                    addResourcesSrcDir(it, "src/iosCommonMain/resources")
+                    addResourcesSrcDir(it, "src/iosCommon/resources")
                 }
-                val iosMain = ss.maybeCreate("iosMain").also {
-                    dependsOnIfNotConnected(it, ios)
-                    addKotlinSrcDir(it, "src/iosMain/kotlin")
-                    addKotlinSrcDir(it, "src/ios/kotlin")
-                    addKotlinSrcDir(it, project.layout.buildDirectory.dir("generated/genericui/launchers/ios/kotlin"))
-                    addResourcesSrcDir(it, "src/iosMain/resources")
-                    addResourcesSrcDir(it, "src/ios/resources")
-                }
-                val iosTest = ss.maybeCreate("iosTest").also {
+                val iosCommonTest = ss.maybeCreate("iosCommonTest").also {
                     dependsOnIfNotConnected(it, mobileTest)
-                    addKotlinSrcDir(it, "src/iosTest/kotlin")
-                    addKotlinSrcDir(it, project.layout.buildDirectory.dir("generated/genericui/launchers/iosTest/kotlin"))
+                    if (appleTest != null) dependsOnIfNotConnected(it, appleTest)
+                    addKotlinSrcDir(it, "src/iosCommonTest/kotlin")
                 }
-                ss.findByName("iosArm64Main")?.let { dependsOnIfNotConnected(it, iosMain) }
-                ss.findByName("iosSimulatorArm64Main")?.let { dependsOnIfNotConnected(it, iosMain) }
-                ss.findByName("iosArm64Test")?.let { dependsOnIfNotConnected(it, iosTest) }
-                ss.findByName("iosSimulatorArm64Test")?.let { dependsOnIfNotConnected(it, iosTest) }
+                val iosTargets = listOfNotNull(iosArm64Target, iosSimArm64Target)
+
+                if (backends.iosEnabled) {
+                    val ios = ss.maybeCreate("ios").also {
+                        dependsOnIfNotConnected(it, iosCommon)
+                        addKotlinSrcDir(it, "src/ios/kotlin")
+                        addResourcesSrcDir(it, "src/ios/resources")
+                    }
+                    val iosMain = ss.maybeCreate("iosMain").also {
+                        dependsOnIfNotConnected(it, ios)
+                        addKotlinSrcDir(it, "src/iosMain/kotlin")
+                        addKotlinSrcDir(it, "src/ios/kotlin")
+                        addKotlinSrcDir(it, project.layout.buildDirectory.dir("generated/genericui/launchers/ios/kotlin"))
+                        addResourcesSrcDir(it, "src/iosMain/resources")
+                        addResourcesSrcDir(it, "src/ios/resources")
+                    }
+                    val iosTest = ss.maybeCreate("iosTest").also {
+                        dependsOnIfNotConnected(it, iosCommonTest)
+                        addKotlinSrcDir(it, "src/iosTest/kotlin")
+                        addKotlinSrcDir(it, project.layout.buildDirectory.dir("generated/genericui/launchers/iosTest/kotlin"))
+                    }
+                    ss.findByName("iosArm64Main")?.let { dependsOnIfNotConnected(it, iosMain) }
+                    ss.findByName("iosSimulatorArm64Main")?.let { dependsOnIfNotConnected(it, iosMain) }
+                    ss.findByName("iosArm64Test")?.let { dependsOnIfNotConnected(it, iosTest) }
+                    ss.findByName("iosSimulatorArm64Test")?.let { dependsOnIfNotConnected(it, iosTest) }
+                }
+
+                if (backends.ipadosEnabled) {
+                    val ipados = ss.maybeCreate("ipados").also {
+                        dependsOnIfNotConnected(it, iosCommon)
+                        addKotlinSrcDir(it, "src/ipados/kotlin")
+                        addKotlinSrcDir(it, "src/ipad/kotlin")
+                        addResourcesSrcDir(it, "src/ipados/resources")
+                        addResourcesSrcDir(it, "src/ipad/resources")
+                    }
+                    val ipadosMain = ss.maybeCreate("ipadosMain").also {
+                        dependsOnIfNotConnected(it, ipados)
+                        addKotlinSrcDir(it, "src/ipadosMain/kotlin")
+                        addKotlinSrcDir(it, "src/ipadMain/kotlin")
+                        addKotlinSrcDir(it, "src/ipados/kotlin")
+                        addKotlinSrcDir(it, "src/ipad/kotlin")
+                        addKotlinSrcDir(it, project.layout.buildDirectory.dir("generated/genericui/launchers/ipados/kotlin"))
+                        addResourcesSrcDir(it, "src/ipadosMain/resources")
+                        addResourcesSrcDir(it, "src/ipadMain/resources")
+                    }
+                    val ipadosTest = ss.maybeCreate("ipadosTest").also {
+                        dependsOnIfNotConnected(it, iosCommonTest)
+                        addKotlinSrcDir(it, "src/ipadosTest/kotlin")
+                        addKotlinSrcDir(it, "src/ipadTest/kotlin")
+                        addKotlinSrcDir(it, project.layout.buildDirectory.dir("generated/genericui/launchers/ipadosTest/kotlin"))
+                    }
+                    for (itgt in iosTargets) {
+                        val comps = invokeNoArg(itgt, "getCompilations") as? NamedDomainObjectContainer<*>
+                        val ipadosComp = comps?.maybeCreate("ipados")
+                        val defaultSs = invokeNoArg(ipadosComp, "getDefaultSourceSet")
+                        if (defaultSs != null) {
+                            dependsOnIfNotConnected(defaultSs, ipadosMain)
+                        }
+                    }
+                    if (!backends.iosEnabled) {
+                        ss.findByName("iosArm64Main")?.let { dependsOnIfNotConnected(it, ipadosMain) }
+                        ss.findByName("iosSimulatorArm64Main")?.let { dependsOnIfNotConnected(it, ipadosMain) }
+                    }
+                    ss.findByName("iosArm64Test")?.let { dependsOnIfNotConnected(it, ipadosTest) }
+                    ss.findByName("iosSimulatorArm64Test")?.let { dependsOnIfNotConnected(it, ipadosTest) }
+                }
             }
         }
 
@@ -551,7 +654,7 @@ object GenericUiMultiplatformConfigurator {
             defaultEntryPoint = if (hasMainAppFragment) "$generatedLauncherPackage.main" else ""
         )
 
-        if (backends.iosEnabled) {
+        if (backends.iosEnabled || backends.ipadosEnabled) {
             configureIosFrameworks(
                 project = project,
                 extension = extension,
@@ -636,6 +739,9 @@ object GenericUiMultiplatformConfigurator {
                 ?: when (spec.name) {
                     "common" -> ssContainer?.findByName("commonMain")
                     "systemCommon" -> ssContainer?.findByName("systemMain") ?: ssContainer?.findByName("commonMain")
+                    "appleCommon" -> ssContainer?.findByName("appleMain") ?: ssContainer?.findByName("systemMain")
+                    "jvmCommon" -> ssContainer?.findByName("jvmCommon") ?: ssContainer?.findByName("systemMain")
+                    "iosCommon" -> ssContainer?.findByName("iosCommon") ?: ssContainer?.findByName("mobileMain")
                     "macMain" -> ssContainer?.findByName("macosMain")
                     "linuxCommon" -> ssContainer?.findByName("linuxMain") ?: ssContainer?.findByName("linuxX64Main")
                     "nativeDesktopCommon", "desktopNativeCommon" ->
@@ -693,6 +799,23 @@ object GenericUiMultiplatformConfigurator {
                 configName.startsWith("mobile") ->
                     project.configurations.findByName("mobileMainImplementation")
                         ?: project.configurations.findByName("systemMainImplementation")
+                        ?: project.configurations.findByName("commonMainImplementation")
+                configName.startsWith("apple") ->
+                    project.configurations.findByName("appleMainImplementation")
+                        ?: project.configurations.findByName("systemMainImplementation")
+                        ?: project.configurations.findByName("commonMainImplementation")
+                configName.startsWith("iosCommon") ->
+                    project.configurations.findByName("iosCommonImplementation")
+                        ?: project.configurations.findByName("mobileMainImplementation")
+                        ?: project.configurations.findByName("commonMainImplementation")
+                configName.startsWith("ipados") ->
+                    project.configurations.findByName("ipadosMainImplementation")
+                        ?: project.configurations.findByName("iosCommonImplementation")
+                        ?: project.configurations.findByName("mobileMainImplementation")
+                        ?: project.configurations.findByName("commonMainImplementation")
+                configName.startsWith("jvmCommon") ->
+                    project.configurations.findByName("jvmCommonImplementation")
+                        ?: project.configurations.findByName("jvmMainImplementation")
                         ?: project.configurations.findByName("commonMainImplementation")
                 else ->
                     project.configurations.findByName("commonMainImplementation")
@@ -873,6 +996,7 @@ object GenericUiMultiplatformConfigurator {
         val frameworkBaseName = GenericUiGenerateIosAppTask.sanitizeFrameworkName(
             app.baseName.trim().ifEmpty { project.name }
         )
+        val backends = extension.backends
         for (iosTarget in iosTargets) {
             runCatching {
                 val binaries = invokeNoArg(iosTarget, "getBinaries") ?: return@runCatching
@@ -885,16 +1009,60 @@ object GenericUiMultiplatformConfigurator {
                 val findFw = binaries.javaClass.methods.firstOrNull {
                     it.name == "findFramework" && it.parameterCount == 1 && it.parameterTypes[0] == String::class.java
                 }
-                val existingDebug = findFw?.invoke(binaries, "DEBUG")
-                val existingRelease = findFw?.invoke(binaries, "RELEASE")
-                if (existingDebug == null && existingRelease == null) {
-                    binaries.javaClass.methods.firstOrNull {
-                        it.name == "framework" && it.parameterCount == 1 &&
-                            Action::class.java.isAssignableFrom(it.parameterTypes[0])
-                    }?.invoke(binaries, configureAction)
-                } else {
-                    existingDebug?.let { configureAction.execute(it) }
-                    existingRelease?.let { configureAction.execute(it) }
+                if (backends.iosEnabled || !backends.ipadosEnabled) {
+                    val existingDebug = findFw?.invoke(binaries, "DEBUG")
+                    val existingRelease = findFw?.invoke(binaries, "RELEASE")
+                    if (existingDebug == null && existingRelease == null) {
+                        binaries.javaClass.methods.firstOrNull {
+                            it.name == "framework" && it.parameterCount == 1 &&
+                                Action::class.java.isAssignableFrom(it.parameterTypes[0])
+                        }?.invoke(binaries, configureAction)
+                    } else {
+                        existingDebug?.let { configureAction.execute(it) }
+                        existingRelease?.let { configureAction.execute(it) }
+                    }
+                }
+                if (backends.ipadosEnabled) {
+                    if (!backends.iosEnabled) {
+                        val existingDebug = findFw?.invoke(binaries, "DEBUG")
+                        val existingRelease = findFw?.invoke(binaries, "RELEASE")
+                        if (existingDebug == null && existingRelease == null) {
+                            binaries.javaClass.methods.firstOrNull {
+                                it.name == "framework" && it.parameterCount == 1 &&
+                                    Action::class.java.isAssignableFrom(it.parameterTypes[0])
+                            }?.invoke(binaries, configureAction)
+                        } else {
+                            existingDebug?.let { configureAction.execute(it) }
+                            existingRelease?.let { configureAction.execute(it) }
+                        }
+                    } else {
+                        val comps = invokeNoArg(iosTarget, "getCompilations") as? NamedDomainObjectContainer<*>
+                        val ipadosComp = comps?.findByName("ipados")
+                        if (ipadosComp != null) {
+                            val ipadosFwAction = Action<Any> {
+                                val fw = this
+                                fw.javaClass.methods.firstOrNull {
+                                    it.name == "setCompilation" && it.parameterCount == 1
+                                }?.invoke(fw, ipadosComp)
+                                fw.javaClass.methods.firstOrNull {
+                                    it.name == "setBaseName" && it.parameterCount == 1
+                                }?.invoke(fw, frameworkBaseName)
+                            }
+                            val existingNamed = (binaries as? Iterable<*>)?.filterNotNull()?.filter { bin ->
+                                val binName = runCatching { bin.javaClass.getMethod("getName").invoke(bin) as? String }.getOrNull().orEmpty()
+                                binName.startsWith("ipados", ignoreCase = true) && binName.endsWith("Framework", ignoreCase = true)
+                            }.orEmpty()
+                            if (existingNamed.isEmpty()) {
+                                binaries.javaClass.methods.firstOrNull {
+                                    it.name == "framework" && it.parameterCount == 2 &&
+                                        it.parameterTypes[0] == String::class.java &&
+                                        Action::class.java.isAssignableFrom(it.parameterTypes[1])
+                                }?.invoke(binaries, "ipados", ipadosFwAction)
+                            } else {
+                                existingNamed.forEach { ipadosFwAction.execute(it) }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -998,15 +1166,15 @@ object GenericUiMultiplatformConfigurator {
      */
     internal fun isMediaExtensionEnabled(extension: GenericUiExtension): Boolean =
         extension.extensions.mediaEnabled ||
-            ":extensions:media" in extension.extensions.enabledExtensionModulePaths()
+            ":extensions:media:media" in extension.extensions.enabledExtensionModulePaths()
 
     internal fun isWebViewExtensionEnabled(extension: GenericUiExtension): Boolean =
         extension.extensions.webViewEnabled ||
-            ":extensions:webview" in extension.extensions.enabledExtensionModulePaths()
+            ":extensions:ui:webview" in extension.extensions.enabledExtensionModulePaths()
 
     internal fun isGpuExtensionEnabled(extension: GenericUiExtension): Boolean =
         extension.extensions.gpuEnabled ||
-            ":extensions:gpu" in extension.extensions.enabledExtensionModulePaths()
+            ":extensions:graphics:gpu" in extension.extensions.enabledExtensionModulePaths()
 
     private fun ensureExtensionNativeBundleTasksRegistered(project: Project, extension: GenericUiExtension) {
         if (project.tasks.findByName("bundleGenericUiVlc") == null) {
@@ -1282,6 +1450,20 @@ object GenericUiMultiplatformConfigurator {
 
         purgeExcludedStaticCoreLibraries(appBundleDir)
         purgeExcludedStaticCoreLibraries(distDir)
+        val nowMs = System.currentTimeMillis()
+        runCatching { appBundleDir.setLastModified(nowMs) }
+        val osName = System.getProperty("os.name").orEmpty().lowercase()
+        if (osName.contains("mac") || osName.contains("darwin")) {
+            val lsregister = File("/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister")
+            if (lsregister.isFile && lsregister.canExecute()) {
+                runCatching {
+                    val proc = ProcessBuilder(lsregister.absolutePath, "-f", appBundleDir.absolutePath)
+                        .redirectErrorStream(true)
+                        .start()
+                    proc.waitFor(5, java.util.concurrent.TimeUnit.SECONDS)
+                }
+            }
+        }
     }
 
     private fun stageLinuxNativeExtensionBundles(
@@ -2624,6 +2806,132 @@ object GenericUiMultiplatformConfigurator {
                 name = "testIos",
                 desc = "Runs the iOS test suite (delegates to testIosSimulatorArm64).",
                 candidateTaskNames = listOf("testIosSimulatorArm64")
+            )
+        }
+
+        // 6b. iPadOS (Arm64 Device & SimulatorArm64 Apple Silicon Simulator + Aggregate)
+        if (backends.ipadosEnabled) {
+            val usePrefixedIpadosFramework = backends.iosEnabled
+            val debugFwSubdir = if (usePrefixedIpadosFramework) "ipadosDebugFramework" else "debugFramework"
+            val releaseFwSubdir = if (usePrefixedIpadosFramework) "ipadosReleaseFramework" else "releaseFramework"
+            val linkDebugArm64Task = if (usePrefixedIpadosFramework) "linkIpadosDebugFrameworkIosArm64" else "linkDebugFrameworkIosArm64"
+            val linkReleaseArm64Task = if (usePrefixedIpadosFramework) "linkIpadosReleaseFrameworkIosArm64" else "linkReleaseFrameworkIosArm64"
+            val linkDebugSimTask = if (usePrefixedIpadosFramework) "linkIpadosDebugFrameworkIosSimulatorArm64" else "linkDebugFrameworkIosSimulatorArm64"
+            val linkReleaseSimTask = if (usePrefixedIpadosFramework) "linkIpadosReleaseFrameworkIosSimulatorArm64" else "linkReleaseFrameworkIosSimulatorArm64"
+            val compileArm64Task = if (usePrefixedIpadosFramework) "compileIpadosKotlinIosArm64" else "compileKotlinIosArm64"
+            val compileSimTask = if (usePrefixedIpadosFramework) "compileIpadosKotlinIosSimulatorArm64" else "compileKotlinIosSimulatorArm64"
+
+            registerTargetTask(
+                name = "developmentIpados",
+                desc = "Builds the iPadOS (UIKit / MoltenVK) Development target into build/dist/ipados/arm64/development.",
+                distRelativePath = "dist/ipados/arm64/development",
+                candidateTaskNames = listOf(
+                    "generateGenericUiIpadosApp",
+                    linkDebugSimTask,
+                    linkDebugArm64Task,
+                    compileSimTask,
+                    compileArm64Task
+                ),
+                candidateSourceDirs = listOf(
+                    "bin/iosArm64/$debugFwSubdir",
+                    "genericui/ipadosApp"
+                )
+            )
+            registerTargetTask(
+                name = "productionIpados",
+                desc = "Builds the iPadOS (UIKit / MoltenVK) Production target into build/dist/ipados/arm64/production.",
+                distRelativePath = "dist/ipados/arm64/production",
+                candidateTaskNames = listOf(
+                    "generateGenericUiIpadosApp",
+                    linkReleaseArm64Task,
+                    compileArm64Task
+                ),
+                candidateSourceDirs = listOf(
+                    "bin/iosArm64/$releaseFwSubdir",
+                    "genericui/ipadosApp"
+                )
+            )
+            registerTargetTask(
+                name = "developmentIpadosArm64",
+                desc = "Builds the iPadOS Arm64 Device (UIKit / MoltenVK) Development target into build/dist/ipados/arm64/development.",
+                distRelativePath = "dist/ipados/arm64/development",
+                candidateTaskNames = listOf(
+                    "generateGenericUiIpadosApp",
+                    linkDebugArm64Task,
+                    compileArm64Task
+                ),
+                candidateSourceDirs = listOf(
+                    "bin/iosArm64/$debugFwSubdir",
+                    "genericui/ipadosApp"
+                )
+            )
+            registerTargetTask(
+                name = "productionIpadosArm64",
+                desc = "Builds the iPadOS Arm64 Device (UIKit / MoltenVK) Production target into build/dist/ipados/arm64/production.",
+                distRelativePath = "dist/ipados/arm64/production",
+                candidateTaskNames = listOf(
+                    "generateGenericUiIpadosApp",
+                    linkReleaseArm64Task,
+                    compileArm64Task
+                ),
+                candidateSourceDirs = listOf(
+                    "bin/iosArm64/$releaseFwSubdir",
+                    "genericui/ipadosApp"
+                )
+            )
+            registerTargetTask(
+                name = "developmentIpadosSimulatorArm64",
+                desc = "Builds the iPadOS Simulator Arm64 (UIKit / MoltenVK) Development target into build/dist/ipados/simulatorArm64/development.",
+                distRelativePath = "dist/ipados/simulatorArm64/development",
+                candidateTaskNames = listOf(
+                    "generateGenericUiIpadosApp",
+                    linkDebugSimTask,
+                    compileSimTask
+                ),
+                candidateSourceDirs = listOf(
+                    "bin/iosSimulatorArm64/$debugFwSubdir",
+                    "genericui/ipadosApp"
+                )
+            )
+            registerTargetTask(
+                name = "productionIpadosSimulatorArm64",
+                desc = "Builds the iPadOS Simulator Arm64 (UIKit / MoltenVK) Production target into build/dist/ipados/simulatorArm64/production.",
+                distRelativePath = "dist/ipados/simulatorArm64/production",
+                candidateTaskNames = listOf(
+                    "generateGenericUiIpadosApp",
+                    linkReleaseSimTask,
+                    compileSimTask
+                ),
+                candidateSourceDirs = listOf(
+                    "bin/iosSimulatorArm64/$releaseFwSubdir",
+                    "genericui/ipadosApp"
+                )
+            )
+
+            val isMacHost = System.getProperty("os.name").orEmpty().lowercase().let {
+                it.contains("mac") || it.contains("darwin")
+            }
+            registerTestTargetTask(
+                name = "testIpadosSimulatorArm64",
+                desc = "Runs iPadOS Simulator Arm64 tests (iosSimulatorArm64Test on macOS hosts; compiles/links test binary otherwise).",
+                candidateTaskNames = buildList {
+                    add("compileTestKotlinIosSimulatorArm64")
+                    add("linkDebugTestIosSimulatorArm64")
+                    if (isMacHost) add("iosSimulatorArm64Test")
+                }
+            )
+            registerTestTargetTask(
+                name = "testIpadosArm64",
+                desc = "Compiles and links iPadOS Arm64 device test binaries.",
+                candidateTaskNames = listOf(
+                    "compileTestKotlinIosArm64",
+                    "linkDebugTestIosArm64"
+                )
+            )
+            registerTestTargetTask(
+                name = "testIpados",
+                desc = "Runs the iPadOS test suite (delegates to testIpadosSimulatorArm64).",
+                candidateTaskNames = listOf("testIpadosSimulatorArm64")
             )
         }
 

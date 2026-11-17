@@ -3,24 +3,24 @@
 > **Root Repository**: [**GenericUI (`../README.md`)**](../README.md) | **Master Docs Index**: [**`docs/README.md`**](./README.md)  
 > **Related Guides**: [Layouts & Hybrid UI Overview (`layouts-and-hybrid-ui.md`)](./layouts-and-hybrid-ui.md) · [Components & Docking (`components-and-docking.md`)](./components-and-docking.md) · [Fragments & Windows (`fragments-and-windows.md`)](./fragments-and-windows.md) · [Application & Theming (`application.md`)](./application.md) · [Extensions & DSL (`extensions.md`)](./extensions.md)
 
-GenericUI provides **7 first-party Hybrid Responsive Layout Components** (`com.nexustools.genericui.component.layout` & `com.nexustools.genericui.component.dock`) and **7 matching Fragment Helper classes** (`com.nexustools.genericui.component.fragment.helper`) that adapt automatically across **Desktop (`Windows`, `MacOS`, `Gtk`, `Qt`, `Swing`)**, **Tablet (`Android` & `IOS` with `smallestScreenWidthDp >= 600`)**, **Small-Screen Mobile Phones (`smallestScreenWidthDp < 600`)**, and **Responsive Web Viewports (`:web`)**.
+GenericUI provides **7 first-party Hybrid Responsive Layout Components** (`com.nexustools.genericui.component.layout` & `com.nexustools.genericui.component.dock`) and **7 matching Fragment Helper classes** (`com.nexustools.genericui.component.fragment.helper`) that adapt automatically across **Desktop (`Windows`, `MacOS`, `Gtk`, `Qt`, `Swing`)**, **Tablet (`Android`, `IOS`, & `IPadOS` with `smallestScreenWidthDp >= 600`)**, **Small-Screen Mobile Phones (`smallestScreenWidthDp < 600`)**, and **Responsive Web Viewports (`:web`)**.
 
 Every layout helper works with both:
 1. **Standard Kotlin APIs** in `:common` (configured via `component.getBootstrap()` and `component.getStyle()`).
-2. **Declarative Builders** in `:extensions:dsl` ([`HybridLayoutDsl.kt`](../extensions/dsl/src/commonMain/kotlin/com/nexustools/genericui/ext/dsl/HybridLayoutDsl.kt) and [`DslStyleAndBootstrapBuilders.kt`](../extensions/dsl/src/commonMain/kotlin/com/nexustools/genericui/ext/dsl/DslStyleAndBootstrapBuilders.kt) with `bootstrap { ... }`, `style { ... }`, and `important { ... }`).
+2. **Declarative Builders** in `:extensions:ui:dsl` ([`HybridLayoutDsl.kt`](../extensions/ui/dsl/src/commonMain/kotlin/com/nexustools/genericui/ext/dsl/HybridLayoutDsl.kt) and [`DslStyleAndBootstrapBuilders.kt`](../extensions/ui/dsl/src/commonMain/kotlin/com/nexustools/genericui/ext/dsl/DslStyleAndBootstrapBuilders.kt) with `bootstrap { ... }`, `style { ... }`, and `important { ... }`).
 
 ---
 
 ## 1. Shared Breakpoint & Layout Mode Architecture (`HybridBreakpointSpec` & `HybridLayoutMode`)
 
-All 7 hybrid layout helpers share [`HybridBreakpointSpec`](../common/src/commonMain/kotlin/com/nexustools/genericui/component/layout/HybridBreakpointSpec.kt) and [`HybridLayoutMode`](../common/src/commonMain/kotlin/com/nexustools/genericui/component/layout/HybridLayoutMode.kt) so device posture (`smallestScreenWidthDp` on Android/iOS) and live window/viewport dimensions (`viewportWidthDp` / `viewportHeightDp` on Desktop and Web) evaluate identically across all 8 backends.
+All 7 hybrid layout helpers share [`HybridBreakpointSpec`](../common/src/commonMain/kotlin/com/nexustools/genericui/component/layout/HybridBreakpointSpec.kt) and [`HybridLayoutMode`](../common/src/commonMain/kotlin/com/nexustools/genericui/component/layout/HybridLayoutMode.kt) so device posture (`smallestScreenWidthDp` on Android/iOS/iPadOS) and live window/viewport dimensions (`viewportWidthDp` / `viewportHeightDp` on Desktop, Stage Manager iPadOS, and Web) evaluate identically across all 9 backends.
 
 ### 1.1 `HybridBreakpointSpec` Thresholds
 
 | Property | Default (`dp`) | Purpose |
 | :--- | :--- | :--- |
 | `compactDrawerBreakpointDp` | `600` | Threshold below which `DockWorkspace` and `DockWorkspaceFragment` convert `LEFT`, `RIGHT`, `TOP`, and `BOTTOM` dock areas into off-canvas edge swipe-out drawer overlays. |
-| `tabletSmallestWidthDp` | `600` | `smallestScreenWidthDp` threshold distinguishing small-screen mobile phones (`< 600dp`) from tablets (`>= 600dp`) on `:mobile:android` and `:mobile:ios`. |
+| `tabletSmallestWidthDp` | `600` | `smallestScreenWidthDp` threshold distinguishing small-screen mobile phones (`< 600dp`) from tablets (`>= 600dp`) on `:mobile` (`androidMain` & `iosMain`). |
 | `mediumBreakpointDp` | `600` | Compact-to-medium viewport width threshold for `ResponsiveMasterDetailLayout`, `AdaptiveNavigationScaffold`, and `ResponsiveBentoGridLayout`. |
 | `expandedNavigationBreakpointDp` | `840` | Medium-to-expanded threshold where `AdaptiveNavigationScaffold` promotes its vertical `NavigationRail` into a full `Sidebar`. |
 | `columnBreakpointDp` | `900` | Viewport width threshold where `HybridColumnLayout` and `HybridSplitNavigationLayout` transition from `HybridLayoutMode.SINGLE` to `HybridLayoutMode.COLUMNS`. |
@@ -264,9 +264,9 @@ class CloudDriveMainFragment : AdaptiveNavigationScaffoldFragment() {
 
 ---
 
-## 10. Declarative `:extensions:dsl` Examples (`hybridColumnLayout`, `adaptiveNavigationScaffold`, `style`, & `bootstrap`)
+## 10. Declarative `:extensions:ui:dsl` Examples (`hybridColumnLayout`, `adaptiveNavigationScaffold`, `style`, & `bootstrap`)
 
-When `:extensions:dsl` is enabled (`extensions { dsl() }`), all hybrid layouts can be composed declaratively alongside `bootstrap { ... }`, `style { ... }`, and `important { ... }` (which live strictly in `:extensions:dsl` and never pollute `:common`):
+When `:extensions:ui:dsl` is enabled (`extensions { dsl() }`), all hybrid layouts can be composed declaratively alongside `bootstrap { ... }`, `style { ... }`, and `important { ... }` (which live strictly in `:extensions:ui:dsl` and never pollute `:common`):
 
 ```kotlin
 import com.nexustools.genericui.component.layout.HybridFoldMode
@@ -345,13 +345,13 @@ val rootView = buildDiv {
 
 ## 11. Core Container & Data Layout Enhancements (`FlexWrap.WRAP`, `MdiContainer.tileWindows`, `Table.setColumnWeights`, & `LazyGrid.minColumnWidthPx`)
 
-In addition to the 7 hybrid layout helpers, GenericUI provides four layout enhancements across all 8 backends to prevent horizontal overflow, MDI window overlap, and column truncation:
+In addition to the 7 hybrid layout helpers, GenericUI provides four layout enhancements across all 9 backends to prevent horizontal overflow, MDI window overlap, and column truncation:
 
 1. **Multi-Line Flex Wrapping (`FlexWrap.WRAP` in `HStack` & `FlexBox`)**:
    - When `flexBox.wrap == FlexWrap.WRAP` or `hstack.getBootstrap().flexWrap == FlexWrap.WRAP` (or `hstack.getStyle().flexWrap == FlexWrap.WRAP`), `HStack` and `FlexBox` automatically wrap child controls onto multiple horizontal lines whenever their cumulative width plus `gapPx` exceeds `availableWidth`, and compute total wrapped height during container measurement.
 2. **Non-Overlapping MDI Window Tiling (`MdiContainer.tileWindows` & `autoTileInitialWindows`)**:
-   - [`MdiContainer`](../common/src/commonMain/kotlin/com/nexustools/genericui/component/mdi/MdiContainer.kt) provides `tileWindows(columns: Int = 2, paddingPx: Int = 12, gapPx: Int = 12)` and `autoTileInitialWindows: Boolean = true`. Whenever MDI windows are added at default `(0, 0)` coordinates or when `tileWindows(...)` is invoked, `MdiContainer` arranges all non-minimized child `MdiWindow`s into a clean, non-overlapping grid inside the MDI workspace.
+   - [`MdiContainer`](../common/src/commonMain/kotlin/com/nexustools/genericui/component/shell/MdiContainer.kt) provides `tileWindows(columns: Int = 2, paddingPx: Int = 12, gapPx: Int = 12)` and `autoTileInitialWindows: Boolean = true`. Whenever MDI windows are added at default `(0, 0)` coordinates or when `tileWindows(...)` is invoked, `MdiContainer` arranges all non-minimized child `MdiWindow`s into a clean, non-overlapping grid inside the MDI workspace.
 3. **Proportional Table Column Weights (`Table.setColumnWeights` & `getColumnWeights`)**:
-   - [`Table`](../common/src/commonMain/kotlin/com/nexustools/genericui/component/data/Table.kt) provides `setColumnWeights(vararg weights: Float)` and `getColumnWeights(): FloatArray`. When column weights are specified (for example `table.setColumnWeights(0.7f, 1.3f, 1.0f, 3.0f)`), all backends distribute available table width proportionally across columns (`weight / totalWeight`) instead of dividing width equally.
+   - [`Table`](../common/src/commonMain/kotlin/com/nexustools/genericui/component/content/Table.kt) provides `setColumnWeights(vararg weights: Float)` and `getColumnWeights(): FloatArray`. When column weights are specified (for example `table.setColumnWeights(0.7f, 1.3f, 1.0f, 3.0f)`), all backends distribute available table width proportionally across columns (`weight / totalWeight`) instead of dividing width equally.
 4. **Responsive Auto-Fit Grid Columns (`LazyGrid.minColumnWidthPx`)**:
    - [`LazyGrid`](../common/src/commonMain/kotlin/com/nexustools/genericui/component/lazy/LazyGrid.kt) exposes `var minColumnWidthPx: Int = 0`. When `minColumnWidthPx > 0`, `LazyGrid` dynamically computes `effectiveCols = min(columns, max(1, (availableWidth - gapPx) / (minColumnWidthPx + gapPx)))` so grid cards automatically reduce column count on narrower viewports instead of squashing below `minColumnWidthPx`.

@@ -48,17 +48,28 @@ class GenericUiManageTargetsDialog(
     }
 
     /**
-     * Writes the updated target backends, Swing LWJGL options, extensions, and SASS setting
+     * Writes the updated target backends, Swing LWJGL options, extensions, SASS setting,
+     * `:tests` (`JestElectricRunner`) flag, window defaults, and Apple icon overrides
      * back to the project's `build.gradle.kts`.
      */
     fun applyChanges(): Path {
+        val aspectRatio = checkboxPanel.getSelectedWindowAspectRatio()
         val updatedBuildFile = projectManagerService.updateProjectTargetsAndExtensions(
             projectDir = projectDir,
             updatedBackends = checkboxPanel.getSelectedBackends(),
             updatedExtensions = checkboxPanel.getSelectedExtensions(),
             swingUseLwjglGL = checkboxPanel.swingLwjglGlCheckbox.isSelected,
             swingUseVulkan = checkboxPanel.swingVulkanCheckbox.isSelected,
-            compileSass = checkboxPanel.compileSassCheckbox.isSelected
+            compileSass = checkboxPanel.compileSassCheckbox.isSelected,
+            enableTesting = checkboxPanel.enableTestingCheckbox.isSelected,
+            windowAlwaysOnTop = checkboxPanel.windowAlwaysOnTopCheckbox.isSelected,
+            windowAspectRatioWidth = aspectRatio?.first,
+            windowAspectRatioHeight = aspectRatio?.second,
+            clearWindowAspectRatio = aspectRatio == null,
+            appleIcon = checkboxPanel.appleIconField.text.trim(),
+            macIcon = checkboxPanel.macIconField.text.trim(),
+            iosIcon = checkboxPanel.iosIconField.text.trim(),
+            ipadosIcon = checkboxPanel.ipadosIconField.text.trim()
         )
         loadedConfig = projectManagerService.loadProjectConfig(projectDir)
         return updatedBuildFile

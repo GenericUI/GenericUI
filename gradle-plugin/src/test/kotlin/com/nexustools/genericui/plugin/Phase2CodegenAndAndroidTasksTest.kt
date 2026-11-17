@@ -163,6 +163,17 @@ class Phase2CodegenAndAndroidTasksTest {
         assertTrue(iosDescriptor.readText().contains("mainFragmentClass = com.example.studio.MobileMainFragment::class"))
         assertTrue(!iosDescriptor.readText().contains("applicationFactory ="))
         assertTrue(iosMain.readText().contains("fun MainViewController()"))
+        assertTrue(iosMain.readText().contains("com.nexustools.genericui.ios.IosLauncher.createRootViewController"))
+
+        val ipadosDescriptor = File(launchersRoot, "ipados/kotlin/com/example/studio/generated/GeneratedIpadosAppDescriptor.kt")
+        val ipadosMain = File(launchersRoot, "ipados/kotlin/com/example/studio/generated/GeneratedIpadosLauncherMain.kt")
+        val ipadosBootstrap = File(launchersRoot, "ipadosTest/kotlin/com/example/studio/generated/GeneratedIpadosTestBootstrap.kt")
+        assertTrue(ipadosDescriptor.isFile, "Expected GeneratedIpadosAppDescriptor.kt")
+        assertTrue(ipadosMain.isFile, "Expected GeneratedIpadosLauncherMain.kt")
+        assertTrue(ipadosBootstrap.isFile, "Expected GeneratedIpadosTestBootstrap.kt")
+        assertTrue(ipadosDescriptor.readText().contains("mainFragmentClass = com.example.studio.MobileMainFragment::class"))
+        assertTrue(ipadosMain.readText().contains("com.nexustools.genericui.ipados.IpadosLauncher.createRootViewController"))
+        assertTrue(ipadosBootstrap.readText().contains("IpadosJestElectricBootstrap.installIfEnabled()"))
 
         // 3. Generate 1:1 Android AppCompatActivity classes + GeneratedAndroidApplication
         val androidActivitiesTask = project.tasks.getByName("generateGenericUiAndroidActivities") as GenericUiGenerateAndroidActivitiesTask
@@ -197,15 +208,25 @@ class Phase2CodegenAndAndroidTasksTest {
         assertTrue(manifestXml.contains("android:foregroundServiceType=\"dataSync\""))
         assertTrue(manifestXml.contains("com.example.studio.ACTION_SYNC"))
 
-        // 5. Generate iOS Xcode host project
+        // 5. Generate iOS & iPadOS Xcode host projects
         val iosAppTask = project.tasks.getByName("generateGenericUiIosApp") as GenericUiGenerateIosAppTask
         iosAppTask.generateIosApp()
         val iosAppDir = iosAppTask.outputDirectory.get().asFile
         assertTrue(File(iosAppDir, "Info.plist").isFile)
+        assertTrue(File(iosAppDir, "Info.plist").readText().contains("<integer>1</integer>"))
         assertTrue(File(iosAppDir, "iOSApp.swift").isFile)
         assertTrue(File(iosAppDir, "ContentView.swift").isFile)
+        assertTrue(File(iosAppDir, "Assets.xcassets/AppIcon.appiconset/icon.png").isFile)
         assertTrue(File(iosAppDir, "project.yml").isFile)
         assertTrue(File(iosAppDir, "iosApp.xcodeproj/project.pbxproj").isFile)
+
+        val ipadosAppTask = project.tasks.getByName("generateGenericUiIpadosApp") as GenericUiGenerateIosAppTask
+        ipadosAppTask.generateIosApp()
+        val ipadosAppDir = ipadosAppTask.outputDirectory.get().asFile
+        assertTrue(File(ipadosAppDir, "Info.plist").isFile)
+        assertTrue(File(ipadosAppDir, "Info.plist").readText().contains("<integer>2</integer>"))
+        assertTrue(File(ipadosAppDir, "Assets.xcassets/AppIcon.appiconset/icon.png").isFile)
+        assertTrue(File(ipadosAppDir, "ipadosApp.xcodeproj/project.pbxproj").isFile)
 
         // 6. Compile Android-style resources into Resource.kt (Resource.ResourceID), Web assets, and Windows .rc/.res/.o
         val resTask = project.tasks.getByName("compileGenericUiResources") as GenericUiResourceCompilerTask
@@ -281,10 +302,10 @@ class Phase2CodegenAndAndroidTasksTest {
 
         val apkTask = project.tasks.getByName("packageGenericUiAndroidDevelopmentApk") as GenericUiPackageAndroidApkTask
 
-        // 1. Stage a composite GenericUI root at lib/GenericUI with compiled classes.jar in :common, :systemCommon, :mobile:common, :mobile:android
+        // 1. Stage a composite GenericUI root at lib/GenericUI with compiled classes.jar in :common, :system, :jvm, :mobile
         val compositeGenericUiDir = File(project.projectDir, "lib/GenericUI").apply { mkdirs() }
         apkTask.includedBuildRootPaths.set(listOf(compositeGenericUiDir.absolutePath))
-        apkTask.enabledGenericUiModulePaths.set(listOf(":common", ":systemCommon", ":mobile:common", ":mobile:android"))
+        apkTask.enabledGenericUiModulePaths.set(listOf(":common", ":system", ":jvm", ":mobile"))
 
         fun writeTestJar(jarFile: File, vararg classEntries: String) {
             jarFile.parentFile.mkdirs()
@@ -304,15 +325,15 @@ class Phase2CodegenAndAndroidTasksTest {
             "com.nexustools.genericui.component.fragment.Fragment"
         )
         writeTestJar(
-            File(compositeGenericUiDir, "systemCommon/build/intermediates/compile_library_classes_jar/androidMain/bundleAndroidMainClassesToCompileJar/classes.jar"),
+            File(compositeGenericUiDir, "system/build/intermediates/compile_library_classes_jar/androidMain/bundleAndroidMainClassesToCompileJar/classes.jar"),
             "com.nexustools.genericui.system.SystemRuntime"
         )
         writeTestJar(
-            File(compositeGenericUiDir, "mobile/common/build/intermediates/runtime_library_classes_jar/androidMain/bundleAndroidMainClassesToRuntimeJar/classes.jar"),
-            "com.nexustools.genericui.mobile.MobileRuntime"
+            File(compositeGenericUiDir, "jvm/build/intermediates/runtime_library_classes_jar/androidMain/bundleAndroidMainClassesToRuntimeJar/classes.jar"),
+            "com.nexustools.genericui.jvm.JvmRuntime"
         )
         writeTestJar(
-            File(compositeGenericUiDir, "mobile/android/build/intermediates/runtime_library_classes_jar/androidMain/bundleAndroidMainClassesToRuntimeJar/classes.jar"),
+            File(compositeGenericUiDir, "mobile/build/intermediates/runtime_library_classes_jar/androidMain/bundleAndroidMainClassesToRuntimeJar/classes.jar"),
             "com.nexustools.genericui.android.GenericUiAndroidApplication",
             "com.nexustools.genericui.android.GenericUiFragmentActivity",
             "com.nexustools.genericui.android.AndroidNativeFactory"
@@ -320,7 +341,7 @@ class Phase2CodegenAndAndroidTasksTest {
 
         val moduleJarsDir = File(project.projectDir, "build/tmp-module-jars").apply { mkdirs() }
         val resolvedJars = apkTask.resolveModuleAndroidClassesJars(
-            modulePaths = listOf(":GenericUI:common", ":GenericUI:systemCommon", ":GenericUI:mobile:common", ":GenericUI:mobile:android"),
+            modulePaths = listOf(":GenericUI:common", ":GenericUI:system", ":GenericUI:jvm", ":GenericUI:mobile"),
             rootDir = project.projectDir,
             moduleJarsDir = moduleJarsDir
         )
@@ -424,7 +445,7 @@ class Phase2CodegenAndAndroidTasksTest {
 
         val compositeGenericUiDir = File(project.projectDir, "lib/GenericUI").apply { mkdirs() }
         swingDevTask.includedBuildRootPaths.set(listOf(compositeGenericUiDir.absolutePath))
-        swingDevTask.enabledGenericUiModulePaths.set(listOf(":common", ":systemCommon", ":desktop:common", ":desktop:swing"))
+        swingDevTask.enabledGenericUiModulePaths.set(listOf(":common", ":system", ":jvm", ":desktop"))
 
         fun writeModuleClass(modDir: File, fqcn: String) {
             val clsFile = File(modDir, "build/classes/kotlin/jvm/main/${fqcn.replace('.', '/')}.class")
@@ -434,16 +455,16 @@ class Phase2CodegenAndAndroidTasksTest {
 
         writeModuleClass(File(compositeGenericUiDir, "common"), "com.nexustools.genericui.core.GenericUI")
         writeModuleClass(File(compositeGenericUiDir, "common"), "com.nexustools.genericui.component.fragment.Fragment")
-        writeModuleClass(File(compositeGenericUiDir, "systemCommon"), "com.nexustools.genericui.system.SystemRuntime")
-        writeModuleClass(File(compositeGenericUiDir, "desktop/common"), "com.nexustools.genericui.desktop.DesktopRuntime")
-        writeModuleClass(File(compositeGenericUiDir, "desktop/swing"), "com.nexustools.genericui.swing.SwingLauncher")
-        writeModuleClass(File(compositeGenericUiDir, "desktop/swing"), "com.nexustools.genericui.swing.SwingNativeFactory")
-        writeModuleClass(File(compositeGenericUiDir, "desktop/swing"), "com.nexustools.genericui.swing.SwingApplicationImpl")
-        writeModuleClass(File(compositeGenericUiDir, "desktop/swing"), "com.nexustools.genericui.swing.SwingWindowImpl")
+        writeModuleClass(File(compositeGenericUiDir, "system"), "com.nexustools.genericui.system.SystemRuntime")
+        writeModuleClass(File(compositeGenericUiDir, "jvm"), "com.nexustools.genericui.jvm.JvmRuntime")
+        writeModuleClass(File(compositeGenericUiDir, "desktop"), "com.nexustools.genericui.swing.SwingLauncher")
+        writeModuleClass(File(compositeGenericUiDir, "desktop"), "com.nexustools.genericui.swing.SwingNativeFactory")
+        writeModuleClass(File(compositeGenericUiDir, "desktop"), "com.nexustools.genericui.swing.SwingApplicationImpl")
+        writeModuleClass(File(compositeGenericUiDir, "desktop"), "com.nexustools.genericui.swing.SwingWindowImpl")
 
         val moduleJarsDir = File(project.projectDir, "build/tmp-swing-module-jars").apply { mkdirs() }
         val resolvedModuleJars = swingDevTask.resolveModuleJvmClassesJars(
-            modulePaths = listOf(":common", ":systemCommon", ":desktop:common", ":desktop:swing"),
+            modulePaths = listOf(":common", ":system", ":jvm", ":desktop"),
             rootDir = project.projectDir,
             moduleJarsDir = moduleJarsDir
         )

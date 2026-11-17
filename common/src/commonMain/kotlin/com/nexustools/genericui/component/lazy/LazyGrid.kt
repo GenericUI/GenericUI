@@ -3,8 +3,10 @@ package com.nexustools.genericui.component.lazy
 import com.nexustools.genericui.component.shell.Application
 import com.nexustools.genericui.core.AbstractComponent
 import com.nexustools.genericui.core.AbstractContainer
+import com.nexustools.genericui.core.GenericUI
 import com.nexustools.genericui.core.NativeFactory
 import com.nexustools.genericui.nativeimpl.lazy.LazyGridNativeImpl
+import com.nexustools.genericui.threading.GenericUiThreading
 
 /**
  * Multi-column virtualized lazy grid component.
@@ -150,11 +152,12 @@ open class LazyGrid(
             activeViewportWindow = window
 
             if (activeHolders.size > 1) {
-                val sortedEntries = activeHolders.entries.sortedBy { it.key }.map { it.key to it.value }
+                val entrySnapshot = runCatching { activeHolders.entries.map { it.key to it.value } }.getOrElse { emptyList() }
+                val sortedEntries = entrySnapshot.sortedBy { it.first }
                 var orderChanged = false
                 var idx = 0
-                for (key in activeHolders.keys) {
-                    if (key != sortedEntries[idx].first) {
+                for ((key, _) in entrySnapshot) {
+                    if (idx >= sortedEntries.size || key != sortedEntries[idx].first) {
                         orderChanged = true
                         break
                     }
@@ -215,7 +218,7 @@ open class LazyGrid(
             }
         }
         holder.itemView.setAttribute("data-lazy-index", index.toString())
-        val insertPos = activeHolders.keys.count { it < index }
+        val insertPos = runCatching { activeHolders.keys.toList() }.getOrElse { emptyList() }.count { it < index }
         activeHolders[index] = holder
         addChild(holder.itemView, insertPos)
         if ((resolveActiveFactory() ?: com.nexustools.genericui.core.GenericUI.activeFactory)?.isStyleSheetEngineEnabled != false) {
@@ -255,7 +258,7 @@ open class LazyGrid(
             ?: if (nativeImpl != null) com.nexustools.genericui.core.GenericUI.activeFactory else null
     }
 
-    internal override fun ensureNativeImpl(): com.nexustools.genericui.core.NativeImpl<*>? {
+    override fun ensureNativeImpl(): com.nexustools.genericui.core.NativeImpl<*>? {
         val wasAlreadyCreated = (nativeImpl != null)
         val impl = super.ensureNativeImpl() ?: return null
         if (wasAlreadyCreated) {
@@ -277,7 +280,16 @@ open class LazyGrid(
         impl.setMinColumnWidthPx(minColumnWidthPx)
         impl.setEstimatedRowExtent(estimatedRowHeightPx, viewportTracker.overscanItems)
         impl.setOnViewportScrollChanged { scrollPx, extentPx ->
-            if (!isRefreshingViewport) {
+            if (GenericUI.activeFactory != null &&
+                GenericUiThreading.isSplitThreadingEnabled &&
+                !GenericUiThreading.isOnLogicThread()
+            ) {
+                GenericUiThreading.runOnLogic {
+                    if (!isDisposed && !isRefreshingViewport) {
+                        onViewportChanged(scrollPx, extentPx)
+                    }
+                }
+            } else if (!isRefreshingViewport) {
                 onViewportChanged(scrollPx, extentPx)
             }
         }

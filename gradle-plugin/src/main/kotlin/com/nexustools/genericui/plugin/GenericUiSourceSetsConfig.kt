@@ -30,6 +30,13 @@ open class GenericUiSourceSetsConfig {
     val systemMain: GenericUiSourceSetSpec get() = systemCommon
     val systemTest: GenericUiSourceSetSpec = GenericUiSourceSetSpec("systemTest")
 
+    val appleCommon: GenericUiSourceSetSpec = GenericUiSourceSetSpec("appleMain")
+    val appleMain: GenericUiSourceSetSpec get() = appleCommon
+    val appleTest: GenericUiSourceSetSpec = GenericUiSourceSetSpec("appleTest")
+
+    val jvmCommon: GenericUiSourceSetSpec = GenericUiSourceSetSpec("jvmCommon")
+    val jvmCommonTest: GenericUiSourceSetSpec = GenericUiSourceSetSpec("jvmCommonTest")
+
     val desktopCommon: GenericUiSourceSetSpec = GenericUiSourceSetSpec("desktopCommon")
     val desktopMain: GenericUiSourceSetSpec get() = desktopCommon
     val desktopTest: GenericUiSourceSetSpec = GenericUiSourceSetSpec("desktopTest")
@@ -81,9 +88,20 @@ open class GenericUiSourceSetsConfig {
     val androidMain: GenericUiSourceSetSpec get() = android
     val androidTest: GenericUiSourceSetSpec = GenericUiSourceSetSpec("androidTest")
 
+    val iosCommon: GenericUiSourceSetSpec = GenericUiSourceSetSpec("iosCommon")
+    val iosCommonMain: GenericUiSourceSetSpec get() = iosCommon
+    val iosCommonTest: GenericUiSourceSetSpec = GenericUiSourceSetSpec("iosCommonTest")
+
     val ios: GenericUiSourceSetSpec = GenericUiSourceSetSpec("iosMain")
     val iosMain: GenericUiSourceSetSpec get() = ios
     val iosTest: GenericUiSourceSetSpec = GenericUiSourceSetSpec("iosTest")
+
+    val ipados: GenericUiSourceSetSpec = GenericUiSourceSetSpec("ipadosMain")
+    val ipadosMain: GenericUiSourceSetSpec get() = ipados
+    val ipad: GenericUiSourceSetSpec get() = ipados
+    val ipadMain: GenericUiSourceSetSpec get() = ipados
+    val ipadosTest: GenericUiSourceSetSpec = GenericUiSourceSetSpec("ipadosTest")
+    val ipadTest: GenericUiSourceSetSpec get() = ipadosTest
 
     fun common(action: Action<in GenericUiSourceSetSpec>) = action.execute(common)
     fun commonMain(action: Action<in GenericUiSourceSetSpec>) = action.execute(common)
@@ -148,9 +166,27 @@ open class GenericUiSourceSetsConfig {
     fun androidMain(action: Action<in GenericUiSourceSetSpec>) = action.execute(android)
     fun androidTest(action: Action<in GenericUiSourceSetSpec>) = action.execute(androidTest)
 
+    fun iosCommon(action: Action<in GenericUiSourceSetSpec>) = action.execute(iosCommon)
+    fun iosCommonMain(action: Action<in GenericUiSourceSetSpec>) = action.execute(iosCommon)
+    fun iosCommonTest(action: Action<in GenericUiSourceSetSpec>) = action.execute(iosCommonTest)
+
+    fun appleCommon(action: Action<in GenericUiSourceSetSpec>) = action.execute(appleCommon)
+    fun appleMain(action: Action<in GenericUiSourceSetSpec>) = action.execute(appleCommon)
+    fun appleTest(action: Action<in GenericUiSourceSetSpec>) = action.execute(appleTest)
+
+    fun jvmCommon(action: Action<in GenericUiSourceSetSpec>) = action.execute(jvmCommon)
+    fun jvmCommonTest(action: Action<in GenericUiSourceSetSpec>) = action.execute(jvmCommonTest)
+
     fun ios(action: Action<in GenericUiSourceSetSpec>) = action.execute(ios)
     fun iosMain(action: Action<in GenericUiSourceSetSpec>) = action.execute(ios)
     fun iosTest(action: Action<in GenericUiSourceSetSpec>) = action.execute(iosTest)
+
+    fun ipados(action: Action<in GenericUiSourceSetSpec>) = action.execute(ipados)
+    fun ipadosMain(action: Action<in GenericUiSourceSetSpec>) = action.execute(ipados)
+    fun ipad(action: Action<in GenericUiSourceSetSpec>) = action.execute(ipados)
+    fun ipadMain(action: Action<in GenericUiSourceSetSpec>) = action.execute(ipados)
+    fun ipadosTest(action: Action<in GenericUiSourceSetSpec>) = action.execute(ipadosTest)
+    fun ipadTest(action: Action<in GenericUiSourceSetSpec>) = action.execute(ipadosTest)
 
     /** Resolves an existing [GenericUiSourceSetSpec] by name or defaults to [common]. */
     fun maybeCreate(sourceSetName: String): GenericUiSourceSetSpec {
@@ -163,6 +199,10 @@ open class GenericUiSourceSetsConfig {
             "webtest", "jstest", "wasmjstest" -> webTest
             "system", "systemcommon", "systemmain" -> systemCommon
             "systemtest" -> systemTest
+            "apple", "applecommon", "applemain" -> appleCommon
+            "appletest" -> appleTest
+            "jvmcommon", "jvmcommonmain" -> jvmCommon
+            "jvmcommontest" -> jvmCommonTest
             "desktop", "desktopmain", "desktopcommon" -> desktopCommon
             "desktoptest" -> desktopTest
             "swing", "swingmain", "jvmmain" -> swing
@@ -184,8 +224,12 @@ open class GenericUiSourceSetsConfig {
             "mobiletest" -> mobileTest
             "android", "androidmain" -> android
             "androidtest", "androidunittest" -> androidTest
+            "ioscommon", "ioscommonmain" -> iosCommon
+            "ioscommontest" -> iosCommonTest
             "ios", "iosmain" -> ios
             "iostest" -> iosTest
+            "ipad", "ipados", "ipadmain", "ipadosmain" -> ipados
+            "ipadtest", "ipadostest" -> ipadosTest
             else -> common
         }
     }
@@ -198,6 +242,10 @@ open class GenericUiSourceSetsConfig {
         webTest,
         systemCommon,
         systemTest,
+        appleCommon,
+        appleTest,
+        jvmCommon,
+        jvmCommonTest,
         desktopCommon,
         desktopTest,
         swing,
@@ -218,7 +266,11 @@ open class GenericUiSourceSetsConfig {
         mobileTest,
         android,
         androidTest,
+        iosCommon,
+        iosCommonTest,
         ios,
-        iosTest
+        iosTest,
+        ipados,
+        ipadosTest
     )
 }

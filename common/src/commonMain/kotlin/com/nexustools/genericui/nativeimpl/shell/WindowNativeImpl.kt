@@ -35,6 +35,10 @@ interface WindowNativeImpl<out W> : AbstractContainerNativeImpl<W> {
     fun getWindowSize(): Size
     fun getMinWindowSize(): Size? = null
     fun setMinWindowSize(minSize: Size?) {}
+    fun setAlwaysOnTop(alwaysOnTop: Boolean) {}
+    fun isAlwaysOnTop(): Boolean = false
+    fun setAspectRatio(aspectRatio: Double?) {}
+    fun getAspectRatio(): Double? = null
 
     fun setWindowState(state: WindowState)
     fun getWindowState(): WindowState

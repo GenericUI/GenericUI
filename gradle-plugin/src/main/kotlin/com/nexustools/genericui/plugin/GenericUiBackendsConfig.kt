@@ -3,13 +3,14 @@ package com.nexustools.genericui.plugin
 import org.gradle.api.Action
 
 /**
- * DSL configuration block for selecting and configuring GenericUI target backends:
- * - Native Desktop backends sharing `:desktop` (VLC video playback, HDR tone-mapping, HW/SW decoding):
- *   `:windows` (Win32 / Direct2D / ANGLE / Vulkan), `:macos` (AppKit / CoreGraphics / OpenGL ES / MoltenVK),
- *   `:gtk` (GTK3/4 / Cairo / EGL / Vulkan), and `:qt` (Qt5/6 / QPainter / QOpenGLWidget / QVulkanWindow).
- * - JVM Desktop backend: `:swing` (AWT/Swing + optional LWJGL OpenGL ES & Vulkan).
- * - Mobile backends sharing `:mobile` (adaptive layout, gestures/fling physics, PiP, media sessions, lazy pools):
- *   `:android` and `:ios`.
+ * DSL configuration block for selecting and configuring GenericUI target backends across the
+ * consolidated module hierarchy:
+ * - Shared system/tier modules: `:system`, `:jvm`, `:apple`, `:desktop`, `:mobile`.
+ * - Native Desktop backends: `windows` (Win32 / Direct2D / ANGLE / Vulkan), `macos` / `mac`
+ *   (AppKit / CoreGraphics / OpenGL ES / MoltenVK), `gtk` (GTK3/4 / Cairo / EGL / Vulkan), and
+ *   `qt` (Qt5/6 / QPainter / QOpenGLWidget / QVulkanWindow).
+ * - JVM Desktop backend: `swing` (AWT/Swing + optional LWJGL OpenGL ES & Vulkan).
+ * - Mobile backends: `android`, `ios` (iPhone), and `ipados` / `ipad` (iPad).
  * - Web backend: `:web` (HTML5 DOM / Canvas2D / WebGL2 / WebGPU).
  */
 open class GenericUiBackendsConfig(
@@ -24,74 +25,86 @@ open class GenericUiBackendsConfig(
     val swingConfig: SwingBackendConfig = SwingBackendConfig()
     var androidEnabled: Boolean = false
     var iosEnabled: Boolean = false
+    var ipadosEnabled: Boolean = false
     var webEnabled: Boolean = false
     internal var onChanged: (() -> Unit)? = null
 
-    /** Explicitly enables or disables the shared `:desktop` module (`:windows`, `:macos`, `:gtk`, `:qt` include it automatically). */
+    /** Explicitly enables or disables the shared `:desktop` module (`windows`, `macos`, `gtk`, `qt`, `swing` include it automatically). */
     fun desktop(enabled: Boolean = true) {
         desktopEnabled = enabled
         onChanged?.invoke()
     }
 
-    /** Explicitly enables or disables the shared `:mobile` module (`:android` and `:ios` include it automatically). */
+    /** Explicitly enables or disables the shared `:mobile` module (`android`, `ios`, `ipados` include it automatically). */
     fun mobile(enabled: Boolean = true) {
         mobileEnabled = enabled
         onChanged?.invoke()
     }
 
-    /** Enables or disables the native `:windows` (Win32 / Direct2D / ANGLE / Vulkan + `:desktop` VLC) backend. */
+    /** Enables or disables the native Windows (Win32 / Direct2D / ANGLE / Vulkan + `:desktop` VLC) backend. */
     fun windows(enabled: Boolean = true) {
         windowsEnabled = enabled
         onChanged?.invoke()
     }
 
-    /** Enables or disables the native `:macos` (AppKit / CoreGraphics / MoltenVK + `:desktop` VLC) backend. */
+    /** Enables or disables the native macOS (AppKit / CoreGraphics / MoltenVK + `:desktop` VLC) backend. */
     fun macos(enabled: Boolean = true) {
         macosEnabled = enabled
         onChanged?.invoke()
     }
 
-    /** Alias for [macos]: enables or disables the native `:macos` backend. */
+    /** Alias for [macos]: enables or disables the native macOS backend. */
     fun mac(enabled: Boolean = true) {
         macosEnabled = enabled
         onChanged?.invoke()
     }
 
-    /** Enables or disables the native `:gtk` (GTK3/4 / Cairo / EGL / Vulkan + `:desktop` VLC) backend. */
+    /** Enables or disables the native GTK (GTK3/4 / Cairo / EGL / Vulkan + `:desktop` VLC) backend. */
     fun gtk(enabled: Boolean = true) {
         gtkEnabled = enabled
         onChanged?.invoke()
     }
 
-    /** Enables or disables the native `:qt` (Qt5/6 / QPainter / QOpenGLWidget / QVulkanWindow + `:desktop` VLC) backend. */
+    /** Enables or disables the native Qt (Qt5/6 / QPainter / QOpenGLWidget / QVulkanWindow + `:desktop` VLC) backend. */
     fun qt(enabled: Boolean = true) {
         qtEnabled = enabled
         onChanged?.invoke()
     }
 
-    /** Enables the `:swing` (Java/JVM AWT & Swing) backend with default settings. */
+    /** Enables the Swing (Java/JVM AWT & Swing) backend with default settings. */
     fun swing(enabled: Boolean = true) {
         swingConfig.enabled = enabled
         onChanged?.invoke()
     }
 
-    /** Enables and configures the `:swing` backend (including optional `useLwjglGL` and `useVulkan`). */
+    /** Enables and configures the Swing backend (including optional `useLwjglGL` and `useVulkan`). */
     fun swing(action: Action<in SwingBackendConfig>) {
         swingConfig.enabled = true
         action.execute(swingConfig)
         onChanged?.invoke()
     }
 
-    /** Enables or disables the `:android` backend (automatically includes shared `:mobile`). */
+    /** Enables or disables the Android backend (automatically includes `:mobile`, `:jvm`, `:system`). */
     fun android(enabled: Boolean = true) {
         androidEnabled = enabled
         onChanged?.invoke()
     }
 
-    /** Enables or disables the `:ios` (UIKit / CoreGraphics / EAGL / MoltenVK + shared `:mobile`) backend. */
+    /** Enables or disables the iOS iPhone backend (UIKit / CoreGraphics / EAGL / MoltenVK; `UIDeviceFamily = 1`). */
     fun ios(enabled: Boolean = true) {
         iosEnabled = enabled
         onChanged?.invoke()
+    }
+
+    /** Enables or disables the iPadOS iPad backend (UIKit / CoreGraphics / EAGL / MoltenVK; `UIDeviceFamily = 2`). */
+    fun ipados(enabled: Boolean = true) {
+        ipadosEnabled = enabled
+        onChanged?.invoke()
+    }
+
+    /** Alias for [ipados]: enables or disables the iPadOS iPad backend. */
+    fun ipad(enabled: Boolean = true) {
+        ipados(enabled)
     }
 
     /** Enables or disables the `:web` (HTML5 DOM / Canvas2D / WebGL2 / WebGPU) backend. */
@@ -112,7 +125,7 @@ open class GenericUiBackendsConfig(
     }
 
     /**
-     * Enables all GenericUI targets EXCEPT Swing (`windows`, `macos`, `gtk`, `qt`, `android`, `ios`, `web`).
+     * Enables all GenericUI targets EXCEPT Swing (`windows`, `macos`, `gtk`, `qt`, `android`, `ios`, `ipados`, `web`).
      */
     fun allExceptSwing() {
         windows(true)
@@ -122,12 +135,13 @@ open class GenericUiBackendsConfig(
         swing(false)
         android(true)
         ios(true)
+        ipados(true)
         web(true)
     }
 
     /**
      * Enables all native Desktop GenericUI targets EXCEPT Swing (`windows`, `macos`, `gtk`, `qt`),
-     * leaving `swing`, `android`, `ios`, and `web` disabled.
+     * leaving `swing`, `android`, `ios`, `ipados`, and `web` disabled.
      */
     fun allNativeDesktop() {
         windows(true)
@@ -137,12 +151,13 @@ open class GenericUiBackendsConfig(
         swing(false)
         android(false)
         ios(false)
+        ipados(false)
         web(false)
     }
 
     /**
      * Alias for [allNativeDesktop]: enables all native Desktop GenericUI targets EXCEPT Swing
-     * (`windows`, `macos`, `gtk`, `qt`), leaving `swing`, `android`, `ios`, and `web` disabled.
+     * (`windows`, `macos`, `gtk`, `qt`).
      */
     fun allDesktopExceptSwing() {
         allNativeDesktop()
@@ -160,15 +175,16 @@ open class GenericUiBackendsConfig(
     }
 
     /**
-     * Enables both Mobile GenericUI targets (`android`, `ios`).
+     * Enables all Mobile GenericUI targets (`android`, `ios`, `ipados`).
      */
     fun allMobile() {
         android(true)
         ios(true)
+        ipados(true)
     }
 
     /**
-     * Enables all 8 GenericUI target backends (`windows`, `macos`, `gtk`, `qt`, `swing`, `android`, `ios`, `web`).
+     * Enables all 9 GenericUI target backends (`windows`, `macos`, `gtk`, `qt`, `swing`, `android`, `ios`, `ipados`, `web`).
      */
     fun all() {
         windows(true)
@@ -178,10 +194,11 @@ open class GenericUiBackendsConfig(
         swing(true)
         android(true)
         ios(true)
+        ipados(true)
         web(true)
     }
 
-    /** True whenever `:desktop:nativeCommon` or any of the 4 native desktop backends (`:windows`, `:macos`, `:gtk`, `:qt`) is enabled. */
+    /** True whenever any native desktop backend (`windows`, `macos`, `gtk`, `qt`) is enabled. */
     val requiresNativeDesktopCommonModule: Boolean
         get() = desktopEnabled || windowsEnabled || macosEnabled || gtkEnabled || qtEnabled
 
@@ -189,23 +206,47 @@ open class GenericUiBackendsConfig(
     val requiresSharedDesktopModule: Boolean
         get() = requiresNativeDesktopCommonModule
 
-    /** True whenever `:desktop:common` is needed (native desktop or `:swing`). */
+    /** True whenever `:desktop` is needed (native desktop or `swing`). */
     val requiresDesktopCommonModule: Boolean
         get() = requiresNativeDesktopCommonModule || swingConfig.enabled
 
-    /** True whenever `:desktop:linuxCommon` is needed (`:gtk` or `:qt`). */
+    /** Alias for [requiresDesktopCommonModule]. */
+    val requiresDesktopModule: Boolean
+        get() = requiresDesktopCommonModule
+
+    /** True whenever shared Linux code is needed (`gtk` or `qt`). */
     val requiresLinuxCommonModule: Boolean
         get() = gtkEnabled || qtEnabled
 
-    /** True whenever `:mobile:common` or either mobile backend (`:android`, `:ios`) is enabled. */
+    /** True whenever `:mobile` is needed (`android`, `ios`, or `ipados`). */
     val requiresMobileCommonModule: Boolean
-        get() = mobileEnabled || androidEnabled || iosEnabled
+        get() = mobileEnabled || androidEnabled || iosEnabled || ipadosEnabled
 
     /** Alias for [requiresMobileCommonModule]. */
     val requiresSharedMobileModule: Boolean
         get() = requiresMobileCommonModule
 
-    /** True whenever any non-web system backend (`:desktop`, `:swing`, or `:mobile`) is enabled. */
+    /** Alias for [requiresMobileCommonModule]. */
+    val requiresMobileModule: Boolean
+        get() = requiresMobileCommonModule
+
+    /** True whenever `:apple` is needed (`macos`, `ios`, or `ipados`). */
+    val requiresAppleCommonModule: Boolean
+        get() = macosEnabled || iosEnabled || ipadosEnabled
+
+    /** Alias for [requiresAppleCommonModule]. */
+    val requiresAppleModule: Boolean
+        get() = requiresAppleCommonModule
+
+    /** True whenever `:jvm` is needed (`swing` or `android`). */
+    val requiresJvmCommonModule: Boolean
+        get() = swingConfig.enabled || androidEnabled
+
+    /** Alias for [requiresJvmCommonModule]. */
+    val requiresJvmModule: Boolean
+        get() = requiresJvmCommonModule
+
+    /** True whenever `:system` is needed (any non-web desktop or mobile backend). */
     val requiresSystemCommonModule: Boolean
         get() = requiresDesktopCommonModule || requiresMobileCommonModule
 
@@ -213,24 +254,20 @@ open class GenericUiBackendsConfig(
     val requiresSharedSystemModule: Boolean
         get() = requiresSystemCommonModule
 
+    /** Alias for [requiresSystemCommonModule]. */
+    val requiresSystemModule: Boolean
+        get() = requiresSystemCommonModule
+
     /**
-     * Returns the list of enabled GenericUI backend module paths, automatically including
-     * `:systemCommon`, `:desktop:common`, `:desktop:nativeCommon`, `:desktop:linuxCommon`,
-     * and `:mobile:common` when their downstream platform backends are enabled.
+     * Returns the consolidated list of enabled GenericUI backend tier modules
+     * (`:system`, `:jvm`, `:apple`, `:desktop`, `:mobile`, `:web`) derived from active targets.
      */
     fun enabledBackendModulePaths(): List<String> = buildList {
-        if (requiresSystemCommonModule) add(":systemCommon")
-        if (requiresDesktopCommonModule) add(":desktop:common")
-        if (requiresNativeDesktopCommonModule) add(":desktop:nativeCommon")
-        if (requiresLinuxCommonModule) add(":desktop:linuxCommon")
-        if (requiresMobileCommonModule) add(":mobile:common")
-        if (windowsEnabled) add(":desktop:windows")
-        if (macosEnabled) add(":desktop:macos")
-        if (gtkEnabled) add(":desktop:gtk")
-        if (qtEnabled) add(":desktop:qt")
-        if (swingConfig.enabled) add(":desktop:swing")
-        if (androidEnabled) add(":mobile:android")
-        if (iosEnabled) add(":mobile:ios")
+        if (requiresSystemModule) add(":system")
+        if (requiresJvmModule) add(":jvm")
+        if (requiresAppleModule) add(":apple")
+        if (requiresDesktopModule) add(":desktop")
+        if (requiresMobileModule) add(":mobile")
         if (webEnabled) add(":web")
     }
 }

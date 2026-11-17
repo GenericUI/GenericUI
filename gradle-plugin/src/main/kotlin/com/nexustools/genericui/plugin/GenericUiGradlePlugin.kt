@@ -137,10 +137,38 @@ class GenericUiGradlePlugin : Plugin<Project> {
             })
             configuredIconPath.set(project.provider {
                 extension.application.desktop.icon.trim().ifEmpty {
-                    extension.windowConfig.icon?.trim().orEmpty().ifEmpty {
-                        GenericUiVariantResolver.resolve(extension, GenericUiVariantScope.COMMON).iconPath.orEmpty()
+                    extension.resources.icon.trim().ifEmpty {
+                        extension.windowConfig.icon?.trim().orEmpty().ifEmpty {
+                            GenericUiVariantResolver.resolve(extension, GenericUiVariantScope.COMMON).iconPath.orEmpty()
+                        }
                     }
                 }
+            })
+            appleIconPath.set(project.provider {
+                extension.application.desktop.appleIcon.trim().ifEmpty {
+                    extension.resources.appleIcon.trim()
+                }
+            })
+            macIconPath.set(project.provider {
+                val resolved = GenericUiVariantResolver.resolve(extension, GenericUiVariantScope.MACOS)
+                if (resolved.appleIconExplicitlyProvided) resolved.iconPath.orEmpty() else ""
+            })
+            iosIconPath.set(project.provider {
+                val resolved = GenericUiVariantResolver.resolve(extension, GenericUiVariantScope.IOS)
+                if (resolved.appleIconExplicitlyProvided) resolved.iconPath.orEmpty() else ""
+            })
+            ipadosIconPath.set(project.provider {
+                val resolved = GenericUiVariantResolver.resolve(extension, GenericUiVariantScope.IPADOS)
+                if (resolved.appleIconExplicitlyProvided) resolved.iconPath.orEmpty() else ""
+            })
+            macIconExplicitlyProvided.set(project.provider {
+                GenericUiVariantResolver.resolve(extension, GenericUiVariantScope.MACOS).appleIconExplicitlyProvided
+            })
+            iosIconExplicitlyProvided.set(project.provider {
+                GenericUiVariantResolver.resolve(extension, GenericUiVariantScope.IOS).appleIconExplicitlyProvided
+            })
+            ipadosIconExplicitlyProvided.set(project.provider {
+                GenericUiVariantResolver.resolve(extension, GenericUiVariantScope.IPADOS).appleIconExplicitlyProvided
             })
             androidLauncherIconConfig.set(project.provider {
                 extension.android.launcherIconConfig.toSerializedString()
@@ -259,6 +287,22 @@ class GenericUiGradlePlugin : Plugin<Project> {
             backendFullscreens.set(project.provider {
                 resolveBackendVariantMap(project, extension) { it.fullscreen }
             })
+            backendWindowAlwaysOnTops.set(project.provider {
+                resolveBackendVariantMap(project, extension) { it.windowAlwaysOnTop }
+            })
+            backendWindowAspectRatios.set(project.provider {
+                val aspectRatios = linkedMapOf<String, Double>()
+                for (backendScope in GenericUiGenerateLaunchersTask.enabledLauncherBackendScopes(extension.backends)) {
+                    val ratio = resolveVariantWithProjectFallbacks(project, extension, backendScope).windowAspectRatio
+                    if (ratio != null && ratio.isFinite() && ratio > 0.0) {
+                        aspectRatios[backendScope.id] = ratio
+                    }
+                }
+                aspectRatios
+            })
+            backendAppleIconExplicitlyProvided.set(project.provider {
+                resolveBackendVariantMap(project, extension) { it.appleIconExplicitlyProvided }
+            })
             backendThemeModes.set(project.provider {
                 resolveBackendVariantMap(project, extension) { it.themeMode }
             })
@@ -338,6 +382,9 @@ class GenericUiGradlePlugin : Plugin<Project> {
             minWindowHeight.set(project.provider { resolveAndroidVariant(project, extension).minWindowHeight })
             windowResizable.set(project.provider { resolveAndroidVariant(project, extension).windowResizable })
             fullscreen.set(project.provider { resolveAndroidVariant(project, extension).fullscreen })
+            windowAlwaysOnTop.set(project.provider { resolveAndroidVariant(project, extension).windowAlwaysOnTop })
+            windowAspectRatio.set(project.provider { resolveAndroidVariant(project, extension).windowAspectRatio })
+            appleIconExplicitlyProvided.set(project.provider { resolveAndroidVariant(project, extension).appleIconExplicitlyProvided })
             themeMode.set(project.provider { resolveAndroidVariant(project, extension).themeMode })
             themeColor.set(project.provider { resolveAndroidVariant(project, extension).themeColor })
             lightThemeColors.set(project.provider { resolveAndroidVariant(project, extension).lightThemeColors })
@@ -428,7 +475,53 @@ class GenericUiGradlePlugin : Plugin<Project> {
                     extension.application.baseName.trim().ifEmpty { project.name }
                 )
             })
+            deviceFamily.set(GenericUiGenerateIosAppTask.DEVICE_FAMILY_IPHONE)
+            frameworkSearchSubdirDebug.set("debugFramework")
+            frameworkSearchSubdirRelease.set("releaseFramework")
+            iconPath.set(project.provider { resolveIosVariant(project, extension).iconPath ?: "" })
+            fallbackIconPath.set(project.provider {
+                extension.application.desktop.icon.trim().ifEmpty { extension.resources.icon.trim() }
+            })
+            appleIconExplicitlyProvided.set(project.provider {
+                resolveIosVariant(project, extension).appleIconExplicitlyProvided
+            })
             outputDirectory.set(project.layout.buildDirectory.dir("genericui/iosApp"))
+        }
+
+        val generateIpadosAppTask = project.tasks.register(
+            "generateGenericUiIpadosApp",
+            GenericUiGenerateIosAppTask::class.java
+        ) {
+            group = TASK_GROUP
+            description = "Generates the minimal Swift/Xcode iPadOS host application project (build/genericui/ipadosApp/)."
+            iosEnabled.set(project.provider { extension.backends.ipadosEnabled })
+            projectRootPath.set(project.projectDir.absolutePath)
+            baseName.set(project.provider {
+                extension.application.baseName.trim().ifEmpty { project.name }
+            })
+            appName.set(project.provider { resolveIpadosVariant(project, extension).appName })
+            appId.set(project.provider { resolveIpadosVariant(project, extension).appId })
+            appVersion.set(project.provider { resolveIpadosVariant(project, extension).appVersion })
+            frameworkName.set(project.provider {
+                GenericUiGenerateIosAppTask.sanitizeFrameworkName(
+                    extension.application.baseName.trim().ifEmpty { project.name }
+                )
+            })
+            deviceFamily.set(GenericUiGenerateIosAppTask.DEVICE_FAMILY_IPAD)
+            frameworkSearchSubdirDebug.set(project.provider {
+                if (extension.backends.iosEnabled) "ipadosDebugFramework" else "debugFramework"
+            })
+            frameworkSearchSubdirRelease.set(project.provider {
+                if (extension.backends.iosEnabled) "ipadosReleaseFramework" else "releaseFramework"
+            })
+            iconPath.set(project.provider { resolveIpadosVariant(project, extension).iconPath ?: "" })
+            fallbackIconPath.set(project.provider {
+                extension.application.desktop.icon.trim().ifEmpty { extension.resources.icon.trim() }
+            })
+            appleIconExplicitlyProvided.set(project.provider {
+                resolveIpadosVariant(project, extension).appleIconExplicitlyProvided
+            })
+            outputDirectory.set(project.layout.buildDirectory.dir("genericui/ipadosApp"))
         }
 
         val desktopResourcesTask = project.tasks.register(
@@ -470,10 +563,17 @@ class GenericUiGradlePlugin : Plugin<Project> {
                     GenericUiVariantResolver.resolve(extension, GenericUiVariantScope.WINDOWS).iconPath.orEmpty()
                 }
             })
-            macIconPath.set(project.provider {
-                extension.application.desktop.macIcon.trim().ifEmpty {
-                    GenericUiVariantResolver.resolve(extension, GenericUiVariantScope.MACOS).iconPath.orEmpty()
+            appleIconPath.set(project.provider {
+                extension.application.desktop.appleIcon.trim().ifEmpty {
+                    extension.resources.appleIcon.trim()
                 }
+            })
+            macIconPath.set(project.provider {
+                val resolvedMac = GenericUiVariantResolver.resolve(extension, GenericUiVariantScope.MACOS)
+                if (resolvedMac.appleIconExplicitlyProvided) resolvedMac.iconPath.orEmpty() else ""
+            })
+            macAppleIconExplicitlyProvided.set(project.provider {
+                GenericUiVariantResolver.resolve(extension, GenericUiVariantScope.MACOS).appleIconExplicitlyProvided
             })
             linuxIconPath.set(project.provider {
                 extension.application.desktop.linuxIcon.trim().ifEmpty {
@@ -482,8 +582,10 @@ class GenericUiGradlePlugin : Plugin<Project> {
             })
             fallbackIconPath.set(project.provider {
                 extension.application.desktop.icon.trim().ifEmpty {
-                    extension.windowConfig.icon?.trim().orEmpty().ifEmpty {
-                        GenericUiVariantResolver.resolve(extension, GenericUiVariantScope.COMMON).iconPath.orEmpty()
+                    extension.resources.icon.trim().ifEmpty {
+                        extension.windowConfig.icon?.trim().orEmpty().ifEmpty {
+                            GenericUiVariantResolver.resolve(extension, GenericUiVariantScope.COMMON).iconPath.orEmpty()
+                        }
                     }
                 }
             })
@@ -607,7 +709,7 @@ class GenericUiGradlePlugin : Plugin<Project> {
                     }
                 }
                 if (project.rootProject.name.equals("GenericUI", ignoreCase = true) ||
-                    File(project.rootProject.projectDir, "mobile/android/build.gradle.kts").isFile
+                    File(project.rootProject.projectDir, "mobile/build.gradle.kts").isFile
                 ) {
                     roots.add(project.rootProject.projectDir.absolutePath)
                 }
@@ -774,14 +876,14 @@ class GenericUiGradlePlugin : Plugin<Project> {
                     File(project.rootProject.projectDir, "lib/GenericUI"),
                     File(project.projectDir, "lib/GenericUI"),
                     project.rootProject.projectDir.parentFile?.let { File(it, "GenericUI") },
-                    project.projectDir.parentFile?.parentFile?.parentFile?.takeIf { File(it, "desktop/swing/build.gradle.kts").isFile }
+                    project.projectDir.parentFile?.parentFile?.parentFile?.takeIf { File(it, "desktop/build.gradle.kts").isFile }
                 ).forEach { candidate ->
                     if (candidate.isDirectory) {
                         roots.add(candidate.absolutePath)
                     }
                 }
                 if (project.rootProject.name.equals("GenericUI", ignoreCase = true) ||
-                    File(project.rootProject.projectDir, "desktop/swing/build.gradle.kts").isFile
+                    File(project.rootProject.projectDir, "desktop/build.gradle.kts").isFile
                 ) {
                     roots.add(project.rootProject.projectDir.absolutePath)
                 }
@@ -834,7 +936,7 @@ class GenericUiGradlePlugin : Plugin<Project> {
                 println("Backends:   ${extension.backends.enabledBackendModulePaths()}")
                 println("Extensions: ${extension.extensions.enabledExtensionModulePaths()}")
                 println("Sass Dir:   ${extension.styles.sourceDir} (compile=${extension.styles.compileSass}, webCss=${extension.styles.generateWebCss})")
-                println("Icons:      win=${extension.application.desktop.windowsIcon}, mac=${extension.application.desktop.macIcon}, linux=${extension.application.desktop.linuxIcon}, web=${extension.application.desktop.webIcon}")
+                println("Icons:      win=${extension.application.desktop.windowsIcon}, apple=${extension.application.desktop.appleIcon}, mac=${extension.application.desktop.macIcon}, ios=${extension.application.desktop.iosIcon}, ipados=${extension.application.desktop.ipadosIcon}, linux=${extension.application.desktop.linuxIcon}, web=${extension.application.desktop.webIcon}")
             }
         }
 
@@ -859,7 +961,8 @@ class GenericUiGradlePlugin : Plugin<Project> {
                 generateLaunchersTaskName = generateLaunchersTask.name,
                 generateAndroidActivitiesTaskName = generateAndroidActivitiesTask.name,
                 generateAndroidManifestTaskName = generateAndroidManifestTask.name,
-                generateIosAppTaskName = generateIosAppTask.name
+                generateIosAppTaskName = generateIosAppTask.name,
+                generateIpadosAppTaskName = generateIpadosAppTask.name
             )
             wirePrecompiledSassKotlinSources(project, extension, sassTask.name)
             wireGeneratedWebCssResources(project, extension, sassTask.name)
@@ -1058,32 +1161,17 @@ class GenericUiGradlePlugin : Plugin<Project> {
         if (extension.includeCommon) {
             paths.add(":common")
         }
-        if (backends.requiresSystemCommonModule) {
-            paths.add(":systemCommon")
+        if (backends.requiresSystemModule) {
+            paths.add(":system")
         }
-        if (backends.requiresDesktopCommonModule) {
-            paths.add(":desktop:common")
+        if (backends.requiresJvmModule) {
+            paths.add(":jvm")
         }
-        if (backends.swingConfig.enabled) {
-            paths.add(":desktop:swing")
+        if (backends.requiresDesktopModule) {
+            paths.add(":desktop")
         }
         for (extPath in extension.extensions.enabledExtensionModulePaths()) {
-            val isProjectOfProjects = extPath in PROJECT_OF_PROJECTS_EXTENSIONS ||
-                project.rootProject.findProject("$extPath:common") != null
-            if (isProjectOfProjects) {
-                paths.add("$extPath:common")
-                if (backends.requiresSystemCommonModule) {
-                    paths.add("$extPath:systemCommon")
-                }
-                if (backends.requiresDesktopCommonModule) {
-                    paths.add("$extPath:desktop:common")
-                }
-                if (backends.swingConfig.enabled) {
-                    paths.add("$extPath:desktop:swing")
-                }
-            } else {
-                paths.add(extPath)
-            }
+            paths.add(extPath)
         }
         return paths.toList()
     }
@@ -1097,32 +1185,17 @@ class GenericUiGradlePlugin : Plugin<Project> {
         if (extension.includeCommon) {
             paths.add(":common")
         }
-        if (backends.requiresSystemCommonModule) {
-            paths.add(":systemCommon")
+        if (backends.requiresSystemModule) {
+            paths.add(":system")
         }
-        if (backends.requiresMobileCommonModule) {
-            paths.add(":mobile:common")
+        if (backends.requiresJvmModule) {
+            paths.add(":jvm")
         }
-        if (backends.androidEnabled) {
-            paths.add(":mobile:android")
+        if (backends.requiresMobileModule) {
+            paths.add(":mobile")
         }
         for (extPath in extension.extensions.enabledExtensionModulePaths()) {
-            val isProjectOfProjects = extPath in PROJECT_OF_PROJECTS_EXTENSIONS ||
-                project.rootProject.findProject("$extPath:common") != null
-            if (isProjectOfProjects) {
-                paths.add("$extPath:common")
-                if (backends.requiresSystemCommonModule) {
-                    paths.add("$extPath:systemCommon")
-                }
-                if (backends.requiresMobileCommonModule) {
-                    paths.add("$extPath:mobile:common")
-                }
-                if (backends.androidEnabled) {
-                    paths.add("$extPath:mobile:android")
-                }
-            } else {
-                paths.add(extPath)
-            }
+            paths.add(extPath)
         }
         return paths.toList()
     }
@@ -1153,7 +1226,8 @@ class GenericUiGradlePlugin : Plugin<Project> {
         generateLaunchersTaskName: String,
         generateAndroidActivitiesTaskName: String,
         generateAndroidManifestTaskName: String,
-        generateIosAppTaskName: String
+        generateIosAppTaskName: String,
+        generateIpadosAppTaskName: String
     ) {
         project.tasks.matching {
             it.name.startsWith("compile") &&
@@ -1168,6 +1242,9 @@ class GenericUiGradlePlugin : Plugin<Project> {
             }
             if (extension.backends.iosEnabled && name.contains("Ios", ignoreCase = true)) {
                 dependsOn(generateIosAppTaskName)
+            }
+            if (extension.backends.ipadosEnabled && (name.contains("Ios", ignoreCase = true) || name.contains("Ipados", ignoreCase = true))) {
+                dependsOn(generateIpadosAppTaskName)
             }
         }
     }
@@ -1196,6 +1273,12 @@ class GenericUiGradlePlugin : Plugin<Project> {
         extension: GenericUiExtension
     ): GenericUiResolvedVariantConfig =
         resolveVariantWithProjectFallbacks(project, extension, GenericUiVariantScope.IOS)
+
+    private fun resolveIpadosVariant(
+        project: Project,
+        extension: GenericUiExtension
+    ): GenericUiResolvedVariantConfig =
+        resolveVariantWithProjectFallbacks(project, extension, GenericUiVariantScope.IPADOS)
 
     private fun resolveWebVariant(
         project: Project,
@@ -1354,54 +1437,9 @@ class GenericUiGradlePlugin : Plugin<Project> {
         }
 
         for (extPath in extension.extensions.enabledExtensionModulePaths()) {
-            val isProjectOfProjects = extPath in PROJECT_OF_PROJECTS_EXTENSIONS ||
-                project.rootProject.findProject("$extPath:common") != null
-            if (isProjectOfProjects) {
-                resolveModuleDependency(project, "$extPath:common", version)?.let { dep ->
-                    project.dependencies.add(commonConfigName, dep)
-                    addDepToEnabledBackendConfigs(project, backends, dep, commonConfigName)
-                }
-                if (backends.requiresSystemCommonModule) {
-                    addBackendModuleDependency(project, ":systemCommon", "$extPath:systemCommon", version, commonConfigName)
-                }
-                if (backends.requiresDesktopCommonModule) {
-                    addBackendModuleDependency(project, ":desktop:common", "$extPath:desktop:common", version, commonConfigName)
-                }
-                if (backends.requiresNativeDesktopCommonModule) {
-                    addBackendModuleDependency(project, ":desktop:nativeCommon", "$extPath:desktop:nativeCommon", version, commonConfigName)
-                }
-                val desktopPlatformMap = listOf(
-                    Triple(":desktop:windows", backends.windowsEnabled, "$extPath:desktop:windows"),
-                    Triple(":desktop:macos", backends.macosEnabled, "$extPath:desktop:macos"),
-                    Triple(":desktop:gtk", backends.gtkEnabled, "$extPath:desktop:gtk"),
-                    Triple(":desktop:qt", backends.qtEnabled, "$extPath:desktop:qt")
-                )
-                for ((backendKey, isEnabled, subPath) in desktopPlatformMap) {
-                    if (isEnabled) {
-                        addBackendModuleDependency(project, backendKey, subPath, version, commonConfigName)
-                    }
-                }
-                if (backends.requiresMobileCommonModule) {
-                    addBackendModuleDependency(project, ":mobile:common", "$extPath:mobile:common", version, commonConfigName)
-                }
-                if (backends.androidEnabled) {
-                    addBackendModuleDependency(project, ":mobile:android", "$extPath:mobile:android", version, commonConfigName)
-                }
-                if (backends.iosEnabled) {
-                    addBackendModuleDependency(project, ":mobile:ios", "$extPath:mobile:ios", version, commonConfigName)
-                }
-                if (backends.swingConfig.enabled) {
-                    addBackendModuleDependency(project, ":desktop:swing", "$extPath:desktop:swing", version, commonConfigName)
-                }
-                if (backends.webEnabled) {
-                    addBackendModuleDependency(project, ":web", "$extPath:web", version, commonConfigName)
-                }
-            } else {
-                // Single Multiplatform Project extension (:extensions:<name>)
-                resolveModuleDependency(project, extPath, version)?.let { dep ->
-                    project.dependencies.add(commonConfigName, dep)
-                    addDepToEnabledBackendConfigs(project, backends, dep, commonConfigName)
-                }
+            resolveModuleDependency(project, extPath, version)?.let { dep ->
+                project.dependencies.add(commonConfigName, dep)
+                addDepToEnabledBackendConfigs(project, backends, dep, commonConfigName)
             }
         }
 
@@ -1418,12 +1456,12 @@ class GenericUiGradlePlugin : Plugin<Project> {
             project.configurations.findByName(it) != null
         } ?: return
 
-        resolveModuleDependency(project, ":tests:common", version)?.let { dep ->
+        resolveModuleDependency(project, ":tests", version)?.let { dep ->
             project.dependencies.add(commonTestConfig, dep)
         }
 
-        fun addTestDepIfConfigExists(modulePath: String, vararg configNames: String) {
-            val dep = resolveModuleDependency(project, modulePath, version) ?: return
+        fun addTestsToConfigs(vararg configNames: String) {
+            val dep = resolveModuleDependency(project, ":tests", version) ?: return
             for (cfg in configNames) {
                 if (project.configurations.findByName(cfg) != null) {
                     project.dependencies.add(cfg, dep)
@@ -1431,9 +1469,17 @@ class GenericUiGradlePlugin : Plugin<Project> {
             }
         }
 
+        if (backends.requiresSystemModule) {
+            addTestsToConfigs("systemTestImplementation")
+        }
+        if (backends.requiresAppleModule) {
+            addTestsToConfigs("appleTestImplementation")
+        }
+        if (backends.requiresJvmModule) {
+            addTestsToConfigs("jvmCommonTestImplementation")
+        }
         if (backends.requiresNativeDesktopCommonModule) {
-            addTestDepIfConfigExists(
-                ":tests:desktop:nativeCommon",
+            addTestsToConfigs(
                 "nativeDesktopTestImplementation",
                 "nativeDesktopCommonTestImplementation",
                 "desktopNativeTestImplementation",
@@ -1445,25 +1491,28 @@ class GenericUiGradlePlugin : Plugin<Project> {
             )
         }
         if (backends.windowsEnabled) {
-            addTestDepIfConfigExists(":tests:desktop:windows", "windowsTestImplementation", "mingwX64TestImplementation")
+            addTestsToConfigs("windowsTestImplementation", "mingwX64TestImplementation")
         }
         if (backends.macosEnabled) {
-            addTestDepIfConfigExists(":tests:desktop:macos", "macTestImplementation", "macosArm64TestImplementation")
+            addTestsToConfigs("macTestImplementation", "macosTestImplementation", "macosArm64TestImplementation")
         }
-        if (backends.gtkEnabled) {
-            addTestDepIfConfigExists(":tests:desktop:gtk", "gtkTestImplementation", "linuxX64TestImplementation", "linuxArm64TestImplementation")
-        }
-        if (backends.qtEnabled) {
-            addTestDepIfConfigExists(":tests:desktop:qt", "qtTestImplementation", "linuxX64TestImplementation", "linuxArm64TestImplementation")
+        if (backends.gtkEnabled || backends.qtEnabled) {
+            addTestsToConfigs(
+                "linuxTestImplementation",
+                "gtkTestImplementation",
+                "qtTestImplementation",
+                "linuxX64TestImplementation",
+                "linuxArm64TestImplementation"
+            )
         }
         if (backends.swingConfig.enabled) {
-            addTestDepIfConfigExists(":tests:desktop:swing", "swingTestImplementation", "jvmTestImplementation", "testImplementation")
+            addTestsToConfigs("desktopTestImplementation", "swingTestImplementation", "jvmTestImplementation", "testImplementation")
         }
-        if (backends.requiresMobileCommonModule) {
-            addTestDepIfConfigExists(
-                ":tests:mobile:common",
+        if (backends.requiresMobileModule) {
+            addTestsToConfigs(
                 "mobileCommonTestImplementation",
                 "mobileTestImplementation",
+                "iosCommonTestImplementation",
                 "androidTestImplementation",
                 "androidUnitTestImplementation",
                 "androidHostTestImplementation",
@@ -1472,8 +1521,7 @@ class GenericUiGradlePlugin : Plugin<Project> {
             )
         }
         if (backends.androidEnabled) {
-            addTestDepIfConfigExists(
-                ":tests:mobile:android",
+            addTestsToConfigs(
                 "androidTestImplementation",
                 "androidUnitTestImplementation",
                 "androidHostTestImplementation",
@@ -1481,10 +1529,13 @@ class GenericUiGradlePlugin : Plugin<Project> {
             )
         }
         if (backends.iosEnabled) {
-            addTestDepIfConfigExists(":tests:mobile:ios", "iosTestImplementation", "iosArm64TestImplementation", "iosSimulatorArm64TestImplementation")
+            addTestsToConfigs("iosTestImplementation", "iosArm64TestImplementation", "iosSimulatorArm64TestImplementation")
+        }
+        if (backends.ipadosEnabled) {
+            addTestsToConfigs("ipadosTestImplementation", "iosArm64TestImplementation", "iosSimulatorArm64TestImplementation")
         }
         if (backends.webEnabled) {
-            addTestDepIfConfigExists(":tests:web", "webTestImplementation", "jsTestImplementation", "wasmJsTestImplementation")
+            addTestsToConfigs("webTestImplementation", "jsTestImplementation", "wasmJsTestImplementation")
         }
     }
 
@@ -1536,7 +1587,7 @@ class GenericUiGradlePlugin : Plugin<Project> {
         if (modulePath !in KNOWN_GENERICUI_MODULES) {
             return null
         }
-        if (modulePath != ":extensions:dsl" && modulePath.endsWith(":dsl")) {
+        if (modulePath != ":extensions:ui:dsl" && modulePath.endsWith(":dsl")) {
             val relPath = modulePath.trimStart(':').replace(':', '/')
             val compositeCandidate = File(project.rootProject.projectDir, "lib/GenericUI/$relPath")
             val localCandidate = File(project.rootProject.projectDir, relPath)
@@ -1781,143 +1832,108 @@ class GenericUiGradlePlugin : Plugin<Project> {
             names.filter { project.configurations.findByName(it) != null }
 
         return when (backendPath) {
-            ":desktop:windows" ->
+            ":system", ":systemCommon", ":system:shared" ->
                 allExisting(
-                    "windowsMainImplementation",
-                    "mingwMainImplementation",
-                    "mingwX64MainImplementation"
-                )
-            ":desktop:macos" ->
-                allExisting(
-                    "macMainImplementation",
-                    "macosMainImplementation",
-                    "macosArm64MainImplementation"
-                )
-            ":desktop:gtk" ->
-                allExisting(
-                    "gtkImplementation",
-                    "gtkMainImplementation",
-                    "linuxCommonImplementation",
-                    "linuxMainImplementation",
+                    "systemCommonImplementation",
+                    "systemMainImplementation",
+                    "appleCommonImplementation",
+                    "appleMainImplementation",
+                    "jvmCommonImplementation",
+                    "desktopCommonImplementation",
+                    "desktopMainImplementation",
+                    "nativeDesktopCommonImplementation",
+                    "nativeDesktopMainImplementation",
                     "desktopNativeCommonImplementation",
                     "desktopNativeMainImplementation",
+                    "linuxCommonImplementation",
+                    "linuxMainImplementation",
+                    "mobileCommonImplementation",
+                    "mobileMainImplementation",
+                    "iosCommonImplementation",
+                    "swingImplementation",
+                    "swingMainImplementation",
+                    "jvmMainImplementation",
+                    "androidImplementation",
+                    "androidMainImplementation",
+                    "windowsMainImplementation",
+                    "mingwX64MainImplementation",
+                    "macMainImplementation",
+                    "macosMainImplementation",
+                    "macosArm64MainImplementation",
+                    "gtkMainImplementation",
+                    "qtMainImplementation",
+                    "linuxX64MainImplementation",
+                    "linuxArm64MainImplementation",
+                    "linuxArm32HfpMainImplementation",
+                    "iosImplementation",
+                    "iosMainImplementation",
+                    "ipadosMainImplementation",
+                    "iosArm64MainImplementation",
+                    "iosSimulatorArm64MainImplementation"
+                )
+            ":jvm" ->
+                allExisting(
+                    "jvmCommonImplementation",
+                    "jvmMainImplementation",
+                    "swingImplementation",
+                    "swingMainImplementation",
+                    "androidImplementation",
+                    "androidMainImplementation"
+                )
+            ":apple" ->
+                allExisting(
+                    "appleCommonImplementation",
+                    "appleMainImplementation",
+                    "macMainImplementation",
+                    "macosMainImplementation",
+                    "macosArm64MainImplementation",
+                    "iosCommonImplementation",
+                    "iosImplementation",
+                    "iosMainImplementation",
+                    "ipadosMainImplementation",
+                    "iosArm64MainImplementation",
+                    "iosSimulatorArm64MainImplementation"
+                )
+            ":desktop", ":desktop:common", ":desktop:nativeCommon", ":desktop:shared" ->
+                allExisting(
+                    "desktopCommonImplementation",
+                    "desktopMainImplementation",
                     "nativeDesktopCommonImplementation",
+                    "nativeDesktopMainImplementation",
+                    "desktopNativeCommonImplementation",
+                    "desktopNativeMainImplementation",
+                    "linuxCommonImplementation",
+                    "linuxMainImplementation",
+                    "windowsMainImplementation",
+                    "mingwX64MainImplementation",
+                    "macMainImplementation",
+                    "macosMainImplementation",
+                    "macosArm64MainImplementation",
+                    "gtkImplementation",
+                    "gtkMainImplementation",
+                    "qtImplementation",
+                    "qtMainImplementation",
                     "linuxX64MainImplementation",
                     "linuxArm64MainImplementation",
                     "linuxArm32HfpMainImplementation",
                     "linuxX64GtkImplementation",
-                    "linuxArm64GtkImplementation"
-                )
-            ":desktop:qt" ->
-                allExisting(
-                    "qtImplementation",
-                    "qtMainImplementation",
-                    "linuxCommonImplementation",
-                    "linuxMainImplementation",
-                    "desktopNativeCommonImplementation",
-                    "desktopNativeMainImplementation",
-                    "nativeDesktopCommonImplementation",
-                    "linuxX64MainImplementation",
-                    "linuxArm64MainImplementation",
-                    "linuxArm32HfpMainImplementation",
+                    "linuxArm64GtkImplementation",
                     "linuxX64QtImplementation",
-                    "linuxArm64QtImplementation"
+                    "linuxArm64QtImplementation",
+                    "swingImplementation",
+                    "swingMainImplementation",
+                    "jvmMainImplementation"
                 )
-            ":systemCommon", ":system:shared" ->
+            ":mobile", ":mobile:common", ":mobile:shared" ->
                 allExisting(
-                    "systemCommonImplementation",
-                    "systemMainImplementation",
-                    "desktopCommonImplementation",
-                    "desktopMainImplementation",
-                    "nativeDesktopCommonImplementation",
-                    "nativeDesktopMainImplementation",
-                    "desktopNativeCommonImplementation",
-                    "desktopNativeMainImplementation",
                     "mobileCommonImplementation",
                     "mobileMainImplementation",
-                    "swingImplementation",
-                    "swingMainImplementation",
-                    "jvmMainImplementation",
                     "androidImplementation",
                     "androidMainImplementation",
-                    "androidNativeX86MainImplementation",
-                    "androidNativeX64MainImplementation",
-                    "androidNativeArm32MainImplementation",
-                    "androidNativeArm64MainImplementation",
-                    "mingwX64MainImplementation",
-                    "linuxX64MainImplementation",
-                    "linuxArm64MainImplementation",
-                    "linuxArm32HfpMainImplementation",
-                    "macosArm64MainImplementation",
-                    "iosMainImplementation",
-                    "iosArm64MainImplementation",
-                    "iosSimulatorArm64MainImplementation"
-                )
-            ":desktop:common" ->
-                allExisting(
-                    "desktopCommonImplementation",
-                    "desktopMainImplementation",
-                    "nativeDesktopCommonImplementation",
-                    "nativeDesktopMainImplementation",
-                    "desktopNativeCommonImplementation",
-                    "desktopNativeMainImplementation",
-                    "swingImplementation",
-                    "swingMainImplementation",
-                    "jvmMainImplementation",
-                    "mingwX64MainImplementation",
-                    "linuxX64MainImplementation",
-                    "linuxArm64MainImplementation",
-                    "linuxArm32HfpMainImplementation",
-                    "macosArm64MainImplementation"
-                )
-            ":desktop:nativeCommon", ":desktop:shared" ->
-                allExisting(
-                    "nativeDesktopCommonImplementation",
-                    "nativeDesktopMainImplementation",
-                    "desktopNativeCommonImplementation",
-                    "desktopNativeMainImplementation",
-                    "mingwX64MainImplementation",
-                    "linuxX64MainImplementation",
-                    "linuxArm64MainImplementation",
-                    "linuxArm32HfpMainImplementation",
-                    "macosArm64MainImplementation"
-                )
-            ":desktop:linuxCommon" ->
-                allExisting(
-                    "linuxCommonImplementation",
-                    "linuxMainImplementation",
-                    "linuxX64MainImplementation",
-                    "linuxArm64MainImplementation",
-                    "linuxArm32HfpMainImplementation"
-                )
-            ":desktop:swing" ->
-                allExisting("swingImplementation", "swingMainImplementation", "jvmMainImplementation")
-            ":mobile:android" ->
-                allExisting(
-                    "androidImplementation",
-                    "androidMainImplementation",
-                    "androidNativeX86MainImplementation",
-                    "androidNativeX64MainImplementation",
-                    "androidNativeArm32MainImplementation",
-                    "androidNativeArm64MainImplementation"
-                )
-            ":mobile:ios" ->
-                allExisting(
+                    "iosCommonImplementation",
                     "iosImplementation",
                     "iosMainImplementation",
-                    "iosArm64MainImplementation",
-                    "iosSimulatorArm64MainImplementation"
-                )
-            ":mobile:common", ":mobile:shared" ->
-                allExisting(
-                    "mobileCommonImplementation",
-                    "mobileMainImplementation",
-                    "androidMainImplementation",
-                    "androidNativeX86MainImplementation",
-                    "androidNativeX64MainImplementation",
-                    "androidNativeArm32MainImplementation",
-                    "androidNativeArm64MainImplementation",
-                    "iosMainImplementation",
+                    "ipadosMainImplementation",
                     "iosArm64MainImplementation",
                     "iosSimulatorArm64MainImplementation"
                 )
@@ -2046,8 +2062,8 @@ class GenericUiGradlePlugin : Plugin<Project> {
         }
 
         /**
-         * Converts a GenericUI Gradle module path (e.g. `":common"`, `":desktop:windows"`,
-         * `":extensions:canvas2d:common"`, `":extensions:threejs"`) into its exact Maven /
+         * Converts a GenericUI Gradle module path (e.g. `":common"`, `":desktop"`,
+         * `":extensions:graphics:canvas2d"`, `":extensions:game:engine2d:dsl"`) into its exact Maven /
          * composite-build coordinate matching GenericUI's `group` and artifact hierarchy.
          */
         fun toMavenCoordinate(modulePath: String, version: String = DEFAULT_VERSION): String {
@@ -2063,153 +2079,58 @@ class GenericUiGradlePlugin : Plugin<Project> {
         }
 
         /**
-         * Extensions structured as a Project-of-Projects (`:extensions:<name>:common`,
-         * `:desktop`, `:mobile`, `:swing`, `:web`, plus umbrella `:extensions:<name>`).
+         * Historically listed extensions structured as a Project-of-Projects.
+         * All modules in the consolidated 45-project architecture are single multiplatform Gradle projects.
          */
-        val PROJECT_OF_PROJECTS_EXTENSIONS: Set<String> = setOf(
-            ":extensions:gpu",
-            ":extensions:imageprocessing",
-            ":extensions:canvas2d",
-            ":extensions:canvas3d",
-            ":extensions:media",
-            ":extensions:mediacontrols",
-            ":extensions:webview",
-            ":extensions:alien",
-            ":tests"
-        )
+        val PROJECT_OF_PROJECTS_EXTENSIONS: Set<String> = emptySet()
 
         /**
-         * Canonical set of GenericUI module paths present in `GenericUI/settings.gradle.kts`.
+         * Canonical set of GenericUI library/test module paths present in `GenericUI/settings.gradle.kts`.
          */
         val KNOWN_GENERICUI_MODULES: Set<String> = setOf(
             ":common",
-            ":systemCommon",
-            ":desktop:common",
-            ":desktop:nativeCommon",
-            ":desktop:linuxCommon",
-            ":desktop:qt",
-            ":desktop:gtk",
-            ":desktop:windows",
-            ":desktop:macos",
-            ":desktop:swing",
-            ":mobile:common",
-            ":mobile:android",
-            ":mobile:ios",
+            ":system",
+            ":jvm",
+            ":apple",
+            ":desktop",
+            ":mobile",
             ":web",
-            ":extensions:gpu",
-            ":extensions:gpu:common",
-            ":extensions:gpu:systemCommon",
-            ":extensions:gpu:desktop:nativeCommon",
-            ":extensions:gpu:desktop:swing",
-            ":extensions:gpu:mobile:common",
-            ":extensions:gpu:mobile:android",
-            ":extensions:gpu:mobile:ios",
-            ":extensions:gpu:web",
-            ":extensions:imageprocessing",
-            ":extensions:imageprocessing:common",
-            ":extensions:imageprocessing:systemCommon",
-            ":extensions:imageprocessing:web",
-            ":extensions:overlay",
-            ":extensions:overlay:dsl",
-            ":extensions:canvas2d",
-            ":extensions:canvas2d:common",
-            ":extensions:canvas2d:systemCommon",
-            ":extensions:canvas2d:desktop:nativeCommon",
-            ":extensions:canvas2d:desktop:windows",
-            ":extensions:canvas2d:desktop:macos",
-            ":extensions:canvas2d:desktop:gtk",
-            ":extensions:canvas2d:desktop:qt",
-            ":extensions:canvas2d:desktop:swing",
-            ":extensions:canvas2d:mobile:common",
-            ":extensions:canvas2d:mobile:android",
-            ":extensions:canvas2d:mobile:ios",
-            ":extensions:canvas2d:web",
-            ":extensions:canvas3d",
-            ":extensions:canvas3d:common",
-            ":extensions:canvas3d:systemCommon",
-            ":extensions:canvas3d:desktop:nativeCommon",
-            ":extensions:canvas3d:desktop:windows",
-            ":extensions:canvas3d:desktop:macos",
-            ":extensions:canvas3d:desktop:gtk",
-            ":extensions:canvas3d:desktop:qt",
-            ":extensions:canvas3d:desktop:swing",
-            ":extensions:canvas3d:mobile:common",
-            ":extensions:canvas3d:mobile:android",
-            ":extensions:canvas3d:mobile:ios",
-            ":extensions:canvas3d:web",
-            ":extensions:media",
-            ":extensions:media:common",
-            ":extensions:media:systemCommon",
-            ":extensions:media:desktop:nativeCommon",
-            ":extensions:media:desktop:windows",
-            ":extensions:media:desktop:macos",
-            ":extensions:media:desktop:gtk",
-            ":extensions:media:desktop:qt",
-            ":extensions:media:desktop:swing",
-            ":extensions:media:mobile:common",
-            ":extensions:media:mobile:android",
-            ":extensions:media:mobile:ios",
-            ":extensions:media:web",
-            ":extensions:mediacontrols",
-            ":extensions:mediacontrols:common",
-            ":extensions:mediacontrols:systemCommon",
-            ":extensions:mediacontrols:desktop:nativeCommon",
-            ":extensions:mediacontrols:desktop:windows",
-            ":extensions:mediacontrols:desktop:macos",
-            ":extensions:mediacontrols:desktop:gtk",
-            ":extensions:mediacontrols:desktop:qt",
-            ":extensions:mediacontrols:desktop:swing",
-            ":extensions:mediacontrols:mobile:common",
-            ":extensions:mediacontrols:mobile:android",
-            ":extensions:mediacontrols:mobile:ios",
-            ":extensions:mediacontrols:web",
-            ":extensions:mediacontrols:dsl",
-            ":extensions:webview",
-            ":extensions:webview:common",
-            ":extensions:webview:systemCommon",
-            ":extensions:webview:desktop:common",
-            ":extensions:webview:desktop:nativeCommon",
-            ":extensions:webview:desktop:windows",
-            ":extensions:webview:desktop:macos",
-            ":extensions:webview:desktop:gtk",
-            ":extensions:webview:desktop:qt",
-            ":extensions:webview:desktop:swing",
-            ":extensions:webview:mobile:common",
-            ":extensions:webview:mobile:android",
-            ":extensions:webview:mobile:ios",
-            ":extensions:webview:web",
-            ":extensions:alien",
-            ":extensions:alien:common",
-            ":extensions:alien:systemCommon",
-            ":extensions:alien:web",
-            ":extensions:alien:dsl",
-            ":extensions:aichat",
-            ":extensions:aichat:dsl",
-            ":extensions:codeeditor",
-            ":extensions:codeeditor:dsl",
-            ":extensions:threejs",
-            ":extensions:threejs:dsl",
-            ":extensions:box2d",
-            ":extensions:box2d:dsl",
-            ":extensions:box3d",
-            ":extensions:box3d:dsl",
-            ":extensions:canvas2d:dsl",
-            ":extensions:canvas3d:dsl",
-            ":extensions:media:dsl",
-            ":extensions:webview:dsl",
-            ":extensions:dsl",
-            ":tests",
-            ":tests:common",
-            ":tests:desktop:nativeCommon",
-            ":tests:desktop:windows",
-            ":tests:desktop:macos",
-            ":tests:desktop:gtk",
-            ":tests:desktop:qt",
-            ":tests:desktop:swing",
-            ":tests:mobile:common",
-            ":tests:mobile:android",
-            ":tests:mobile:ios",
-            ":tests:web"
+            ":extensions:graphics:gpu",
+            ":extensions:graphics:imageprocessing",
+            ":extensions:graphics:canvas2d",
+            ":extensions:graphics:canvas2d:dsl",
+            ":extensions:graphics:canvas3d",
+            ":extensions:graphics:canvas3d:dsl",
+            ":extensions:graphics:threejs",
+            ":extensions:graphics:threejs:dsl",
+            ":extensions:physics:box2d",
+            ":extensions:physics:box2d:dsl",
+            ":extensions:physics:box3d",
+            ":extensions:physics:box3d:dsl",
+            ":extensions:game:gamepad",
+            ":extensions:game:gamepad:dsl",
+            ":extensions:game:engine",
+            ":extensions:game:engine:dsl",
+            ":extensions:game:engine2d",
+            ":extensions:game:engine2d:dsl",
+            ":extensions:game:engine3d",
+            ":extensions:game:engine3d:dsl",
+            ":extensions:media:media",
+            ":extensions:media:media:dsl",
+            ":extensions:media:mediacontrols",
+            ":extensions:media:mediacontrols:dsl",
+            ":extensions:ui:dsl",
+            ":extensions:ui:overlay",
+            ":extensions:ui:overlay:dsl",
+            ":extensions:ui:alien",
+            ":extensions:ui:alien:dsl",
+            ":extensions:ui:webview",
+            ":extensions:ui:webview:dsl",
+            ":extensions:ui:codeeditor",
+            ":extensions:ui:codeeditor:dsl",
+            ":extensions:ui:aichat",
+            ":extensions:ui:aichat:dsl",
+            ":tests"
         )
     }
 }

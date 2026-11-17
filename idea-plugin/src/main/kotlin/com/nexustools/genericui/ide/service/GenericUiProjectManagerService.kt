@@ -33,6 +33,7 @@ class GenericUiProjectManagerService(
      * - `lib/` directory
      * - `src/commonMain/kotlin/<packagePath>/MainFragment.kt`
      * - `src/commonMain/resources/styles/main.scss`
+     * - `src/commonTest/kotlin/<packagePath>/MainFragmentTest.kt` (when [GenericUiProjectConfig.enableTesting] is `true`)
      */
     fun createProject(config: GenericUiProjectConfig): Path {
         val rootDir = Paths.get(config.projectRootPath).toAbsolutePath().normalize()
@@ -78,6 +79,16 @@ class GenericUiProjectManagerService(
             StandardCharsets.UTF_8
         )
 
+        if (config.enableTesting) {
+            val testDir = rootDir.resolve("src/commonTest/kotlin").resolve(packageRelPath)
+            Files.createDirectories(testDir)
+            Files.writeString(
+                testDir.resolve("MainFragmentTest.kt"),
+                sourceGenerator.generateMainFragmentTestKt(config),
+                StandardCharsets.UTF_8
+            )
+        }
+
         return rootDir
     }
 
@@ -114,7 +125,8 @@ class GenericUiProjectManagerService(
 
     /**
      * Updates an existing project's `build.gradle.kts` with the newly checked
-     * [updatedBackends] and [updatedExtensions] from the Manage GenericUI Targets dialog.
+     * [updatedBackends] and [updatedExtensions] (plus optional window, testing, and Apple icon settings)
+     * from the Manage GenericUI Targets dialog.
      */
     fun updateProjectTargetsAndExtensions(
         projectDir: Path,
@@ -122,7 +134,16 @@ class GenericUiProjectManagerService(
         updatedExtensions: Set<GenericUiExtensionModule>,
         swingUseLwjglGL: Boolean = true,
         swingUseVulkan: Boolean = true,
-        compileSass: Boolean = true
+        compileSass: Boolean = true,
+        enableTesting: Boolean? = null,
+        windowAlwaysOnTop: Boolean? = null,
+        windowAspectRatioWidth: Int? = null,
+        windowAspectRatioHeight: Int? = null,
+        clearWindowAspectRatio: Boolean = false,
+        appleIcon: String? = null,
+        macIcon: String? = null,
+        iosIcon: String? = null,
+        ipadosIcon: String? = null
     ): Path {
         val currentConfig = loadProjectConfig(projectDir)
         val newConfig = currentConfig.copy(
@@ -130,7 +151,15 @@ class GenericUiProjectManagerService(
             selectedExtensions = GenericUiExtensionModule.resolveTransitive(updatedExtensions),
             swingUseLwjglGL = swingUseLwjglGL,
             swingUseVulkan = swingUseVulkan,
-            compileSass = compileSass
+            compileSass = compileSass,
+            enableTesting = enableTesting ?: currentConfig.enableTesting,
+            windowAlwaysOnTop = windowAlwaysOnTop ?: currentConfig.windowAlwaysOnTop,
+            windowAspectRatioWidth = if (clearWindowAspectRatio) null else (windowAspectRatioWidth ?: currentConfig.windowAspectRatioWidth),
+            windowAspectRatioHeight = if (clearWindowAspectRatio) null else (windowAspectRatioHeight ?: currentConfig.windowAspectRatioHeight),
+            appleIcon = appleIcon ?: currentConfig.appleIcon,
+            macIcon = macIcon ?: currentConfig.macIcon,
+            iosIcon = iosIcon ?: currentConfig.iosIcon,
+            ipadosIcon = ipadosIcon ?: currentConfig.ipadosIcon
         )
 
         val buildFile = projectDir.toAbsolutePath().normalize().resolve("build.gradle.kts")

@@ -25,11 +25,22 @@ class PreferenceStoreTest {
             "hardwareAcceleration" to hardwareAcceleration,
             "pinnedPanels" to pinnedPanels
         )
+
+        override fun fromPreferenceElements(fields: Map<String, PreferenceElement>): Any = EditorUserSettings(
+            theme = fields["theme"]?.asString() ?: theme,
+            fontSize = fields["fontSize"]?.asInt(fontSize) ?: fontSize,
+            autoSaveIntervalMs = fields["autoSaveIntervalMs"]?.asLong(autoSaveIntervalMs) ?: autoSaveIntervalMs,
+            uiScale = fields["uiScale"]?.asFloat(uiScale) ?: uiScale,
+            hardwareAcceleration = fields["hardwareAcceleration"]?.asBoolean(hardwareAcceleration) ?: hardwareAcceleration,
+            pinnedPanels = fields["pinnedPanels"]?.arrayElements?.mapNotNull { it.asString() } ?: pinnedPanels
+        )
     }
 
     @Test
     fun `PreferenceStore saves and loads objects primitives and notifies listeners`() {
-        GenericUI.applicationName = "TestStudioApp"
+        val previousAppName = GenericUI.applicationName
+        try {
+            GenericUI.applicationName = "TestStudioApp"
         val store = PreferenceStore.open()
         assertEquals("TestStudioApp", store.appName)
         assertTrue(store.usesNativeChangeListener)
@@ -87,5 +98,8 @@ class PreferenceStoreTest {
         store.removeChangeListener(listener)
         store.dispose()
         assertTrue(store.isDisposed)
+        } finally {
+            GenericUI.applicationName = previousAppName
+        }
     }
 }

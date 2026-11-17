@@ -1,7 +1,8 @@
 package com.nexustools.genericui.ide.model
 
 /**
- * Enum of all 8 target platform backends supported by the `GenericUI` framework.
+ * Enum of all 9 target platform backends supported by the `GenericUI` framework across the
+ * consolidated core modules (`:common`, `:system`, `:jvm`, `:apple`, `:desktop`, `:mobile`, `:web`, `:tests`).
  *
  * Used by the IntelliJ IDEA New Project Wizard and Manage Targets Dialog to render
  * interactive checkboxes and generate the corresponding `genericui { backends { ... } }`
@@ -20,7 +21,7 @@ enum class GenericUiTargetBackend(
         displayName = "Windows (Win32 / Direct2D / ANGLE / Vulkan)",
         category = "Desktop",
         defaultSelected = true,
-        gradleModulePath = ":desktop:windows",
+        gradleModulePath = ":desktop",
         dslMethodName = "windows"
     ),
     MACOS(
@@ -28,23 +29,23 @@ enum class GenericUiTargetBackend(
         displayName = "macOS (AppKit / CoreGraphics / MoltenVK)",
         category = "Desktop",
         defaultSelected = true,
-        gradleModulePath = ":desktop:macos",
+        gradleModulePath = ":desktop",
         dslMethodName = "macos"
     ),
     GTK(
         id = "gtk",
-        displayName = "Linux GTK (GTK4 / Cairo / EGL / Vulkan)",
+        displayName = "Linux (GTK4 / Libadwaita / Cairo / EGL / Vulkan)",
         category = "Desktop",
         defaultSelected = true,
-        gradleModulePath = ":desktop:gtk",
+        gradleModulePath = ":desktop",
         dslMethodName = "gtk"
     ),
     QT(
         id = "qt",
-        displayName = "Linux & Cross-Platform Qt (Qt6 / QPainter / QVulkanWindow)",
+        displayName = "Linux (Qt6 / QPainter / QOpenGLWidget / QVulkanWindow)",
         category = "Desktop",
         defaultSelected = true,
-        gradleModulePath = ":desktop:qt",
+        gradleModulePath = ":desktop",
         dslMethodName = "qt"
     ),
     SWING(
@@ -52,7 +53,7 @@ enum class GenericUiTargetBackend(
         displayName = "Java Swing (JVM AWT / Optional LWJGL GL & Vulkan)",
         category = "Desktop",
         defaultSelected = false,
-        gradleModulePath = ":desktop:swing",
+        gradleModulePath = ":desktop",
         dslMethodName = "swing"
     ),
     ANDROID(
@@ -60,7 +61,7 @@ enum class GenericUiTargetBackend(
         displayName = "Android (Native Material / RecyclerView / Vulkan & GLES)",
         category = "Mobile",
         defaultSelected = true,
-        gradleModulePath = ":mobile:android",
+        gradleModulePath = ":mobile",
         dslMethodName = "android"
     ),
     IOS(
@@ -68,8 +69,16 @@ enum class GenericUiTargetBackend(
         displayName = "iOS (UIKit / CoreGraphics / MoltenVK)",
         category = "Mobile",
         defaultSelected = true,
-        gradleModulePath = ":mobile:ios",
+        gradleModulePath = ":mobile",
         dslMethodName = "ios"
+    ),
+    IPADOS(
+        id = "ipados",
+        displayName = "iPadOS (UIKit / Multi-Window / MenuBar / MoltenVK)",
+        category = "Mobile",
+        defaultSelected = true,
+        gradleModulePath = ":mobile",
+        dslMethodName = "ipados"
     ),
     WEB(
         id = "web",
@@ -80,22 +89,53 @@ enum class GenericUiTargetBackend(
         dslMethodName = "web"
     );
 
-    /** True if this backend belongs to the native desktop family sharing `:desktop:shared`. */
+    /** True if this backend targets an installed OS/system environment (`false` only for [WEB]). */
+    val isSystem: Boolean
+        get() = this != WEB
+
+    /** True if this backend belongs to the desktop family sharing `:desktop`. */
+    val isDesktop: Boolean
+        get() = isNativeDesktop || this == SWING
+
+    /** True if this backend belongs to the native desktop family (`windows`, `macos`, `gtk`, `qt`). */
     val isNativeDesktop: Boolean
         get() = this == WINDOWS || this == MACOS || this == GTK || this == QT
 
-    /** True if this backend belongs to the mobile family sharing `:mobile:shared`. */
+    /** True if this backend belongs to the mobile family sharing `:mobile` (`android`, `ios`, `ipados`). */
     val isMobile: Boolean
-        get() = this == ANDROID || this == IOS
+        get() = this == ANDROID || this == IOS || this == IPADOS
+
+    /** True if this backend belongs to the Apple ecosystem sharing `:apple` (`macos`, `ios`, `ipados`). */
+    val isApple: Boolean
+        get() = this == MACOS || this == IOS || this == IPADOS
+
+    /** True if this backend belongs to the Apple UIKit family (`ios`, `ipados`). */
+    val isIosFamily: Boolean
+        get() = this == IOS || this == IPADOS
+
+    /** True if this backend targets JVM or Android ART bytecode sharing `:jvm` (`swing`, `android`). */
+    val isJvm: Boolean
+        get() = this == SWING || this == ANDROID
+
+    /** Returns the consolidated core Gradle module paths required by this backend. */
+    fun requiredCoreModules(): Set<String> = buildSet {
+        add(":common")
+        if (isSystem) add(":system")
+        if (isJvm) add(":jvm")
+        if (isApple) add(":apple")
+        if (isDesktop) add(":desktop")
+        if (isMobile) add(":mobile")
+        if (this@GenericUiTargetBackend == WEB) add(":web")
+    }
 
     companion object {
-        /** Default selection: all 7 native/mobile/web targets EXCEPT Swing (`allExceptSwing()`). */
+        /** Default selection: all 8 native/mobile/web targets EXCEPT Swing (`allExceptSwing()`). */
         fun defaultSelectedSet(): Set<GenericUiTargetBackend> =
             entries.filter { it.defaultSelected }.toCollection(LinkedHashSet())
 
-        /** All 7 backends except Swing (`windows`, `macos`, `gtk`, `qt`, `android`, `ios`, `web`). */
+        /** All 8 backends except Swing (`windows`, `macos`, `gtk`, `qt`, `android`, `ios`, `ipados`, `web`). */
         fun allExceptSwingSet(): Set<GenericUiTargetBackend> =
-            linkedSetOf(WINDOWS, MACOS, GTK, QT, ANDROID, IOS, WEB)
+            linkedSetOf(WINDOWS, MACOS, GTK, QT, ANDROID, IOS, IPADOS, WEB)
 
         /** All 4 native desktop backends except Swing (`windows`, `macos`, `gtk`, `qt`). */
         fun desktopExceptSwingSet(): Set<GenericUiTargetBackend> =
@@ -109,17 +149,41 @@ enum class GenericUiTargetBackend(
         fun desktopAllSet(): Set<GenericUiTargetBackend> =
             linkedSetOf(WINDOWS, MACOS, GTK, QT, SWING)
 
-        /** Mobile backends (`android`, `ios`). */
+        /** Mobile backends (`android`, `ios`, `ipados`). */
         fun mobileSet(): Set<GenericUiTargetBackend> =
-            linkedSetOf(ANDROID, IOS)
+            linkedSetOf(ANDROID, IOS, IPADOS)
 
-        /** All 8 backends (`all()`). */
+        /** Apple ecosystem backends (`macos`, `ios`, `ipados`). */
+        fun appleSet(): Set<GenericUiTargetBackend> =
+            linkedSetOf(MACOS, IOS, IPADOS)
+
+        /** All 9 backends (`all()`). */
         fun allSet(): Set<GenericUiTargetBackend> =
             entries.toCollection(LinkedHashSet())
+
+        /**
+         * Returns the canonical consolidated core module paths required for [backends],
+         * optionally including the single `:tests` (`JestElectricRunner`) module.
+         */
+        fun requiredCoreModulesFor(
+            backends: Set<GenericUiTargetBackend>,
+            includeTests: Boolean = true
+        ): Set<String> {
+            val result = linkedSetOf(":common")
+            if (backends.any { it.isSystem }) result.add(":system")
+            if (backends.any { it.isJvm }) result.add(":jvm")
+            if (backends.any { it.isApple }) result.add(":apple")
+            if (backends.any { it.isDesktop }) result.add(":desktop")
+            if (backends.any { it.isMobile }) result.add(":mobile")
+            if (WEB in backends) result.add(":web")
+            if (includeTests) result.add(":tests")
+            return result
+        }
 
         /** Looks up a backend by its [id] or [dslMethodName] (case-insensitive). */
         fun fromId(id: String): GenericUiTargetBackend? {
             val normalized = id.trim().lowercase()
+            if (normalized == "mac") return MACOS
             return entries.firstOrNull {
                 it.id.lowercase() == normalized || it.dslMethodName.lowercase() == normalized
             }

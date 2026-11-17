@@ -1,5 +1,6 @@
 package com.nexustools.genericui.util
 
+import com.nexustools.genericui.component.system.PreferenceElement
 import com.nexustools.genericui.component.system.PreferenceSerializable
 import com.nexustools.genericui.io.ByteBuffer
 import com.nexustools.genericui.io.ByteOrder
@@ -31,6 +32,15 @@ class BinaryPlistTest {
             "retinaScale" to retinaScale,
             "maximized" to maximized,
             "recentFiles" to recentFiles
+        )
+
+        override fun fromPreferenceElements(fields: Map<String, PreferenceElement>): Any = MacWindowPreference(
+            title = fields["title"]?.asString() ?: title,
+            width = fields["width"]?.asInt(width) ?: width,
+            height = fields["height"]?.asInt(height) ?: height,
+            retinaScale = fields["retinaScale"]?.asDouble(retinaScale) ?: retinaScale,
+            maximized = fields["maximized"]?.asBoolean(maximized) ?: maximized,
+            recentFiles = fields["recentFiles"]?.arrayElements?.mapNotNull { it.asString() } ?: recentFiles
         )
     }
 

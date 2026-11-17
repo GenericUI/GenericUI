@@ -82,6 +82,18 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
 
     @get:Input
     @get:Optional
+    abstract val backendWindowAlwaysOnTops: MapProperty<String, Boolean>
+
+    @get:Input
+    @get:Optional
+    abstract val backendWindowAspectRatios: MapProperty<String, Double>
+
+    @get:Input
+    @get:Optional
+    abstract val backendAppleIconExplicitlyProvided: MapProperty<String, Boolean>
+
+    @get:Input
+    @get:Optional
     abstract val backendThemeModes: MapProperty<String, String>
 
     @get:Input
@@ -196,6 +208,9 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
         val minHeightsMap = backendMinWindowHeights.getOrElse(emptyMap())
         val resizablesMap = backendWindowResizables.getOrElse(emptyMap())
         val fullscreensMap = backendFullscreens.getOrElse(emptyMap())
+        val alwaysOnTopsMap = backendWindowAlwaysOnTops.getOrElse(emptyMap())
+        val aspectRatiosMap = backendWindowAspectRatios.getOrElse(emptyMap())
+        val appleExplicitMap = backendAppleIconExplicitlyProvided.getOrElse(emptyMap())
         val themeModesMap = backendThemeModes.getOrElse(emptyMap())
         val themeColorsMap = backendThemeColors.getOrElse(emptyMap())
         val lightThemeColorsMap = backendLightThemeColors.getOrElse(emptyMap())
@@ -223,6 +238,8 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
                 minWindowHeight = minHeightsMap[key] ?: 240,
                 windowResizable = resizablesMap[key] ?: true,
                 fullscreen = fullscreensMap[key] ?: false,
+                windowAlwaysOnTop = alwaysOnTopsMap[key] ?: false,
+                windowAspectRatio = aspectRatiosMap[key]?.takeIf { it.isFinite() && it > 0.0 },
                 themeMode = themeModesMap[key] ?: "auto",
                 themeColor = resolvedPrimary,
                 lightThemeColors = lightThemeColorsMap[key]?.takeIf { it.isNotEmpty() }
@@ -231,6 +248,7 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
                     ?: GenericUiThemeConfig.defaultDarkColors(resolvedPrimary),
                 hasCustomThemeOverrides = hasCustomThemeMap[key] ?: (resolvedPrimary != "#0d6efd"),
                 iconPath = iconPathsMap[key]?.takeIf { it.isNotBlank() },
+                appleIconExplicitlyProvided = appleExplicitMap[key] ?: false,
                 globalStyleSheet = globalStyleSheetsMap[key]?.takeIf { it.isNotBlank() }
             )
             val providerCalls = providerCallsMap[key].orEmpty()
@@ -269,6 +287,7 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
             GenericUiVariantScope.QT,
             GenericUiVariantScope.SWING,
             GenericUiVariantScope.IOS,
+            GenericUiVariantScope.IPADOS,
             GenericUiVariantScope.WEB
         )
 
@@ -309,6 +328,7 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
             if (backends.qtEnabled) add(GenericUiVariantScope.QT)
             if (backends.swingConfig.enabled) add(GenericUiVariantScope.SWING)
             if (backends.iosEnabled) add(GenericUiVariantScope.IOS)
+            if (backends.ipadosEnabled) add(GenericUiVariantScope.IPADOS)
             if (backends.webEnabled) add(GenericUiVariantScope.WEB)
         }
 
@@ -323,6 +343,7 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
             if (backends.swingConfig.enabled) add(GenericUiVariantScope.SWING)
             if (backends.androidEnabled) add(GenericUiVariantScope.ANDROID)
             if (backends.iosEnabled) add(GenericUiVariantScope.IOS)
+            if (backends.ipadosEnabled) add(GenericUiVariantScope.IPADOS)
             if (backends.webEnabled) add(GenericUiVariantScope.WEB)
         }
 
@@ -483,6 +504,7 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
             GenericUiVariantScope.SWING -> "Swing"
             GenericUiVariantScope.ANDROID -> "Android"
             GenericUiVariantScope.IOS -> "Ios"
+            GenericUiVariantScope.IPADOS -> "Ipados"
             GenericUiVariantScope.WEB -> "Web"
             else -> scope.id.replaceFirstChar { it.uppercaseChar() }
         }
@@ -656,10 +678,13 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
                 appendLine("        ),")
             }
             if (resourcesEnabled && resourcePackage.isNotBlank()) {
-                appendLine("        resourceRegistryInstaller = { $resourcePackage.GeneratedResourceRegistry.registerAll() }")
+                appendLine("        resourceRegistryInstaller = { $resourcePackage.GeneratedResourceRegistry.registerAll() },")
             } else {
-                appendLine("        resourceRegistryInstaller = null")
+                appendLine("        resourceRegistryInstaller = null,")
             }
+            appendLine("        windowAlwaysOnTop = ${variantConfig.windowAlwaysOnTop},")
+            appendLine("        windowAspectRatio = ${variantConfig.windowAspectRatio?.toString() ?: "null"},")
+            appendLine("        appleIconExplicitlyProvided = ${variantConfig.appleIconExplicitlyProvided}")
             appendLine("    )")
             appendLine("}")
         }
@@ -728,6 +753,14 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
                     appendLine("fun main(args: Array<String>) {")
                     appendLine("    GenericUI.defaultThemeConfig = $descriptorObjectName.create().themeConfig")
                     appendLine("    com.nexustools.genericui.ios.IosLauncher.launch(args, $descriptorObjectName.create())")
+                    appendLine("}")
+                }
+                GenericUiVariantScope.IPADOS -> {
+                    appendLine("fun MainViewController() = com.nexustools.genericui.ipados.IpadosLauncher.createRootViewController($descriptorObjectName.create())")
+                    appendLine()
+                    appendLine("fun main(args: Array<String>) {")
+                    appendLine("    GenericUI.defaultThemeConfig = $descriptorObjectName.create().themeConfig")
+                    appendLine("    com.nexustools.genericui.ipados.IpadosLauncher.launch(args, $descriptorObjectName.create())")
                     appendLine("}")
                 }
                 GenericUiVariantScope.WEB -> {
@@ -870,6 +903,17 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
                             appendLine("    }")
                             appendLine()
                             appendLine("    fun installIfEnabled() = IosJestElectricBootstrap.installIfEnabled()")
+                            appendLine("}")
+                        }
+                        GenericUiVariantScope.IPADOS -> {
+                            appendLine("import com.nexustools.genericui.tests.ipados.IpadosJestElectricBootstrap")
+                            appendLine()
+                            appendLine("object $objectName {")
+                            appendLine("    init {")
+                            appendLine("        IpadosJestElectricBootstrap.installIfEnabled()")
+                            appendLine("    }")
+                            appendLine()
+                            appendLine("    fun installIfEnabled() = IpadosJestElectricBootstrap.installIfEnabled()")
                             appendLine("}")
                         }
                         GenericUiVariantScope.WEB -> {

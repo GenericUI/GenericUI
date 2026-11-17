@@ -176,7 +176,9 @@ abstract class GenericUiPackageSwingJarTask : DefaultTask() {
             File(buildDir, "generated/genericui/resources/backends/web"),
             File(rootDir, "src/commonMain/resources"),
             File(rootDir, "src/common/resources"),
+            File(rootDir, "src/systemMain/resources"),
             File(rootDir, "src/systemCommon/resources"),
+            File(rootDir, "src/jvmCommon/resources"),
             File(rootDir, "src/desktopCommon/resources"),
             File(rootDir, "src/swingMain/resources"),
             File(rootDir, "src/jvmMain/resources")
@@ -464,12 +466,12 @@ abstract class GenericUiPackageSwingJarTask : DefaultTask() {
             File(rootDir, "lib/GenericUI"),
             rootDir.parentFile?.let { File(it, "lib/GenericUI") },
             project.rootProject.projectDir.parentFile?.let { File(it, "GenericUI") },
-            rootDir.parentFile?.parentFile?.parentFile?.takeIf { File(it, "desktop/swing/build.gradle.kts").isFile }
+            rootDir.parentFile?.parentFile?.parentFile?.takeIf { File(it, "desktop/build.gradle.kts").isFile }
         ).forEach { dir ->
             if (dir.isDirectory) candidateGenericUiRoots.add(dir)
         }
         if (project.rootProject.name.equals("GenericUI", ignoreCase = true) ||
-            File(project.rootProject.projectDir, "desktop/swing/build.gradle.kts").isFile
+            File(project.rootProject.projectDir, "desktop/build.gradle.kts").isFile
         ) {
             candidateGenericUiRoots.add(project.rootProject.projectDir)
         }
@@ -733,7 +735,7 @@ abstract class GenericUiPackageSwingJarTask : DefaultTask() {
             throw GradleException(
                 "Swing fat JAR packaging failed: required classes are missing from ${jarFile.absolutePath}: " +
                     missingClasses.joinToString(", ") + ". " +
-                    "Ensure all GenericUI Swing modules (:common, :systemCommon, :desktop:common, :desktop:swing), Kotlin stdlib, and app classes are compiled."
+                    "Ensure all GenericUI Swing modules (:common, :system, :jvm, :desktop), Kotlin stdlib, and app classes are compiled."
             )
         }
     }

@@ -1,24 +1,22 @@
 # GenericUI Gradle Plugin Guide (`:gradle-plugin`)
 
 > **Root Repository**: [**GenericUI (`../README.md`)**](../README.md) | **Master Docs Index**: [**`docs/README.md`**](./README.md)  
-> **Related Guides**: [Fragments & Windows (`fragments-and-windows.md`)](./fragments-and-windows.md) · [Hybrid Layouts & Helpers (`layouts-and-helpers.md`)](./layouts-and-helpers.md) · [Resources (`resources.md`)](./resources.md) · [Application & Theming (`application.md`)](./application.md) · [SourceSets (`sourcesets.md`)](./sourcesets.md) · [Platform Backends (`backends.md`)](./backends.md) · [Extensions (`extensions.md`)](./extensions.md)
+> **Related Guides**: [iPadOS Backend (`ipados.md`)](./ipados.md) · [Shared Apple (`apple.md`)](./apple.md) · [Shared JVM (`jvm.md`)](./jvm.md) · [Fragments & Windows (`fragments-and-windows.md`)](./fragments-and-windows.md) · [Resources (`resources.md`)](./resources.md) · [Application & Theming (`application.md`)](./application.md) · [SourceSets (`sourcesets.md`)](./sourcesets.md) · [Platform Backends (`backends.md`)](./backends.md) · [Extensions (`extensions.md`)](./extensions.md)
 
-The `:gradle-plugin` module provides `id("com.nexustools.genericui")` (and the companion settings plugin `id("com.nexustools.genericui.settings")`) to build complete multiplatform applications from a **single `src/commonMain` source set** with zero per-backend boilerplate.
+The `:gradle-plugin` module provides `id("com.nexustools.genericui")` (`GenericUiGradlePlugin`) and `id("com.nexustools.genericui.settings")` (`GenericUiSettingsPlugin`) to build complete 9-target multiplatform applications from a **single `src/commonMain` source set** with zero per-backend boilerplate.
 
 ---
 
 ## 1. What the Plugin Automates
 
-When `id("com.nexustools.genericui")` is applied to a project:
-1. **Annotation-Driven Fragment & Application Discovery**: Scans Kotlin sources (`GenericUiFragmentScanner`) for [`@MainAppFragment`](../common/src/commonMain/kotlin/com/nexustools/genericui/component/fragment/MainAppFragment.kt), [`@AppFragment`](../common/src/commonMain/kotlin/com/nexustools/genericui/component/fragment/AppFragment.kt), and optional [`@AppApplication`](../common/src/commonMain/kotlin/com/nexustools/genericui/component/fragment/AppApplication.kt) classes.
-2. **Intelligent `@MainAppFragment` Target Specificity Resolution (`genericuiValidateApp`)**: Resolves the most specific `@MainAppFragment` for each enabled backend target along its [`AppTarget`](../common/src/commonMain/kotlin/com/nexustools/genericui/enums/system/AppTarget.kt) specificity chain (`5 → 4 → 3 → 2 → 1 → 0`), failing the build with a descriptive diagnostic if two `@MainAppFragment` classes tie at the highest specificity rank or if an enabled target has no matching `@MainAppFragment`.
-3. **Generated Per-Backend Launchers, `ThemeConfig` Initialization, & `FragmentBundle` CLI Arguments (`generateGenericUiLaunchers`)**: Generates the `GenericUiAppDescriptor` and launcher bootstrap for every enabled target (`WindowsLauncher`, `MacosLauncher`, `GtkLauncher`, `QtLauncher`, `SwingLauncher`, `AndroidLauncher`, `IosLauncher`, `WebLauncher`), automatically registering all enabled extension providers, initializing `app.setThemeConfig(ThemeConfig(...))` and `app.addStyleSheet(...)` from the `genericui { theme { ... } }` and `styles { ... }` blocks, and injecting process command-line arguments into the initial `FragmentBundle` on system targets (`savedState?.hasCommandLineArgs()`, `savedState?.getCommandLineArgs()`).
-4. **1:1 Generated Android `AppCompatActivity` Classes, Material Theme XML (`@style/Theme.GenericUI.App`), `AndroidManifest.xml`, & Services**:
-   - Synthesizes an Android application wrapper project via `GenericUiSettingsPlugin` when building Android APKs.
-   - Generates a concrete 1:1 **`AppCompatActivity` subclass** (`class <FragmentName>Activity : GenericUiFragmentActivity()`) for every `@MainAppFragment` and `@AppFragment` applicable to Android (`generateGenericUiAndroidActivities`), registering each mapping in `AndroidActivityRegistry`.
-   - Generates Android Material theme XML files (`res/values/genericui_theme_colors.xml`, `res/values/themes.xml`, and `res/values-night/themes.xml` defining `@style/Theme.GenericUI.App` with `colorPrimary`, `colorSecondary`, `colorAccent`, `colorError`, `android:colorBackground`, `colorSurface`, `android:statusBarColor`, and `android:navigationBarColor`) from `genericui { theme { ... } }`.
-   - Generates `AndroidManifest.xml` (`generateGenericUiAndroidManifest`) with `<application android:theme="@style/Theme.GenericUI.App">`, `<activity>` entries (with `MAIN`/`LAUNCHER` on the resolved Android `@MainAppFragment`), permissions, orientation, Picture-in-Picture flags, and `<service>` declarations from `android { services { ... } }`.
-5. **Android-Style `Resource` / `Resource.ResourceID` Generation & Multi-Backend Translation**: Generates `<package>.Resource` (and `R` / `RC`) with [`ResourceID`](../common/src/commonMain/kotlin/com/nexustools/genericui/resources/ResourceID.kt) constants and translates resources into Web asset URLs, embedded Win32 `.rc`/`.res` `.exe` resources, Android `res/` XMLs & `R.*` IDs, Apple `NSBundle` assets, Linux `GResource`/`QResource` bundles, and JVM JAR resources. See the [**Resources Guide (`resources.md`)**](./resources.md).
+When `id("com.nexustools.genericui")` is applied:
+1. **Annotation-Driven Fragment & Application Discovery**: Scans Kotlin sources (`GenericUiFragmentScanner`) for `@MainAppFragment`, `@AppFragment`, and `@AppApplication`.
+2. **Target Specificity Resolution (`genericuiValidateApp`)**: Resolves the most specific `@MainAppFragment` for each enabled backend across all 7 [`AppTarget`](../common/src/commonMain/kotlin/com/nexustools/genericui/enums/system/AppTarget.kt) ranks (`6 → 5 → 4 → 3 → 2 → 1 → 0`), failing immediately on ties or missing targets.
+3. **Generated Per-Backend Launchers & Descriptors (`generateGenericUiLaunchers`)**: Generates `GenericUiAppDescriptor` and launcher entry points (`WindowsLauncher`, `MacosLauncher`, `GtkLauncher`, `QtLauncher`, `SwingLauncher`, `AndroidLauncher`, `IosLauncher`, `IpadosLauncher`, `WebLauncher`), wiring window geometry (`alwaysOnTop`, windowed `aspectRatio`), Apple icon wrapping flags (`appleIconExplicitlyProvided`), `ThemeConfig`, `addStyleSheet(...)`, extension providers, and system CLI `FragmentBundle` arguments.
+4. **Android 1:1 Activities, Material XML, & Xcode iOS/iPadOS App Generation**:
+   - **Android (`generateGenericUiAndroidActivities`, `generateGenericUiAndroidManifest`)**: Synthesizes `<FragmentName>Activity : GenericUiFragmentActivity()`, `AndroidActivityRegistry`, `@style/Theme.GenericUI.App` XMLs, and `AndroidManifest.xml`.
+   - **iOS & iPadOS (`generateGenericUiIosApp`, `generateGenericUiIpadosApp`)**: Generates dedicated Swift/UIKit Xcode projects (`build/genericui/iosApp` with `UIDeviceFamily = 1`, `build/genericui/ipadosApp` with `UIDeviceFamily = 2`) and composes `AppIcon` assets. When both `ios()` and `ipados()` are enabled, compiles disambiguated frameworks (`iosDebugFramework` / `ipadosDebugFramework`).
+5. **Resource & Stylesheet Compilation (`compileGenericUiResources`, `compileGenericUiSass`)**: Generates `Resource` (`ResourceID`, `R`, `RC`) and translates resources + `.scss` stylesheets across all 9 targets.
 
 ---
 
@@ -32,7 +30,7 @@ plugins {
 }
 
 genericui {
-    // 1. Core Application Identity & Metadata
+    // 1. Application Identity & Metadata
     app {
         id = "com.example.studio"
         name = "GenericUI Studio"
@@ -42,7 +40,7 @@ genericui {
         packageName = "com.example.studio"
     }
 
-    // 2. Top-Level Window & Theme Defaults (inherited by all variant scopes unless overridden)
+    // 2. Top-Level Window Defaults (inherited by variant scopes unless overridden)
     window {
         title = "GenericUI Studio"
         width = 1440
@@ -50,50 +48,42 @@ genericui {
         minWidth = 960
         minHeight = 600
         resizable = true
+        alwaysOnTop = false          // Pin floating utility/HUD windows above regular windows
+        aspectRatio(16, 9)           // Client-viewport aspect ratio lock (WindowState.NORMAL only; unconstrained when maximized/fullscreen)
+        // Or double form: aspectRatio = 16.0 / 9.0
         icon = "src/commonMain/resources/drawable/icon_app.svg"
     }
 
+    // 3. Target-Specific & Apple Icon Overrides (auto-wrapped in white squircle/full-bleed tile when omitted)
+    appleIcon("src/commonMain/resources/drawable/icon_apple.svg")
+    // Or configure explicitly per Apple OS:
+    // macIcon("src/commonMain/resources/drawable/icon_macos.svg")      // alias: macosIcon(...)
+    // iosIcon("src/commonMain/resources/drawable/icon_iphone.svg")
+    // ipadosIcon("src/commonMain/resources/drawable/icon_ipad.svg")    // alias: ipadIcon(...)
+
     theme {
-        mode = "auto"               // "auto" (default, ThemeMode.AUTO), "dark" (ThemeMode.DARK), or "light" (ThemeMode.LIGHT)
-        primaryColor = "#2563EB"    // Default primary / BootstrapType.PRIMARY color (alias: color = "#2563EB")
-        secondaryColor = "#64748B"  // Default secondary / BootstrapType.SECONDARY color
-        accentColor = "#4F46E5"     // Default accent color
-        successColor = "#16A34A"    // BootstrapType.SUCCESS color
-        dangerColor = "#DC2626"     // BootstrapType.DANGER color
-        warningColor = "#F59E0B"    // BootstrapType.WARNING color
-        infoColor = "#0EA5E9"       // BootstrapType.INFO color
-        lightColor = "#F8FAFC"      // BootstrapType.LIGHT color
-        darkColor = "#1E293B"       // BootstrapType.DARK color
-        backgroundColor = "#F8FAFC" // Default window/body background
-        surfaceColor = "#FFFFFF"    // Default card/panel surface
+        mode = "auto"               // "auto" (default, ThemeMode.AUTO), "dark", or "light"
+        primaryColor = "#2563EB"
+        secondaryColor = "#64748B"
+        accentColor = "#4F46E5"
+        successColor = "#16A34A"
+        dangerColor = "#DC2626"
+        warningColor = "#F59E0B"
+        infoColor = "#0EA5E9"
+        backgroundColor = "#F8FAFC"
+        surfaceColor = "#FFFFFF"
         textPrimaryColor = "#0F172A"
         textSecondaryColor = "#475569"
         borderColor = "#CBD5E1"
-        light {
-            // Optional light-mode-specific overrides (ThemeColorSet)
-            backgroundColor = "#F8FAFC"
-            surfaceColor = "#FFFFFF"
-            textPrimaryColor = "#0F172A"
-            textSecondaryColor = "#475569"
-            borderColor = "#CBD5E1"
-        }
-        dark {
-            // Optional dark-mode-specific overrides (ThemeColorSet)
-            primaryColor = "#3B82F6"
-            accentColor = "#6366F1"
-            backgroundColor = "#0F172A"
-            surfaceColor = "#1E293B"
-            textPrimaryColor = "#F8FAFC"
-            textSecondaryColor = "#94A3B8"
-            borderColor = "#334155"
-        }
-        styleSheet = "styles/main.scss" // Optional global stylesheet automatically attached via app.addStyleSheet(...)
+        light { backgroundColor = "#F8FAFC" }
+        dark { backgroundColor = "#0F172A"; surfaceColor = "#1E293B" }
+        styleSheet = "styles/main.scss"
     }
 
-    // 3. Target Platform Backends
+    // 4. Target Platform Backends (9 targets)
     backends {
-        all() // Enables windows, macos, gtk, qt, swing, android, ios, and web (wasmJs + js fallback)
-        // Or presets: allExceptSwing(), allDesktop(), allDesktopExceptSwing(), allMobile()
+        all() // Enables windows, macos, gtk, qt, swing, android, ios, ipados, and web (wasmJs + js)
+        // Or: allExceptSwing(), allDesktop(), allDesktopExceptSwing(), allMobile()
         swing {
             enabled = true
             useLwjglGL = true
@@ -105,52 +95,51 @@ genericui {
         }
     }
 
-    // 4. First-Party Extension Modules (Transitive Dependencies & Backend Providers Wired Automatically)
+    // 5. First-Party Extension Modules (19 Extensions + Companion :dsl Modules)
     extensions {
-        gpu()              // :extensions:gpu
-        imageProcessing()  // :extensions:imageprocessing (transitively enables gpu)
-        overlay()          // :extensions:overlay (also enabled automatically by media, canvas2d, and canvas3d)
-        canvas2d()         // :extensions:canvas2d (transitively enables imageProcessing + overlay)
-        canvas3d()         // :extensions:canvas3d (transitively enables gpu + canvas2d + overlay)
-        media()            // :extensions:media (transitively enables overlay)
-        mediaControls()    // :extensions:mediacontrols (standalone OS media session & hardware media key hooks)
-        webView()          // :extensions:webview (Chromium + NJS Native JIT on Desktop; native on Mobile/Web)
-        codeEditor()       // :extensions:codeeditor (transitively enables canvas2d)
-        aiChat()           // :extensions:aichat (transitively enables codeEditor -> canvas2d)
-        threeJs()          // :extensions:threejs (transitively enables gpu + canvas3d)
-        box2d()            // :extensions:box2d (transitively enables canvas2d + canvas3d -> gpu)
-        box3d()            // :extensions:box3d (transitively enables canvas3d + threeJs -> gpu)
-        alien()            // :extensions:alien (transitively enables canvas2d)
-        dsl()              // :extensions:dsl + companion :extensions:<ext>:dsl modules
+        gpu()              // :extensions:graphics:gpu
+        imageProcessing()  // :extensions:graphics:imageprocessing -> gpu
+        overlay()          // :extensions:ui:overlay (+ :dsl)
+        canvas2d()         // :extensions:graphics:canvas2d -> gpu + imageprocessing + overlay (+ :dsl)
+        canvas3d()         // :extensions:graphics:canvas3d -> gpu + canvas2d + overlay (+ :dsl)
+        threeJs()          // :extensions:graphics:threejs -> gpu + canvas3d (+ :dsl)
+        box2d()            // :extensions:physics:box2d -> canvas2d + canvas3d (+ :dsl)
+        box3d()            // :extensions:physics:box3d -> threejs + canvas3d (+ :dsl)
+        gamepad()          // :extensions:game:gamepad (+ :dsl)
+        engine()           // :extensions:game:engine -> gamepad (+ :dsl)
+        engine2d()         // :extensions:game:engine2d -> engine + canvas2d + box2d (+ :dsl)
+        engine3d()         // :extensions:game:engine3d -> engine + canvas3d + threejs + box3d (+ :dsl)
+        media()            // :extensions:media:media -> overlay (+ :dsl)
+        mediaControls()    // :extensions:media:mediacontrols (+ :dsl)
+        webView()          // :extensions:ui:webview (+ :dsl)
+        alien()            // :extensions:ui:alien -> canvas2d (+ :dsl)
+        codeEditor()       // :extensions:ui:codeeditor -> canvas2d (+ :dsl)
+        aiChat()           // :extensions:ui:aichat -> codeeditor -> canvas2d (+ :dsl)
+        dsl()              // :extensions:ui:dsl + companion :dsl modules for enabled extensions
     }
 
-    // 5. Variant Scope Overrides (common, systemCommon, desktopCommon, nativeDesktopCommon,
-    //    linuxCommon, mobileCommon, windows, macos, gtk, qt, swing, android, ios, web)
+    // 6. Hierarchical Variant Overrides (rank 0 -> 6)
     desktopCommon {
-        window {
-            width = 1600
-            height = 960
-        }
+        window { width = 1600; height = 960 }
     }
-
+    appleCommon {
+        // Shared across macOS, iOS, and iPadOS
+    }
+    ipados {
+        window { aspectRatio(16, 9) }
+    }
     web {
-        window {
-            title = "GenericUI Studio (Web)"
-        }
+        window { title = "GenericUI Studio (Web)" }
     }
 
-    // 6. Android-Specific Manifest & Service Configuration (valid ONLY inside android { ... })
+    // 7. Android-Only Manifest & Service Configuration (valid ONLY inside android { ... })
     android {
         manifest {
             minSdk = 24
             compileSdk = 35
             targetSdk = 35
-            screenOrientation = "unspecified"
             supportsPictureInPicture = true
-            permissions(
-                "android.permission.INTERNET",
-                "android.permission.FOREGROUND_SERVICE"
-            )
+            permissions("android.permission.INTERNET")
         }
         services {
             service("com.example.studio.playback.MediaPlaybackService") {
@@ -160,7 +149,7 @@ genericui {
         }
     }
 
-    // 7. Progressive Web App (PWA) Manifest & Desktop Packaging Metadata
+    // 8. Progressive Web App (PWA) & Native GPU/Media Bundling
     application {
         webIcon("src/commonMain/resources/drawable/icon_app.svg")
         webManifest {
@@ -168,100 +157,92 @@ genericui {
             shortName = "Studio"
             display = "standalone"
             backgroundColor = "#0F172A"
-            categories("productivity", "graphics")
         }
     }
 
-    // 8. Native GPU Drivers, Translation Layers, Shader Compilers, & Desktop VLC
     graphics {
-        bundleAngleOnWindows = true               // Google ANGLE (libEGL.dll, libGLESv2.dll -> D3D11)
-        angleBackendRenderer = "d3d11"
-        bundleMoltenVkOnApple = true              // MoltenVK (Vulkan 1.2 -> Metal on macOS & iOS)
+        bundleAngleOnWindows = true
+        bundleMoltenVkOnApple = true
         bundleShaderc = true
-        preferOpenGLES31 = true
-        bundleVlcOnDesktop = true                 // :extensions:media desktop libvlc engine
-        vlcPrimaryShaderBackend = "vulkan"
-        vlcFallbackShaderBackend = "opengles"
-        enableVlcHdrToneMapping = true
-        enableVlcHardwareDecode = true
+        bundleVlcOnDesktop = true
     }
 
-    // 9. SASS / CSS Compilation & Build-Time PrecompiledStyleSheet Pipeline
     styles {
         compileSass = true
         generateWebCss = true
         precompileToKotlin = true
         sourceDir = "src/commonMain/resources/styles"
-        globalStyleSheet = "styles/main.scss" // Automatically emits app.addStyleSheet(...) in generated main()
-        minify = false
-        includeBootstrapVariables = true
+        globalStyleSheet = "styles/main.scss"
     }
 
-    // 10. Android-Style Resource & Resource.ResourceID Compiler
     resources {
         enabled = true
         packageName = "com.example.studio.res"
         translateForAllBackends = true
     }
 
-    // 11. JestElectricRunner Automated UI Testing & Generated Visual Test Runners
     testing {
         enabled = true
         visualOnWindows = true
-    }
-
-    // 12. Optional Variant SourceSet Dependencies (created only when configured or directory exists)
-    sourceSets {
-        common {
-            implementation("org.jetbrains.kotlinx:kotlinx-datetime:0.6.1")
-        }
-        nativeDesktopCommon {
-            // Optional libraries shared across Windows, macOS, GTK, and Qt
-        }
-        android {
-            // Optional Android-only dependencies (e.g., for Android Service implementations in src/androidMain)
-        }
     }
 }
 ```
 
 ---
 
-## 3. Variant Scope Resolution Chain (`GenericUiVariantScope`)
+## 3. Variant Scope Resolution Chain (`GenericUiVariantScope`, `0 → 6`)
 
-Every variant block (`common`, `systemCommon`, `desktopCommon`, `nativeDesktopCommon`, `linuxCommon`, `mobileCommon`, `windows`, `macos`, `gtk`, `qt`, `swing`, `android`, `ios`, `web`) configures a [`GenericUiVariantConfig`](../gradle-plugin/src/main/kotlin/com/nexustools/genericui/plugin/GenericUiVariantConfig.kt) (`window { ... }`, `theme { ... }`, `icon`, `title`, `themeColor`, `extensionOverrides`).
-
-For each enabled backend, [`GenericUiVariantResolver`](../gradle-plugin/src/main/kotlin/com/nexustools/genericui/plugin/GenericUiVariantResolver.kt) merges settings from least specific (`top-level` $\rightarrow$ `common`) to most specific (the concrete backend block):
+Every variant block configures a [`GenericUiVariantConfig`](../gradle-plugin/src/main/kotlin/com/nexustools/genericui/plugin/GenericUiVariantConfig.kt) (`window { ... }`, `theme { ... }`, `icon`, `title`, `themeColor`, `extensionOverrides`). [`GenericUiVariantResolver`](../gradle-plugin/src/main/kotlin/com/nexustools/genericui/plugin/GenericUiVariantResolver.kt) merges settings from least specific (`common`) to most specific (concrete target):
 
 | Target Backend | Variant Config Resolution Order (Rightmost Wins) |
 | :--- | :--- |
-| **`windows`** | `top-level` $\rightarrow$ `common` $\rightarrow$ `systemCommon` $\rightarrow$ `desktopCommon` $\rightarrow$ `nativeDesktopCommon` $\rightarrow$ `windows` |
-| **`macos`** | `top-level` $\rightarrow$ `common` $\rightarrow$ `systemCommon` $\rightarrow$ `desktopCommon` $\rightarrow$ `nativeDesktopCommon` $\rightarrow$ `macos` |
-| **`gtk`** | `top-level` $\rightarrow$ `common` $\rightarrow$ `systemCommon` $\rightarrow$ `desktopCommon` $\rightarrow$ `nativeDesktopCommon` $\rightarrow$ `linuxCommon` $\rightarrow$ `gtk` |
-| **`qt`** | `top-level` $\rightarrow$ `common` $\rightarrow$ `systemCommon` $\rightarrow$ `desktopCommon` $\rightarrow$ `nativeDesktopCommon` $\rightarrow$ `linuxCommon` $\rightarrow$ `qt` |
-| **`swing`** | `top-level` $\rightarrow$ `common` $\rightarrow$ `systemCommon` $\rightarrow$ `desktopCommon` $\rightarrow$ `swing` |
-| **`android`** | `top-level` $\rightarrow$ `common` $\rightarrow$ `systemCommon` $\rightarrow$ `mobileCommon` $\rightarrow$ `android` |
-| **`ios`** | `top-level` $\rightarrow$ `common` $\rightarrow$ `systemCommon` $\rightarrow$ `mobileCommon` $\rightarrow$ `ios` |
-| **`web`** | `top-level` $\rightarrow$ `common` $\rightarrow$ `web` |
-
-> [!IMPORTANT]
-> **Android-Only `manifest { ... }` and `services { ... }` Enforcement**: Calling `manifest { ... }` or `services { ... }` inside any variant scope other than `android { ... }` throws a `GradleException` at configuration time.
+| **`windows`** | `common` $\rightarrow$ `systemCommon` $\rightarrow$ `desktopCommon` $\rightarrow$ `nativeDesktopCommon` $\rightarrow$ `windows` |
+| **`macos`** | `common` $\rightarrow$ `systemCommon` $\rightarrow$ `appleCommon` $\rightarrow$ `desktopCommon` $\rightarrow$ `nativeDesktopCommon` $\rightarrow$ `macos` |
+| **`gtk`** | `common` $\rightarrow$ `systemCommon` $\rightarrow$ `desktopCommon` $\rightarrow$ `nativeDesktopCommon` $\rightarrow$ `linuxCommon` $\rightarrow$ `gtk` |
+| **`qt`** | `common` $\rightarrow$ `systemCommon` $\rightarrow$ `desktopCommon` $\rightarrow$ `nativeDesktopCommon` $\rightarrow$ `linuxCommon` $\rightarrow$ `qt` |
+| **`swing`** | `common` $\rightarrow$ `systemCommon` $\rightarrow$ `jvmCommon` $\rightarrow$ `desktopCommon` $\rightarrow$ `swing` |
+| **`android`** | `common` $\rightarrow$ `systemCommon` $\rightarrow$ `jvmCommon` $\rightarrow$ `mobileCommon` $\rightarrow$ `android` |
+| **`ios`** | `common` $\rightarrow$ `systemCommon` $\rightarrow$ `appleCommon` $\rightarrow$ `mobileCommon` $\rightarrow$ `iosCommon` $\rightarrow$ `ios` |
+| **`ipados`** | `common` $\rightarrow$ `systemCommon` $\rightarrow$ `appleCommon` $\rightarrow$ `mobileCommon` $\rightarrow$ `iosCommon` $\rightarrow$ `ipados` |
+| **`web`** | `common` $\rightarrow$ `web` |
 
 ---
 
-## 4. Registered Gradle Tasks
+## 4. Apple Icon Pipeline & Chrome-Style Squircle Auto-Wrapping
+
+GenericUI models native Apple icon guidelines out of the box without forcing developers to maintain separate macOS squircle or iOS full-bleed PNG artwork unless desired:
+
+### 4.1 Explicit Override Resolution Precedence (`GenericUiVariantResolver.resolveEffectiveIconAndExplicitFlag`)
+For each Apple target (`macos`, `ios`, `ipados`), the plugin resolves icons in order and tracks `appleIconExplicitlyProvided: Boolean`:
+1. **Target-specific icon** (`macIcon`/`macosIcon`/`macos { icon(...) }`, `iosIcon`/`ios { icon(...) }`, `ipadosIcon`/`ipadIcon`/`ipados { icon(...) }`) $\rightarrow$ `appleIconExplicitlyProvided = true`
+2. **`iosCommon` variant icon** (for `ios` / `ipados`) $\rightarrow$ `appleIconExplicitlyProvided = true`
+3. **Shared Apple icon** (`appleIcon(...)`, `apple { icon = ... }`, `appleCommon { icon(...) }`, or `icons(apple = ...)`) $\rightarrow$ `appleIconExplicitlyProvided = true`
+4. **Generic/default fallback** (`window { icon }`, `application { icon }`, or GenericUI default icon) $\rightarrow$ `appleIconExplicitlyProvided = false`
+
+### 4.2 Automatic Build-Time & Runtime Chrome-Style White Tile Wrapping
+When **`appleIconExplicitlyProvided == false`**, GenericUI automatically wraps the artwork inside a clean Chrome-style white Apple icon tile instead of rendering raw transparent or oddly shaped icons:
+- **Build-Time ([`GenericUiAppleIconTileComposer`](../gradle-plugin/src/main/kotlin/com/nexustools/genericui/plugin/GenericUiAppleIconTileComposer.kt))**:
+  - **macOS (`fullBleedSquare = false`)**: Renders the artwork (`DEFAULT_ARTWORK_SCALE = 0.74f` inside the tile) onto a centered white continuous macOS superellipse squircle (exponent `4.6`, corner ratio `0.2237`, tile fraction `0.808` canvas, vertical offset `0.492`) with soft downward drop shadow and hairline rim inside `.icns` / app resources (`GenericUiDesktopResourceTask`).
+  - **iOS & iPadOS (`fullBleedSquare = true`)**: Renders the artwork centered onto an opaque solid white `1024×1024` full-bleed square canvas (`Assets.xcassets/AppIcon.appiconset` in `GenericUiGenerateIosAppTask`) ready for Apple's App Store mask.
+- **Runtime macOS Dock Icon ([`AppleIconTileComposer`](../common/src/commonMain/kotlin/com/nexustools/genericui/image/AppleIconTileComposer.kt) + [`MacosNativeWindowHost`](../desktop/src/macosMain/kotlin/com/nexustools/genericui/macos/MacosNativeWindowHost.kt))**:
+  - When macOS sets the `NSApplication` Dock icon at runtime via `window.setIcon(...)` or descriptor metadata and `!GenericUI.appleIconExplicitlyProvided`, `MacosNativeWindowHost.composeRuntimeDockIconBuffer` calls `AppleIconTileComposer.composeRgba` / `composeImageBuffer` to wrap the live icon in the matching Chrome-style white squircle automatically!
+  - Setting any explicit Apple icon (`appleIcon(...)`, `macIcon(...)`, `iosIcon(...)`, `ipadosIcon(...)`, `apple { icon = ... }`, `mac { icon = ... }`, etc.) marks `appleIconExplicitlyProvided = true` and bypasses auto-wrapping so custom Apple-designed icons render verbatim.
+
+---
+
+## 5. Registered Gradle Tasks
 
 | Task Name | Implementation Class | Description |
 | :--- | :--- | :--- |
-| `genericuiValidateApp` | `GenericUiValidateAppTask` | Validates `@MainAppFragment` and `@AppFragment` classes across all enabled targets, verifying specificity resolution and checking for conflicting `@MainAppFragment` declarations. |
-| `generateGenericUiLaunchers` | `GenericUiGenerateLaunchersTask` | Generates per-target launcher entry points, `GenericUiAppDescriptor` objects, `FragmentRegistry` registrations, provider registrations, automatic `app.setThemeConfig(ThemeConfig(...))` and `app.addStyleSheet(...)` calls, and visual test runners under `build/generated/genericui/<target>/kotlin`. |
-| `generateGenericUiResources`<br/>`compileGenericUiResources` | `GenericUiGenerateResourcesTask`<br/>`GenericUiResourceCompilerTask` | Generates `<package>.Resource` (`Resource.ResourceID`, including `Resource.style.<name>`), `R`, and `RC`, precompiles `.scss` into typed `PrecompiledStyleSheet` (`CompiledStyleRule`) objects on non-web and `.css` on `:web`, synthesizes Windows `.cur` cursor binaries, and translates `drawable/`, `values/`, `raw/`, `font/`, and `xml/` resources across all enabled backends. |
-| `compileGenericUiWindowsResources` | `GenericUiCompileWindowsResourcesTask` | Generates Win32 `.rc` and header files (`GenericUiWin32RcGenerator`), compiles them via `windres` into COFF `.res`, and links them into the Windows `.exe`. |
-| `generateGenericUiAndroidResources` | `GenericUiGenerateAndroidResourcesTask` | Translates and generates Android `res/` directories (`drawable/`, `mipmap-*/`, `values/*.xml`, `values/genericui_theme_colors.xml`, `values/themes.xml`, `values-night/themes.xml` with `@style/Theme.GenericUI.App`, `raw/`, `font/`, `xml/`). |
-| `generateGenericUiAndroidActivities` | `GenericUiGenerateAndroidActivitiesTask` | Generates 1:1 `AppCompatActivity` subclasses (`<FragmentName>Activity : GenericUiFragmentActivity()`) for every `@MainAppFragment` and `@AppFragment` applicable to Android. |
-| `generateGenericUiAndroidManifest` | `GenericUiGenerateAndroidManifestTask` | Generates `AndroidManifest.xml` with `<application android:theme="@style/Theme.GenericUI.App">`, 1:1 `<activity>` entries, `<service>` entries, permissions, orientation, and PiP attributes. |
-| `compileGenericUiSass` | `GenericUiSassCompileTask` | Compiles `.scss` / `.sass` stylesheets into `.css` bundles and zero-parse Kotlin `PrecompiledStyleSheet` objects. |
-| `bundleGenericUiAngle` | `AngleNativeBundleTask` | Stages Google ANGLE (`libEGL.dll`, `libGLESv2.dll`, `d3dcompiler_47.dll`) for Windows D3D11 OpenGL ES translation. |
-| `bundleGenericUiVulkan` | `VulkanNativeBundleTask` | Stages Vulkan runtime manifests, `MoltenVK_icd.json` on Apple targets, and `shaderc`. |
-| `packageGenericUiWebDistribution` | `GenericUiWebDistributionTask` | Packages the Kotlin/Wasm (`wasmJs`) primary bundle, Kotlin/JS IR (`js`) fallback bundle, pre-generated `gui/genericui-theme.css` (`<link id="genericui-build-theme-css">`), `genericui-loader.js`, splash screen, `.svg` web icon, `manifest.webmanifest`, and SHA-1 cache-busted `index.html` into `build/dist/web`. |
-| `developmentWindows` / `productionWindows`<br/>`developmentMac` (`developmentMacos`) / `productionMac` (`productionMacos`)<br/>`developmentLinuxGtk` / `productionLinuxGtk`<br/>`developmentLinuxQt` / `productionLinuxQt`<br/>`developmentSwing` / `productionSwing`<br/>`developmentAndroid` / `productionAndroid`<br/>`developmentIos` / `productionIos`<br/>`developmentWeb` / `productionWeb` | `GenericUiPlugin` | Per-target lifecycle development and production build/package tasks across all 8 enabled backends. |
+| `genericuiValidateApp` | `GenericUiValidateAppTask` | Validates `@MainAppFragment` and `@AppFragment` classes across all enabled targets and verifies `AppTarget` specificity. |
+| `generateGenericUiLaunchers` | `GenericUiGenerateLaunchersTask` | Generates `GenericUiAppDescriptor` (`alwaysOnTop`, `aspectRatio`, `appleIconExplicitlyProvided`, `ThemeConfig`, `addStyleSheet`), backend launchers, extension wiring, and visual test runners. |
+| `compileGenericUiResources` | `GenericUiResourceCompilerTask` | Generates `Resource`, `R`, `RC` (`Resource.style.<name>`, etc.), translates drawables/values/raw/font/xml, compiles Android theme XMLs, and synthesizes Windows `.cur` cursors. |
+| `compileGenericUiSass` | `GenericUiSassCompileTask` | Compiles `.scss`/`.sass` stylesheets into `.css` (Web) and zero-parse Kotlin `PrecompiledStyleSheet` objects (all 8 system targets). |
+| `prepareGenericUiDesktopResources` | `GenericUiDesktopResourceTask` | Stages desktop icons/manifests and wraps non-explicit macOS icons using `GenericUiAppleIconTileComposer`. |
+| `compileGenericUiWindowsResources` | `GenericUiCompileWindowsResourcesTask` | Generates Win32 `.rc`/headers, compiles `.res` via `windres`, and links into the Windows `.exe`. |
+| `generateGenericUiAndroidActivities`<br/>`generateGenericUiAndroidManifest` | `GenericUiGenerateAndroidActivitiesTask`<br/>`GenericUiGenerateAndroidManifestTask` | Generates 1:1 `<FragmentName>Activity` classes and `AndroidManifest.xml` (`@style/Theme.GenericUI.App`, activities, services, permissions). |
+| `generateGenericUiIosApp`<br/>`generateGenericUiIpadosApp` | `GenericUiGenerateIosAppTask` | Generates iPhone (`UIDeviceFamily = 1`) and iPad (`UIDeviceFamily = 2`) Xcode wrapper projects, `Info.plist`, SwiftUI host, and `AppIcon.appiconset`. |
+| `bundleGenericUiAngle`<br/>`bundleGenericUiVulkan`<br/>`bundleGenericUiVlc`<br/>`bundleGenericUiWebViewProcess` | `AngleNativeBundleTask`<br/>`VulkanNativeBundleTask`<br/>`VlcNativeBundleTask`<br/>`WebViewNativeProcessBundleTask` | Stages opt-in ANGLE, Vulkan/MoltenVK/Shaderc, Desktop VLC, and out-of-process Desktop WebView helper artifacts when the corresponding extension is enabled. |
+| `packageGenericUiWebDistribution`<br/>`packageGenericUiSwingDevelopmentJar` / `ProductionJar`<br/>`packageGenericUiAndroid*Apk` | `GenericUiWebDistributionTask`<br/>`GenericUiPackageSwingJarTask`<br/>`GenericUiPackageAndroidApkTask` | Packages Web Wasm/JS/theme/PWA distributions, Swing executable JARs, and Android APKs. |
+| `development*` / `production*`<br/>(`Windows`, `Mac`/`Macos`, `LinuxGtk`, `LinuxQt`, `Swing`, `Android`, `Ios`, `Ipados`, `Web`) | `GenericUiMultiplatformConfigurator` | Per-target lifecycle development & production tasks across all 9 enabled backends. |
+| `printGenericUiConfig` | `GenericUiGradlePlugin` | Prints resolved backends, extensions, Maven coordinates, and pipeline config. |

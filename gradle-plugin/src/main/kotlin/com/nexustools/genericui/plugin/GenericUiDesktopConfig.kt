@@ -72,6 +72,9 @@ open class GenericUiDesktopConfig(
     /** Windows `.ico` icon path relative to project root (e.g. `"icon.ico"`). */
     var windowsIcon: String = ""
 
+    /** Shared Apple icon path across macOS, iOS, and iPadOS (`"apple.png"`, `"icon.icns"`, etc.). */
+    var appleIcon: String = ""
+
     /** macOS `.icns` or `.png` icon path relative to project root (e.g. `"icon.icns"` or `"icon.png"`). */
     var macIcon: String = ""
 
@@ -80,6 +83,19 @@ open class GenericUiDesktopConfig(
         get() = macIcon
         set(value) {
             macIcon = value
+        }
+
+    /** iOS-specific icon path overriding [appleIcon] and [icon] for iPhone (`UIDeviceFamily = 1`). */
+    var iosIcon: String = ""
+
+    /** iPadOS-specific icon path overriding [appleIcon] and [icon] for iPad (`UIDeviceFamily = 2`). */
+    var ipadosIcon: String = ""
+
+    /** Alias for [ipadosIcon]. */
+    var ipadIcon: String
+        get() = ipadosIcon
+        set(value) {
+            ipadosIcon = value
         }
 
     /** Linux `.png` or `.svg` icon path relative to project root (e.g. `"icon.png"` or `"icon.svg"`). */
@@ -175,37 +191,87 @@ open class GenericUiDesktopConfig(
         }
     }
 
-    /** Sets the general fallback icon path. */
-    fun icon(path: String) {
-        this.icon = path
+    /** Sets the general fallback icon path (`String`, `File`, etc.). */
+    fun icon(path: Any?) {
+        this.icon = GenericUiAppleIconConfig.normalizeIconValue(path)
     }
 
     /** Sets the Windows `.ico` icon path (e.g. `"icon.ico"`). */
-    fun windowsIcon(path: String) {
-        this.windowsIcon = path
+    fun windowsIcon(path: Any?) {
+        this.windowsIcon = GenericUiAppleIconConfig.normalizeIconValue(path)
+    }
+
+    /** Sets the shared Apple icon path across macOS, iOS, and iPadOS (`String`, `File`, etc.). */
+    fun appleIcon(path: Any?) {
+        this.appleIcon = GenericUiAppleIconConfig.normalizeIconValue(path)
+    }
+
+    /** Configures the shared Apple icon (`apple { icon = ... }`). */
+    fun apple(action: Action<in GenericUiAppleIconConfig>) {
+        action.execute(GenericUiAppleIconConfig({ appleIcon }, { appleIcon = it }))
     }
 
     /** Sets the macOS `.icns` / `.png` icon path (e.g. `"icon.icns"` or `"icon.png"`). */
-    fun macIcon(path: String) {
-        this.macIcon = path
+    fun macIcon(path: Any?) {
+        this.macIcon = GenericUiAppleIconConfig.normalizeIconValue(path)
     }
 
     /** Alias for [macIcon]. */
-    fun macosIcon(path: String) {
-        this.macIcon = path
+    fun macosIcon(path: Any?) {
+        this.macIcon = GenericUiAppleIconConfig.normalizeIconValue(path)
+    }
+
+    /** Configures the macOS-specific icon (`mac { icon = ... }`). */
+    fun mac(action: Action<in GenericUiAppleIconConfig>) {
+        action.execute(GenericUiAppleIconConfig({ macIcon }, { macIcon = it }))
+    }
+
+    /** Alias for [mac] (`macos { icon = ... }`). */
+    fun macos(action: Action<in GenericUiAppleIconConfig>) {
+        mac(action)
+    }
+
+    /** Sets the iOS-specific icon path (e.g. `"ios-icon.png"`). */
+    fun iosIcon(path: Any?) {
+        this.iosIcon = GenericUiAppleIconConfig.normalizeIconValue(path)
+    }
+
+    /** Configures the iOS-specific icon (`ios { icon = ... }`). */
+    fun ios(action: Action<in GenericUiAppleIconConfig>) {
+        action.execute(GenericUiAppleIconConfig({ iosIcon }, { iosIcon = it }))
+    }
+
+    /** Sets the iPadOS-specific icon path (e.g. `"ipados-icon.png"`). */
+    fun ipadosIcon(path: Any?) {
+        this.ipadosIcon = GenericUiAppleIconConfig.normalizeIconValue(path)
+    }
+
+    /** Alias for [ipadosIcon]. */
+    fun ipadIcon(path: Any?) {
+        this.ipadosIcon = GenericUiAppleIconConfig.normalizeIconValue(path)
+    }
+
+    /** Configures the iPadOS-specific icon (`ipados { icon = ... }`). */
+    fun ipados(action: Action<in GenericUiAppleIconConfig>) {
+        action.execute(GenericUiAppleIconConfig({ ipadosIcon }, { ipadosIcon = it }))
+    }
+
+    /** Alias for [ipados] (`ipad { icon = ... }`). */
+    fun ipad(action: Action<in GenericUiAppleIconConfig>) {
+        ipados(action)
     }
 
     /** Sets the Linux `.png` / `.svg` icon path (e.g. `"icon.png"`). */
-    fun linuxIcon(path: String) {
-        this.linuxIcon = path
+    fun linuxIcon(path: Any?) {
+        this.linuxIcon = GenericUiAppleIconConfig.normalizeIconValue(path)
     }
 
     /**
      * Sets the Web icon path overriding the default project icon for the Web splash screen and
      * `index.html` favicon. `.svg` icons (e.g. `"icon.svg"`) are preferred for the Web target.
      */
-    fun webIcon(path: String) {
-        this.webIcon = path
+    fun webIcon(path: Any?) {
+        this.webIcon = GenericUiAppleIconConfig.normalizeIconValue(path)
     }
 
     /**
@@ -219,11 +285,41 @@ open class GenericUiDesktopConfig(
             ?: GenericUiDefaultIconProvider.DEFAULT_ICON_ICO_FILE_NAME
 
     /**
-     * Resolves the effective macOS icon path, preferring [macIcon] first, falling back to [icon],
-     * and defaulting to GenericUI's built-in `icon.png`.
+     * Resolves the effective shared Apple icon path, preferring [appleIcon], then [macIcon],
+     * [iosIcon], [ipadosIcon], [icon], and defaulting to GenericUI's built-in `icon.png`.
+     */
+    fun resolveEffectiveAppleIconPath(): String =
+        listOf(appleIcon, macIcon, iosIcon, ipadosIcon, icon)
+            .firstOrNull { it.isNotBlank() }
+            ?.trim()
+            ?: GenericUiDefaultIconProvider.DEFAULT_ICON_PNG_FILE_NAME
+
+    /**
+     * Resolves the effective macOS icon path, preferring [macIcon] first, then [appleIcon],
+     * falling back to [icon], and defaulting to GenericUI's built-in `icon.png`.
      */
     fun resolveEffectiveMacIconPath(): String =
-        listOf(macIcon, icon)
+        listOf(macIcon, appleIcon, icon)
+            .firstOrNull { it.isNotBlank() }
+            ?.trim()
+            ?: GenericUiDefaultIconProvider.DEFAULT_ICON_PNG_FILE_NAME
+
+    /**
+     * Resolves the effective iOS icon path, preferring [iosIcon] first, then [appleIcon],
+     * falling back to [icon], and defaulting to GenericUI's built-in `icon.png`.
+     */
+    fun resolveEffectiveIosIconPath(): String =
+        listOf(iosIcon, appleIcon, icon)
+            .firstOrNull { it.isNotBlank() }
+            ?.trim()
+            ?: GenericUiDefaultIconProvider.DEFAULT_ICON_PNG_FILE_NAME
+
+    /**
+     * Resolves the effective iPadOS icon path, preferring [ipadosIcon] first, then [appleIcon],
+     * falling back to [icon], and defaulting to GenericUI's built-in `icon.png`.
+     */
+    fun resolveEffectiveIpadosIconPath(): String =
+        listOf(ipadosIcon, appleIcon, icon)
             .firstOrNull { it.isNotBlank() }
             ?.trim()
             ?: GenericUiDefaultIconProvider.DEFAULT_ICON_PNG_FILE_NAME
@@ -249,11 +345,11 @@ open class GenericUiDesktopConfig(
     /**
      * Resolves the effective icon path for the Web splash screen and `index.html` favicon,
      * preferring [webIcon] first, falling back to the project's configured icons
-     * ([icon], [linuxIcon], [macIcon], [windowsIcon]), and finally defaulting to
-     * GenericUI's built-in `icon.svg` when no icons are provided by `build.gradle.kts`.
+     * ([icon], [linuxIcon], [macIcon], [appleIcon], [iosIcon], [ipadosIcon], [windowsIcon]), and finally
+     * defaulting to GenericUI's built-in `icon.svg` when no icons are provided by `build.gradle.kts`.
      */
     fun resolveEffectiveWebIconPath(): String =
-        listOf(webIcon, icon, linuxIcon, macIcon, windowsIcon)
+        listOf(webIcon, icon, linuxIcon, macIcon, appleIcon, iosIcon, ipadosIcon, windowsIcon)
             .firstOrNull { it.isNotBlank() }
             ?.trim()
             ?: GenericUiDefaultIconProvider.DEFAULT_ICON_SVG_FILE_NAME
@@ -264,13 +360,19 @@ open class GenericUiDesktopConfig(
         mac: String = this.macIcon,
         linux: String = this.linuxIcon,
         web: String = this.webIcon,
-        common: String = this.icon
+        common: String = this.icon,
+        apple: String = this.appleIcon,
+        ios: String = this.iosIcon,
+        ipados: String = this.ipadosIcon
     ) {
         if (windows.isNotBlank()) this.windowsIcon = windows
         if (mac.isNotBlank()) this.macIcon = mac
         if (linux.isNotBlank()) this.linuxIcon = linux
         if (web.isNotBlank()) this.webIcon = web
         if (common.isNotBlank()) this.icon = common
+        if (apple.isNotBlank()) this.appleIcon = apple
+        if (ios.isNotBlank()) this.iosIcon = ios
+        if (ipados.isNotBlank()) this.ipadosIcon = ipados
     }
 
     /**

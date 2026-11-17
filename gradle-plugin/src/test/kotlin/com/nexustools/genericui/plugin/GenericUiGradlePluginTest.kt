@@ -25,6 +25,7 @@ class GenericUiGradlePluginTest {
             qt()
             android()
             ios()
+            ipados()
             swing {
                 useLwjglGL = true
                 useVulkan = true
@@ -43,7 +44,7 @@ class GenericUiGradlePluginTest {
         ext.extensions {
             imageProcessing() // transitively enables gpu
             media()           // self-contained media extension (libvlc / libvlcj / native components)
-            webView()         // Project-of-Projects :extensions:webview
+            webView()         // categorized :extensions:ui:webview
             aiChat()          // transitively enables codeEditor -> canvas2d
             box2d()           // transitively enables canvas2d + canvas3d -> gpu
             box3d()           // transitively enables canvas3d + threeJs -> gpu
@@ -54,21 +55,18 @@ class GenericUiGradlePluginTest {
         }
 
         assertTrue(ext.backends.windowsEnabled)
+        assertTrue(ext.backends.ipadosEnabled)
         assertTrue(ext.backends.requiresSharedDesktopModule)
         assertTrue(ext.backends.requiresSharedMobileModule)
+        assertTrue(ext.backends.requiresAppleModule)
+        assertTrue(ext.backends.requiresJvmModule)
         assertTrue(ext.backends.enabledBackendModulePaths().containsAll(
             listOf(
-                ":systemCommon",
-                ":desktop:common",
-                ":desktop:nativeCommon",
-                ":desktop:linuxCommon",
-                ":mobile:common",
-                ":desktop:windows",
-                ":desktop:gtk",
-                ":desktop:qt",
-                ":mobile:android",
-                ":mobile:ios",
-                ":desktop:swing",
+                ":system",
+                ":jvm",
+                ":apple",
+                ":desktop",
+                ":mobile",
                 ":web"
             )
         ))
@@ -81,7 +79,7 @@ class GenericUiGradlePluginTest {
         assertTrue(ext.graphics.enableVlcHdrToneMapping)
         assertTrue(ext.graphics.enableVlcHardwareDecode)
 
-        // Verify transitive extension resolution and :extensions:webview
+        // Verify transitive extension resolution and :extensions:ui:webview
         assertTrue(ext.extensions.gpuEnabled)
         assertTrue(ext.extensions.imageProcessingEnabled)
         assertTrue(ext.extensions.canvas2dEnabled)
@@ -93,20 +91,20 @@ class GenericUiGradlePluginTest {
         assertTrue(ext.extensions.threeJsEnabled)
         assertTrue(ext.extensions.box2dEnabled)
         assertTrue(ext.extensions.box3dEnabled)
-        assertTrue(GenericUiGradlePlugin.PROJECT_OF_PROJECTS_EXTENSIONS.contains(":extensions:webview"))
+        assertTrue(GenericUiGradlePlugin.PROJECT_OF_PROJECTS_EXTENSIONS.isEmpty())
         assertTrue(ext.extensions.enabledExtensionModulePaths().containsAll(
             listOf(
-                ":extensions:gpu",
-                ":extensions:imageprocessing",
-                ":extensions:canvas2d",
-                ":extensions:canvas3d",
-                ":extensions:media",
-                ":extensions:webview",
-                ":extensions:codeeditor",
-                ":extensions:aichat",
-                ":extensions:threejs",
-                ":extensions:box2d",
-                ":extensions:box3d"
+                ":extensions:graphics:gpu",
+                ":extensions:graphics:imageprocessing",
+                ":extensions:graphics:canvas2d",
+                ":extensions:graphics:canvas3d",
+                ":extensions:media:media",
+                ":extensions:ui:webview",
+                ":extensions:ui:codeeditor",
+                ":extensions:ui:aichat",
+                ":extensions:graphics:threejs",
+                ":extensions:physics:box2d",
+                ":extensions:physics:box3d"
             )
         ))
         assertTrue(
@@ -115,6 +113,10 @@ class GenericUiGradlePluginTest {
         )
         assertTrue(
             ext.extensions.providerInstallerCallsForBackend(GenericUiVariantScope.IOS)
+                .contains("com.nexustools.genericui.ios.IosWebViewExtensionProvider.install()")
+        )
+        assertTrue(
+            ext.extensions.providerInstallerCallsForBackend(GenericUiVariantScope.IPADOS)
                 .contains("com.nexustools.genericui.ios.IosWebViewExtensionProvider.install()")
         )
         assertTrue(
@@ -149,6 +151,7 @@ class GenericUiGradlePluginTest {
         assertTrue(ext.backends.qtEnabled)
         assertTrue(ext.backends.androidEnabled)
         assertTrue(ext.backends.iosEnabled)
+        assertTrue(ext.backends.ipadosEnabled)
         assertTrue(ext.backends.webEnabled)
         assertTrue(!ext.backends.swingConfig.enabled)
 
@@ -160,6 +163,7 @@ class GenericUiGradlePluginTest {
         assertTrue(!ext.backends.swingConfig.enabled)
         assertTrue(!ext.backends.androidEnabled)
         assertTrue(!ext.backends.iosEnabled)
+        assertTrue(!ext.backends.ipadosEnabled)
         assertTrue(!ext.backends.webEnabled)
 
         kotlin.test.assertEquals(
@@ -167,16 +171,16 @@ class GenericUiGradlePluginTest {
             GenericUiGradlePlugin.toMavenCoordinate(":common")
         )
         kotlin.test.assertEquals(
-            "com.nexustools.genericui.desktop:windows:0.1.0-SNAPSHOT",
-            GenericUiGradlePlugin.toMavenCoordinate(":desktop:windows")
+            "com.nexustools.genericui:desktop:0.1.0-SNAPSHOT",
+            GenericUiGradlePlugin.toMavenCoordinate(":desktop")
         )
         kotlin.test.assertEquals(
-            "com.nexustools.genericui.extensions.canvas2d:common:0.1.0-SNAPSHOT",
-            GenericUiGradlePlugin.toMavenCoordinate(":extensions:canvas2d:common")
+            "com.nexustools.genericui.extensions.graphics:canvas2d:0.1.0-SNAPSHOT",
+            GenericUiGradlePlugin.toMavenCoordinate(":extensions:graphics:canvas2d")
         )
         kotlin.test.assertEquals(
-            "com.nexustools.genericui.extensions:threejs:0.1.0-SNAPSHOT",
-            GenericUiGradlePlugin.toMavenCoordinate(":extensions:threejs")
+            "com.nexustools.genericui.extensions.game.engine2d:dsl:0.1.0-SNAPSHOT",
+            GenericUiGradlePlugin.toMavenCoordinate(":extensions:game:engine2d:dsl")
         )
 
         // Verify precompiling SASS into Kotlin (.kt) PrecompiledStyleSheet source
@@ -352,6 +356,11 @@ class GenericUiGradlePluginTest {
             "systemCommon",
             "systemMain",
             "systemTest",
+            "appleCommon",
+            "appleMain",
+            "appleTest",
+            "jvmCommon",
+            "jvmCommonTest",
             "desktopCommon",
             "desktopMain",
             "desktopTest",
@@ -387,9 +396,14 @@ class GenericUiGradlePluginTest {
             "android",
             "androidMain",
             "androidTest",
+            "iosCommon",
+            "iosCommonTest",
             "ios",
             "iosMain",
             "iosTest",
+            "ipados",
+            "ipadosMain",
+            "ipadosTest",
             "wasmJsMain",
             "jsMain"
         )
@@ -402,15 +416,20 @@ class GenericUiGradlePluginTest {
 
         // Verify the exact hierarchical dependsOn graph:
         // common -> web
-        // common -> systemCommon -> desktopCommon -> swing
+        // common -> systemCommon -> (appleCommon, jvmCommon)
+        //                        -> desktopCommon -> swing
         //                        -> desktopCommon -> desktopNativeCommon -> (windows, mac, linuxCommon -> (gtk, qt))
-        //                        -> mobileCommon -> (android, ios)
+        //                        -> mobileCommon -> (android, iosCommon -> (ios, ipados))
         val ss = kotlin.sourceSets
         assertTrue(ss.getByName("common") in ss.getByName("web").dependsOn)
         assertTrue(ss.getByName("common") in ss.getByName("systemCommon").dependsOn)
+        assertTrue(ss.getByName("systemMain") in ss.getByName("appleCommon").dependsOn)
+        assertTrue(ss.getByName("appleCommon") in ss.getByName("appleMain").dependsOn)
+        assertTrue(ss.getByName("systemMain") in ss.getByName("jvmCommon").dependsOn)
         assertTrue(ss.getByName("systemMain") in ss.getByName("desktopCommon").dependsOn)
         assertTrue(ss.getByName("systemMain") in ss.getByName("mobileCommon").dependsOn)
         assertTrue(ss.getByName("desktopMain") in ss.getByName("swing").dependsOn)
+        assertTrue(ss.getByName("jvmCommon") in ss.getByName("swing").dependsOn)
         assertTrue(ss.getByName("desktopMain") in ss.getByName("nativeDesktopCommon").dependsOn)
         assertTrue(ss.getByName("nativeDesktopMain") in ss.getByName("linuxCommon").dependsOn)
         assertTrue(ss.getByName("linuxCommon") in ss.getByName("linuxMain").dependsOn)
@@ -421,8 +440,13 @@ class GenericUiGradlePluginTest {
         assertTrue(ss.getByName("linuxTest") in ss.getByName("qtTest").dependsOn)
         assertTrue(ss.getByName("nativeDesktopMain") in ss.getByName("windows").dependsOn)
         assertTrue(ss.getByName("nativeDesktopMain") in ss.getByName("mac").dependsOn)
+        assertTrue(ss.getByName("appleMain") in ss.getByName("mac").dependsOn)
         assertTrue(ss.getByName("mobileMain") in ss.getByName("android").dependsOn)
-        assertTrue(ss.getByName("mobileMain") in ss.getByName("ios").dependsOn)
+        assertTrue(ss.getByName("jvmCommon") in ss.getByName("android").dependsOn)
+        assertTrue(ss.getByName("mobileMain") in ss.getByName("iosCommon").dependsOn)
+        assertTrue(ss.getByName("appleMain") in ss.getByName("iosCommon").dependsOn)
+        assertTrue(ss.getByName("iosCommon") in ss.getByName("ios").dependsOn)
+        assertTrue(ss.getByName("iosCommon") in ss.getByName("ipados").dependsOn)
 
         val targetNames = kotlin.targets.names
         assertTrue("macosArm64" in targetNames, "Expected macosArm64 target to be registered")
@@ -488,6 +512,12 @@ class GenericUiGradlePluginTest {
             "productionIosArm64",
             "developmentIosSimulatorArm64",
             "productionIosSimulatorArm64",
+            "developmentIpados",
+            "productionIpados",
+            "developmentIpadosArm64",
+            "productionIpadosArm64",
+            "developmentIpadosSimulatorArm64",
+            "productionIpadosSimulatorArm64",
             "developmentSwing",
             "productionSwing",
             "developmentWeb",

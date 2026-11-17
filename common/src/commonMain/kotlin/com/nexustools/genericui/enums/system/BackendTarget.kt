@@ -7,8 +7,8 @@ package com.nexustools.genericui.enums.system
  * `app.backendTarget == BackendTarget.Qt`, `app.backendTarget == BackendTarget.Gtk`); there are intentionally
  * no single-target booleans such as `isWindows` / `isAndroid`.
  * Multi-backend group properties ([isSystem], [isDesktop], [isNativeDesktop], [isLinux], [isMobile],
- * [isApple], [isUnix], [isPosix], [isNative], [isJvm], [isTouchPrimary], [isBrowser]) test capabilities
- * shared across multiple targets.
+ * [isApple], [isIosFamily], [isUnix], [isPosix], [isNative], [isJvm], [isTouchPrimary], [isBrowser])
+ * test capabilities shared across multiple targets.
  */
 enum class BackendTarget(
     /** Stable lowercase identifier (matches the backend module name, e.g. `"windows"`, `"gtk"`). */
@@ -25,9 +25,10 @@ enum class BackendTarget(
     Swing("swing", "Java Swing (AWT / Java2D)", "JVM Desktop"),
     Android("android", "Android", "Android"),
     IOS("ios", "iOS (UIKit)", "iOS"),
+    IPadOS("ipados", "iPadOS (UIKit)", "iPadOS"),
     Web("web", "Web (HTML5 / JS / Wasm)", "Web Browser");
 
-    /** `true` for all installed OS/system targets (`Windows`, `MacOS`, `Gtk`, `Qt`, `Swing`, `Android`, `IOS`); `false` for `Web`. */
+    /** `true` for all installed OS/system targets (`Windows`, `MacOS`, `Gtk`, `Qt`, `Swing`, `Android`, `IOS`, `IPadOS`); `false` for `Web`. */
     val isSystem: Boolean
         get() = this != Web
 
@@ -43,35 +44,63 @@ enum class BackendTarget(
     val isLinux: Boolean
         get() = this == Gtk || this == Qt
 
-    /** `true` for mobile targets (`Android` and `IOS`). */
+    /** `true` for mobile targets (`Android`, `IOS`, and `IPadOS`). */
     val isMobile: Boolean
-        get() = this == Android || this == IOS
+        get() = this == Android || this == IOS || this == IPadOS
 
-    /** `true` for Apple operating systems (`MacOS` and `IOS`). */
+    /** `true` for Apple operating systems (`MacOS`, `IOS`, and `IPadOS`). */
     val isApple: Boolean
-        get() = this == MacOS || this == IOS
+        get() = this == MacOS || this == IOS || this == IPadOS
 
-    /** `true` for Unix / Unix-like OS families (`MacOS`, `Gtk`, `Qt`, `Android`, `IOS`). */
+    /** `true` for Apple UIKit / iOS-family operating systems (`IOS` and `IPadOS`). */
+    val isIosFamily: Boolean
+        get() = this == IOS || this == IPadOS
+
+    /** `true` for Unix / Unix-like OS families (`MacOS`, `Gtk`, `Qt`, `Android`, `IOS`, `IPadOS`). */
     val isUnix: Boolean
-        get() = this == MacOS || this == Gtk || this == Qt || this == Android || this == IOS
+        get() = this == MacOS || this == Gtk || this == Qt || this == Android || this == IOS || this == IPadOS
 
-    /** `true` for Kotlin/Native POSIX-capable targets (`Windows`, `MacOS`, `Gtk`, `Qt`, `IOS`). */
+    /** `true` for Kotlin/Native POSIX-capable targets (`Windows`, `MacOS`, `Gtk`, `Qt`, `IOS`, `IPadOS`). */
     val isPosix: Boolean
-        get() = this == Windows || this == MacOS || this == Gtk || this == Qt || this == IOS
+        get() = this == Windows || this == MacOS || this == Gtk || this == Qt || this == IOS || this == IPadOS
 
-    /** `true` for ahead-of-time native binary targets (`Windows`, `MacOS`, `Gtk`, `Qt`, `IOS`). */
+    /** `true` for ahead-of-time native binary targets (`Windows`, `MacOS`, `Gtk`, `Qt`, `IOS`, `IPadOS`). */
     val isNative: Boolean
-        get() = this == Windows || this == MacOS || this == Gtk || this == Qt || this == IOS
+        get() = this == Windows || this == MacOS || this == Gtk || this == Qt || this == IOS || this == IPadOS
 
     /** `true` for JVM / ART bytecode targets (`Swing` and `Android`). */
     val isJvm: Boolean
         get() = this == Swing || this == Android
 
-    /** `true` for touch-first mobile/tablet targets (`Android` and `IOS`). */
+    /** `true` for touch-first mobile/tablet targets (`Android`, `IOS`, and `IPadOS`). */
     val isTouchPrimary: Boolean
         get() = isMobile
 
     /** `true` when running inside a web browser environment (`Web`). */
     val isBrowser: Boolean
         get() = this == Web
+
+    companion object {
+        /**
+         * Resolves a [BackendTarget] from its stable lowercase [id] (e.g. `"windows"`, `"ipados"`)
+         * or enum name, or returns `null` if [id] does not match a known target.
+         */
+        fun fromId(id: String?): BackendTarget? {
+            val normalized = id?.trim()?.lowercase() ?: return null
+            return when (normalized) {
+                "windows" -> Windows
+                "macos" -> MacOS
+                "gtk" -> Gtk
+                "qt" -> Qt
+                "swing" -> Swing
+                "android" -> Android
+                "ios" -> IOS
+                "ipados" -> IPadOS
+                "web" -> Web
+                else -> entries.firstOrNull {
+                    it.id.equals(normalized, ignoreCase = true) || it.name.equals(normalized, ignoreCase = true)
+                }
+            }
+        }
+    }
 }

@@ -72,7 +72,7 @@ class Phase2ModelAndResolutionTest {
     }
 
     @Test
-    fun `resolver resolves single COMMON MainAppFragment across all 8 backends`() {
+    fun `resolver resolves single COMMON MainAppFragment across all 9 backends`() {
         val discovered = GenericUiFragmentScanner.parseKotlinSource(
             """
             package com.example.app
@@ -84,7 +84,7 @@ class Phase2ModelAndResolutionTest {
         )
 
         val resolvedByBackend = GenericUiMainFragmentResolver.resolveAllBackends(discovered)
-        assertEquals(8, resolvedByBackend.size)
+        assertEquals(9, resolvedByBackend.size)
         for (backend in GenericUiVariantScope.ALL_BACKENDS) {
             assertEquals(
                 "com.example.app.UniversalMainFragment",
@@ -122,6 +122,10 @@ class Phase2ModelAndResolutionTest {
         assertEquals(
             "com.example.app.MobileMainFragment",
             GenericUiMainFragmentResolver.resolveMainFragmentForBackend(discovered, GenericUiVariantScope.IOS).qualifiedName
+        )
+        assertEquals(
+            "com.example.app.MobileMainFragment",
+            GenericUiMainFragmentResolver.resolveMainFragmentForBackend(discovered, GenericUiVariantScope.IPADOS).qualifiedName
         )
         for (backend in listOf(
             GenericUiVariantScope.WEB,

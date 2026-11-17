@@ -46,6 +46,12 @@ kotlin {
         commonMain.dependencies {
             api(libs.kotlinx.coroutines.core)
         }
+        jvmMain {
+            kotlin.srcDir("src/jvmAndAndroidMain/kotlin")
+        }
+        androidMain {
+            kotlin.srcDir("src/jvmAndAndroidMain/kotlin")
+        }
         commonTest.dependencies {
             implementation(libs.kotlin.test)
         }

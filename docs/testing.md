@@ -1,43 +1,36 @@
-# GenericUI Testing Suite Guide (`JestElectricRunner`)
+# GenericUI Testing Suite Guide (`:tests` & `JestElectricRunner`)
 
-`GenericUI` includes a first-party cross-platform UI testing framework—**`JestElectricRunner`**—located in the [`tests/` submodule](../tests/README.md). It combines a **Jest-style BDD syntax** (`describe`, `beforeEach`, `afterEach`, `beforeAll`, `afterAll`, `test`, `it`, `expect`, `runSuite`) with **Robolectric-style UI controllers** (`RoboAppController`, `RoboFragmentController`, `RoboNodeInteraction`, `RoboComponentExpectation`).
+> **Root Repository**: [**GenericUI (`../README.md`)**](../README.md) | **Master Docs Index**: [**`docs/README.md`**](./README.md)  
+> **Related Guides**: [Tests Module README (`../tests/README.md`)](../tests/README.md) · [`JestElectricRunner` API (`../tests/docs/jest-electric-runner.md`)](../tests/docs/jest-electric-runner.md) · [Platform Test Runners (`../tests/docs/platform-test-runners.md`)](../tests/docs/platform-test-runners.md) · [Hierarchical SourceSets (`sourcesets.md`)](./sourcesets.md) · [Gradle Plugin (`gradle-plugin.md`)](./gradle-plugin.md)
 
----
-
-## Navigation & Related Documentation
-
-- **Root Repository**: [GenericUI README](../README.md) | [Master Documentation Index](README.md)
-- **Tests Submodule**: [Tests Submodule README (`tests/README.md`)](../tests/README.md)
-- **Dedicated Testing Guides**:
-  - [JestElectricRunner BDD & Robolectric API Guide (`tests/docs/jest-electric-runner.md`)](../tests/docs/jest-electric-runner.md)
-  - [Platform Test Runners & Live Visual Windows Testing (`tests/docs/platform-test-runners.md`)](../tests/docs/platform-test-runners.md)
-- **SourceSets, Fragments, & Build**: [Hierarchical SourceSet Setup (`sourcesets.md`)](sourcesets.md) | [Fragments & Windows Guide (`fragments-and-windows.md`)](fragments-and-windows.md) | [Gradle Plugin Guide (`gradle-plugin.md`)](gradle-plugin.md)
+`GenericUI` includes a first-party cross-platform UI testing framework—**`JestElectricRunner`**—consolidated into the single multiplatform **`:tests`** module ([`tests/build.gradle.kts`](../tests/build.gradle.kts)). It combines **Jest-style BDD syntax** (`describe`, `beforeEach`, `afterEach`, `test`, `it`, `expect`, `runSuite`) with **Robolectric-style UI controllers** (`RoboAppController`, `RoboFragmentController`, `RoboNodeInteraction`, `RoboComponentExpectation`) across all 10 Kotlin targets and all 9 platform backends.
 
 ---
 
-## 1. Submodule Architecture (`:tests`)
+## 1. Consolidated `:tests` Module Architecture (10 Kotlin Targets, Zero Child Subprojects)
 
-The `:tests` Project-of-Projects mirrors GenericUI's [SourceSet Hierarchy](sourcesets.md) and is wired automatically into `commonTest` and platform `*Test` source sets when `id("com.nexustools.genericui")` is applied with `testing { enabled = true }`:
+In the 45-project architecture, `:tests` is a single multiplatform KMP module whose internal source sets mirror GenericUI's [SourceSet Hierarchy](./sourcesets.md):
 
-| Module Coordinate | SourceSet Wiring | Description | Dedicated Guide |
-| :--- | :--- | :--- | :--- |
-| **`:tests:common`** | `commonTest` | Core `JestElectricRunner`, `JestSuiteScope`, `JestTestScope`, `JestExpectation`, `RoboAppController`, `RoboFragmentController`, `RoboNodeInteraction`, `RoboComponentExpectation`, `RoboComponentTreeFinder`, and the 12 modular `JestElectric*RenderUtil` snapshot rendering utilities (`JestElectricRenderContext`, `JestElectricPrimitiveRenderUtil`, `JestElectricControlTintRenderUtil`, `JestElectricActionControlRenderUtil`, `JestElectricFormControlRenderUtil`, `JestElectricFeedbackRenderUtil`, `JestElectricTypographyRenderUtil`, `JestElectricSurfaceRenderUtil`, `JestElectricContainerLayoutRenderUtil`, `JestElectricDockAndMdiRenderUtil`, `JestElectricNavigationAndShellRenderUtil`, `JestElectricDataAndLazyRenderUtil`). | [`tests/docs/jest-electric-runner.md`](../tests/docs/jest-electric-runner.md) |
-| **`:tests:desktop:nativeCommon`** | `desktopNativeTest` (`nativeDesktopTest`) | Shared native desktop test event pumping and window lifecycle harness. | [`tests/docs/platform-test-runners.md`](../tests/docs/platform-test-runners.md) |
-| **`:tests:desktop:windows`** | `windowsTest` (`mingwX64Test`) | `WindowsVisualAppRunnerNativeImpl` — launches a **real onscreen Win32 window** during tests (`visualOnWindows = true`), updates a live visual test banner, and pumps real Win32 GDI/Direct2D repaints! | [`tests/docs/platform-test-runners.md`](../tests/docs/platform-test-runners.md) |
-| **`:tests:desktop:macos`** | `macTest` (`macosTest`) | `MacosJestElectricRunnerNativeImpl` for AppKit test execution. | [`tests/docs/platform-test-runners.md`](../tests/docs/platform-test-runners.md) |
-| **`:tests:desktop:gtk`** | `gtkTest` (`linuxTest`) | `GtkJestElectricRunnerNativeImpl` for GTK4 test execution. | [`tests/docs/platform-test-runners.md`](../tests/docs/platform-test-runners.md) |
-| **`:tests:desktop:qt`** | `qtTest` (`linuxTest`) | `QtJestElectricRunnerNativeImpl` for Qt6 test execution. | [`tests/docs/platform-test-runners.md`](../tests/docs/platform-test-runners.md) |
-| **`:tests:desktop:swing`** | `swingTest` (`jvmTest`) | `SwingJUnitRunnerNativeImpl` & `JestElectricSwingTestBase` (pumps Swing EDT `EventQueue`). | [`tests/docs/platform-test-runners.md`](../tests/docs/platform-test-runners.md) |
-| **`:tests:mobile:common`** | `mobileTest` | Shared mobile lifecycle, posture, and gesture simulation harness. | [`tests/docs/platform-test-runners.md`](../tests/docs/platform-test-runners.md) |
-| **`:tests:mobile:android`** | `androidTest` (`androidUnitTest`) | `AndroidRobolectricRunnerNativeImpl` & `JestElectricRobolectricTestBase` (integrates with Robolectric main looper idling). | [`tests/docs/platform-test-runners.md`](../tests/docs/platform-test-runners.md) |
-| **`:tests:mobile:ios`** | `iosTest` | `IosJestElectricRunnerNativeImpl` for UIKit simulator tests. | [`tests/docs/platform-test-runners.md`](../tests/docs/platform-test-runners.md) |
-| **`:tests:web`** | `webTest` (`wasmJsTest`, `jsTest`) | `WebJestElectricRunnerNativeImpl` (compiled for both Kotlin/Wasm and Kotlin/JS IR). | [`tests/docs/platform-test-runners.md`](../tests/docs/platform-test-runners.md) |
+| `:tests` Source Set | Linked Core Module | Key Runner & Verification Classes |
+| :--- | :--- | :--- |
+| **`commonMain` / `commonTest`** | `:common` | [`JestElectricRunner`](../tests/src/commonMain/kotlin/com/nexustools/genericui/tests/JestElectricRunner.kt), `JestSuiteScope`, `JestExpectation`, `RoboAppController`, `RoboFragmentController`, `RoboNodeInteraction`, `RoboComponentTreeFinder`, and the 12 modular `JestElectric*RenderUtil` snapshot utilities (`JestElectricRenderContext`, `JestElectricButtonRenderUtil`, `JestElectricContainerChromeRenderUtil`, `JestElectricControlTintRenderUtil`, `JestElectricDataDisplayRenderUtil`, `JestElectricInputFieldRenderUtil`, `JestElectricMediaCanvasRenderUtil`, `JestElectricNavigationRenderUtil`, `JestElectricSliderProgressRenderUtil`, `JestElectricTextRenderUtil`, `JestElectricToggleSelectionRenderUtil`, `JestElectricWorkspaceWindowRenderUtil`). |
+| **`systemMain`** | `:system` | Non-web Blink style/layout verification & shared system test helpers. |
+| **`desktopMain` / `nativeDesktopMain`** | `:desktop` | [`DesktopSharedRunnerNativeImpl`](../tests/src/nativeDesktopMain/kotlin/com/nexustools/genericui/tests/desktop/DesktopSharedRunnerNativeImpl.kt) shared native desktop window & event pumping harness. |
+| **`jvmAndAndroidMain`** | `:jvm` | Shared JVM & Android screenshot/filesystem host test helpers ([`JestScreenshotHostIo`](../tests/src/jvmAndAndroidMain/kotlin/com/nexustools/genericui/tests/JestScreenshotHostIo.kt)). |
+| **`mingwMain` / `mingwX64Test`** | `:desktop` (`mingwMain`) | `WindowsVisualAppRunnerNativeImpl` — launches a **real onscreen Win32 window** when `testing { visualOnWindows = true }` (`windowsVisualTest`), or runs fast headless Win32/UxTheme/Direct2D verification by default. |
+| **`macosMain` / `macosArm64Test`** | `:desktop` + `:apple` | `MacosJestElectricRunnerNativeImpl` for AppKit `NSWindow` / `NSView` & runtime squircle icon verification. |
+| **`linuxMain` / `linuxTest`** | `:desktop` (`linuxMain`) | Co-hosts both **`GtkJestElectricRunnerNativeImpl`** (GTK4 / Libadwaita) and **`QtJestElectricRunnerNativeImpl`** (Qt6 `QMainWindow`) cleanly inside a single binary (`LinuxGtkAndQtRunnerTest`). |
+| **`jvmMain` / `jvmTest`** | `:desktop` (`jvmMain`) + `:jvm` | `SwingJUnitRunnerNativeImpl` & `JestElectricSwingTestBase` (pumps AWT/Swing EDT `EventQueue`). |
+| **`mobileMain`** | `:mobile` | [`MobileSharedRunnerNativeImpl`](../tests/src/mobileMain/kotlin/com/nexustools/genericui/tests/mobile/MobileSharedRunnerNativeImpl.kt) shared posture & mobile lifecycle harness. |
+| **`androidMain` / `androidHostTest`** | `:mobile` + `:jvm` | `AndroidRobolectricRunnerNativeImpl` & `JestElectricRobolectricTestBase`. |
+| **`iosMain` / `iosTest`** | `:mobile` + `:apple` | Co-hosts both **`IosJestElectricRunnerNativeImpl`** (`BackendTarget.IOS`) and **`IpadosJestElectricRunnerNativeImpl`** (`BackendTarget.IPadOS` Stage Manager / `UIMenuSystem`, tested in `IosAndIpadosJestElectricRunnerTest`). |
+| **`webMain` / `jsMain` / `wasmJsMain`** | `:web` | `WebJestElectricRunnerNativeImpl` & `WebTestHostBridge` compiled for both Kotlin/Wasm (`wasmJsTest`) and Kotlin/JS IR (`jsTest`). |
 
 ---
 
-## 2. Single-`commonTest` Workflow & Generated Visual Test Harnesses
+## 2. Single-`commonTest` Consumer Workflow & Headed Linux XQuartz Setup
 
-Consumer applications write UI tests once in `src/commonTest/kotlin`. When `testing { enabled = true; visualOnWindows = true }` is configured in `genericui { ... }`, the Gradle plugin automatically registers platform test runners and wires the native/JVM/Web test harnesses at build time without requiring hand-written platform test boilerplate:
+Consumer apps write UI tests once in `src/commonTest/kotlin`. When `testing { enabled = true }` is set in `build.gradle.kts`, the Gradle plugin automatically generates backend test runners and registers convenience tasks (`testSwing`, `testWindows`, `testMac`, `testLinux`, `testLinuxGtk`, `testLinuxQt`, `testAndroid`, `testIos`, `testIpados`, `testWeb`):
 
 ```kotlin
 genericui {
@@ -48,9 +41,31 @@ genericui {
 }
 ```
 
+### Running Linux GTK4 / Qt6 Tests from macOS OrbStack (XQuartz)
+
+Linux containers running under **OrbStack on macOS** render live GTK4 and Qt6 windows directly on the macOS desktop via **XQuartz** (rather than a headless framebuffer):
+
+```bash
+# In macOS terminal: ensure XQuartz is running with network connections allowed ("Allow connections from network clients")
+# Inside OrbStack Linux container/VM (or via `orb`):
+export DISPLAY=host.orb.internal:0
+./gradlew :tests:linuxX64Test
+```
+
+### Common Test Commands (`GenericUI` Root Repo & Example Projects)
+
+```bash
+# Common, JVM Swing, Android host, Apple Darwin, Web, and consolidated :tests suites:
+./gradlew :common:jvmTest :jvm:jvmTest :tests:jvmTest :tests:wasmJsTest :tests:jsTest
+./gradlew :apple:macosArm64Test :tests:macosArm64Test :tests:iosSimulatorArm64Test
+
+# Consumer example project convenience test tasks:
+./gradlew testSwing testWindows testMac testLinux testIos testIpados testWeb windowsVisualTest
+```
+
 ---
 
-## 3. Quick-Start Example (`src/commonTest/kotlin`)
+## 3. Quick-Start Test Example (`src/commonTest/kotlin`)
 
 ```kotlin
 package com.example.studio

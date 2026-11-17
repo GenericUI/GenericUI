@@ -4,15 +4,15 @@
 > **Comprehensive Reference**: [**Hybrid Layouts & Fragment Helpers Guide (`layouts-and-helpers.md`)**](./layouts-and-helpers.md)  
 > **Related Guides**: [Components & Docking (`components-and-docking.md`)](./components-and-docking.md) · [Fragments & Windows (`fragments-and-windows.md`)](./fragments-and-windows.md) · [Extensions & DSL (`extensions.md`)](./extensions.md) · [Media & Canvases (`media-and-canvases.md`)](./media-and-canvases.md)
 
-This guide summarizes GenericUI's **7 Hybrid & Responsive Layout Systems** (`com.nexustools.genericui.component.layout` & `com.nexustools.genericui.component.dock`), their **Fragment Helper counterparts** (`com.nexustools.genericui.component.fragment.helper`), shared breakpoint evaluation via [`HybridBreakpointSpec`](../common/src/commonMain/kotlin/com/nexustools/genericui/component/layout/HybridBreakpointSpec.kt) and [`HybridLayoutMode`](../common/src/commonMain/kotlin/com/nexustools/genericui/component/layout/HybridLayoutMode.kt), and declarative `kotlinx.html`-style DSL builders in `:extensions:dsl` ([`HybridLayoutDsl.kt`](../extensions/dsl/src/commonMain/kotlin/com/nexustools/genericui/ext/dsl/HybridLayoutDsl.kt)).
+This guide summarizes GenericUI's **7 Hybrid & Responsive Layout Systems** (`com.nexustools.genericui.component.layout` & `com.nexustools.genericui.component.dock`), their **Fragment Helper counterparts** (`com.nexustools.genericui.component.fragment.helper`), shared breakpoint evaluation via [`HybridBreakpointSpec`](../common/src/commonMain/kotlin/com/nexustools/genericui/component/layout/HybridBreakpointSpec.kt) and [`HybridLayoutMode`](../common/src/commonMain/kotlin/com/nexustools/genericui/component/layout/HybridLayoutMode.kt), and declarative `kotlinx.html`-style DSL builders in `:extensions:ui:dsl` ([`HybridLayoutDsl.kt`](../extensions/ui/dsl/src/commonMain/kotlin/com/nexustools/genericui/ext/dsl/HybridLayoutDsl.kt)).
 
-For full API tables, edge-swipe drawer gestures, and both standard (`getBootstrap()` / `getStyle()`) and `:extensions:dsl` (`bootstrap { ... }` / `style { ... }`) examples, see [**`layouts-and-helpers.md`**](./layouts-and-helpers.md).
+For full API tables, edge-swipe drawer gestures, and both standard (`getBootstrap()` / `getStyle()`) and `:extensions:ui:dsl` (`bootstrap { ... }` / `style { ... }`) examples, see [**`layouts-and-helpers.md`**](./layouts-and-helpers.md).
 
 ---
 
 ## 1. Shared Responsive Breakpoint Architecture (`HybridBreakpointSpec` & `HybridLayoutMode`)
 
-All 7 hybrid layout helpers share [`HybridBreakpointSpec`](../common/src/commonMain/kotlin/com/nexustools/genericui/component/layout/HybridBreakpointSpec.kt) and [`HybridLayoutMode`](../common/src/commonMain/kotlin/com/nexustools/genericui/component/layout/HybridLayoutMode.kt) (`SINGLE`, `COLUMNS`, `FULLSCREEN`, `PICTURE_IN_PICTURE`) so mobile screen-size rules (phone vs. tablet via `smallestScreenWidthDp`) and live desktop/web viewport-size rules (`viewportWidthDp` / `viewportHeightDp`) behave consistently across all 8 platform backends:
+All 7 hybrid layout helpers share [`HybridBreakpointSpec`](../common/src/commonMain/kotlin/com/nexustools/genericui/component/layout/HybridBreakpointSpec.kt) and [`HybridLayoutMode`](../common/src/commonMain/kotlin/com/nexustools/genericui/component/layout/HybridLayoutMode.kt) (`SINGLE`, `COLUMNS`, `FULLSCREEN`, `PICTURE_IN_PICTURE`) so mobile screen-size rules (phone vs. tablet via `smallestScreenWidthDp`) and live desktop/web viewport-size rules (`viewportWidthDp` / `viewportHeightDp`) behave consistently across all 9 platform backends:
 
 | Property | Default (`dp`) | Role |
 | :--- | :--- | :--- |
@@ -39,9 +39,9 @@ All 7 hybrid layout helpers share [`HybridBreakpointSpec`](../common/src/commonM
 
 ---
 
-## 3. Declarative `:extensions:dsl` Builders (`HybridLayoutDsl.kt`)
+## 3. Declarative `:extensions:ui:dsl` Builders (`HybridLayoutDsl.kt`)
 
-When using `:extensions:dsl`, all hybrid layouts can be constructed declaratively inside any `AbstractContainer` alongside `bootstrap { ... }` and `style { ... }`:
+When using `:extensions:ui:dsl`, all hybrid layouts can be constructed declaratively inside any `AbstractContainer` alongside `bootstrap { ... }` and `style { ... }`:
 
 ```kotlin
 import com.nexustools.genericui.component.layout.HybridFoldMode
@@ -85,8 +85,8 @@ val root = buildDiv {
 
 ## 4. System Backend Typography vs. Aesthetic Style Restraints in Layouts
 
-When styling layout containers and child components across all 8 targets:
+When styling layout containers and child components across all 9 targets:
 - **Zero String-Keyed Style APIs**: `GenericUI` does not expose `setStyleProperty(String, String)` or raw CSS maps; all styling uses strongly-typed `ComponentStyle` (`getStyle()` / `style { ... }`) and `ComponentBootstrap` (`getBootstrap()` / `bootstrap { ... }`), translated to DOM CSS strings only on `:web` via `WebCssStyleTranslator`.
-- **Standard Containers & Controls on System Backends (`Windows`, `MacOS`, `Gtk`, `Qt`, `Swing`, `Android`, `IOS`)**: Layout/geometry properties (`width`, `height`, `minWidth`, `maxWidth`, `padding`, `margin`, `gap`, `flexGrow`, `flexWrap`, `cursor`) are honored on all containers and controls, whereas aesthetic skinning overrides on `ComponentStyle` (`backgroundColor`, `background`, `borderColor`, `borderWidth`, `borderRadius`, `boxShadow`) and font overrides on controls are **silently ignored** on standard `Container`, `VStack`, `HStack`, `Card`, `Button`, `TextField`, `Select`, etc. Standard containers/controls can only be tinted via `BootstrapType` (`bootstrap.type`, `bootstrap.backgroundType`, `bootstrap.borderType`).
-- **Text / Typography Elements (`Label`, `Text`, `Heading`, `Badge`, `Blockquote`, `CodeBlock`, `MarkdownView`)**: Honor full typography and text-color properties (`color` / `textColor`, `fontFamily`, `fontSize`, `fontWeight`, `fontStyle`, `lineHeight`, `letterSpacing`, `textAlign`, `textDecoration`, `textTransform`, `textOverflow`, `whiteSpace`, `wordBreak`) on all 8 backends.
-- **`StyledContainer`, `StyledButton`, & `:extensions:alien`**: Use [`StyledContainer`](../common/src/commonMain/kotlin/com/nexustools/genericui/component/container/StyledContainer.kt), [`StyledButton`](../common/src/commonMain/kotlin/com/nexustools/genericui/component/action/StyledButton.kt), or `:extensions:alien` when custom `ComponentStyle` aesthetic skinning (custom backgrounds, gradients, rounded borders, or shadows) is desired on system backends.
+- **Standard Containers & Controls on System Backends (`Windows`, `MacOS`, `Gtk`, `Qt`, `Swing`, `Android`, `IOS`, `IPadOS`)**: Layout/geometry properties (`width`, `height`, `minWidth`, `maxWidth`, `padding`, `margin`, `gap`, `flexGrow`, `flexWrap`, `cursor`) are honored on all containers and controls, whereas aesthetic skinning overrides on `ComponentStyle` (`backgroundColor`, `background`, `borderColor`, `borderWidth`, `borderRadius`, `boxShadow`) and font overrides on controls are **silently ignored** on standard `Container`, `VStack`, `HStack`, `Card`, `Button`, `TextField`, `Select`, etc. Standard containers/controls can only be tinted via `BootstrapType` (`bootstrap.type`, `bootstrap.backgroundType`, `bootstrap.borderType`).
+- **Text / Typography Elements (`Label`, `Text`, `Heading`, `Badge`, `Blockquote`, `CodeBlock`, `MarkdownView`)**: Honor full typography and text-color properties (`color` / `textColor`, `fontFamily`, `fontSize`, `fontWeight`, `fontStyle`, `lineHeight`, `letterSpacing`, `textAlign`, `textDecoration`, `textTransform`, `textOverflow`, `whiteSpace`, `wordBreak`) on all 9 backends.
+- **`StyledContainer`, `StyledButton`, & `:extensions:ui:alien`**: Use [`StyledContainer`](../common/src/commonMain/kotlin/com/nexustools/genericui/component/layout/StyledContainer.kt), [`StyledButton`](../common/src/commonMain/kotlin/com/nexustools/genericui/component/action/StyledButton.kt), or `:extensions:ui:alien` when custom `ComponentStyle` aesthetic skinning (custom backgrounds, gradients, rounded borders, or shadows) is desired on system backends.

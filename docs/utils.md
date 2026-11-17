@@ -3,13 +3,13 @@
 > **Root Repository**: [**GenericUI (`../README.md`)**](../README.md) | **Master Docs Index**: [**`docs/README.md`**](./README.md)  
 > **Related Guides**: [Core Architecture (`architecture.md`)](./architecture.md) · [Resources (`resources.md`)](./resources.md) · [Fragments & Windows (`fragments-and-windows.md`)](./fragments-and-windows.md) · [Application (`application.md`)](./application.md) · [Backends Guide (`backends.md`)](./backends.md) · [Gradle Plugin (`gradle-plugin.md`)](./gradle-plugin.md)
 
-This document catalogs GenericUI's **100% asynchronous, non-blocking coroutine I/O & storage APIs** (`ByteOrder`, `ByteBuffer`, `ReadableByteBuffer`, `WritableByteBuffer`, `Readable`, `Writable`, `Stream`, `StreamUtil`, `IFileSystem`, `FileSystemAvailability`, `FileSystem`, `UserDirectory`, `ConfigDirectory`, `CacheDirectory`, and zero-parsing structured `Database`), **100% asynchronous non-blocking networking APIs** (`Network`, `TcpSocket` / `TcpClient`, `UdpSocket` / `UdpClient`, `HttpConnection`, `HttpRequest`, `HttpResponse`, `HttpClient`, and `SocketIoClient`), streaming binary serialization codecs (`BinaryJson` and `BinaryPlist`), cross-platform persistent preferences (`IApplication.getPreferenceStore()`, `IFragment.getPreferenceStore()`, `PreferenceStore`, and `PreferenceObjectCodec`), URL/resource image caching (`ImageCacheManager` and `ImageLoader`), lifecycle-bound UI timers, geometry/style helpers, lazy diffing utilities, and platform foundation utilities across `:common`, `:systemCommon`, `:desktop:common`, `:desktop:nativeCommon`, `:desktop:linuxCommon`, `:mobile:common`, and `:web`.
+This document catalogs GenericUI's **100% asynchronous, non-blocking coroutine I/O & storage APIs** (`ByteOrder`, `ByteBuffer`, `ReadableByteBuffer`, `WritableByteBuffer`, `Readable`, `Writable`, `Stream`, `StreamUtil`, `IFileSystem`, `FileSystemAvailability`, `FileSystem`, `UserDirectory`, `ConfigDirectory`, `CacheDirectory`, and zero-parsing structured `Database`), **100% asynchronous non-blocking networking APIs** (`Network`, `TcpSocket`, `UdpSocket`, `HttpConnection`, `HttpRequest`, `HttpResponse`, `HttpClient`, and `SocketIoClient`), streaming binary serialization codecs (`BinaryJson` and `BinaryPlist`), cross-platform persistent preferences (`IApplication.getPreferenceStore()`, `IFragment.getPreferenceStore()`, `PreferenceStore`, and `PreferenceObjectCodec`), URL/resource image caching (`ImageCacheManager` and `ImageLoader`), lifecycle-bound UI timers, geometry/style helpers, lazy diffing utilities, and platform foundation utilities across `:common`, `:system`, `:jvm`, `:apple`, `:desktop`, `:mobile`, and `:web`.
 
 ---
 
 ## 1. 100% Async Non-Blocking Coroutine I/O, Streams, & File Systems (`com.nexustools.genericui.io.*` & `com.nexustools.genericui.util.*`)
 
-All stream, file system, user directory, and database operations in GenericUI are **100% asynchronous, non-blocking Kotlin `suspend` functions** that never block the UI/main thread across all 8 platform backends.
+All stream, file system, user directory, and database operations in GenericUI are **100% asynchronous, non-blocking Kotlin `suspend` functions** that never block the UI/main thread across all 9 platform backends.
 
 ### 1.1 `ByteOrder` & `ByteBuffer` (`com.nexustools.genericui.io.*`)
 
@@ -41,16 +41,15 @@ All stream, file system, user directory, and database operations in GenericUI ar
 ### 1.2 `Readable`, `Writable`, `Stream`, `ReadableByteBuffer`, `WritableByteBuffer`, & `StreamUtil` (`com.nexustools.genericui.io.*`)
 
 - **Sources**:
-  - [`Readable.kt`](../common/src/commonMain/kotlin/com/nexustools/genericui/io/Readable.kt) (`open class Readable : Disposable`)
-  - [`Writable.kt`](../common/src/commonMain/kotlin/com/nexustools/genericui/io/Writable.kt) (`open class Writable : Disposable` — always spelled `Writable`, never `Writeable`)
-  - [`Stream.kt`](../common/src/commonMain/kotlin/com/nexustools/genericui/io/Stream.kt) (`open class Stream : Readable, Writable`)
+  - [`Readable.kt`](../common/src/commonMain/kotlin/com/nexustools/genericui/io/Readable.kt) (`interface Readable : Disposable`)
+  - [`Writable.kt`](../common/src/commonMain/kotlin/com/nexustools/genericui/io/Writable.kt) (`interface Writable : Disposable` — always spelled `Writable`, never `Writeable`)
+  - [`Stream.kt`](../common/src/commonMain/kotlin/com/nexustools/genericui/io/Stream.kt) (`interface Stream : Readable, Writable`)
   - [`ReadableByteBuffer.kt`](../common/src/commonMain/kotlin/com/nexustools/genericui/io/ReadableByteBuffer.kt) (`class ReadableByteBuffer(val buffer: ByteBuffer) : Readable`)
   - [`WritableByteBuffer.kt`](../common/src/commonMain/kotlin/com/nexustools/genericui/io/WritableByteBuffer.kt) (`class WritableByteBuffer(initialCapacity: Int = 256) : Writable`)
-  - [`ResourceReadableNativeImpl.kt`](../common/src/commonMain/kotlin/com/nexustools/genericui/io/ResourceReadableNativeImpl.kt) (`class ResourceReadableNativeImpl(val resourceId: ResourceID) : Readable`)
   - [`StreamUtil.kt`](../common/src/commonMain/kotlin/com/nexustools/genericui/io/StreamUtil.kt) (`object StreamUtil`)
-- **Encapsulated Native Contracts** (`internal` / `protected` — never publicly exposed on user-facing classes):
-  - [`ReadableNativeImpl`](../common/src/commonMain/kotlin/com/nexustools/genericui/nativeimpl/io/ReadableNativeImpl.kt) & [`MemoryReadableNativeImpl`](../common/src/commonMain/kotlin/com/nexustools/genericui/nativeimpl/io/MemoryReadableNativeImpl.kt)
-  - [`WritableNativeImpl`](../common/src/commonMain/kotlin/com/nexustools/genericui/nativeimpl/io/WritableNativeImpl.kt) & [`MemoryWritableNativeImpl`](../common/src/commonMain/kotlin/com/nexustools/genericui/nativeimpl/io/MemoryWritableNativeImpl.kt)
+- **Purpose-Specific Encapsulated Native Stream Contracts** (`internal` / `protected` — never publicly exposed on user-facing classes):
+  - [`FileReadableNativeImpl`](../common/src/commonMain/kotlin/com/nexustools/genericui/nativeimpl/io/FileReadableNativeImpl.kt), [`DatabaseReadableNativeImpl`](../common/src/commonMain/kotlin/com/nexustools/genericui/nativeimpl/io/DatabaseReadableNativeImpl.kt), & [`MemoryReadableNativeImpl`](../common/src/commonMain/kotlin/com/nexustools/genericui/nativeimpl/io/MemoryReadableNativeImpl.kt)
+  - [`FileWritableNativeImpl`](../common/src/commonMain/kotlin/com/nexustools/genericui/nativeimpl/io/FileWritableNativeImpl.kt), [`DatabaseWritableNativeImpl`](../common/src/commonMain/kotlin/com/nexustools/genericui/nativeimpl/io/DatabaseWritableNativeImpl.kt), & [`MemoryWritableNativeImpl`](../common/src/commonMain/kotlin/com/nexustools/genericui/nativeimpl/io/MemoryWritableNativeImpl.kt)
 
 #### `ReadableByteBuffer`, `WritableByteBuffer`, & `Stream`
 
@@ -109,8 +108,8 @@ All stream, file system, user directory, and database operations in GenericUI ar
 
 | Enum Entry | Meaning |
 | :--- | :--- |
-| **`FileSystemAvailability.Always`** | Operations succeed immediately without interactive permission prompts (all `UserDirectory` / `ConfigDirectory` / `CacheDirectory` instances across all 8 backends, Desktop `FileSystem`, and app-sandbox paths on Mobile). |
-| **`FileSystemAvailability.WithPermission`** | Operations require an OS runtime permission grant or interactive user file/directory picker (`FileSystem` on `:mobile:android` SAF, `:mobile:ios` `UIDocumentPickerViewController`, and `:web` File System Access API / `<input type="file">`). |
+| **`FileSystemAvailability.Always`** | Operations succeed immediately without interactive permission prompts (all `UserDirectory` / `ConfigDirectory` / `CacheDirectory` instances across all 9 backends, Desktop `FileSystem`, and app-sandbox paths on Mobile). |
+| **`FileSystemAvailability.WithPermission`** | Operations require an OS runtime permission grant or interactive user file/directory picker (`FileSystem` on Android SAF, iOS/iPadOS `UIDocumentPickerViewController`, and `:web` File System Access API / `<input type="file">`). |
 | **`FileSystemAvailability.Unavailable`** | Direct arbitrary path operations are unavailable in the current environment. |
 
 #### Shared `IFileSystem` Contract
@@ -160,21 +159,20 @@ All stream, file system, user directory, and database operations in GenericUI ar
   - [`ConfigDirectory.kt`](../common/src/commonMain/kotlin/com/nexustools/genericui/util/ConfigDirectory.kt) (`open class ConfigDirectory : UserDirectory`)
   - [`CacheDirectory.kt`](../common/src/commonMain/kotlin/com/nexustools/genericui/util/CacheDirectory.kt) (`class CacheDirectory : ConfigDirectory`)
 - **Architecture Across System Targets vs. `:web`**:
-  - **`isAvailable()`**: Always returns `FileSystemAvailability.Always` across all 8 backends.
-  - **System Targets (`windows`, `macos`, `gtk`, `qt`, `swing`, `android`, `ios`)**: Provide their base OS directory filepath (`directoryPath`) and delegate `IFileSystem` operations (`read`, `write`, `openReadable`, `openWritable`, `resolve`, `openDatabase`) to `FileSystem`.
+  - **`isAvailable()`**: Always returns `FileSystemAvailability.Always` across all 9 backends.
+  - **System Targets (`windows`, `macos`, `gtk`, `qt`, `swing`, `android`, `ios`, `ipados`)**: Provide their base OS directory filepath (`directoryPath`) and delegate `IFileSystem` operations (`read`, `write`, `openReadable`, `openWritable`, `resolve`, `openDatabase`) to `FileSystem`.
   - **Web (`:web`)**: `ConfigDirectory` and `CacheDirectory` (`WebUserDirectoryNativeImpl`) use browser `window.indexedDB` **directly** (database `"genericui_user_dirs:<appName>"`, object stores `"config"` and `"cache"`) **without** using the `Database` class, while `PreferenceStore` remains on `window.localStorage`.
 
 #### Per-Backend `ConfigDirectory` & `CacheDirectory` Implementation Matrix
 
-| Backend Module | `ConfigDirectory` Native Impl & Backing | `CacheDirectory` Native Impl & Backing |
+| Backend / Module | `ConfigDirectory` Native Impl & Backing | `CacheDirectory` Native Impl & Backing |
 | :--- | :--- | :--- |
-| **`:desktop:windows`** | `WindowsConfigDirectoryImpl` $\rightarrow$ `%APPDATA%\<appName>[\<subdir>]` (delegates `IFileSystem` to `FileSystem`) | `WindowsCacheDirectoryImpl` $\rightarrow$ `%LOCALAPPDATA%\<appName>\Cache[\<subdir>]` (delegates `IFileSystem` to `FileSystem`) |
-| **`:desktop:macos`** | `MacosConfigDirectoryImpl` $\rightarrow$ `$XDG_CONFIG_HOME/<appName>` or `~/.config/<appName>` (delegates `IFileSystem` to `FileSystem`) | `MacosCacheDirectoryImpl` $\rightarrow$ `~/Library/Caches/<appName>[/<subdir>]` (delegates `IFileSystem` to `FileSystem`) |
-| **`:desktop:gtk` & `:desktop:qt`** (`:desktop:linuxCommon`) | `LinuxXdgConfigDirectoryImpl` $\rightarrow$ `$XDG_CONFIG_HOME/<appName>` or `~/.config/<appName>` (delegates `IFileSystem` to `FileSystem`) | `LinuxXdgCacheDirectoryImpl` $\rightarrow$ `$XDG_CACHE_HOME/<appName>` or `~/.cache/<appName>` (delegates `IFileSystem` to `FileSystem`) |
-| **`:desktop:swing`** | `SwingUserDirectoryNativeImpl(isCache = false)` $\rightarrow$ Host OS config directory (`java.nio.channels.AsynchronousFileChannel` / `FileSystem`) | `SwingUserDirectoryNativeImpl(isCache = true)` $\rightarrow$ Host OS cache directory (`java.nio.channels.AsynchronousFileChannel` / `FileSystem`) |
-| **`:mobile:android`** | `AndroidUserDirectoryNativeImpl(isCache = false)` $\rightarrow$ `<context.filesDir>/<appName>` (delegates `IFileSystem` to `FileSystem`) | `AndroidUserDirectoryNativeImpl(isCache = true)` $\rightarrow$ `<context.cacheDir>/<appName>` (delegates `IFileSystem` to `FileSystem`) |
-| **`:mobile:ios`** | `IosUserDirectoryNativeImpl(isCache = false)` $\rightarrow$ `<Home>/Library/Application Support/<appName>` (delegates `IFileSystem` to `FileSystem`) | `IosUserDirectoryNativeImpl(isCache = true)` $\rightarrow$ `<Home>/Library/Caches/<appName>` (delegates `IFileSystem` to `FileSystem`) |
-| **`:web`** | `WebUserDirectoryNativeImpl(scheme = "config")` $\rightarrow$ Browser `window.indexedDB` **directly** (`"genericui_user_dirs:<appName>"`, store `"config"`, **not** using `Database`) | `WebUserDirectoryNativeImpl(scheme = "cache")` $\rightarrow$ Browser `window.indexedDB` **directly** (`"genericui_user_dirs:<appName>"`, store `"cache"`, **not** using `Database`) |
+| **Windows (`:desktop` `mingwMain`)** | `WindowsConfigDirectoryImpl` $\rightarrow$ `%APPDATA%\<appName>[\<subdir>]` (delegates `IFileSystem` to `FileSystem`) | `WindowsCacheDirectoryImpl` $\rightarrow$ `%LOCALAPPDATA%\<appName>\Cache[\<subdir>]` (delegates `IFileSystem` to `FileSystem`) |
+| **Apple (`:apple`: `MacOS`, `IOS`, `IPadOS`)** | [`AppleUserDirectoryNativeImpl`](../apple/src/appleMain/kotlin/com/nexustools/genericui/apple/AppleUserDirectoryNativeImpl.kt) $\rightarrow$ `~/.config/<appName>` (macOS) / `<Home>/Library/Application Support/<appName>` (iOS & iPadOS) | [`AppleUserDirectoryNativeImpl`](../apple/src/appleMain/kotlin/com/nexustools/genericui/apple/AppleUserDirectoryNativeImpl.kt) $\rightarrow$ `~/Library/Caches/<appName>` |
+| **Linux GTK4 & Qt6 (`:desktop` `linuxMain`)** | [`LinuxXdgConfigDirectoryImpl`](../desktop/src/linuxMain/kotlin/com/nexustools/genericui/linux/LinuxXdgConfigDirectoryImpl.kt) $\rightarrow$ `$XDG_CONFIG_HOME/<appName>` or `~/.config/<appName>` | [`LinuxXdgCacheDirectoryImpl`](../desktop/src/linuxMain/kotlin/com/nexustools/genericui/linux/LinuxXdgCacheDirectoryImpl.kt) $\rightarrow$ `$XDG_CACHE_HOME/<appName>` or `~/.cache/<appName>` |
+| **JVM Swing (`:desktop` `jvmMain`)** | [`SwingUserDirectoryNativeImpl`](../desktop/src/jvmMain/kotlin/com/nexustools/genericui/swing/SwingUserDirectoryNativeImpl.kt)`(isCache = false)` $\rightarrow$ Host OS config directory (`JvmFileSystemBase`) | [`SwingUserDirectoryNativeImpl`](../desktop/src/jvmMain/kotlin/com/nexustools/genericui/swing/SwingUserDirectoryNativeImpl.kt)`(isCache = true)` $\rightarrow$ Host OS cache directory |
+| **Android (`:mobile` `androidMain`)** | [`AndroidUserDirectoryNativeImpl`](../mobile/src/androidMain/kotlin/com/nexustools/genericui/android/AndroidUserDirectoryNativeImpl.kt)`(isCache = false)` $\rightarrow$ `<context.filesDir>/<appName>` | [`AndroidUserDirectoryNativeImpl`](../mobile/src/androidMain/kotlin/com/nexustools/genericui/android/AndroidUserDirectoryNativeImpl.kt)`(isCache = true)` $\rightarrow$ `<context.cacheDir>/<appName>` |
+| **Web (`:web`)** | [`WebUserDirectoryNativeImpl`](../web/src/commonMain/kotlin/com/nexustools/genericui/web/WebUserDirectoryNativeImpl.kt)`(scheme = "config")` $\rightarrow$ Browser `window.indexedDB` **directly** (`"genericui_user_dirs:<appName>"`, store `"config"`) | [`WebUserDirectoryNativeImpl`](../web/src/commonMain/kotlin/com/nexustools/genericui/web/WebUserDirectoryNativeImpl.kt)`(scheme = "cache")` $\rightarrow$ Browser `window.indexedDB` **directly** (`"genericui_user_dirs:<appName>"`, store `"cache"`) |
 
 ```kotlin
 import com.nexustools.genericui.io.ByteBuffer
@@ -197,11 +195,10 @@ cacheDir.openWritable("render_preview.bin").use { writable ->
 
 ---
 
-### 1.6 `Database` (`com.nexustools.genericui.util.Database` + `typealias` in `com.nexustools.genericui.io`)
+### 1.6 `Database` (`com.nexustools.genericui.util.Database`)
 
 - **Sources**:
   - [`common/src/commonMain/kotlin/com/nexustools/genericui/util/Database.kt`](../common/src/commonMain/kotlin/com/nexustools/genericui/util/Database.kt) (`class Database : Disposable`)
-  - [`common/src/commonMain/kotlin/com/nexustools/genericui/io/DatabaseAlias.kt`](../common/src/commonMain/kotlin/com/nexustools/genericui/io/DatabaseAlias.kt) (`typealias Database = com.nexustools.genericui.util.Database`)
   - Structured AST Models (`com.nexustools.genericui.util.db.*`):
     - [`DatabaseTableSchema`](../common/src/commonMain/kotlin/com/nexustools/genericui/util/db/DatabaseTableSchema.kt), [`DatabaseColumnSpec`](../common/src/commonMain/kotlin/com/nexustools/genericui/util/db/DatabaseColumnSpec.kt), [`DatabaseColumnType`](../common/src/commonMain/kotlin/com/nexustools/genericui/util/db/DatabaseColumnType.kt) (`STRING`, `INT64`, `DOUBLE`, `BOOLEAN`, `BLOB`)
     - [`DatabaseRecord`](../common/src/commonMain/kotlin/com/nexustools/genericui/util/db/DatabaseRecord.kt), [`DatabaseValue`](../common/src/commonMain/kotlin/com/nexustools/genericui/util/db/DatabaseValue.kt)
@@ -215,16 +212,14 @@ cacheDir.openWritable("render_preview.bin").use { writable ->
 
 #### Per-Backend Native `Database` Engines
 
-| Backend Module | Native `DatabaseNativeImpl` | Underlying Database Engine |
+| Backend / Module | Native `DatabaseNativeImpl` | Underlying Database Engine |
 | :--- | :--- | :--- |
-| **`:desktop:qt`** | `QtDatabaseNativeImpl` | **Qt 6 `QtSql`** (`QSqlDatabase::addDatabase("QSQLITE", connectionName)`, `QSqlQuery` with positional bind values) |
-| **`:desktop:windows`** | `WindowsDatabaseNativeImpl` | Native C **`libsqlite3`** (`sqlite3_open_v2`, `sqlite3_prepare_v2`, `sqlite3_bind_*`, `sqlite3_step`) |
-| **`:desktop:macos`** | `MacosDatabaseNativeImpl` | System **`libsqlite3`** (`/usr/lib/libsqlite3.dylib` via C/Objective-C interop) |
-| **`:desktop:gtk`** | `GtkDatabaseNativeImpl` | System **`libsqlite3`** (`sqlite3` C API on background GLib worker thread) |
-| **`:desktop:swing`** | `SwingDatabaseNativeImpl` | **`org.xerial:sqlite-jdbc`** (`jdbc:sqlite:<filePath>` `PreparedStatement` on `Dispatchers.IO`) |
-| **`:mobile:android`** | `AndroidDatabaseNativeImpl` | **`androidx.sqlite:sqlite-ktx`** / `android.database.sqlite.SQLiteDatabase` (`openOrCreateDatabase`) |
-| **`:mobile:ios`** | `IosDatabaseNativeImpl` | iOS system **`libsqlite3`** (`sqlite3` C API) |
-| **`:web`** | `WebDatabaseNativeImpl` | Browser **`window.indexedDB`** isolated in `"genericui_db:<databaseName>:<filePath>"` with `"tbl:<tableName>"` object stores so it **never** conflicts with `ConfigDirectory` or `CacheDirectory` (`"genericui_user_dirs:<appName>"`) |
+| **Linux GTK4 & Qt6 (`:desktop` `linuxMain`)** | [`LinuxSqliteDatabaseNativeImpl`](../desktop/src/linuxMain/kotlin/com/nexustools/genericui/linux/LinuxSqliteDatabaseNativeImpl.kt) | System **`libsqlite3`** (`sqlite3_open_v2`, `sqlite3_prepare_v2`) |
+| **Windows (`:desktop` `mingwMain`)** | [`WindowsDatabaseNativeImpl`](../desktop/src/mingwMain/kotlin/com/nexustools/genericui/windows/WindowsDatabaseNativeImpl.kt) | Native C **`libsqlite3`** (`sqlite3_open_v2`, `sqlite3_prepare_v2`, `sqlite3_bind_*`, `sqlite3_step`) |
+| **Apple (`:apple`: `MacOS`, `IOS`, `IPadOS`)** | [`AppleDatabaseNativeImpl`](../apple/src/appleMain/kotlin/com/nexustools/genericui/apple/AppleDatabaseNativeImpl.kt) | System **`libsqlite3`** ([`AppleSqliteBindings`](../apple/src/appleMain/kotlin/com/nexustools/genericui/apple/AppleSqliteBindings.kt)) |
+| **JVM Swing (`:desktop` `jvmMain` + `:jvm`)** | [`SwingDatabaseNativeImpl`](../desktop/src/jvmMain/kotlin/com/nexustools/genericui/swing/SwingDatabaseNativeImpl.kt) | [`JvmDatabaseBase`](../jvm/src/jvmSharedMain/kotlin/com/nexustools/genericui/jvm/JvmDatabaseBase.kt) + **`org.xerial:sqlite-jdbc`** (`PreparedStatement` on `JvmIoExecutor`) |
+| **Android (`:mobile` `androidMain` + `:jvm`)** | [`AndroidDatabaseNativeImpl`](../mobile/src/androidMain/kotlin/com/nexustools/genericui/android/AndroidDatabaseNativeImpl.kt) | [`JvmDatabaseBase`](../jvm/src/jvmSharedMain/kotlin/com/nexustools/genericui/jvm/JvmDatabaseBase.kt) + **`androidx.sqlite:sqlite-ktx`** / `SQLiteDatabase` |
+| **Web (`:web`)** | [`WebDatabaseNativeImpl`](../web/src/commonMain/kotlin/com/nexustools/genericui/web/WebDatabaseNativeImpl.kt) | Browser **`window.indexedDB`** isolated in `"genericui_db:<databaseName>:<filePath>"` with `"tbl:<tableName>"` object stores so it **never** conflicts with `ConfigDirectory` or `CacheDirectory` (`"genericui_user_dirs:<appName>"`) |
 
 ```kotlin
 import com.nexustools.genericui.util.ConfigDirectory
@@ -285,7 +280,7 @@ val results: List<DatabaseRecord> = db.query(
   - [`ImageCacheManager.kt`](../common/src/commonMain/kotlin/com/nexustools/genericui/image/cache/ImageCacheManager.kt) (`object ImageCacheManager`)
   - [`ImageCacheEntry.kt`](../common/src/commonMain/kotlin/com/nexustools/genericui/image/cache/ImageCacheEntry.kt) (`data class ImageCacheEntry`)
 - **Platform Behavior**:
-  - **System Targets (`windows`, `macos`, `gtk`, `qt`, `swing`, `android`, `ios`)**: `ImageCacheManager` persists fetched/decoded image files inside `CacheDirectory(appName = GenericUI.applicationName, subdirectory = "images")` (`<userCacheDir>/<appName>/images`) using non-blocking `suspend` `IFileSystem` methods (`fetchAndCacheBuffer(url): ByteBuffer?`) alongside an in-memory LRU `ImageBuffer` cache (`maxMemoryEntries = 128`).
+  - **System Targets (`windows`, `macos`, `gtk`, `qt`, `swing`, `android`, `ios`, `ipados`)**: `ImageCacheManager` persists fetched/decoded image files inside `CacheDirectory(appName = GenericUI.applicationName, subdirectory = "images")` (`<userCacheDir>/<appName>/images`) using non-blocking `suspend` `IFileSystem` methods (`fetchAndCacheBuffer(url): ByteBuffer?`) alongside an in-memory LRU `ImageBuffer` cache (`maxMemoryEntries = 128`).
   - **Web (`:web`)**: `ImageCacheManager.isWebBrowserManaged` is `true`; the browser natively manages HTTP image loading and caching, so `ImageCacheManager` acts as a zero-overhead pass-through no-op without writing to `CacheDirectory` (`cachedFileCount == 0`, `cachedDiskByteSize == 0L`).
 
 ---
@@ -294,32 +289,30 @@ val results: List<DatabaseRecord> = db.query(
 
 All networking APIs in GenericUI are **100% asynchronous, non-blocking Kotlin `suspend` functions** backed by native OS sockets/HTTP clients on system targets and browser `fetch()` / `WebSocket` on `:web`.
 
-### 2.1 `Network`, `TcpSocket : Stream` (`TcpClient`), `UdpSocket : Stream` (`UdpClient`), & `UdpDatagram`
+### 2.1 `Network`, `TcpSocket : Stream`, `UdpSocket : Stream`, & `UdpDatagram`
 
 - **Sources**:
   - [`Network.kt`](../common/src/commonMain/kotlin/com/nexustools/genericui/net/Network.kt) (`object Network`)
-  - [`TcpSocket.kt`](../common/src/commonMain/kotlin/com/nexustools/genericui/net/TcpSocket.kt) (`class TcpSocket : Stream` & [`TcpClient.kt`](../common/src/commonMain/kotlin/com/nexustools/genericui/net/TcpClient.kt) `typealias TcpClient = TcpSocket`)
-  - [`UdpSocket.kt`](../common/src/commonMain/kotlin/com/nexustools/genericui/net/UdpSocket.kt) (`class UdpSocket : Stream` & [`UdpClient.kt`](../common/src/commonMain/kotlin/com/nexustools/genericui/net/UdpClient.kt) `typealias UdpClient = UdpSocket`)
+  - [`TcpSocket.kt`](../common/src/commonMain/kotlin/com/nexustools/genericui/net/TcpSocket.kt) (`interface TcpSocket : Stream`)
+  - [`UdpSocket.kt`](../common/src/commonMain/kotlin/com/nexustools/genericui/net/UdpSocket.kt) (`interface UdpSocket : Stream`)
   - [`UdpDatagram.kt`](../common/src/commonMain/kotlin/com/nexustools/genericui/net/UdpDatagram.kt) (`data class UdpDatagram(val bytes: ByteArray, val host: String, val port: Int)`)
 
 #### `Network` Capabilities & Factories
 
 | Method | Signature | Description |
 | :--- | :--- | :--- |
-| `Network.supportsTcp()` | `fun supportsTcp(): Boolean` | Returns `true` on all 7 system targets (`windows`, `macos`, `gtk`, `qt`, `swing`, `android`, `ios`) and **`false` on `:web`** (where browsers disallow raw TCP sockets). |
-| `Network.supportsUdp()` | `fun supportsUdp(): Boolean` | Returns `true` on all 7 system targets and **`false` on `:web`**. |
+| `Network.supportsTcp()` | `fun supportsTcp(): Boolean` | Returns `true` on all 8 system targets (`windows`, `macos`, `gtk`, `qt`, `swing`, `android`, `ios`, `ipados`) and **`false` on `:web`** (where browsers disallow raw TCP sockets). |
+| `Network.supportsUdp()` | `fun supportsUdp(): Boolean` | Returns `true` on all 8 system targets and **`false` on `:web`**. |
 | `Network.supportsMulticastUdp()` | `fun supportsMulticastUdp(): Boolean` | Returns `true` when UDP multicast group join/leave is supported (`false` on `:web`). |
-| `Network.openTcpSocket(...)` / `connectTcp(...)` | `suspend fun openTcpSocket(host: String, port: Int, timeoutMs: Long = 10_000L, tls: Boolean = false): TcpSocket?` | Creates and asynchronously connects a duplex `TcpSocket : Stream` (with optional TLS), or returns `null` if unsupported/unreachable. |
-| `Network.openUdpSocket(...)` | `suspend fun openUdpSocket(localHost: String = "0.0.0.0", localPort: Int = 0, remoteHost: String? = null, remotePort: Int = 0): UdpSocket?` | Creates and asynchronously binds a duplex `UdpSocket : Stream` (optionally setting a default remote peer), or returns `null` if unsupported. |
-| `Network.createTcpSocket()` / `createTcpClient()` | `fun createTcpSocket(): TcpSocket` | Creates a new unconnected non-blocking `TcpSocket : Stream`. |
-| `Network.createUdpSocket()` / `createUdpClient()` | `fun createUdpSocket(): UdpSocket` | Creates a new unbound non-blocking `UdpSocket : Stream`. |
+| `Network.openTcpSocket(...)` | `fun openTcpSocket(): TcpSocket` / `suspend fun openTcpSocket(host: String, port: Int, timeoutMs: Long = 10_000L, tls: Boolean = false): TcpSocket` | Creates a duplex `TcpSocket : Stream` (and optionally connects asynchronously with optional TLS), or throws `UnsupportedOperationException` on `:web`. |
+| `Network.openUdpSocket(...)` | `fun openUdpSocket(): UdpSocket` / `suspend fun openUdpSocket(localHost: String = "0.0.0.0", localPort: Int = 0): UdpSocket` | Creates a duplex `UdpSocket : Stream` (and optionally binds asynchronously), or throws `UnsupportedOperationException` on `:web`. |
 
-#### `TcpSocket` (`TcpClient`) & `UdpSocket` (`UdpClient`) Key Methods
+#### `TcpSocket` & `UdpSocket` Key Methods
 
-| Class | Inheritance | Key Methods & Properties |
+| Interface | Inheritance | Key Methods & Properties |
 | :--- | :--- | :--- |
-| **`TcpSocket` (`TcpClient`)** | `: Stream` (`Readable`, `Writable`) | `isConnected`, `remoteHost`, `remotePort`, `localPort`, `readable`, `writable`, `supports()`, `suspend fun connect(host, port, timeoutMs = 10_000L, tls = false): Boolean`, `suspend fun read(maxBytes = 65536): ByteArray?`, `suspend fun readBuffer(maxBytes): ByteBuffer?`, `suspend fun readText(maxBytes): String?`, `suspend fun write(bytes / buffer)` / `writeText(text)` / `writeLine(line)`, `suspend fun flush()`, `suspend fun close()`. |
-| **`UdpSocket` (`UdpClient`)** | `: Stream` (`Readable`, `Writable`) | `isBound`, `localAddress`, `localPort`, `defaultRemoteHost`, `defaultRemotePort`, `broadcastEnabled`, `supports()`, `supportsMulticast()`, `fun connectPeer(remoteHost, remotePort)`, `suspend fun bind(localHost = "0.0.0.0", localPort = 0): Boolean`, `suspend fun joinMulticastGroup(multicastAddress, interfaceName = null): Boolean`, `suspend fun leaveMulticastGroup(multicastAddress, interfaceName = null): Boolean`, `suspend fun send(bytes / buffer, host, port): Int`, `suspend fun sendText(text, host, port): Int`, `suspend fun receive(maxBytes = 65536, timeoutMs = 0L): UdpDatagram?`, plus `Stream` `read`/`write` against the configured remote peer, `suspend fun close()`. |
+| **`TcpSocket`** | `: Stream` (`Readable`, `Writable`) | `isConnected`, `remoteHost`, `remotePort`, `localPort`, `suspend fun connect(host, port, timeoutMs = 10_000L, tls = false): Boolean`, `suspend fun read(maxBytes = 65536): ByteBuffer?`, `suspend fun readBuffer(maxBytes): ByteBuffer?`, `suspend fun readText(maxBytes = 65536): String?`, `fun write(buffer)` / `write(chunk)` / `writeBytes(...)`, `suspend fun flush()`, `suspend fun close()`. |
+| **`UdpSocket`** | `: Stream` (`Readable`, `Writable`) | `isBound`, `localAddress`, `localPort`, `remoteHost`, `remotePort`, `broadcastEnabled`, `fun supportsMulticast(): Boolean`, `suspend fun bind(localHost = "0.0.0.0", localPort = 0): Boolean`, `suspend fun connect(remoteHost, remotePort): Boolean`, `suspend fun joinMulticastGroup(multicastAddress, interfaceName = null): Boolean`, `suspend fun leaveMulticastGroup(multicastAddress, interfaceName = null): Boolean`, `suspend fun send(bytes / buffer, host, port): Int`, `suspend fun sendText(text, host, port): Int`, `suspend fun receive(maxBytes = 65536, timeoutMs = 0L): UdpDatagram?`, plus `Stream` `read`/`write`, `suspend fun close()`. |
 
 ---
 
@@ -331,7 +324,7 @@ All networking APIs in GenericUI are **100% asynchronous, non-blocking Kotlin `s
   - [`HttpRequest.kt`](../common/src/commonMain/kotlin/com/nexustools/genericui/net/http/HttpRequest.kt) (`class HttpRequest : Writable`)
   - [`HttpResponse.kt`](../common/src/commonMain/kotlin/com/nexustools/genericui/net/http/HttpResponse.kt) (`class HttpResponse : Readable`)
   - [`HttpMethod.kt`](../common/src/commonMain/kotlin/com/nexustools/genericui/net/http/HttpMethod.kt) (`enum class HttpMethod { GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS }`)
-- **Purpose**: 100% asynchronous, non-blocking HTTP/HTTPS client and streaming connection architecture across all 8 backends (`WinHTTP` on Windows, `NSURLSession` on macOS/iOS, `libsoup`/`libcurl` on GTK, `QNetworkAccessManager` on Qt6, `java.net.http.HttpClient` on Swing/Android, and `window.fetch()` on `:web`). `HttpRequest` is a `Writable` stream for streaming request bodies, `HttpResponse` is a `Readable` stream for streaming response bodies, and `HttpConnection` is a full-duplex `Stream` combining both.
+- **Purpose**: 100% asynchronous, non-blocking HTTP/HTTPS client and streaming connection architecture across all 9 backends (`WinHTTP` on Windows, `:apple`'s `NSURLSession` on macOS/iOS/iPadOS, `libsoup`/`libcurl` on GTK, `QNetworkAccessManager` on Qt6, `:jvm`'s `JvmHttpUrlConnectionClient` on Swing/Android, and `window.fetch()` on `:web`). `HttpRequest` is a `Writable` stream for streaming request bodies, `HttpResponse` is a `Readable` stream for streaming response bodies, and `HttpConnection` is a full-duplex `Stream` combining both.
 
 | Method | Signature | Description |
 | :--- | :--- | :--- |
@@ -351,7 +344,7 @@ All networking APIs in GenericUI are **100% asynchronous, non-blocking Kotlin `s
   - [`SocketIoClient.kt`](../common/src/commonMain/kotlin/com/nexustools/genericui/net/socketio/SocketIoClient.kt) (`class SocketIoClient : Disposable`)
   - [`SocketIoOptions.kt`](../common/src/commonMain/kotlin/com/nexustools/genericui/net/socketio/SocketIoOptions.kt) (`data class SocketIoOptions`)
   - [`SocketIoParser.kt`](../common/src/commonMain/kotlin/com/nexustools/genericui/net/socketio/SocketIoParser.kt) (`object SocketIoParser`)
-- **Purpose**: 100% asynchronous, non-blocking **Socket.IO v4 / Engine.IO v4** client operating over the active backend's [`WebSocketNativeImpl`](../common/src/commonMain/kotlin/com/nexustools/genericui/nativeimpl/net/WebSocketNativeImpl.kt) transport (`WinHTTP` WebSocket on Windows, `NSURLSessionWebSocketTask` on macOS/iOS, `SoupWebsocketConnection` on GTK, `QWebSocket` on Qt6, `java.net.http.WebSocket` on Swing/Android, and browser `window.WebSocket` on `:web`). Implements the full Engine.IO v4 open handshake (`0{...}` $\rightarrow$ `40`), automatic heartbeat ping/pong (`2` $\rightarrow$ `3`), namespace routing (`40/ns,`), event emission/subscription (`42["event", ...]`), and coroutine acknowledgement callbacks (`43<id>[...]`).
+- **Purpose**: 100% asynchronous, non-blocking **Socket.IO v4 / Engine.IO v4** client operating over the active backend's [`WebSocketNativeImpl`](../common/src/commonMain/kotlin/com/nexustools/genericui/nativeimpl/net/WebSocketNativeImpl.kt) transport (`WinHTTP` WebSocket on Windows, `:apple`'s `NSURLSessionWebSocketTask` on macOS/iOS/iPadOS, `SoupWebsocketConnection` on GTK, `QWebSocket` on Qt6, `:jvm`'s `JvmRfc6455WebSocketNativeImpl` on Swing/Android, and browser `window.WebSocket` on `:web`). Implements the full Engine.IO v4 open handshake (`0{...}` $\rightarrow$ `40`), automatic heartbeat ping/pong (`2` $\rightarrow$ `3`), namespace routing (`40/ns,`), event emission/subscription (`42["event", ...]`), and coroutine acknowledgement callbacks (`43<id>[...]`).
 
 | Method / Factory | Signature | Description |
 | :--- | :--- | :--- |
@@ -392,7 +385,7 @@ if (socket.connect()) {
 
 - **Source**: [`common/src/commonMain/kotlin/com/nexustools/genericui/util/BinaryJson.kt`](../common/src/commonMain/kotlin/com/nexustools/genericui/util/BinaryJson.kt)
 - **Purpose**: Encodes and decodes structured values (`PreferenceElement` AST nodes, primitives, strings, lists, maps, and objects serialized via `PreferenceObjectCodec`) into a compact binary JSON byte stream using a **1-byte type tag (`0x00`..`0x0B`)** followed by **big-endian** length and content bytes.
-- **Used By**: `PreferenceStore` on **Windows (`:desktop:windows`)**, **Linux GTK (`:desktop:gtk`)**, **Linux Qt (`:desktop:qt`)**, and **JVM Swing on Windows/Linux (`:desktop:swing`)** to persist per-key `.bson` files (`<configDir>/<appName>/<key>.bson`).
+- **Used By**: `PreferenceStore` on **Windows (`:desktop` `mingwMain`)**, **Linux GTK4 & Qt6 (`:desktop` `linuxMain`)**, and **JVM Swing on Windows/Linux (`:desktop` `jvmMain`)** to persist per-key `.bson` files (`<configDir>/<appName>/<key>.bson`).
 
 #### `BinaryJson` Wire Format (1-Byte Tag + Big-Endian Payload)
 
@@ -440,7 +433,7 @@ val restored: ViewportConfig? = BinaryJson.decode<ViewportConfig>(ReadableByteBu
 
 - **Source**: [`common/src/commonMain/kotlin/com/nexustools/genericui/util/BinaryPlist.kt`](../common/src/commonMain/kotlin/com/nexustools/genericui/util/BinaryPlist.kt)
 - **Purpose**: Pure Kotlin Multiplatform streaming encoder and decoder for Apple's **`bplist00`** binary property list format (compatible with macOS/iOS `NSPropertyListSerialization` and `plutil`). Strictly supports binary `bplist00` property lists (no XML plist dependency).
-- **Used By**: `PreferenceStore` on **macOS (`:desktop:macos`)**, **iOS (`:mobile:ios`)**, and **JVM Swing on macOS (`:desktop:swing`)** to persist per-key `.plist` files (`<configDir>/<appName>/<key>.plist`).
+- **Used By**: `PreferenceStore` on **Apple targets (`:apple`: macOS, iOS, & iPadOS)** and **JVM Swing on macOS (`:desktop` `jvmMain`)** to persist per-key `.plist` files (`<configDir>/<appName>/<key>.plist`).
 
 #### Key Methods (Streaming `Readable` / `Writable` & Byte Array Helpers)
 
@@ -462,19 +455,18 @@ val restored: ViewportConfig? = BinaryJson.decode<ViewportConfig>(ReadableByteBu
 
 - **Source**: [`common/src/commonMain/kotlin/com/nexustools/genericui/component/system/PreferenceStore.kt`](../common/src/commonMain/kotlin/com/nexustools/genericui/component/system/PreferenceStore.kt)
 - **Native Contract**: [`PreferenceStoreNativeImpl`](../common/src/commonMain/kotlin/com/nexustools/genericui/nativeimpl/system/PreferenceStoreNativeImpl.kt) & [`DefaultPreferenceStoreNativeImpl`](../common/src/commonMain/kotlin/com/nexustools/genericui/nativeimpl/system/DefaultPreferenceStoreNativeImpl.kt)
-- **Purpose**: Unified, type-safe key-value preference store across all 8 platforms with automatic object serialization (`put(key, value)` / `set(key, value)` and `get(key, defaultValue)` / `get(key, targetClass)`), custom type adapters, and live change notifications. Accessible directly from any `IApplication` (`app.getPreferenceStore()`) or any `IFragment` (`fragment.getPreferenceStore()`), defaulting to `GenericUI.applicationName` configured by `genericui { app { name = "..." } }`.
+- **Purpose**: Unified, type-safe key-value preference store across all 9 platforms with automatic object serialization (`put(key, value)` / `set(key, value)` and `get(key, defaultValue)` / `get(key, targetClass)`), custom type adapters, and live change notifications. Accessible directly from any `IApplication` (`app.getPreferenceStore()`) or any `IFragment` (`fragment.getPreferenceStore()`), defaulting to `GenericUI.applicationName` configured by `genericui { app { name = "..." } }`.
 
 #### Platform Storage Matrix
 
-| Backend Module | Storage Mechanism & Path | Wire Format | External Change Detection |
+| Backend / Module | Storage Mechanism & Path | Wire Format | External Change Detection |
 | :--- | :--- | :--- | :--- |
-| **`:desktop:windows`** | `%APPDATA%\<appName>\<key>.bson` | `BinaryJson` (`.bson`) | Timestamp / content polling (`pollExternalChanges()`) |
-| **`:desktop:macos`** | `~/Library/Preferences/<appName>/<key>.plist` | `BinaryPlist` (`bplist00` `.plist`) | Timestamp / content polling (`pollExternalChanges()`) |
-| **`:desktop:gtk` & `:desktop:qt`** (`:desktop:linuxCommon`) | `$XDG_CONFIG_HOME/<appName>/<key>.bson` (or `~/.config/<appName>/<key>.bson`) | `BinaryJson` (`.bson`) | Timestamp / content polling (`pollExternalChanges()`) |
-| **`:desktop:swing`** | macOS: `~/Library/Preferences/<appName>/<key>.plist`<br/>Windows: `%APPDATA%\<appName>\<key>.bson`<br/>Linux: `$XDG_CONFIG_HOME/<appName>/<key>.bson` | `BinaryPlist` (`.plist`) on macOS;<br/>`BinaryJson` (`.bson`) on Windows & Linux | Background daemon `java.nio.file.WatchService` + `pollExternalChanges()` |
-| **`:mobile:android`** | Android `Context.getSharedPreferences(appName, Context.MODE_PRIVATE)` | Native primitives + JSON via `PreferenceObjectCodec` | `SharedPreferences.OnSharedPreferenceChangeListener` |
-| **`:mobile:ios`** | `<NSHomeDirectory()>/Library/Preferences/<appName>/<key>.plist` | `BinaryPlist` (`bplist00` `.plist`) | Timestamp / content polling (`pollExternalChanges()`) |
-| **`:web`** | Browser `window.localStorage.getItem("genericui:$key")` / `setItem("genericui:$key", json)` (with `"genericui:"` key prefix to prevent collisions with JS libraries and browser addons, while `ConfigDirectory` & `CacheDirectory` use `window.indexedDB` directly) | JSON via `PreferenceObjectCodec` | Browser `window.addEventListener("storage", ...)` |
+| **Windows (`:desktop` `mingwMain`)** | `%APPDATA%\<appName>\<key>.bson` | `BinaryJson` (`.bson`) | Timestamp / content polling (`pollExternalChanges()`) |
+| **Apple (`:apple`: `MacOS`, `IOS`, `IPadOS`)** | `<NSHomeDirectory()>/Library/Preferences/<appName>/<key>.plist` | `BinaryPlist` (`bplist00` `.plist`) | Timestamp / content polling (`pollExternalChanges()`) |
+| **Linux GTK4 & Qt6 (`:desktop` `linuxMain`)** | `$XDG_CONFIG_HOME/<appName>/<key>.bson` (or `~/.config/<appName>/<key>.bson`) | `BinaryJson` (`.bson`) | Timestamp / content polling (`pollExternalChanges()`) |
+| **JVM Swing (`:desktop` `jvmMain` + `:jvm`)** | macOS: `~/Library/Preferences/<appName>/<key>.plist`<br/>Windows: `%APPDATA%\<appName>\<key>.bson`<br/>Linux: `$XDG_CONFIG_HOME/<appName>/<key>.bson` | `BinaryPlist` (`.plist`) on macOS;<br/>`BinaryJson` (`.bson`) on Windows & Linux | Background daemon `java.nio.file.WatchService` + `pollExternalChanges()` |
+| **Android (`:mobile` `androidMain` + `:jvm`)** | Android `Context.getSharedPreferences(appName, Context.MODE_PRIVATE)` via `JvmPreferenceStoreBase` | Native primitives + JSON via `PreferenceObjectCodec` | `SharedPreferences.OnSharedPreferenceChangeListener` |
+| **Web (`:web`)** | Browser `window.localStorage.getItem("genericui:$key")` / `setItem("genericui:$key", json)` (with `"genericui:"` key prefix, while `ConfigDirectory` & `CacheDirectory` use `window.indexedDB` directly) | JSON via `PreferenceObjectCodec` | Browser `window.addEventListener("storage", ...)` |
 
 ```kotlin
 import com.nexustools.genericui.component.system.PreferenceStore
@@ -517,9 +509,9 @@ val theme: EditorTheme = prefs.get("ui.theme", EditorTheme())
 | `Rect` | `com.nexustools.genericui.geometry` | [`Rect.kt`](../common/src/commonMain/kotlin/com/nexustools/genericui/geometry/Rect.kt) | Axis-aligned `(x, y, width, height)` bounding rectangle with intersection and hit-testing utilities. |
 | `EdgeInsets` | `com.nexustools.genericui.geometry` | [`EdgeInsets.kt`](../common/src/commonMain/kotlin/com/nexustools/genericui/geometry/EdgeInsets.kt) | `(top, right, bottom, left)` padding, margin, and safe-area inset utility. |
 | `KeyShortcut` | `com.nexustools.genericui.event` | [`KeyShortcut.kt`](../common/src/commonMain/kotlin/com/nexustools/genericui/event/KeyShortcut.kt) | Cross-platform keyboard accelerator parser and formatter (e.g. `"Ctrl+Shift+S"`, `"Cmd+N"`). |
-| `UiTimerScheduler` | `com.nexustools.genericui.core` | [`UiTimerScheduler.kt`](../common/src/commonMain/kotlin/com/nexustools/genericui/core/UiTimerScheduler.kt) | General-purpose, lifecycle-bound one-shot and repeating UI-thread timer across all 8 backends (`scheduleOnce`, `scheduleRepeating`, `cancel`). |
+| `UiTimerScheduler` | `com.nexustools.genericui.core` | [`UiTimerScheduler.kt`](../common/src/commonMain/kotlin/com/nexustools/genericui/core/UiTimerScheduler.kt) | General-purpose, lifecycle-bound one-shot and repeating UI-thread timer across all 9 backends (`scheduleOnce`, `scheduleRepeating`, `cancel`). |
 | `Dialogs` | `com.nexustools.genericui.component.dialog` | [`Dialogs.kt`](../common/src/commonMain/kotlin/com/nexustools/genericui/component/dialog/Dialogs.kt) | Static convenience factory for showing standard alert, confirm, prompt, choice, color, and file/folder dialogs. |
-| `FileTypeFilter` | `com.nexustools.genericui.component.dialog` | [`FileTypeFilter.kt`](../common/src/commonMain/kotlin/com/nexustools/genericui/component/dialog/FileTypeFilter.kt) | File extension, MIME type, and macOS/iOS `UTType` filter utility with `toWebAcceptAttribute()` helper. |
+| `FileTypeFilter` | `com.nexustools.genericui.component.dialog` | [`FileTypeFilter.kt`](../common/src/commonMain/kotlin/com/nexustools/genericui/component/dialog/FileTypeFilter.kt) | File extension, MIME type, and macOS/iOS/iPadOS `UTType` filter utility with `toWebAcceptAttribute()` helper. |
 
 ### 5.2 Styling, Color, Bootstrap, Custom Cursor, SASS/CSS, & Theme Utilities (`:common`)
 
@@ -530,9 +522,9 @@ val theme: EditorTheme = prefs.get("ui.theme", EditorTheme())
 | `ThemeConfig` & `ThemeColorSet` | `com.nexustools.genericui.style.theme` | [`ThemeConfig.kt`](../common/src/commonMain/kotlin/com/nexustools/genericui/style/theme/ThemeConfig.kt), [`ThemeColorSet.kt`](../common/src/commonMain/kotlin/com/nexustools/genericui/style/theme/ThemeColorSet.kt) | Unified cross-platform theme configuration (`app.setThemeConfig(...)` / `app.getThemeConfig()`) storing semantic palette colors (`primaryColor`, `secondaryColor`, `accentColor`, `successColor`, `dangerColor`, `warningColor`, `infoColor`, `lightColor`, `darkColor`) and per-mode `lightColors` / `darkColors` (`backgroundColor`, `surfaceColor`, `textPrimaryColor`, `textSecondaryColor`, `borderColor`). |
 | `CssCustomCursor` | `com.nexustools.genericui.style.css` | [`CssCustomCursor.kt`](../common/src/commonMain/kotlin/com/nexustools/genericui/style/css/CssCustomCursor.kt) | Custom cursor descriptor supporting PNG `ResourceID`, SVG `ResourceID`, inline `svgMarkup`, and `ImageBuffer` with `(hotspotX, hotspotY)` and `CssCursor` fallback; translated to `.cur` on Windows and `NSCursor` on macOS. |
 | `PrecompiledStyleSheet` & `StyleSheetRegistry` | `com.nexustools.genericui.style.css` | [`PrecompiledStyleSheet.kt`](../common/src/commonMain/kotlin/com/nexustools/genericui/style/css/PrecompiledStyleSheet.kt), [`StyleSheetRegistry.kt`](../common/src/commonMain/kotlin/com/nexustools/genericui/style/css/StyleSheetRegistry.kt) | Build-time precompiled `.scss` stylesheet representation (`CompiledStyleRule`, `Resource.style.<name>`) and runtime registry used by `IApplication.addStyleSheet` / `removeStyleSheet`. |
-| `SystemThemeDetector` | `com.nexustools.genericui.style.theme` | [`SystemThemeDetector.kt`](../common/src/commonMain/kotlin/com/nexustools/genericui/style/theme/SystemThemeDetector.kt) | Resolves `ThemeMode.AUTO` (default) to `ThemeMode.DARK` or `ThemeMode.LIGHT` using live 8-target OS dark/light theme detection. |
+| `SystemThemeDetector` | `com.nexustools.genericui.style.theme` | [`SystemThemeDetector.kt`](../common/src/commonMain/kotlin/com/nexustools/genericui/style/theme/SystemThemeDetector.kt) | Resolves `ThemeMode.AUTO` (default) to `ThemeMode.DARK` or `ThemeMode.LIGHT` using live 9-target OS dark/light theme detection. |
 | `RgbaColor` | `com.nexustools.genericui.style.color` | [`RgbaColor.kt`](../common/src/commonMain/kotlin/com/nexustools/genericui/style/color/RgbaColor.kt) | RGBA color representation with hex (`#RRGGBB` / `#RRGGBBAA`), CSS `rgb()`/`rgba()`, alpha blending, and `lerp` helpers. |
-| `BootstrapColorPalette` | `com.nexustools.genericui.style.bootstrap` | [`BootstrapColorPalette.kt`](../common/src/commonMain/kotlin/com/nexustools/genericui/style/bootstrap/BootstrapColorPalette.kt) | Standard Bootstrap 5 semantic color palette (`PRIMARY`, `SECONDARY`, `SUCCESS`, `DANGER`, `WARNING`, `INFO`, `LIGHT`, `DARK`) dynamically backed by `BootstrapColorPalette.activeThemeConfig` (`ThemeConfig`). |
+| `BootstrapColorPalette` | `com.nexustools.genericui.style.color` | [`BootstrapColorPalette.kt`](../common/src/commonMain/kotlin/com/nexustools/genericui/style/color/BootstrapColorPalette.kt) | Standard Bootstrap 5 semantic color palette (`PRIMARY`, `SECONDARY`, `SUCCESS`, `DANGER`, `WARNING`, `INFO`, `LIGHT`, `DARK`) dynamically backed by `BootstrapColorPalette.activeThemeConfig` (`ThemeConfig`). |
 | `BootstrapClassMapper` | `com.nexustools.genericui.style.mapper` | [`BootstrapClassMapper.kt`](../common/src/commonMain/kotlin/com/nexustools/genericui/style/mapper/BootstrapClassMapper.kt) | Bidirectional mapper converting Bootstrap 5 enums (`BootstrapType`, `BootstrapSize`, `SpacingScale`, `FlexDirection`, etc.) to/from CSS class strings. |
 | `SassCompiler` | `com.nexustools.genericui.style.sass` | [`SassCompiler.kt`](../common/src/commonMain/kotlin/com/nexustools/genericui/style/sass/SassCompiler.kt) | Compiles `.scss` variables, nested selectors, mixins, and Bootstrap theme tokens into `CssStyleSheet` rules. |
 | `SassKotlinPrecompiler` | `com.nexustools.genericui.style.sass` | [`SassKotlinPrecompiler.kt`](../common/src/commonMain/kotlin/com/nexustools/genericui/style/sass/SassKotlinPrecompiler.kt) | Precompiles `.scss`/`.css` stylesheets into zero-parse Kotlin `PrecompiledStyleSheet` code at build time. |
@@ -555,22 +547,19 @@ val theme: EditorTheme = prefs.get("ui.theme", EditorTheme())
 | `ImageCacheManager` & `ImageCacheEntry` | `com.nexustools.genericui.image.cache` | [`ImageCacheManager.kt`](../common/src/commonMain/kotlin/com/nexustools/genericui/image/cache/ImageCacheManager.kt), [`ImageCacheEntry.kt`](../common/src/commonMain/kotlin/com/nexustools/genericui/image/cache/ImageCacheEntry.kt) | Persistent OS `CacheDirectory` + in-memory `ImageBuffer` LRU cache on system targets; browser-managed pass-through no-op on `:web`. |
 | `LibJpegCodec`, `LibPngCodec`, `LibWebpCodec` | `com.nexustools.genericui.image.codec` | [`LibJpegCodec.kt`](../common/src/commonMain/kotlin/com/nexustools/genericui/image/codec/LibJpegCodec.kt), [`LibPngCodec.kt`](../common/src/commonMain/kotlin/com/nexustools/genericui/image/codec/LibPngCodec.kt), [`LibWebpCodec.kt`](../common/src/commonMain/kotlin/com/nexustools/genericui/image/codec/LibWebpCodec.kt) | Multiplatform JPEG, PNG, and WebP codecs with native C interop hooks. |
 | `DataUrlCodec` | `com.nexustools.genericui.res` | [`DataUrlCodec.kt`](../common/src/commonMain/kotlin/com/nexustools/genericui/res/DataUrlCodec.kt) | RFC 2397 `data:<mimeType>;base64,...` encoder, decoder, and MIME type resolver used by `:web` preloaded resources and image/stylesheet resolution. |
-| `ResourceID` & `ResourceResolver` | `com.nexustools.genericui.resources` | [`ResourceID.kt`](../common/src/commonMain/kotlin/com/nexustools/genericui/resources/ResourceID.kt), [`ResourceResolver.kt`](../common/src/commonMain/kotlin/com/nexustools/genericui/resources/ResourceResolver.kt) | Cross-platform resource identifier and runtime resolver (including `openReadable(): ResourceReadableNativeImpl` and `suspend fun openStream(): Readable?`) backing generated `Resource`, `R`, and `RC` objects across all 8 backends. See [`resources.md`](./resources.md). |
-| `Resources` & `ResourceTable` | `com.nexustools.genericui.res` | [`Resources.kt`](../common/src/commonMain/kotlin/com/nexustools/genericui/res/Resources.kt), [`ResourceTable.kt`](../common/src/commonMain/kotlin/com/nexustools/genericui/res/ResourceTable.kt) | In-memory resource registry and fallback table for strings, colors, dimensions, drawables, fonts, and raw bytes. |
+| `ResourceID` & `ResourceResolver` | `com.nexustools.genericui.resources` | [`ResourceID.kt`](../common/src/commonMain/kotlin/com/nexustools/genericui/resources/ResourceID.kt), [`ResourceResolver.kt`](../common/src/commonMain/kotlin/com/nexustools/genericui/resources/ResourceResolver.kt) | Cross-platform resource identifier and runtime resolver (including `suspend fun openReadable(): Readable?` and `suspend fun openStream(): Readable?`) backing generated `Resource`, `R`, and `RC` objects across all 9 backends. See [`resources.md`](./resources.md). |
+| `Resources` & `ResourceTable` | `com.nexustools.genericui.res` / `resources` | [`Resources.kt`](../common/src/commonMain/kotlin/com/nexustools/genericui/res/Resources.kt), [`ResourceTable.kt`](../common/src/commonMain/kotlin/com/nexustools/genericui/resources/ResourceTable.kt) | In-memory resource registry and fallback table for strings, colors, dimensions, drawables, fonts, and raw bytes. |
 | `PermissionManager` | `com.nexustools.genericui.permission` | [`PermissionManager.kt`](../common/src/commonMain/kotlin/com/nexustools/genericui/permission/PermissionManager.kt) | Cross-platform utility for checking and requesting OS permissions (`PermissionType`, `PermissionStatus`). |
 
-### 5.5 Platform Foundation Utilities (`:systemCommon`, `:desktop:common`, `:desktop:nativeCommon`, `:desktop:linuxCommon`, `:mobile:common`, `:web`)
+### 5.5 Platform Foundation Utilities (`:system`, `:jvm`, `:apple`, `:desktop`, `:mobile`, `:web`)
 
-| Utility Class | Module | Source File | Description |
+| Utility Class | Module / Source Set | Source File | Description |
 | :--- | :--- | :--- | :--- |
-| `SystemStorageKeyHelper` | `:systemCommon` | [`SystemStorageKeyHelper.kt`](../systemCommon/src/commonMain/kotlin/com/nexustools/genericui/system/SystemStorageKeyHelper.kt) | Sanitizes preference and storage keys across all 7 system targets (`Windows`, `MacOS`, `Gtk`, `Qt`, `Swing`, `Android`, `IOS`). |
-| `DesktopFileBrowserHelper` | `:desktop:common` | [`DesktopFileBrowserHelper.kt`](../desktop/common/src/commonMain/kotlin/com/nexustools/genericui/desktop/dialog/DesktopFileBrowserHelper.kt) | Formats `FileBrowserRequest` filters across desktop backends (`Windows`, `MacOS`, `Gtk`, `Qt`, `Swing`). |
-| `DesktopLazyViewportEngine` | `:desktop:common` | [`DesktopLazyViewportEngine.kt`](../desktop/common/src/commonMain/kotlin/com/nexustools/genericui/desktop/lazy/DesktopLazyViewportEngine.kt) | Desktop viewport windowing engine for `LazyList`, `LazyGrid`, and `TreeView`. |
-| `DesktopConfigDirectoryHelper` | `:desktop:nativeCommon` | [`DesktopConfigDirectoryHelper.kt`](../desktop/nativeCommon/src/commonMain/kotlin/com/nexustools/genericui/desktop/system/DesktopConfigDirectoryHelper.kt) | Resolves native desktop preference directories (`%APPDATA%\<appName>`, `~/Library/Preferences/<appName>`, `$XDG_CONFIG_HOME/<appName>`) and POSIX file I/O. |
-| `DesktopMultiWindowDockCoordinator` | `:desktop:nativeCommon` | [`DesktopMultiWindowDockCoordinator.kt`](../desktop/nativeCommon/src/commonMain/kotlin/com/nexustools/genericui/desktop/dock/DesktopMultiWindowDockCoordinator.kt) | Coordinates GIMP-style Single-Window Mode vs. Multi-Window Mode floating utility windows across native desktop backends. |
-| `LinuxXdgConfigDirectoryImpl`, `LinuxXdgCacheDirectoryImpl`, `LinuxXdgPreferenceStoreImpl` | `:desktop:linuxCommon` | [`LinuxXdgConfigDirectoryImpl.kt`](../desktop/linuxCommon/src/commonMain/kotlin/com/nexustools/genericui/linux/LinuxXdgConfigDirectoryImpl.kt), [`LinuxXdgCacheDirectoryImpl.kt`](../desktop/linuxCommon/src/commonMain/kotlin/com/nexustools/genericui/linux/LinuxXdgCacheDirectoryImpl.kt), [`LinuxXdgPreferenceStoreImpl.kt`](../desktop/linuxCommon/src/commonMain/kotlin/com/nexustools/genericui/linux/LinuxXdgPreferenceStoreImpl.kt) | Linux XDG Base Directory config, cache, and `.bson` preference storage shared by `:desktop:gtk` and `:desktop:qt`. |
-| `MobileAdaptiveFragmentCoordinator` | `:mobile:common` | [`MobileAdaptiveFragmentCoordinator.kt`](../mobile/common/src/commonMain/kotlin/com/nexustools/genericui/mobile/layout/MobileAdaptiveFragmentCoordinator.kt) | Manages phone/tablet/foldable posture breakpoints, safe-area insets, and landscape fullscreen transitions on `:mobile:android` and `:mobile:ios`. |
-| `MobileGestureRecognizer` & `MobileFlingPhysics` | `:mobile:common` | [`MobileGestureRecognizer.kt`](../mobile/common/src/commonMain/kotlin/com/nexustools/genericui/mobile/gesture/MobileGestureRecognizer.kt), [`MobileFlingPhysics.kt`](../mobile/common/src/commonMain/kotlin/com/nexustools/genericui/mobile/gesture/MobileFlingPhysics.kt) | Multi-touch pan/pinch/rotate/long-press gesture detection and spline deceleration fling physics. |
-| `MobilePipController` | `:mobile:common` | [`MobilePipController.kt`](../mobile/common/src/commonMain/kotlin/com/nexustools/genericui/mobile/system/MobilePipController.kt) | Coordinates Picture-in-Picture aspect ratio and action controls on Android and iOS. |
-| `MobileLazyViewportPool` | `:mobile:common` | [`MobileLazyViewportPool.kt`](../mobile/common/src/commonMain/kotlin/com/nexustools/genericui/mobile/system/MobileLazyViewportPool.kt) | Cell recycling pool and memory-pressure trimmer for `RecyclerView` and `UICollectionView`. |
-| `WebBrowserDomBridge` | `:web` | [`WebBrowserDomBridge.kt`](../web/src/commonMain/kotlin/com/nexustools/genericui/web/WebBrowserDomBridge.kt) | Dual Kotlin/Wasm (`wasmJsMain`) and Kotlin/JS (`jsMain`) bridge for DOM element manipulation, `window.indexedDB`, `window.localStorage`, preloaded `data:` URL resources, `navigator.onLine`, and `requestAnimationFrame`. |
+| `SystemStorageKeyHelper` & `BlinkStyleEngine` / `BrowserLayoutEngine` | `:system` | [`SystemStorageKeyHelper.kt`](../system/src/commonMain/kotlin/com/nexustools/genericui/system/SystemStorageKeyHelper.kt), [`BlinkStyleEngine.kt`](../system/src/commonMain/kotlin/com/nexustools/genericui/system/style/BlinkStyleEngine.kt), [`BrowserLayoutEngine.kt`](../system/src/commonMain/kotlin/com/nexustools/genericui/style/layout/BrowserLayoutEngine.kt) | Sanitizes preference/storage keys and evaluates Blink CSS cascades & flexbox/grid layouts across all 8 system targets (`Windows`, `MacOS`, `Gtk`, `Qt`, `Swing`, `Android`, `IOS`, `IPadOS`). |
+| `JvmIoExecutor`, `JvmControlTintPixelUtil`, `JvmDatabaseBase`, `JvmHttpUrlConnectionClient` | `:jvm` | [`JvmIoExecutor.kt`](../jvm/src/jvmSharedMain/kotlin/com/nexustools/genericui/jvm/JvmIoExecutor.kt), [`JvmControlTintPixelUtil.kt`](../jvm/src/jvmSharedMain/kotlin/com/nexustools/genericui/jvm/JvmControlTintPixelUtil.kt) | Shared JDK 11 I/O dispatcher, JDBC/SQLite base, HTTP/WebSocket client, and pixel tinting across Swing & Android ([`jvm.md`](./jvm.md)). |
+| `AppleFileSystemBase`, `AppleSvgCoreGraphicsRasterizer`, `AppleDatabaseNativeImpl`, `AppleHttpClientNativeImpl` | `:apple` | [`AppleFileSystemBase.kt`](../apple/src/appleMain/kotlin/com/nexustools/genericui/apple/AppleFileSystemBase.kt), [`AppleSvgCoreGraphicsRasterizer.kt`](../apple/src/appleMain/kotlin/com/nexustools/genericui/apple/AppleSvgCoreGraphicsRasterizer.kt) | Shared Darwin Foundation/CoreFoundation/Security/CoreGraphics/ImageIO/Network/`libsqlite3` layer across macOS, iOS, & iPadOS ([`apple.md`](./apple.md)). |
+| `DesktopFileBrowserHelper` & `DesktopLazyViewportEngine` | `:desktop` (`commonMain`) | [`DesktopFileBrowserHelper.kt`](../desktop/src/commonMain/kotlin/com/nexustools/genericui/desktop/dialog/DesktopFileBrowserHelper.kt), [`DesktopLazyViewportEngine.kt`](../desktop/src/commonMain/kotlin/com/nexustools/genericui/desktop/lazy/DesktopLazyViewportEngine.kt) | File filter formatting and viewport windowing across all 5 desktop backends (`Windows`, `MacOS`, `Gtk`, `Qt`, `Swing`). |
+| `DesktopConfigDirectoryHelper` & `DesktopMultiWindowDockCoordinator` | `:desktop` (`nativeDesktopMain`) | [`DesktopConfigDirectoryHelper.kt`](../desktop/src/nativeDesktopMain/kotlin/com/nexustools/genericui/desktop/system/DesktopConfigDirectoryHelper.kt), [`DesktopMultiWindowDockCoordinator.kt`](../desktop/src/nativeDesktopMain/kotlin/com/nexustools/genericui/desktop/dock/DesktopMultiWindowDockCoordinator.kt) | Native desktop config directories and Single-Window vs. Multi-Window floating utility coordination (`Windows`, `MacOS`, `Gtk`, `Qt`). |
+| `LinuxXdgConfigDirectoryImpl`, `LinuxXdgCacheDirectoryImpl`, `LinuxXdgPreferenceStoreImpl` | `:desktop` (`linuxMain`) | [`LinuxXdgConfigDirectoryImpl.kt`](../desktop/src/linuxMain/kotlin/com/nexustools/genericui/linux/LinuxXdgConfigDirectoryImpl.kt), [`LinuxXdgCacheDirectoryImpl.kt`](../desktop/src/linuxMain/kotlin/com/nexustools/genericui/linux/LinuxXdgCacheDirectoryImpl.kt), [`LinuxXdgPreferenceStoreImpl.kt`](../desktop/src/linuxMain/kotlin/com/nexustools/genericui/linux/LinuxXdgPreferenceStoreImpl.kt) | Linux XDG Base Directory config, cache, and `.bson` preference storage shared by GTK4 and Qt6. |
+| `MobileAdaptiveFragmentCoordinator`, `MobileGestureRecognizer`, `MobileFlingPhysics`, `MobilePipController`, `MobileLazyViewportPool` | `:mobile` (`commonMain`) | [`MobileAdaptiveFragmentCoordinator.kt`](../mobile/src/commonMain/kotlin/com/nexustools/genericui/mobile/layout/MobileAdaptiveFragmentCoordinator.kt), [`MobileGestureRecognizer.kt`](../mobile/src/commonMain/kotlin/com/nexustools/genericui/mobile/gesture/MobileGestureRecognizer.kt), [`MobileFlingPhysics.kt`](../mobile/src/commonMain/kotlin/com/nexustools/genericui/mobile/gesture/MobileFlingPhysics.kt), [`MobilePipController.kt`](../mobile/src/commonMain/kotlin/com/nexustools/genericui/mobile/system/MobilePipController.kt), [`MobileLazyViewportPool.kt`](../mobile/src/commonMain/kotlin/com/nexustools/genericui/mobile/system/MobileLazyViewportPool.kt) | Phone/tablet/foldable posture breakpoints, multi-touch gestures, fling physics, PiP, and lazy viewport pools across Android, iOS, & iPadOS. |
+| `WebBrowserDomBridge` | `:web` | [`WebBrowserDomBridge.kt`](../web/src/commonMain/kotlin/com/nexustools/genericui/web/WebBrowserDomBridge.kt) | Dual Kotlin/Wasm (`wasmJsMain`) and Kotlin/JS (`jsMain`) bridge for DOM elements, `window.indexedDB`, `window.localStorage`, preloaded `data:` URLs, `navigator.onLine`, and `requestAnimationFrame`. |

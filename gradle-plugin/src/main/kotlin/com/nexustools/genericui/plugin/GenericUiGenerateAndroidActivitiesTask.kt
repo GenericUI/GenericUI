@@ -82,6 +82,18 @@ abstract class GenericUiGenerateAndroidActivitiesTask : DefaultTask() {
 
     @get:Input
     @get:Optional
+    abstract val windowAlwaysOnTop: Property<Boolean>
+
+    @get:Input
+    @get:Optional
+    abstract val windowAspectRatio: Property<Double>
+
+    @get:Input
+    @get:Optional
+    abstract val appleIconExplicitlyProvided: Property<Boolean>
+
+    @get:Input
+    @get:Optional
     abstract val themeMode: Property<String>
 
     @get:Input
@@ -156,6 +168,8 @@ abstract class GenericUiGenerateAndroidActivitiesTask : DefaultTask() {
             minWindowHeight = minWindowHeight.orNull ?: 240,
             windowResizable = windowResizable.orNull ?: true,
             fullscreen = fullscreen.orNull ?: false,
+            windowAlwaysOnTop = windowAlwaysOnTop.orNull ?: false,
+            windowAspectRatio = windowAspectRatio.orNull?.takeIf { it.isFinite() && it > 0.0 },
             themeMode = themeMode.orNull?.takeIf { it.isNotBlank() } ?: "auto",
             themeColor = resolvedPrimary,
             lightThemeColors = lightThemeColors.orNull?.takeIf { it.isNotEmpty() }
@@ -164,6 +178,7 @@ abstract class GenericUiGenerateAndroidActivitiesTask : DefaultTask() {
                 ?: GenericUiThemeConfig.defaultDarkColors(resolvedPrimary),
             hasCustomThemeOverrides = hasCustomThemeOverrides.orNull ?: (resolvedPrimary != "#0d6efd"),
             iconPath = iconPath.orNull?.takeIf { it.isNotBlank() },
+            appleIconExplicitlyProvided = appleIconExplicitlyProvided.orNull ?: false,
             globalStyleSheet = globalStyleSheet.orNull?.takeIf { it.isNotBlank() }
         )
 
@@ -481,10 +496,13 @@ abstract class GenericUiGenerateAndroidActivitiesTask : DefaultTask() {
             val resExpr = resourceRegistryInstallerExpr?.trim()?.takeIf { it.isNotEmpty() }
             if (resExpr != null) {
                 val lambdaExpr = if (resExpr.startsWith("{") || resExpr.contains("::")) resExpr else "{ $resExpr }"
-                appendLine("        resourceRegistryInstaller = $lambdaExpr")
+                appendLine("        resourceRegistryInstaller = $lambdaExpr,")
             } else {
-                appendLine("        resourceRegistryInstaller = null")
+                appendLine("        resourceRegistryInstaller = null,")
             }
+            appendLine("        windowAlwaysOnTop = ${resolvedConfig.windowAlwaysOnTop},")
+            appendLine("        windowAspectRatio = ${resolvedConfig.windowAspectRatio?.toString() ?: "null"},")
+            appendLine("        appleIconExplicitlyProvided = ${resolvedConfig.appleIconExplicitlyProvided}")
             appendLine("    )")
             appendLine()
             appendLine("    fun configureTheme(app: com.nexustools.genericui.component.shell.IApplication) {")

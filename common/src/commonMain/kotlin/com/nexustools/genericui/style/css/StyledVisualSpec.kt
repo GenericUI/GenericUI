@@ -13,8 +13,8 @@ import com.nexustools.genericui.style.mapper.BootstrapStyleSnapshot
 import kotlin.math.roundToInt
 
 /**
- * Curated cross-platform visual style specification supported consistently across all 8 GenericUI
- * backends (`:windows`, `:macos`, `:gtk`, `:qt`, `:swing`, `:android`, `:ios`, `:web`) by
+ * Curated cross-platform visual style specification supported consistently across all 9 GenericUI
+ * backends (`:windows`, `:macos`, `:gtk`, `:qt`, `:swing`, `:android`, `:ios`, `:ipados`, `:web`) by
  * [com.nexustools.genericui.component.layout.StyledContainer] and
  * [com.nexustools.genericui.component.action.StyledButton].
  *
@@ -89,14 +89,15 @@ data class StyledVisualSpec(
 
     /**
      * Filters this [StyledVisualSpec] for the given [backendTarget]:
-     * - On `WEB`, `ANDROID`, and `IOS`, retains all properties including [backdropBlurPx] and [backdropFilter].
+     * - On `WEB`, `ANDROID`, `IOS`, and `IPADOS`, retains all properties including [backdropBlurPx] and [backdropFilter].
      * - On Desktop targets (`WINDOWS`, `MACOS`, `GTK`, `QT`, `SWING`), strips [backdropBlurPx] and [backdropFilter]
      *   while preserving alpha-translucent [backgroundColor], [backgroundGradient], borders, shadows, and geometry.
      */
     fun forBackend(backendTarget: LayoutBackendTarget): StyledVisualSpec = when (backendTarget) {
         LayoutBackendTarget.WEB,
         LayoutBackendTarget.ANDROID,
-        LayoutBackendTarget.IOS -> this
+        LayoutBackendTarget.IOS,
+        LayoutBackendTarget.IPADOS -> this
         LayoutBackendTarget.WINDOWS,
         LayoutBackendTarget.MACOS,
         LayoutBackendTarget.GTK,

@@ -18,7 +18,8 @@ class GenericUiBuildFileInspector(
      * and returns the set of enabled [GenericUiTargetBackend]s.
      */
     fun parseSelectedBackends(buildGradleKtsContent: String): Set<GenericUiTargetBackend> {
-        val backendsBlock = extractBlockContent(buildGradleKtsContent, "backends") ?: return emptySet()
+        val genericUiBody = extractGenericUiBody(buildGradleKtsContent)
+        val backendsBlock = extractDirectChildBlockContent(genericUiBody, "backends") ?: return emptySet()
         val result = linkedSetOf<GenericUiTargetBackend>()
 
         if (Regex("""\ballExceptSwing\s*\(""").containsMatchIn(backendsBlock)) {
@@ -52,6 +53,26 @@ class GenericUiBuildFileInspector(
             }
         }
 
+        val macAliasPattern = Regex("""\bmac\s*(\(\s*(true|false)?\s*\)|\{)""")
+        for (match in macAliasPattern.findAll(backendsBlock)) {
+            val arg = match.groupValues.getOrNull(2)?.trim()
+            if (arg == "false") {
+                result.remove(GenericUiTargetBackend.MACOS)
+            } else {
+                result.add(GenericUiTargetBackend.MACOS)
+            }
+        }
+
+        val ipadAliasPattern = Regex("""\bipad\s*(\(\s*(true|false)?\s*\)|\{)""")
+        for (match in ipadAliasPattern.findAll(backendsBlock)) {
+            val arg = match.groupValues.getOrNull(2)?.trim()
+            if (arg == "false") {
+                result.remove(GenericUiTargetBackend.IPADOS)
+            } else {
+                result.add(GenericUiTargetBackend.IPADOS)
+            }
+        }
+
         return GenericUiTargetBackend.entries.filter { it in result }.toCollection(LinkedHashSet())
     }
 
@@ -60,7 +81,8 @@ class GenericUiBuildFileInspector(
      * and returns the transitively resolved set of enabled [GenericUiExtensionModule]s.
      */
     fun parseSelectedExtensions(buildGradleKtsContent: String): Set<GenericUiExtensionModule> {
-        val extensionsBlock = extractBlockContent(buildGradleKtsContent, "extensions") ?: return emptySet()
+        val genericUiBody = extractGenericUiBody(buildGradleKtsContent)
+        val extensionsBlock = extractDirectChildBlockContent(genericUiBody, "extensions") ?: return emptySet()
         val result = linkedSetOf<GenericUiExtensionModule>()
 
         if (Regex("""\benableAll\s*\(""").containsMatchIn(extensionsBlock)) {
@@ -68,10 +90,10 @@ class GenericUiBuildFileInspector(
         }
 
         for (ext in GenericUiExtensionModule.entries) {
-            val callPattern = Regex("""\b${ext.dslMethodName}\s*\(\s*(true|false)?\s*\)""")
+            val callPattern = Regex("""\b${ext.dslMethodName}\s*\(\s*(true|false)?\s*\)""", RegexOption.IGNORE_CASE)
             for (match in callPattern.findAll(extensionsBlock)) {
                 val arg = match.groupValues.getOrNull(1)?.trim()
-                if (arg == "false") {
+                if (arg.equals("false", ignoreCase = true)) {
                     result.remove(ext)
                 } else {
                     result.add(ext)
@@ -91,7 +113,8 @@ class GenericUiBuildFileInspector(
         projectName: String = "GenericUiApp",
         projectRootPath: String = "."
     ): GenericUiProjectConfig {
-        val appMetadataBlock = extractBlockContent(buildGradleKtsContent, "app")
+        val genericUiBody = extractGenericUiBody(buildGradleKtsContent)
+        val appMetadataBlock = extractDirectChildBlockContent(genericUiBody, "app")
         val appId = appMetadataBlock?.let {
             Regex("""\bid\s*=\s*"([^"]+)"""").find(it)?.groupValues?.get(1)
         }
@@ -102,7 +125,7 @@ class GenericUiBuildFileInspector(
         val groupMatch = Regex("""group\s*=\s*"([^"]+)"""").find(buildGradleKtsContent)
         val packageName = appId ?: groupMatch?.groupValues?.get(1) ?: "com.example.app"
 
-        val appBlock = extractBlockContent(buildGradleKtsContent, "application")
+        val appBlock = extractDirectChildBlockContent(genericUiBody, "application")
         val resolvedProjectName = appName ?: appBlock?.let {
             Regex("""baseName\s*=\s*"([^"]+)"""").find(it)?.groupValues?.get(1)
         } ?: projectName
@@ -110,7 +133,8 @@ class GenericUiBuildFileInspector(
         val backends = parseSelectedBackends(buildGradleKtsContent)
         val extensions = parseSelectedExtensions(buildGradleKtsContent)
 
-        val swingBlock = extractBlockContent(buildGradleKtsContent, "swing")
+        val backendsBlock = extractDirectChildBlockContent(genericUiBody, "backends")
+        val swingBlock = backendsBlock?.let { extractDirectChildBlockContent(it, "swing") }
         val swingUseLwjglGL = swingBlock?.let {
             !Regex("""useLwjglGL\s*=\s*false""").containsMatchIn(it)
         } ?: true
@@ -118,7 +142,7 @@ class GenericUiBuildFileInspector(
             !Regex("""useVulkan\s*=\s*false""").containsMatchIn(it)
         } ?: true
 
-        val themeBlock = extractBlockContent(buildGradleKtsContent, "theme")
+        val themeBlock = extractDirectChildBlockContent(genericUiBody, "theme")
         val themeMode = themeBlock?.let {
             Regex("""\bmode\s*=\s*"([^"]+)"""").find(it)?.groupValues?.get(1)
         } ?: "auto"
@@ -126,7 +150,7 @@ class GenericUiBuildFileInspector(
             Regex("""\bstyleSheet\s*=\s*"([^"]+)"""").find(it)?.groupValues?.get(1)
         }
 
-        val stylesBlock = extractBlockContent(buildGradleKtsContent, "styles")
+        val stylesBlock = extractDirectChildBlockContent(genericUiBody, "styles")
         val compileSass = stylesBlock?.let {
             !Regex("""compileSass\s*=\s*false""").containsMatchIn(it)
         } ?: true
@@ -134,6 +158,45 @@ class GenericUiBuildFileInspector(
             Regex("""\bglobalStyleSheet\s*=\s*"([^"]+)"""").find(it)?.groupValues?.get(1)
         }
         val globalStyleSheet = stylesGlobalStyleSheet ?: themeStyleSheet ?: "styles/main.scss"
+
+        val testingBlock = extractDirectChildBlockContent(genericUiBody, "testing")
+        val enableTesting = testingBlock?.let {
+            !Regex("""\benabled\s*=\s*false""").containsMatchIn(it)
+        } ?: true
+
+        val windowBlock = extractDirectChildBlockContent(genericUiBody, "window")
+        val windowAlwaysOnTop = parseWindowAlwaysOnTop(windowBlock)
+        val (aspectWidth, aspectHeight) = parseWindowAspectRatio(windowBlock)
+
+        val desktopBlock = extractDirectChildBlockContent(genericUiBody, "desktop")
+        val appleIcon = findStringProperty(appBlock, "appleIcon")
+            ?: findStringProperty(desktopBlock, "appleIcon")
+            ?: findStringProperty(genericUiBody, "appleIcon")
+            ?: ""
+
+        val macosBlock = extractDirectChildBlockContent(genericUiBody, "macos")
+            ?: extractDirectChildBlockContent(genericUiBody, "mac")
+        val macIcon = findStringProperty(macosBlock, "icon")
+            ?: findStringProperty(appBlock, "macIcon")
+            ?: findStringProperty(appBlock, "macosIcon")
+            ?: findStringProperty(desktopBlock, "macIcon")
+            ?: findStringProperty(desktopBlock, "macosIcon")
+            ?: ""
+
+        val iosBlock = extractDirectChildBlockContent(genericUiBody, "ios")
+        val iosIcon = findStringProperty(iosBlock, "icon")
+            ?: findStringProperty(appBlock, "iosIcon")
+            ?: findStringProperty(desktopBlock, "iosIcon")
+            ?: ""
+
+        val ipadosBlock = extractDirectChildBlockContent(genericUiBody, "ipados")
+            ?: extractDirectChildBlockContent(genericUiBody, "ipad")
+        val ipadosIcon = findStringProperty(ipadosBlock, "icon")
+            ?: findStringProperty(appBlock, "ipadosIcon")
+            ?: findStringProperty(appBlock, "ipadIcon")
+            ?: findStringProperty(desktopBlock, "ipadosIcon")
+            ?: findStringProperty(desktopBlock, "ipadIcon")
+            ?: ""
 
         return GenericUiProjectConfig(
             projectName = resolvedProjectName,
@@ -145,7 +208,15 @@ class GenericUiBuildFileInspector(
             swingUseLwjglGL = swingUseLwjglGL,
             swingUseVulkan = swingUseVulkan,
             themeMode = themeMode,
-            globalStyleSheet = globalStyleSheet
+            globalStyleSheet = globalStyleSheet,
+            enableTesting = enableTesting,
+            windowAlwaysOnTop = windowAlwaysOnTop,
+            windowAspectRatioWidth = aspectWidth,
+            windowAspectRatioHeight = aspectHeight,
+            appleIcon = appleIcon,
+            macIcon = macIcon,
+            iosIcon = iosIcon,
+            ipadosIcon = ipadosIcon
         )
     }
 
@@ -161,48 +232,156 @@ class GenericUiBuildFileInspector(
         return replaceTopLevelBlock(existingBuildGradleKts, "genericui", newGenericUiBlock)
     }
 
-    private fun extractBlockContent(source: String, blockName: String): String? {
-        val headerRegex = Regex("""\b$blockName\s*\{""")
-        val match = headerRegex.find(source) ?: return null
-        val openBraceIndex = source.indexOf('{', match.range.first)
-        if (openBraceIndex < 0) return null
+    private fun parseWindowAlwaysOnTop(windowBlock: String?): Boolean {
+        if (windowBlock == null) return false
+        val assignMatch = Regex("""\balwaysOnTop\s*=\s*(true|false)""").find(windowBlock)
+        if (assignMatch != null) {
+            return assignMatch.groupValues[1] == "true"
+        }
+        val callMatch = Regex("""\balwaysOnTop\s*\(\s*(true|false)?\s*\)""").find(windowBlock)
+        if (callMatch != null) {
+            return callMatch.groupValues[1].trim() != "false"
+        }
+        return Regex("""(?m)^\s*alwaysOnTop\s*(?:;|$)""").containsMatchIn(windowBlock)
+    }
 
+    private fun parseWindowAspectRatio(windowBlock: String?): Pair<Int?, Int?> {
+        if (windowBlock == null) return null to null
+        val callMatch = Regex("""\baspectRatio\s*\(\s*(\d+)\s*,\s*(\d+)\s*\)""").find(windowBlock)
+        if (callMatch != null) {
+            return callMatch.groupValues[1].toIntOrNull() to callMatch.groupValues[2].toIntOrNull()
+        }
+        val ratioExprMatch = Regex("""\baspectRatio\s*=\s*(\d+)(?:\.0+)?\s*/\s*(\d+)(?:\.0+)?""").find(windowBlock)
+        if (ratioExprMatch != null) {
+            return ratioExprMatch.groupValues[1].toIntOrNull() to ratioExprMatch.groupValues[2].toIntOrNull()
+        }
+        return null to null
+    }
+
+    private fun findStringProperty(block: String?, propertyName: String): String? {
+        if (block == null) return null
+        val assignMatch = Regex("""\b$propertyName\s*=\s*"([^"]*)"""").find(block)
+        if (assignMatch != null) return assignMatch.groupValues[1]
+        val callMatch = Regex("""\b$propertyName\s*\(\s*"([^"]*)"\s*\)""").find(block)
+        return callMatch?.groupValues?.get(1)
+    }
+
+    private fun extractGenericUiBody(source: String): String =
+        extractDirectChildBlockContent(source, "genericui") ?: source
+
+    private fun extractDirectChildBlockContent(source: String, blockName: String): String? {
+        var i = 0
         var depth = 0
-        for (i in openBraceIndex until source.length) {
-            when (source[i]) {
-                '{' -> depth++
-                '}' -> {
-                    depth--
-                    if (depth == 0) {
-                        return source.substring(openBraceIndex + 1, i)
+        var inString = false
+        var inLineComment = false
+        var inBlockComment = false
+        val n = source.length
+
+        while (i < n) {
+            val c = source[i]
+            val next = if (i + 1 < n) source[i + 1] else '\u0000'
+
+            when {
+                inLineComment -> {
+                    if (c == '\n') inLineComment = false
+                }
+                inBlockComment -> {
+                    if (c == '*' && next == '/') {
+                        inBlockComment = false
+                        i++
+                    }
+                }
+                inString -> {
+                    if (c == '\\') {
+                        i++
+                    } else if (c == '"') {
+                        inString = false
+                    }
+                }
+                c == '/' && next == '/' -> {
+                    inLineComment = true
+                    i++
+                }
+                c == '/' && next == '*' -> {
+                    inBlockComment = true
+                    i++
+                }
+                c == '"' -> {
+                    inString = true
+                }
+                c == '{' -> {
+                    depth++
+                }
+                c == '}' -> {
+                    if (depth > 0) depth--
+                }
+                depth == 0 && source.startsWith(blockName, i) -> {
+                    val prevChar = if (i > 0) source[i - 1] else ' '
+                    if (!prevChar.isLetterOrDigit() && prevChar != '_') {
+                        var j = i + blockName.length
+                        while (j < n && source[j].isWhitespace()) j++
+                        if (j < n && source[j] == '{') {
+                            val closeIndex = findMatchingCloseBrace(source, j) ?: return null
+                            return source.substring(j + 1, closeIndex)
+                        }
                     }
                 }
             }
+            i++
+        }
+        return null
+    }
+
+    private fun findMatchingCloseBrace(source: String, openBraceIndex: Int): Int? {
+        var depth = 0
+        var inString = false
+        var inLineComment = false
+        var inBlockComment = false
+        var i = openBraceIndex
+        val n = source.length
+        while (i < n) {
+            val c = source[i]
+            val next = if (i + 1 < n) source[i + 1] else '\u0000'
+            when {
+                inLineComment -> if (c == '\n') inLineComment = false
+                inBlockComment -> if (c == '*' && next == '/') {
+                    inBlockComment = false
+                    i++
+                }
+                inString -> if (c == '\\') {
+                    i++
+                } else if (c == '"') {
+                    inString = false
+                }
+                c == '/' && next == '/' -> {
+                    inLineComment = true
+                    i++
+                }
+                c == '/' && next == '*' -> {
+                    inBlockComment = true
+                    i++
+                }
+                c == '"' -> inString = true
+                c == '{' -> depth++
+                c == '}' -> {
+                    depth--
+                    if (depth == 0) return i
+                }
+            }
+            i++
         }
         return null
     }
 
     private fun replaceTopLevelBlock(source: String, blockName: String, replacementBlock: String): String {
-        val headerRegex = Regex("""(?m)^$blockName\s*\{""")
+        val headerRegex = Regex("""(?m)^[ \t]*$blockName\s*\{""")
         val match = headerRegex.find(source) ?: return "$source\n\n$replacementBlock\n"
         val blockStart = match.range.first
         val openBraceIndex = source.indexOf('{', blockStart)
         if (openBraceIndex < 0) return source
-
-        var depth = 0
-        for (i in openBraceIndex until source.length) {
-            when (source[i]) {
-                '{' -> depth++
-                '}' -> {
-                    depth--
-                    if (depth == 0) {
-                        return source.substring(0, blockStart) +
-                            replacementBlock +
-                            source.substring(i + 1)
-                    }
-                }
-            }
-        }
-        return source
+        val closeIndex = findMatchingCloseBrace(source, openBraceIndex) ?: return source
+        return source.substring(0, blockStart) +
+            replacementBlock +
+            source.substring(closeIndex + 1)
     }
 }

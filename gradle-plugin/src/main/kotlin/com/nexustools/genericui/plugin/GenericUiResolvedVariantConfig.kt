@@ -20,12 +20,15 @@ data class GenericUiResolvedVariantConfig(
     val minWindowHeight: Int = 240,
     val windowResizable: Boolean = true,
     val fullscreen: Boolean = false,
+    val windowAlwaysOnTop: Boolean = false,
+    val windowAspectRatio: Double? = null,
     val themeMode: String = "auto",
     val themeColor: String = "#0d6efd",
     val lightThemeColors: Map<String, String> = GenericUiThemeConfig.defaultLightColors(themeColor),
     val darkThemeColors: Map<String, String> = GenericUiThemeConfig.defaultDarkColors(themeColor),
     val hasCustomThemeOverrides: Boolean = false,
     val iconPath: String? = null,
+    val appleIconExplicitlyProvided: Boolean = false,
     val globalStyleSheet: String? = null,
     val extensionOverrides: Map<String, Boolean> = emptyMap()
 )

@@ -1,5 +1,6 @@
 package com.nexustools.genericui.util
 
+import com.nexustools.genericui.component.system.PreferenceElement
 import com.nexustools.genericui.component.system.PreferenceSerializable
 import com.nexustools.genericui.io.ByteOrder
 import com.nexustools.genericui.io.FileSystem
@@ -29,6 +30,14 @@ class BinaryJsonTest {
             "premium" to premium,
             "rating" to rating,
             "tags" to tags
+        )
+
+        override fun fromPreferenceElements(fields: Map<String, PreferenceElement>): Any = SampleProfile(
+            username = fields["username"]?.asString() ?: username,
+            level = fields["level"]?.asInt(level) ?: level,
+            premium = fields["premium"]?.asBoolean(premium) ?: premium,
+            rating = fields["rating"]?.asDouble(rating) ?: rating,
+            tags = fields["tags"]?.arrayElements?.mapNotNull { it.asString() } ?: tags
         )
     }
 

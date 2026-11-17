@@ -14,6 +14,8 @@ import com.nexustools.genericui.resources.ResourceID
 import com.nexustools.genericui.resources.ResourceResolver
 import com.nexustools.genericui.resources.ResourceType
 import com.nexustools.genericui.style.color.RgbaColor
+import kotlin.test.AfterTest
+import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -21,6 +23,27 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 class GenericUiLaunchSequenceAndResourceTest {
+
+    private var savedThemeMode = GenericUI.defaultThemeMode
+    private var savedThemeConfig = GenericUI.defaultThemeConfig
+    private var savedAppName = GenericUI.applicationName
+    private var savedActiveFactory = GenericUI.activeFactory
+
+    @BeforeTest
+    fun saveGenericUiState() {
+        savedThemeMode = GenericUI.defaultThemeMode
+        savedThemeConfig = GenericUI.defaultThemeConfig
+        savedAppName = GenericUI.applicationName
+        savedActiveFactory = GenericUI.activeFactory
+    }
+
+    @AfterTest
+    fun restoreGenericUiState() {
+        GenericUI.defaultThemeMode = savedThemeMode
+        GenericUI.defaultThemeConfig = savedThemeConfig
+        GenericUI.applicationName = savedAppName
+        GenericUI.activeFactory = savedActiveFactory
+    }
 
     private class CliAwareMainFragment : Fragment() {
         var receivedBundle: FragmentBundle? = null

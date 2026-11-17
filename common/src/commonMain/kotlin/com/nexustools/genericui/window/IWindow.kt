@@ -79,6 +79,14 @@ interface IWindow : Disposable {
     fun setWindowSize(size: Size)
     fun getMinWindowSize(): Size? = null
     fun setMinWindowSize(minSize: Size?) {}
+    fun getAspectRatio(): Double? = null
+    fun setAspectRatio(aspectRatio: Double?) {}
+    fun setAspectRatio(widthRatio: Int, heightRatio: Int) {
+        require(widthRatio > 0 && heightRatio > 0) {
+            "Aspect ratio dimensions must be positive, got ${widthRatio}:${heightRatio}"
+        }
+        setAspectRatio(widthRatio.toDouble() / heightRatio.toDouble())
+    }
 
     /** Window bounds (position + size) in screen pixels (or viewport pixels for `MdiWindow`). */
     var windowBounds: Rect
@@ -102,6 +110,7 @@ interface IWindow : Disposable {
     val isModal: Boolean
     val isToolWindow: Boolean
     val isAlwaysOnTop: Boolean
+    fun setAlwaysOnTop(alwaysOnTop: Boolean) {}
 
     fun isFullscreen(): Boolean
     fun setFullscreen(fullscreen: Boolean, cutoutMode: DisplayCutoutMode = DisplayCutoutMode.SHORT_EDGES)

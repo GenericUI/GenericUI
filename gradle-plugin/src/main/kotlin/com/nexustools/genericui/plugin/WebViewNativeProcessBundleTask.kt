@@ -68,10 +68,10 @@ abstract class WebViewNativeProcessBundleTask : DefaultTask() {
         val prodExe = File(prodDir, WINDOWS_EXE_NAME)
 
         val prebuiltDebug = genericUiRoot?.let {
-            File(it, "extensions/webview/desktop/nativeCommon/build/bin/mingwX64/webviewProcessDebugExecutable/$WINDOWS_EXE_NAME")
+            File(it, "extensions/ui/webview/build/bin/mingwX64/webviewProcessDebugExecutable/$WINDOWS_EXE_NAME")
         }?.takeIf { it.isFile }
         val prebuiltRelease = genericUiRoot?.let {
-            File(it, "extensions/webview/desktop/nativeCommon/build/bin/mingwX64/webviewProcessReleaseExecutable/$WINDOWS_EXE_NAME")
+            File(it, "extensions/ui/webview/build/bin/mingwX64/webviewProcessReleaseExecutable/$WINDOWS_EXE_NAME")
         }?.takeIf { it.isFile }
 
         if (prebuiltDebug != null && prebuiltRelease != null) {
@@ -98,15 +98,15 @@ abstract class WebViewNativeProcessBundleTask : DefaultTask() {
         val prodExe = File(prodDir, POSIX_EXE_NAME)
 
         val prebuiltDebug = genericUiRoot?.let {
-            File(it, "extensions/webview/desktop/nativeCommon/build/bin/macosArm64/webviewProcessDebugExecutable/$POSIX_EXE_NAME")
+            File(it, "extensions/ui/webview/build/bin/macosArm64/webviewProcessDebugExecutable/$POSIX_EXE_NAME")
                 .takeIf { f -> f.isFile }
-                ?: File(it, "extensions/webview/desktop/nativeCommon/build/bin/macosArm64/webviewProcessDebugExecutable/$POSIX_EXE_NAME.kexe")
+                ?: File(it, "extensions/ui/webview/build/bin/macosArm64/webviewProcessDebugExecutable/$POSIX_EXE_NAME.kexe")
                     .takeIf { f -> f.isFile }
         }
         val prebuiltRelease = genericUiRoot?.let {
-            File(it, "extensions/webview/desktop/nativeCommon/build/bin/macosArm64/webviewProcessReleaseExecutable/$POSIX_EXE_NAME")
+            File(it, "extensions/ui/webview/build/bin/macosArm64/webviewProcessReleaseExecutable/$POSIX_EXE_NAME")
                 .takeIf { f -> f.isFile }
-                ?: File(it, "extensions/webview/desktop/nativeCommon/build/bin/macosArm64/webviewProcessReleaseExecutable/$POSIX_EXE_NAME.kexe")
+                ?: File(it, "extensions/ui/webview/build/bin/macosArm64/webviewProcessReleaseExecutable/$POSIX_EXE_NAME.kexe")
                     .takeIf { f -> f.isFile }
         }
 
@@ -132,17 +132,22 @@ abstract class WebViewNativeProcessBundleTask : DefaultTask() {
         val devExe = File(devDir, POSIX_EXE_NAME)
         val prodExe = File(prodDir, POSIX_EXE_NAME)
 
+        val linuxTarget = if (OsArchClassifier.detectHost().archName == "arm64") "linuxArm64" else "linuxX64"
         val prebuiltDebug = genericUiRoot?.let {
-            File(it, "extensions/webview/desktop/nativeCommon/build/bin/linuxX64/webviewProcessDebugExecutable/$POSIX_EXE_NAME")
-                .takeIf { f -> f.isFile }
-                ?: File(it, "extensions/webview/desktop/nativeCommon/build/bin/linuxX64/webviewProcessDebugExecutable/$POSIX_EXE_NAME.kexe")
+            listOf(linuxTarget, "linuxX64", "linuxArm64").distinct().firstNotNullOfOrNull { targetDir ->
+                File(it, "extensions/ui/webview/build/bin/$targetDir/webviewProcessDebugExecutable/$POSIX_EXE_NAME")
                     .takeIf { f -> f.isFile }
+                    ?: File(it, "extensions/ui/webview/build/bin/$targetDir/webviewProcessDebugExecutable/$POSIX_EXE_NAME.kexe")
+                        .takeIf { f -> f.isFile }
+            }
         }
         val prebuiltRelease = genericUiRoot?.let {
-            File(it, "extensions/webview/desktop/nativeCommon/build/bin/linuxX64/webviewProcessReleaseExecutable/$POSIX_EXE_NAME")
-                .takeIf { f -> f.isFile }
-                ?: File(it, "extensions/webview/desktop/nativeCommon/build/bin/linuxX64/webviewProcessReleaseExecutable/$POSIX_EXE_NAME.kexe")
+            listOf(linuxTarget, "linuxX64", "linuxArm64").distinct().firstNotNullOfOrNull { targetDir ->
+                File(it, "extensions/ui/webview/build/bin/$targetDir/webviewProcessReleaseExecutable/$POSIX_EXE_NAME")
                     .takeIf { f -> f.isFile }
+                    ?: File(it, "extensions/ui/webview/build/bin/$targetDir/webviewProcessReleaseExecutable/$POSIX_EXE_NAME.kexe")
+                        .takeIf { f -> f.isFile }
+            }
         }
 
         val baseExe = File(linuxBaseDir, POSIX_EXE_NAME)

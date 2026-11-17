@@ -78,6 +78,34 @@ abstract class GenericUiResourceCompilerTask : DefaultTask() {
 
     @get:Input
     @get:Optional
+    abstract val appleIconPath: Property<String>
+
+    @get:Input
+    @get:Optional
+    abstract val macIconPath: Property<String>
+
+    @get:Input
+    @get:Optional
+    abstract val iosIconPath: Property<String>
+
+    @get:Input
+    @get:Optional
+    abstract val ipadosIconPath: Property<String>
+
+    @get:Input
+    @get:Optional
+    abstract val macIconExplicitlyProvided: Property<Boolean>
+
+    @get:Input
+    @get:Optional
+    abstract val iosIconExplicitlyProvided: Property<Boolean>
+
+    @get:Input
+    @get:Optional
+    abstract val ipadosIconExplicitlyProvided: Property<Boolean>
+
+    @get:Input
+    @get:Optional
     abstract val androidLauncherIconConfig: Property<String>
 
     @get:Input
@@ -111,6 +139,9 @@ abstract class GenericUiResourceCompilerTask : DefaultTask() {
         failOnSvgConversionWarnings.convention(false)
         gradleUserHomePath.convention(project.gradle.gradleUserHomeDir.absolutePath)
         offlineMode.convention(project.gradle.startParameter.isOffline)
+        macIconExplicitlyProvided.convention(false)
+        iosIconExplicitlyProvided.convention(false)
+        ipadosIconExplicitlyProvided.convention(false)
     }
 
     private data class DrawableEntry(
@@ -619,7 +650,30 @@ abstract class GenericUiResourceCompilerTask : DefaultTask() {
                 outDir = File(backendOutRoot, "apple"),
                 drawables = drawables.values.toList(),
                 strings = strings.values.toList(),
-                colors = colors.values.toList()
+                colors = colors.values.toList(),
+                targetSpecificIconPath = macIconPath.orNull,
+                fullBleedAppIcon = false,
+                explicitFlagProperty = macIconExplicitlyProvided.orNull
+            )
+            emitAppleResourceTranslations(
+                projDir = projDir,
+                outDir = File(backendOutRoot, "ios"),
+                drawables = drawables.values.toList(),
+                strings = strings.values.toList(),
+                colors = colors.values.toList(),
+                targetSpecificIconPath = iosIconPath.orNull,
+                fullBleedAppIcon = true,
+                explicitFlagProperty = iosIconExplicitlyProvided.orNull
+            )
+            emitAppleResourceTranslations(
+                projDir = projDir,
+                outDir = File(backendOutRoot, "ipados"),
+                drawables = drawables.values.toList(),
+                strings = strings.values.toList(),
+                colors = colors.values.toList(),
+                targetSpecificIconPath = ipadosIconPath.orNull,
+                fullBleedAppIcon = true,
+                explicitFlagProperty = ipadosIconExplicitlyProvided.orNull
             )
             emitLinuxGtkAndQtTranslations(
                 projDir = projDir,
@@ -1787,24 +1841,62 @@ object RC {
         return "#%02x%02x%02x".format(dr, dg, db)
     }
 
+    private fun resolveExistingIconFileOrNull(projDir: File, rawPath: String?): File? {
+        val clean = rawPath?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+        val f = File(clean).let { if (it.isAbsolute) it else File(projDir, clean) }
+        return f.takeIf { it.exists() && it.isFile }
+    }
+
     private fun emitAppleResourceTranslations(
         projDir: File,
         outDir: File,
         drawables: List<DrawableEntry>,
         strings: List<ValueEntry>,
-        colors: List<ValueEntry>
+        colors: List<ValueEntry>,
+        targetSpecificIconPath: String? = null,
+        fullBleedAppIcon: Boolean = false,
+        explicitFlagProperty: Boolean? = null
     ) {
         val lproj = File(outDir, "en.lproj").apply { mkdirs() }
         val xcassets = File(outDir, "Assets.xcassets").apply { mkdirs() }
         val appIconSet = File(xcassets, "AppIcon.appiconset").apply { mkdirs() }
-        val sourceIconFile = resolveProjectIconSourceFile(projDir)
-        GenericUiDefaultIconProvider.ensurePngFromSourceOrDefault(sourceIconFile, projDir, appIconSet)
-        GenericUiDefaultIconProvider.ensureAppleIcnsFromSourceOrDefault(sourceIconFile, projDir, appIconSet)
-        GenericUiDefaultIconProvider.ensureAppleIcnsFromSourceOrDefault(sourceIconFile, projDir, outDir)
+
+        val targetIconFile = resolveExistingIconFileOrNull(projDir, targetSpecificIconPath)
+        val sharedAppleIconFile = resolveExistingIconFileOrNull(projDir, appleIconPath.orNull)
+        val hasExplicitApplePath = explicitFlagProperty ?: (
+            !targetSpecificIconPath.isNullOrBlank() || !appleIconPath.orNull.isNullOrBlank()
+        )
+        val sourceIconFile = targetIconFile
+            ?: sharedAppleIconFile
+            ?: resolveProjectIconSourceFile(projDir)
+        val wrapInTile = !hasExplicitApplePath
+
+        GenericUiDefaultIconProvider.ensurePngFromSourceOrDefault(
+            sourceIconFile = sourceIconFile,
+            projectRootDir = projDir,
+            outputDir = appIconSet,
+            fileName = GenericUiDefaultIconProvider.DEFAULT_ICON_PNG_FILE_NAME,
+            wrapInAppleTile = wrapInTile,
+            fullBleedSquare = fullBleedAppIcon,
+            requestedSizeOverride = if (fullBleedAppIcon) 1024 else 512
+        )
+        GenericUiDefaultIconProvider.ensureAppleIcnsFromSourceOrDefault(
+            sourceIconFile = sourceIconFile,
+            projectRootDir = projDir,
+            outputDir = appIconSet,
+            wrapInAppleTile = wrapInTile
+        )
+        GenericUiDefaultIconProvider.ensureAppleIcnsFromSourceOrDefault(
+            sourceIconFile = sourceIconFile,
+            projectRootDir = projDir,
+            outputDir = outDir,
+            wrapInAppleTile = wrapInTile
+        )
+        val contentsSize = if (fullBleedAppIcon) "1024x1024" else "512x512"
         File(appIconSet, "Contents.json").writeText(
             """
             {
-              "images": [{ "idiom": "universal", "filename": "icon.png", "size": "512x512" }],
+              "images": [{ "idiom": "universal", "filename": "icon.png", "size": "$contentsSize" }],
               "info": { "version": 1, "author": "genericui" }
             }
             """.trimIndent()

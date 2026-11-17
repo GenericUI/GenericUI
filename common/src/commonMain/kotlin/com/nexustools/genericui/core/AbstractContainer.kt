@@ -104,7 +104,7 @@ abstract class AbstractContainer(
         typedNative<AbstractContainerNativeImpl<*>>()?.clearChildrenNative()
     }
 
-    internal override fun ensureNativeImpl(): NativeImpl<*>? {
+    override fun ensureNativeImpl(): NativeImpl<*>? {
         val wasAlreadyCreated = (nativeImpl != null)
         val impl = super.ensureNativeImpl() ?: return null
         if (wasAlreadyCreated) {

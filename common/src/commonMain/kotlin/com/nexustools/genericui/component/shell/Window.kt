@@ -20,6 +20,7 @@ import com.nexustools.genericui.window.IWindow
 import com.nexustools.genericui.window.PipConfig
 import com.nexustools.genericui.window.TitleBar
 import com.nexustools.genericui.window.TitleCapabilities
+import com.nexustools.genericui.window.WindowAspectRatioHelper
 import com.nexustools.genericui.window.WindowConfiguration
 
 /**
@@ -84,8 +85,12 @@ open class Window(
     private var positionXState: Int = 0
     private var positionYState: Int = 0
     private var sizeState: Size = initialSize
+    private var lastWindowedNormalSize: Size = initialSize
     private var minWindowSizeState: Size? = null
+    private var aspectRatioState: Double? = null
+    private var isApplyingAspectRatioClamp: Boolean = false
     private var windowStateVal: WindowState = WindowState.NORMAL
+    private var stateBeforeFullscreen: WindowState = WindowState.NORMAL
     private var fullscreenState: Boolean = false
     private var cutoutModeState: DisplayCutoutMode = DisplayCutoutMode.DEFAULT
 
@@ -98,7 +103,9 @@ open class Window(
     open override val isResizable: Boolean = true
     open override val isModal: Boolean = false
     open override val isToolWindow: Boolean = false
-    open override val isAlwaysOnTop: Boolean = false
+    private var alwaysOnTopState: Boolean = false
+    open override val isAlwaysOnTop: Boolean
+        get() = winImpl?.isAlwaysOnTop() ?: alwaysOnTopState
 
     private var titleBarInstructions: TitleBar? = null
     private var menuBar: MenuBar? = null
@@ -187,16 +194,24 @@ open class Window(
         dispatchWindowFocusChanged(true)
     }
 
+    private var isDispatchingWindowFocus: Boolean = false
+
     fun dispatchWindowFocusChanged(focused: Boolean) {
-        isFocused = focused
-        isWindowFocused = focused
-        if (focused) {
-            frontOrderSequence = nextFrontSequence()
-            winImpl?.bringToFront()
-            bringAttachedPanelWindowsToFront()
-            bringAttachedDialogWindowsToFront()
+        if (isDispatchingWindowFocus) return
+        isDispatchingWindowFocus = true
+        try {
+            isFocused = focused
+            isWindowFocused = focused
+            if (focused) {
+                frontOrderSequence = nextFrontSequence()
+                winImpl?.bringToFront()
+                bringAttachedPanelWindowsToFront()
+                bringAttachedDialogWindowsToFront()
+            }
+            onFocusListener?.invoke(focused)
+        } finally {
+            isDispatchingWindowFocus = false
         }
-        onFocusListener?.invoke(focused)
     }
 
     override fun resolveActiveFactory(): NativeFactory? {
@@ -213,6 +228,9 @@ open class Window(
         val wImpl = impl as? WindowNativeImpl<*> ?: return
         wImpl.setTitle(titleState)
         minWindowSizeState?.let { wImpl.setMinWindowSize(it) }
+        wImpl.setAlwaysOnTop(alwaysOnTopState)
+        val isWindowedNormal = !fullscreenState && fullscreenElement == null && windowStateVal == WindowState.NORMAL
+        wImpl.setAspectRatio(if (isWindowedNormal) aspectRatioState else null)
         wImpl.setWindowSize(sizeState)
         if (fullscreenState || fullscreenElement != null) {
             val target = fullscreenElement ?: contentContainer ?: this
@@ -236,9 +254,15 @@ open class Window(
 
     private fun installNativeWindowResizeForwarder(wImpl: WindowNativeImpl<*>) {
         wImpl.setOnWindowResize { config ->
-            sizeState = Size(config.widthPx, config.heightPx)
+            var effectiveConfig = config
             if (config.isFullscreen && !fullscreenState) {
+                if (windowStateVal == WindowState.NORMAL) {
+                    lastWindowedNormalSize = sizeState
+                }
+                stateBeforeFullscreen = windowStateVal
                 fullscreenState = true
+                windowStateVal = WindowState.FULLSCREEN
+                wImpl.setAspectRatio(null)
                 if (fullscreenElement == null) {
                     val target = contentContainer ?: this
                     fullscreenElement = target
@@ -253,14 +277,58 @@ open class Window(
                 val prev = fullscreenElement
                 fullscreenElement = null
                 fullscreenState = false
+                if (windowStateVal == WindowState.FULLSCREEN) {
+                    windowStateVal = if (stateBeforeFullscreen == WindowState.FULLSCREEN) {
+                        WindowState.NORMAL
+                    } else {
+                        stateBeforeFullscreen
+                    }
+                }
                 prev?.updateFullscreenElementState(false, cutoutModeState)
                 updateFullscreenElementState(false, cutoutModeState)
                 syncNavBarToNative(wImpl)
                 syncBottomNavToNative(wImpl)
+                if (windowStateVal == WindowState.NORMAL) {
+                    wImpl.setAspectRatio(aspectRatioState)
+                }
             }
-            fragmentContainer?.onResize(config.widthPx, config.heightPx)
-            fragmentContainer?.onConfigurationChanged(config)
-            onResizeListener?.invoke(config)
+
+            val incomingSize = Size(config.widthPx, config.heightPx)
+            val currentState = wImpl.getWindowState()
+            val isWindowedNormal = !config.isFullscreen && currentState == WindowState.NORMAL
+            val ratio = aspectRatioState
+            if (
+                isWindowedNormal &&
+                ratio != null &&
+                !isApplyingAspectRatioClamp &&
+                incomingSize.width > 0 &&
+                incomingSize.height > 0 &&
+                !WindowAspectRatioHelper.matchesAspectRatio(incomingSize, ratio, tolerancePx = 2)
+            ) {
+                val clamped = WindowAspectRatioHelper.enforceResizeDelta(
+                    previousSize = sizeState,
+                    requestedSize = incomingSize,
+                    aspectRatio = ratio,
+                    minSize = minWindowSizeState
+                )
+                sizeState = clamped
+                lastWindowedNormalSize = clamped
+                isApplyingAspectRatioClamp = true
+                try {
+                    wImpl.setWindowSize(clamped)
+                } finally {
+                    isApplyingAspectRatioClamp = false
+                }
+                effectiveConfig = config.copy(widthPx = clamped.width, heightPx = clamped.height)
+            } else {
+                sizeState = incomingSize
+                if (isWindowedNormal) {
+                    lastWindowedNormalSize = incomingSize
+                }
+            }
+            fragmentContainer?.onResize(effectiveConfig.widthPx, effectiveConfig.heightPx)
+            fragmentContainer?.onConfigurationChanged(effectiveConfig)
+            onResizeListener?.invoke(effectiveConfig)
         }
     }
 
@@ -326,15 +394,71 @@ open class Window(
         setWindowIcon(resId.toResourceUri())
     }
 
+    open override fun setAlwaysOnTop(alwaysOnTop: Boolean) {
+        alwaysOnTopState = alwaysOnTop
+        winImpl?.setAlwaysOnTop(alwaysOnTop)
+    }
+
+    override fun getAspectRatio(): Double? = aspectRatioState
+
+    override fun setAspectRatio(aspectRatio: Double?) {
+        WindowAspectRatioHelper.validateAspectRatio(aspectRatio)
+        aspectRatioState = aspectRatio
+        val isWindowedNormal = (getWindowState() == WindowState.NORMAL) && !isFullscreen()
+        if (aspectRatio != null) {
+            lastWindowedNormalSize = WindowAspectRatioHelper.clampClientSize(
+                size = lastWindowedNormalSize,
+                aspectRatio = aspectRatio,
+                minSize = minWindowSizeState
+            )
+        }
+        if (isWindowedNormal) {
+            winImpl?.setAspectRatio(aspectRatio)
+            if (aspectRatio != null) {
+                val clamped = WindowAspectRatioHelper.clampClientSize(
+                    size = sizeState,
+                    aspectRatio = aspectRatio,
+                    minSize = minWindowSizeState
+                )
+                lastWindowedNormalSize = clamped
+                if (clamped != sizeState) {
+                    sizeState = clamped
+                    isApplyingAspectRatioClamp = true
+                    try {
+                        winImpl?.setWindowSize(clamped)
+                    } finally {
+                        isApplyingAspectRatioClamp = false
+                    }
+                }
+            }
+        } else {
+            winImpl?.setAspectRatio(null)
+        }
+    }
+
     override fun setWindowSize(size: Size) {
         val min = minWindowSizeState
-        val clamped = if (min != null) {
+        val minClamped = if (min != null) {
             Size(maxOf(size.width, min.width), maxOf(size.height, min.height))
         } else {
             size
         }
-        sizeState = clamped
-        winImpl?.setWindowSize(clamped)
+        val isWindowedNormal = (getWindowState() == WindowState.NORMAL) && !isFullscreen()
+        val finalSize = if (isWindowedNormal && aspectRatioState != null) {
+            WindowAspectRatioHelper.clampClientSize(minClamped, aspectRatioState, min)
+        } else {
+            minClamped
+        }
+        sizeState = finalSize
+        if (isWindowedNormal) {
+            lastWindowedNormalSize = finalSize
+        }
+        isApplyingAspectRatioClamp = true
+        try {
+            winImpl?.setWindowSize(finalSize)
+        } finally {
+            isApplyingAspectRatioClamp = false
+        }
     }
 
     override fun getWindowSize(): Size = winImpl?.getWindowSize() ?: sizeState
@@ -345,13 +469,34 @@ open class Window(
         minWindowSizeState = minSize
         winImpl?.setMinWindowSize(minSize)
         if (minSize != null) {
-            val clamped = Size(
+            val minClamped = Size(
                 maxOf(sizeState.width, minSize.width),
                 maxOf(sizeState.height, minSize.height)
             )
+            val isWindowedNormal = (getWindowState() == WindowState.NORMAL) && !isFullscreen()
+            val clamped = if (isWindowedNormal && aspectRatioState != null) {
+                WindowAspectRatioHelper.clampClientSize(minClamped, aspectRatioState, minSize)
+            } else {
+                minClamped
+            }
+            if (isWindowedNormal && aspectRatioState != null) {
+                lastWindowedNormalSize = WindowAspectRatioHelper.clampClientSize(
+                    size = Size(
+                        maxOf(lastWindowedNormalSize.width, minSize.width),
+                        maxOf(lastWindowedNormalSize.height, minSize.height)
+                    ),
+                    aspectRatio = aspectRatioState,
+                    minSize = minSize
+                )
+            }
             if (clamped != sizeState) {
                 sizeState = clamped
-                winImpl?.setWindowSize(clamped)
+                isApplyingAspectRatioClamp = true
+                try {
+                    winImpl?.setWindowSize(clamped)
+                } finally {
+                    isApplyingAspectRatioClamp = false
+                }
             }
         }
     }
@@ -368,8 +513,43 @@ open class Window(
         }
 
     override fun setWindowState(state: WindowState) {
+        if (state == WindowState.FULLSCREEN) {
+            setFullscreen(true)
+            return
+        }
+        val prevState = windowStateVal
+        if (prevState == WindowState.NORMAL && !isFullscreen() && state != WindowState.NORMAL) {
+            lastWindowedNormalSize = sizeState
+        }
+        if (isFullscreen() && state != WindowState.FULLSCREEN) {
+            stateBeforeFullscreen = state
+            windowStateVal = state
+            exitElementFullscreen()
+            return
+        }
         windowStateVal = state
+        val isWindowedNormal = (state == WindowState.NORMAL) && !isFullscreen()
+        if (!isWindowedNormal) {
+            winImpl?.setAspectRatio(null)
+        }
         winImpl?.setWindowState(state)
+        if (isWindowedNormal) {
+            winImpl?.setAspectRatio(aspectRatioState)
+            val restored = if (aspectRatioState != null) {
+                WindowAspectRatioHelper.clampClientSize(lastWindowedNormalSize, aspectRatioState, minWindowSizeState)
+            } else {
+                lastWindowedNormalSize
+            }
+            if (restored != sizeState && prevState == WindowState.MAXIMIZED) {
+                sizeState = restored
+                isApplyingAspectRatioClamp = true
+                try {
+                    winImpl?.setWindowSize(restored)
+                } finally {
+                    isApplyingAspectRatioClamp = false
+                }
+            }
+        }
     }
 
     override fun getWindowState(): WindowState = winImpl?.getWindowState() ?: windowStateVal
@@ -382,6 +562,12 @@ open class Window(
         if (prev != null && prev !== element) {
             prev.updateFullscreenElementState(false, cutoutMode)
         }
+        if (!fullscreenState) {
+            stateBeforeFullscreen = windowStateVal
+            if (windowStateVal == WindowState.NORMAL) {
+                lastWindowedNormalSize = sizeState
+            }
+        }
         fullscreenElement = element
         fullscreenState = true
         windowStateVal = WindowState.FULLSCREEN
@@ -392,6 +578,7 @@ open class Window(
         }
         winImpl?.let { impl ->
             val elImpl = if (element === this) impl else element.ensureNativeImpl()
+            impl.setAspectRatio(null)
             syncNavBarToNative(impl)
             syncBottomNavToNative(impl)
             impl.setFullscreenElement(elImpl, cutoutMode)
@@ -403,7 +590,11 @@ open class Window(
         fullscreenElement = null
         fullscreenState = false
         if (windowStateVal == WindowState.FULLSCREEN) {
-            windowStateVal = WindowState.NORMAL
+            windowStateVal = if (stateBeforeFullscreen == WindowState.FULLSCREEN) {
+                WindowState.NORMAL
+            } else {
+                stateBeforeFullscreen
+            }
         }
         prev?.updateFullscreenElementState(false, cutoutModeState)
         updateFullscreenElementState(false, cutoutModeState)
@@ -411,6 +602,31 @@ open class Window(
             syncNavBarToNative(impl)
             syncBottomNavToNative(impl)
             impl.setFullscreenElement(null, cutoutModeState)
+            if (windowStateVal == WindowState.NORMAL) {
+                impl.setAspectRatio(aspectRatioState)
+                val restored = if (aspectRatioState != null) {
+                    WindowAspectRatioHelper.clampClientSize(lastWindowedNormalSize, aspectRatioState, minWindowSizeState)
+                } else {
+                    lastWindowedNormalSize
+                }
+                sizeState = restored
+                isApplyingAspectRatioClamp = true
+                try {
+                    impl.setWindowSize(restored)
+                } finally {
+                    isApplyingAspectRatioClamp = false
+                }
+            } else {
+                impl.setWindowState(windowStateVal)
+            }
+        } ?: run {
+            if (windowStateVal == WindowState.NORMAL) {
+                sizeState = if (aspectRatioState != null) {
+                    WindowAspectRatioHelper.clampClientSize(lastWindowedNormalSize, aspectRatioState, minWindowSizeState)
+                } else {
+                    lastWindowedNormalSize
+                }
+            }
         }
     }
 

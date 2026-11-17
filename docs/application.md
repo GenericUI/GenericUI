@@ -1,9 +1,9 @@
 # GenericUI Application, `IApplication`, Theming (`ThemeMode.AUTO`), Stylesheets, & `BackendTarget` Guide
 
 > **Root Repository**: [**GenericUI (`../README.md`)**](../README.md) | **Master Docs Index**: [**`docs/README.md`**](./README.md)  
-> **Related Guides**: [Fragments & Windows (`fragments-and-windows.md`)](./fragments-and-windows.md) · [Hybrid Layouts & Helpers (`layouts-and-helpers.md`)](./layouts-and-helpers.md) · [Resources (`resources.md`)](./resources.md) · [Gradle Plugin (`gradle-plugin.md`)](./gradle-plugin.md) · [Platform Backends (`backends.md`)](./backends.md) · [SourceSets (`sourcesets.md`)](./sourcesets.md)
+> **Related Guides**: [iPadOS Backend (`ipados.md`)](./ipados.md) · [Shared Apple (`apple.md`)](./apple.md) · [Shared JVM (`jvm.md`)](./jvm.md) · [Fragments & Windows (`fragments-and-windows.md`)](./fragments-and-windows.md) · [Hybrid Layouts & Helpers (`layouts-and-helpers.md`)](./layouts-and-helpers.md) · [Resources (`resources.md`)](./resources.md) · [Gradle Plugin (`gradle-plugin.md`)](./gradle-plugin.md) · [Platform Backends (`backends.md`)](./backends.md) · [SourceSets (`sourcesets.md`)](./sourcesets.md)
 
-This guide covers [`IApplication`](../common/src/commonMain/kotlin/com/nexustools/genericui/component/shell/IApplication.kt), [`Application`](../common/src/commonMain/kotlin/com/nexustools/genericui/component/shell/Application.kt), [`FragmentApplication`](../common/src/commonMain/kotlin/com/nexustools/genericui/component/shell/FragmentApplication.kt), optional custom `@AppApplication` classes, [`ThemeMode`](../common/src/commonMain/kotlin/com/nexustools/genericui/enums/ui/ThemeMode.kt) (`AUTO`, `DARK`, `LIGHT` with 8-target OS theme detection), global stylesheet management (`IApplication.addStyleSheet` / `removeStyleSheet`), [`BackendTarget`](../common/src/commonMain/kotlin/com/nexustools/genericui/enums/system/BackendTarget.kt) runtime target/group queries, and platform capability checks.
+This guide covers [`IApplication`](../common/src/commonMain/kotlin/com/nexustools/genericui/component/shell/IApplication.kt), [`Application`](../common/src/commonMain/kotlin/com/nexustools/genericui/component/shell/Application.kt), [`FragmentApplication`](../common/src/commonMain/kotlin/com/nexustools/genericui/component/shell/FragmentApplication.kt), [`GenericUI`](../common/src/commonMain/kotlin/com/nexustools/genericui/core/GenericUI.kt), optional custom `@AppApplication` classes, [`ThemeMode`](../common/src/commonMain/kotlin/com/nexustools/genericui/enums/ui/ThemeMode.kt) (`AUTO`, `DARK`, `LIGHT` with 9-target OS theme detection), global stylesheet management (`IApplication.addStyleSheet` / `removeStyleSheet`), [`BackendTarget`](../common/src/commonMain/kotlin/com/nexustools/genericui/enums/system/BackendTarget.kt) runtime target/group queries, and platform capability checks.
 
 ---
 
@@ -11,12 +11,12 @@ This guide covers [`IApplication`](../common/src/commonMain/kotlin/com/nexustool
 
 ### 1.1 Default Zero-Boilerplate Bootstrapping (`@MainAppFragment` Only)
 
-Most GenericUI applications need **only** a `@MainAppFragment`-annotated `Fragment` class in `src/commonMain/kotlin` and `genericui { app { ... } }` in `build.gradle.kts`. For every enabled backend target, the GenericUI Gradle plugin generates a `GenericUiAppDescriptor` and target launcher (`WindowsLauncher`, `MacosLauncher`, `GtkLauncher`, `QtLauncher`, `SwingLauncher`, `AndroidLauncher`, `IosLauncher`, `WebLauncher`) that:
-1. Initializes the platform's `NativeFactory` (`GenericUI.initialize(...)`).
+Most GenericUI applications need **only** a `@MainAppFragment`-annotated `Fragment` class in `src/commonMain/kotlin` and `genericui { app { ... } }` in `build.gradle.kts`. For every enabled backend target, the GenericUI Gradle plugin generates a `GenericUiAppDescriptor` and target launcher (`WindowsLauncher`, `MacosLauncher`, `GtkLauncher`, `QtLauncher`, `SwingLauncher`, `AndroidLauncher`, `IosLauncher`, `IpadosLauncher`, `WebLauncher`) that:
+1. Initializes the platform's `NativeFactory` (`GenericUI.initialize(...)`) and sets Apple icon metadata (`GenericUI.appleIconExplicitlyProvided`) so macOS wraps generic/default Dock icons inside a Chrome-style rounded white squircle automatically when no Apple-specific override (`appleIcon` / `macIcon`) was supplied.
 2. Registers all enabled extension providers automatically.
 3. Registers the resolved `@MainAppFragment` and all matching `@AppFragment` classes in `FragmentRegistry`.
-4. Constructs `FragmentApplication` with the resolved variant window geometry, title, icon, theme mode (defaulting to **`ThemeMode.AUTO`**), and `themeColor`.
-5. Automatically calls `app.addStyleSheet(...)` in the generated startup code whenever `styles { globalStyleSheet = "..." }` (or `theme { styleSheet = "..." }`) is configured in `build.gradle.kts`.
+4. Constructs `FragmentApplication` with the resolved variant window geometry (`width`, `height`, `minWidth`, `minHeight`, `resizable`, `fullscreen`, `alwaysOnTop`, `aspectRatio`), title, icon, theme mode (defaulting to **`ThemeMode.AUTO`**), and `themeColor`.
+5. Automatically calls `app.addStyleSheet(...)` in generated startup code whenever `styles { globalStyleSheet = "..." }` (or `theme { styleSheet = "..." }`) is configured in `build.gradle.kts`.
 6. Instantiates the resolved `@MainAppFragment` and passes process command-line arguments in the initial `FragmentBundle` on system targets (`savedState?.getCommandLineArgs()`).
 
 ### 1.2 Optional Custom `@AppApplication` (`com.nexustools.genericui.component.fragment.AppApplication`)
@@ -50,7 +50,7 @@ class StudioApplication : FragmentApplication(
 }
 ```
 
-Just like `@MainAppFragment`, `@AppApplication(targets = [...])` supports `AppTarget` specificity resolution (`COMMON`, `SYSTEM_COMMON`, `DESKTOP_COMMON`, `NATIVE_DESKTOP_COMMON`, `LINUX_COMMON`, `MOBILE_COMMON`, and all 8 concrete targets).
+Just like `@MainAppFragment`, `@AppApplication(targets = [...])` supports `AppTarget` specificity resolution (`COMMON(0)`, `SYSTEM_COMMON(1)`, `APPLE_COMMON(2)`, `JVM_COMMON(2)`, `DESKTOP_COMMON(3)`, `MOBILE_COMMON(3)`, `NATIVE_DESKTOP_COMMON(4)`, `LINUX_COMMON(5)`, `IOS_COMMON(5)`, and all 9 concrete targets at rank `6`).
 
 ---
 
@@ -60,9 +60,9 @@ GenericUI's [`ThemeMode`](../common/src/commonMain/kotlin/com/nexustools/generic
 
 | `ThemeMode` Entry | `bsThemeValue` | Behavior |
 | :--- | :--- | :--- |
-| **`ThemeMode.AUTO`** *(Default)* | `"auto"` | Automatically detects and tracks the host operating system or browser's active dark/light color scheme in real time via [`SystemThemeDetector`](../common/src/commonMain/kotlin/com/nexustools/genericui/style/theme/SystemThemeDetector.kt). (`ThemeMode.SYSTEM` is preserved as an alias for `ThemeMode.AUTO`.) |
-| **`ThemeMode.DARK`** | `"dark"` | Forces dark mode across native OS controls (e.g. Win32 `UxTheme` `DarkMode_Explorer`), `:web` Bootstrap (`data-bs-theme="dark"`), and `:extensions:alien`. |
-| **`ThemeMode.LIGHT`** | `"light"` | Forces light mode across native OS controls (e.g. Win32 `UxTheme` `Explorer`), `:web` Bootstrap (`data-bs-theme="light"`), and `:extensions:alien`. |
+| **`ThemeMode.AUTO`** *(Default)* | `"auto"` | Automatically detects and tracks the host operating system or browser's active dark/light color scheme in real time via [`SystemThemeDetector`](../common/src/commonMain/kotlin/com/nexustools/genericui/style/theme/SystemThemeDetector.kt). |
+| **`ThemeMode.DARK`** | `"dark"` | Forces dark mode across native OS controls (e.g. Win32 `UxTheme` `DarkMode_Explorer`), `:web` Bootstrap (`data-bs-theme="dark"`), and `:extensions:ui:alien`. |
+| **`ThemeMode.LIGHT`** | `"light"` | Forces light mode across native OS controls (e.g. Win32 `UxTheme` `Explorer`), `:web` Bootstrap (`data-bs-theme="light"`), and `:extensions:ui:alien`. |
 
 ### 2.1 Theme & Preference API on `IApplication`
 
@@ -73,12 +73,12 @@ GenericUI's [`ThemeMode`](../common/src/commonMain/kotlin/com/nexustools/generic
 | `app.getResolvedTheme(): ThemeMode` | `ThemeMode` | Resolves `ThemeMode.AUTO` to the currently active concrete system theme (`ThemeMode.DARK` or `ThemeMode.LIGHT`). |
 | `app.addThemeChangeListener(listener)`<br/>`app.removeThemeChangeListener(listener)` | `Unit` | Registers or unregisters a callback `(ThemeMode) -> Unit` invoked whenever the theme or underlying OS dark/light mode changes. |
 | `app.setThemeColor(colorHex: String?)`<br/>`app.getThemeColor(): String?` | `Unit` / `String?` | Configures or queries the application's primary accent chrome color (`themeConfig.primaryColor`). |
-| `app.setThemeConfig(config: ThemeConfig)`<br/>`app.getThemeConfig(): ThemeConfig` | `Unit` / `ThemeConfig` | Configures or queries the unified cross-platform [`ThemeConfig`](../common/src/commonMain/kotlin/com/nexustools/genericui/style/theme/ThemeConfig.kt) semantic palette and light/dark [`ThemeColorSet`](../common/src/commonMain/kotlin/com/nexustools/genericui/style/theme/ThemeColorSet.kt) overrides, updating [`BootstrapColorPalette.activeThemeConfig`](../common/src/commonMain/kotlin/com/nexustools/genericui/style/bootstrap/BootstrapColorPalette.kt) and propagating changes to all open windows and DOM stylesheets. |
+| `app.setThemeConfig(config: ThemeConfig)`<br/>`app.getThemeConfig(): ThemeConfig` | `Unit` / `ThemeConfig` | Configures or queries the unified cross-platform [`ThemeConfig`](../common/src/commonMain/kotlin/com/nexustools/genericui/style/theme/ThemeConfig.kt) semantic palette and light/dark [`ThemeColorSet`](../common/src/commonMain/kotlin/com/nexustools/genericui/style/theme/ThemeColorSet.kt) overrides, updating [`BootstrapColorPalette.activeThemeConfig`](../common/src/commonMain/kotlin/com/nexustools/genericui/style/color/BootstrapColorPalette.kt) and propagating changes to all open windows and DOM stylesheets. |
 | `app.getPreferenceStore()` | `PreferenceStore` | Returns the application's shared cross-platform [`PreferenceStore`](../common/src/commonMain/kotlin/com/nexustools/genericui/component/system/PreferenceStore.kt) (also accessible on any `IFragment` via `fragment.getPreferenceStore()`). |
 
-### 2.2 Unified Cross-Platform `ThemeConfig` & `ThemeColorSet` (`com.nexustools.genericui.style.theme.*`)
+### 2.2 Unified Cross-Platform `ThemeConfig` & `ThemeColorSet`
 
-[`ThemeConfig`](../common/src/commonMain/kotlin/com/nexustools/genericui/style/theme/ThemeConfig.kt) and [`ThemeColorSet`](../common/src/commonMain/kotlin/com/nexustools/genericui/style/theme/ThemeColorSet.kt) provide a single strongly-typed theme palette shared across Gradle build configuration (`genericui { theme { ... } }`), runtime `IApplication` APIs (`app.setThemeConfig(...)`), native control offscreen sprite tinting (`DesktopControlTintRenderUtil`), Android Material XML generation, and Web CSS custom properties:
+[`ThemeConfig`](../common/src/commonMain/kotlin/com/nexustools/genericui/style/theme/ThemeConfig.kt) and [`ThemeColorSet`](../common/src/commonMain/kotlin/com/nexustools/genericui/style/theme/ThemeColorSet.kt) provide a single strongly-typed theme palette shared across Gradle build configuration (`genericui { theme { ... } }`), runtime `IApplication` APIs (`app.setThemeConfig(...)`), native control offscreen sprite tinting (`DesktopControlTintRenderUtil`, `JvmControlTintPixelUtil`, `IosControlTintRenderUtil`), Android Material XML generation, and Web CSS custom properties (`gui/genericui-theme.css` + `<style id="genericui-runtime-theme-css">`):
 
 ```kotlin
 import com.nexustools.genericui.enums.ui.ThemeMode
@@ -114,50 +114,27 @@ val customTheme = ThemeConfig(
 app.setThemeConfig(customTheme)
 ```
 
-How `ThemeConfig` applies across all targets:
-- **`:common` & `BootstrapColorPalette`**: `BootstrapColorPalette.activeThemeConfig` resolves semantic `BootstrapType` colors (`PRIMARY`, `SECONDARY`, `SUCCESS`, `DANGER`, `WARNING`, `INFO`, `LIGHT`, `DARK`) and light/dark surface/background/text/border colors dynamically from the active `ThemeConfig`.
-- **Android Build-Time Material XML (`:gradle-plugin` + `:mobile:android`)**: `generateGenericUiAndroidActivities` automatically generates `res/values/genericui_theme_colors.xml`, `res/values/themes.xml` (`Theme.Material3.DayNight.NoActionBar` / `Theme.Material3.Light.NoActionBar`), and `res/values-night/themes.xml` (`Theme.Material3.Dark.NoActionBar`) defining `@style/Theme.GenericUI.App` with `colorPrimary`, `colorSecondary`, `colorTertiary`, `colorError`, `android:colorBackground`, `colorSurface`, `colorOnPrimary`, `colorOnSurface`, `android:statusBarColor`, and `android:navigationBarColor`, referenced automatically in the generated `AndroidManifest.xml`.
-- **Desktop & iOS Native Control Tinting**: Whenever a control sets `BootstrapType != BootstrapType.NONE`, `DesktopControlTintRenderUtil` (and mobile control tinting) tints the empty-text offscreen native OS control sprite using the resolved `ThemeConfig` color and overlays contrasting text on top.
-- **Web Build-Time Pre-Generated CSS (`gui/genericui-theme.css`) + Runtime `<style>` Injection (`:web`)**:
-  - At build time, `GenericUiWebDistributionTask` generates `gui/genericui-theme.css` containing `:root`, `[data-bs-theme="light"]`, and `[data-bs-theme="dark"]` Bootstrap CSS custom property overrides (`--bs-primary`, `--bs-primary-rgb`, `--bs-secondary`, `--bs-success`, `--bs-danger`, `--bs-warning`, `--bs-info`, `--bs-body-bg`, `--bs-body-color`, `--bs-border-color`, `.btn-primary`, `.btn-outline-primary`, etc.) and links it in `index.html` via `<link id="genericui-build-theme-css" rel="stylesheet" href="./gui/genericui-theme.css">`.
-  - At runtime, calling `app.setThemeConfig(...)` or `app.setThemeColor(...)` invokes `WebStyleSheetManager.applyThemeConfig(config, resolvedMode)` to inject or update `<style id="genericui-runtime-theme-css">` in `document.head` for zero-latency live theme switching.
-
-### 2.3 8-Target OS Dark/Light Theme Detection & `:web` `data-bs-theme` Switching
-- **Windows (`:desktop:windows`)**: Reads `HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize\AppsUseLightTheme`, listens to `WM_SETTINGCHANGE` (`"ImmersiveColorSet"`), toggles `DWMWA_USE_IMMERSIVE_DARK_MODE`, and switches Win32 `UxTheme` control themes (`"DarkMode_Explorer::BUTTON"` vs. `"Explorer::BUTTON"`).
-- **macOS (`:desktop:macos`)**: Inspects `NSApp.effectiveAppearance` (`NSAppearanceNameDarkAqua` vs. `NSAppearanceNameAqua`) and observes `AppleInterfaceThemeChangedNotification`.
-- **Linux GTK (`:desktop:gtk`) & Qt (`:desktop:qt`)**: Tracks `GtkSettings` (`gtk-application-prefer-dark-theme` / XDG Desktop Portal `color-scheme`) and `QStyleHints::colorSchemeChanged`.
-- **JVM Swing (`:desktop:swing`)**: Detects host OS dark/light theme and updates Swing Look-and-Feel palette defaults.
-- **Android (`:mobile:android`) & iOS (`:mobile:ios`)**: Tracks `Configuration.UI_MODE_NIGHT_MASK` (`AppCompatDelegate.setDefaultNightMode`) on Android and `UITraitCollection.userInterfaceStyle` on iOS.
-- **Web (`:web`)**: Updates `document.documentElement.setAttribute("data-bs-theme", "light" | "dark")` for instant Bootstrap 5.3 dark/light switching and subscribes to `window.matchMedia("(prefers-color-scheme: dark)")` when `ThemeMode.AUTO` is active.
-
 ---
 
 ## 3. Global Stylesheet Management (`IApplication.addStyleSheet` & `removeStyleSheet`)
 
 > [!IMPORTANT]
-> **Application-Level Responsibility**: Global stylesheet registration (`addStyleSheet` / `removeStyleSheet`) lives on **`IApplication`** (`Application` and `FragmentApplication`) — **never** on `IFragment` (except for `:extensions:alien`'s `AlienFragment` / `AlienContainer` implementing [`IAlien`](../extensions/alien/common/src/commonMain/kotlin/com/nexustools/genericui/ext/alien/IAlien.kt)).
-
-### 3.1 `IApplication` Stylesheet Methods
+> **Application-Level Responsibility**: Global stylesheet registration (`addStyleSheet` / `removeStyleSheet`) lives on **`IApplication`** (`Application` and `FragmentApplication`) — **never** on `IFragment` (except for `:extensions:ui:alien`'s `AlienFragment` / `AlienContainer` implementing [`IAlien`](../extensions/ui/alien/src/commonMain/kotlin/com/nexustools/genericui/ext/alien/IAlien.kt)).
 
 | Method | Description |
 | :--- | :--- |
 | `app.addStyleSheet(styleSheetResourceId: ResourceID)` | Registers and activates a global `.scss`/`.css` stylesheet by its compiled `Resource.style.<name>` (`R.style.<name>`) `ResourceID`. |
 | `app.addStyleSheet(styleSheetPath: String)` | Registers and activates a global stylesheet by its resource path (e.g. `"styles/main.scss"` or `"styles/main.css"`). |
 | `app.addStyleSheet(styleSheet: PrecompiledStyleSheet)` | Registers and activates a build-time precompiled [`PrecompiledStyleSheet`](../common/src/commonMain/kotlin/com/nexustools/genericui/style/css/PrecompiledStyleSheet.kt) object directly. |
-| `app.removeStyleSheet(styleSheetResourceId: ResourceID): Boolean`<br/>`app.removeStyleSheet(styleSheetPath: String): Boolean`<br/>`app.removeStyleSheet(styleSheet: PrecompiledStyleSheet): Boolean` | Removes a previously added global stylesheet and triggers a style recomputation across open windows. |
-| `app.hasStyleSheet(styleSheetResourceId: ResourceID): Boolean`<br/>`app.hasStyleSheet(styleSheetPath: String): Boolean` | Returns `true` if the specified stylesheet is currently active on the application. |
-| `app.getStyleSheets(): List<PrecompiledStyleSheet>`<br/>`app.getStyleSheetPaths(): List<String>` | Returns the ordered list of active `PrecompiledStyleSheet` instances or stylesheet paths (`$ApplicationStyleSheets`). |
-
-### 3.2 How Stylesheets Execute Across Targets
-1. **Build-Time Precompilation on All 7 Non-Web Targets**: `.scss` files in `src/commonMain/resources/**` are compiled at build time into `Resource.style.<name>` (`R.style.<name>`) backed by typed `PrecompiledStyleSheet` (`CompiledStyleRule`) Kotlin objects with internal `@color/...`, `@drawable/...`, `@dimen/...`, `@font/...`, and `@string/...` references resolved to typed values and `ResourceID`s. Zero runtime SASS/CSS text parsing occurs.
-2. **Native `.css` `<link>` Injection on `:web`**: On `:web`, `.scss` files compile to `.css` bundles in the web distribution, and `app.addStyleSheet(...)` / `app.removeStyleSheet(...)` adds or removes `<link rel="stylesheet" href="...">` elements in `document.head`.
-3. **Automatic Injection in Generated `main()`**: When `styles { globalStyleSheet = "styles/main.scss" }` (or `theme { styleSheet = "styles/main.scss" }`) is configured in `build.gradle.kts`, `generateGenericUiLaunchers` and `generateGenericUiAndroidActivities` automatically emit `app.addStyleSheet("styles/main.scss")` in the generated launcher startup code.
+| `app.removeStyleSheet(...)` | Removes a previously added global stylesheet (`ResourceID`, path, or `PrecompiledStyleSheet`) and triggers style recomputation across open windows. |
+| `app.hasStyleSheet(...)` | Returns `true` if the specified stylesheet is currently active on the application. |
+| `app.getStyleSheets()` / `app.getStyleSheetPaths()` | Returns the ordered list of active `PrecompiledStyleSheet` instances or stylesheet paths. |
 
 ---
 
 ## 4. `BackendTarget` (`com.nexustools.genericui.enums.system.BackendTarget`)
 
-[`BackendTarget`](../common/src/commonMain/kotlin/com/nexustools/genericui/enums/system/BackendTarget.kt) identifies the active runtime platform backend and provides multi-backend group properties so common code never needs string parsing or brittle OS checks:
+[`BackendTarget`](../common/src/commonMain/kotlin/com/nexustools/genericui/enums/system/BackendTarget.kt) identifies all 9 runtime platform backends and exposes multi-backend group properties so shared code never parses platform strings:
 
 ### 4.1 `BackendTarget` Entries
 
@@ -170,105 +147,41 @@ How `ThemeConfig` applies across all targets:
 | **`BackendTarget.Swing`** | `"swing"` | `"Java Swing (AWT / Java2D)"` | `"JVM Desktop"` |
 | **`BackendTarget.Android`** | `"android"` | `"Android"` | `"Android"` |
 | **`BackendTarget.IOS`** | `"ios"` | `"iOS (UIKit)"` | `"iOS"` |
+| **`BackendTarget.IPadOS`** | `"ipados"` | `"iPadOS (UIKit)"` | `"iPadOS"` |
 | **`BackendTarget.Web`** | `"web"` | `"Web (HTML5 / JS / Wasm)"` | `"Web Browser"` |
 
 ### 4.2 Multi-Backend Target Group Matrix
 
-| Group Property (on `BackendTarget` & `IApplication`) | `Windows` | `MacOS` | `Gtk` | `Qt` | `Swing` | `Android` | `IOS` | `Web` |
-| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **`isSystem`** (`this != Web`) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — |
-| **`isDesktop`** | ✅ | ✅ | ✅ | ✅ | ✅ | — | — | — |
-| **`isNativeDesktop`** | ✅ | ✅ | ✅ | ✅ | — | — | — | — |
-| **`isLinux`** | — | — | ✅ | ✅ | — | — | — | — |
-| **`isMobile`** / **`isTouchPrimary`** | — | — | — | — | — | ✅ | ✅ | — |
-| **`isApple`** | — | ✅ | — | — | — | — | ✅ | — |
-| **`isUnix`** | — | ✅ | ✅ | ✅ | — | ✅ | ✅ | — |
-| **`isPosix`** / **`isNative`** | ✅ | ✅ | ✅ | ✅ | — | — | ✅ | — |
-| **`isJvm`** | — | — | — | — | ✅ | ✅ | — | — |
-| **`isBrowser`** | — | — | — | — | — | — | — | ✅ |
+| Group Property (on `BackendTarget` & `IApplication`) | `Windows` | `MacOS` | `Gtk` | `Qt` | `Swing` | `Android` | `IOS` | `IPadOS` | `Web` |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **`isSystem`** (`this != Web`) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — |
+| **`isDesktop`** | ✅ | ✅ | ✅ | ✅ | ✅ | — | — | — | — |
+| **`isNativeDesktop`** | ✅ | ✅ | ✅ | ✅ | — | — | — | — | — |
+| **`isLinux`** | — | — | ✅ | ✅ | — | — | — | — | — |
+| **`isMobile`** / **`isTouchPrimary`** | — | — | — | — | — | ✅ | ✅ | ✅ | — |
+| **`isApple`** | — | ✅ | — | — | — | — | ✅ | ✅ | — |
+| **`isIosFamily`** (`BackendTarget`) | — | — | — | — | — | — | ✅ | ✅ | — |
+| **`isUnix`** | — | ✅ | ✅ | ✅ | — | ✅ | ✅ | ✅ | — |
+| **`isPosix`** / **`isNative`** | ✅ | ✅ | ✅ | ✅ | — | — | ✅ | ✅ | — |
+| **`isJvm`** | — | — | — | — | ✅ | ✅ | — | — | — |
+| **`isBrowser`** | — | — | — | — | — | — | — | — | ✅ |
 
 ---
 
-## 5. `IApplication` Runtime Capabilities & Usage Example
-
-### 5.1 Core Properties & Capability Queries
+## 5. `IApplication` Runtime Capabilities & Connectivity (`isOffline` / `isOnline`)
 
 | Property | Type | Description |
 | :--- | :--- | :--- |
 | `mainWindow` / `mainIWindow` | `Window` / `IWindow` | The primary application window. |
-| `backendTarget` | `BackendTarget` | Active platform backend enum (`Windows`, `MacOS`, `Gtk`, `Qt`, `Swing`, `Android`, `IOS`, `Web`). |
-| `backendName` | `String` | Descriptive backend string from `NativeFactory.backendName`. |
-| `systemOsName` | `String` | Operating system family name (`backendTarget.osFamilyName`). |
+| `backendTarget` | `BackendTarget` | Active platform backend (`Windows`, `MacOS`, `Gtk`, `Qt`, `Swing`, `Android`, `IOS`, `IPadOS`, `Web`). |
+| `backendName` / `systemOsName` | `String` | Descriptive backend name from `NativeFactory.backendName` and `backendTarget.osFamilyName`. |
 | `titleCapabilities` | `TitleCapabilities` | `TitleCapabilities` of `mainWindow`. |
-| `supportsMultipleWindows` | `Boolean` | `true` on desktop backends (`backendTarget.isDesktop`). |
-| `supportsToolModalWindows` | `Boolean` | `true` when floating `PanelWindow` utility windows are supported (`backendTarget.isDesktop`). |
-| `supportsServices` | `Boolean` | `true` **only** on Android (`backendTarget == BackendTarget.Android`), where background `<service>` components can be declared under `genericui { android { services { ... } } }`. |
-| `supportsCustomTitleBar` | `Boolean` | Delegates to `titleCapabilities.supportsCustomTitleBar`. |
-| `supportsEmbeddedMenuBarInTitleBar` | `Boolean` | Delegates to `titleCapabilities.supportsEmbeddedMenuBar`. |
-| `supportsSystemMenuBar` | `Boolean` | `true` on macOS (`backendTarget == BackendTarget.MacOS`). |
-| `supportsNavbarMenuBar` | `Boolean` | `true` on Android and iOS (`titleCapabilities.supportsNavbarMenuBar`). |
+| `supportsMultipleWindows` / `supportsToolModalWindows` | `Boolean` | `true` on desktop backends and **iPadOS (`BackendTarget.IPadOS`)** (`IpadosNativeFactory`); `false` on single-window iPhone `IOS`, `Android`, and `Web`. |
+| `supportsServices` | `Boolean` | `true` **only** on Android (`BackendTarget.Android`). |
+| `supportsCustomTitleBar` / `supportsEmbeddedMenuBarInTitleBar` | `Boolean` | Delegates to `titleCapabilities`. |
+| `supportsSystemMenuBar` | `Boolean` | `true` on **macOS** (`NSApplication.mainMenu`) and **iPadOS** (`UIMenuSystem.mainSystem`). |
+| `supportsNavbarMenuBar` | `Boolean` | `true` on Android and iPhone iOS (`false` on iPadOS where `MenuBar` uses `UIMenuSystem.mainSystem`). |
 | `supportsSystemTray` | `Boolean` | `true` on desktop targets (`backendTarget.isDesktop`). |
-| `supportsDirectorySelection` | `Boolean` | `true` on system targets (`backendTarget.isSystem`). |
-| `supportsDirectFileSystemAccess` | `Boolean` | `true` on system targets (`backendTarget.isSystem`). |
-| `supportsSystemThemeDetection` | `Boolean` | `true` across all 8 backends (`ThemeMode.AUTO`). |
-| `supportsThemeAccentColor` | `Boolean` | `true` across all backends (`setThemeColor`). |
-| `supportsHardwareGpuAcceleration` | `Boolean` | `true` across all backends. |
-| `isOffline` | `Boolean` | `true` when the application currently has no network connectivity (`!isOnline`). |
-| `isOnline` | `Boolean` | `true` when the application currently has active network connectivity (`!isOffline`). |
-
-### 5.2 Offline & Connectivity State Monitoring (`isOffline`, `isOnline`, & Listeners)
-
-[`IApplication`](../common/src/commonMain/kotlin/com/nexustools/genericui/component/shell/IApplication.kt) and [`Application`](../common/src/commonMain/kotlin/com/nexustools/genericui/component/shell/Application.kt) expose live network connectivity state and change listeners across all 8 backends:
-
-| Property / Method | Signature | Description |
-| :--- | :--- | :--- |
-| **`app.isOffline`** | `val isOffline: Boolean` | Returns `true` when the device or browser currently has no active network route (`!isOnline`). |
-| **`app.isOnline`** | `val isOnline: Boolean` | Returns `true` when the device or browser has active network connectivity (`!isOffline`). |
-| **`app.addOfflineListener`** | `fun addOfflineListener(listener: (isOffline: Boolean) -> Unit)` | Registers a listener invoked whenever the application transitions offline (`true`) or online (`false`). |
-| **`app.removeOfflineListener`** | `fun removeOfflineListener(listener: (isOffline: Boolean) -> Unit)` | Removes a previously registered offline state listener. |
-| **`app.setOnOfflineChanged`** | `fun setOnOfflineChanged(listener: ((isOffline: Boolean) -> Unit)?)` | Sets or clears a primary callback invoked when `isOffline` changes. |
-
-#### Per-Backend Native Offline Detection Mechanisms
-
-| Backend | Native Connectivity Monitor |
-| :--- | :--- |
-| **Windows (`:desktop:windows`)** | WinINet `InternetGetConnectedState` / `INetworkListManager` connectivity state polling & change notifications. |
-| **macOS (`:desktop:macos`) & iOS (`:mobile:ios`)** | Apple `Network.framework` `NWPathMonitor` (`nw_path_get_status(path) != nw_path_status_satisfied`). |
-| **Linux GTK4 (`:desktop:gtk`)** | GIO `GNetworkMonitor` (`g_network_monitor_get_network_available` + `"network-changed"` signal). |
-| **Linux Qt6 (`:desktop:qt`)** | Qt 6 `QNetworkInformation` (`QNetworkInformation::instance()->reachability()` + `reachabilityChanged` signal). |
-| **JVM Swing (`:desktop:swing`)** | `java.net.NetworkInterface` active non-loopback interface inspection. |
-| **Android (`:mobile:android`)** | `ConnectivityManager` (`NetworkCapabilities.NET_CAPABILITY_INTERNET` + `ConnectivityManager.NetworkCallback`). |
-| **Web (`:web`)** | Browser `!window.navigator.onLine` paired with `window.addEventListener("offline", ...)` and `window.addEventListener("online", ...)`. |
-
-### 5.3 Example: Runtime Theme Switching, Offline Listeners, Global Stylesheets, & Fragment Launching
-
-```kotlin
-import com.example.studio.res.Resource
-import com.nexustools.genericui.component.fragment.FragmentBundle
-import com.nexustools.genericui.enums.system.BackendTarget
-import com.nexustools.genericui.enums.ui.ThemeMode
-import com.nexustools.genericui.window.TitleBar
-
-// 1. Inspect backend target, capabilities, and live offline/online state
-if (app.isDesktop && app.supportsMultipleWindows) {
-    // Open an auxiliary inspector PanelWindow
-}
-app.addOfflineListener { offline ->
-    println(if (offline) "Application is now offline" else "Application reconnected online")
-}
-
-// 2. Theme mode defaults to ThemeMode.AUTO; switch dynamically between AUTO, DARK, and LIGHT
-app.setThemeMode(ThemeMode.AUTO)
-val effectiveTheme: ThemeMode = app.getResolvedTheme() // ThemeMode.DARK or ThemeMode.LIGHT
-app.setThemeColor("#10B981")
-
-// 3. Attach or remove global precompiled stylesheets on IApplication
-app.addStyleSheet(Resource.style.studio_main)
-
-// 4. Configure main window TitleBar and launch a registered @AppFragment
-app.setTitleBar(TitleBar(showWindowTitle = true, embedMenuBar = true))
-app.launchFragment(
-    fragmentClass = PreferencesFragment::class,
-    launchArgs = FragmentBundle.of("tab" to "appearance")
-)
-```
+| `supportsDirectorySelection` / `supportsDirectFileSystemAccess` | `Boolean` | `true` on all 8 system targets (`backendTarget.isSystem`). |
+| `supportsSystemThemeDetection` / `supportsThemeAccentColor` / `supportsHardwareGpuAcceleration` | `Boolean` | `true` across all 9 backends. |
+| `isOffline` / `isOnline` | `Boolean` | Live network reachability via WinINet/`INetworkListManager` (Windows), `:apple`'s `NWPathMonitor` (macOS/iOS/iPadOS), GIO `GNetworkMonitor` (GTK), Qt `QNetworkInformation` (Qt), `NetworkInterface` (Swing), `ConnectivityManager` (Android), and `navigator.onLine` (Web), with `addOfflineListener`, `removeOfflineListener`, and `setOnOfflineChanged`. |

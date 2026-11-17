@@ -68,7 +68,15 @@ abstract class GenericUiDesktopResourceTask : DefaultTask() {
 
     @get:Input
     @get:Optional
+    abstract val appleIconPath: Property<String>
+
+    @get:Input
+    @get:Optional
     abstract val macIconPath: Property<String>
+
+    @get:Input
+    @get:Optional
+    abstract val macAppleIconExplicitlyProvided: Property<Boolean>
 
     @get:Input
     @get:Optional
@@ -108,6 +116,10 @@ abstract class GenericUiDesktopResourceTask : DefaultTask() {
 
     @get:OutputDirectory
     abstract val outputDirectory: DirectoryProperty
+
+    init {
+        macAppleIconExplicitlyProvided.convention(false)
+    }
 
     @TaskAction
     fun generateDesktopResources() {
@@ -168,31 +180,68 @@ abstract class GenericUiDesktopResourceTask : DefaultTask() {
             defaultIconsDir
         ).takeIf { it.exists() } ?: defaultIcoIcon
 
-        val rawMacCandidate = resolveIconFile(
+        val explicitMacFile = resolveIconFile(
             rootDir,
             macIconPath.orNull,
-            fallbackIconPath.orNull,
-            listOf(
-                "icon.icns",
-                "src/macMain/resources/icon.icns",
-                "src/commonMain/resources/icon.svg",
-                "src/commonMain/resources/icon.png",
-                "src/commonMain/resources/favicon.ico",
-                "icon.svg",
-                "icon.png"
-            )
+            appleIconPath.orNull,
+            emptyList()
         )
-        val macIconFile = if (rawMacCandidate != null && rawMacCandidate.extension.lowercase() in setOf("ico", "svg")) {
+        val macExplicitlyProvided = macAppleIconExplicitlyProvided.orNull ?: (explicitMacFile != null)
+        val rawMacCandidate = if (macExplicitlyProvided) {
+            explicitMacFile ?: resolveIconFile(
+                rootDir,
+                macIconPath.orNull,
+                appleIconPath.orNull,
+                listOf("icon.icns", "src/macMain/resources/icon.icns")
+            )
+        } else {
+            resolveIconFile(
+                rootDir,
+                fallbackIconPath.orNull,
+                null,
+                listOf(
+                    "src/commonMain/resources/icon.svg",
+                    "src/commonMain/resources/icon.png",
+                    "src/commonMain/resources/favicon.ico",
+                    "icon.svg",
+                    "icon.png",
+                    "icon.icns"
+                )
+            )
+        }
+        val wrapMacTile = !macExplicitlyProvided
+        val macDir = File(outDir, "macos").apply { mkdirs() }
+        val macIconFile = if (wrapMacTile) {
+            GenericUiDefaultIconProvider.ensurePngFromSourceOrDefault(
+                sourceIconFile = rawMacCandidate ?: primaryFallbackCandidate,
+                projectRootDir = rootDir,
+                outputDir = macDir,
+                fileName = "icon.png",
+                wrapInAppleTile = true,
+                fullBleedSquare = false
+            )
+        } else if (rawMacCandidate != null && rawMacCandidate.extension.lowercase() in setOf("ico", "svg", "icns")) {
             GenericUiDefaultIconProvider.ensurePngFromSourceOrDefault(rawMacCandidate, rootDir, defaultIconsDir)
         } else {
             rawMacCandidate ?: defaultPngIcon
         }
+        val macIcnsFileName = if (rawMacCandidate?.extension?.equals("icns", ignoreCase = true) == true && !wrapMacTile) {
+            rawMacCandidate.name
+        } else {
+            "icon.icns"
+        }
         val macIcnsFile = GenericUiDefaultIconProvider.ensureAppleIcnsFromSourceOrDefault(
-            rawMacCandidate ?: primaryFallbackCandidate,
-            rootDir,
-            defaultIconsDir,
-            if (rawMacCandidate?.extension?.equals("icns", ignoreCase = true) == true) rawMacCandidate.name else "icon.icns"
-        ).takeIf { it.exists() } ?: defaultIcnsIcon
+            sourceIconFile = rawMacCandidate ?: primaryFallbackCandidate,
+            projectRootDir = rootDir,
+            outputDir = defaultIconsDir,
+            fileName = macIcnsFileName,
+            wrapInAppleTile = wrapMacTile
+        ).takeIf { it.exists() } ?: GenericUiDefaultIconProvider.ensureDefaultIcnsIcon(
+            projectRootDir = rootDir,
+            outputDir = defaultIconsDir,
+            fileName = "icon.icns",
+            wrapInAppleTile = wrapMacTile
+        )
 
         val rawLinuxCandidate = resolveIconFile(
             rootDir,
@@ -225,7 +274,8 @@ abstract class GenericUiDesktopResourceTask : DefaultTask() {
             }
         }
         if (macIconFile.exists()) {
-            macIconFile.copyTo(File(runtimeAssetsDir, macIconFile.name), overwrite = true)
+            val targetName = if (wrapMacTile && macIconFile.name == "icon.png") "macos-icon.png" else macIconFile.name
+            macIconFile.copyTo(File(runtimeAssetsDir, targetName), overwrite = true)
         }
         if (linuxIconFile.exists()) {
             linuxIconFile.copyTo(File(runtimeAssetsDir, linuxIconFile.name), overwrite = true)
@@ -300,11 +350,16 @@ abstract class GenericUiDesktopResourceTask : DefaultTask() {
         }
 
         // 3. Generate macOS Info.plist and icon.icns
-        val macDir = File(outDir, "macos").apply { mkdirs() }
         if (macIcnsFile.exists()) {
             macIcnsFile.copyTo(File(macDir, macIcnsFile.name), overwrite = true)
             if (macIcnsFile.name != "icon.icns") {
                 macIcnsFile.copyTo(File(macDir, "icon.icns"), overwrite = true)
+            }
+        }
+        if (macIconFile.exists()) {
+            val targetPng = File(macDir, "icon.png")
+            if (macIconFile.canonicalFile != targetPng.canonicalFile) {
+                macIconFile.copyTo(targetPng, overwrite = true)
             }
         }
         val infoPlistFile = File(macDir, "Info.plist")

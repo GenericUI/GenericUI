@@ -1,9 +1,8 @@
 package com.nexustools.genericui.plugin
 
 /**
- * DSL configuration block (`window { ... }`) for configuring window title, dimensions,
- * resizability, fullscreen state, and icon at the root `genericui` level or inside any
- * variant scope (`common`, `desktopCommon`, `windows`, `macos`, `gtk`, `qt`, `swing`, `android`, `ios`, `web`).
+ * DSL configuration block for initial window geometry, title, resizability, fullscreen, always-on-top,
+ * client-viewport aspect ratio, and icon across `genericui { window { ... } }` and per-backend/common variant blocks.
  */
 open class GenericUiWindowConfig {
     var title: String? = null
@@ -13,6 +12,8 @@ open class GenericUiWindowConfig {
     var minHeight: Int? = null
     var resizable: Boolean? = null
     var fullscreen: Boolean? = null
+    var alwaysOnTop: Boolean? = null
+    var aspectRatio: Double? = null
     var icon: String? = null
 
     /** Sets both [width] and [height] in pixels. */
@@ -22,8 +23,18 @@ open class GenericUiWindowConfig {
     }
 
     /** Sets both [minWidth] and [minHeight] in pixels. */
-    fun minSize(minWidth: Int, minHeight: Int) {
-        this.minWidth = minWidth
-        this.minHeight = minHeight
+    fun minSize(width: Int, height: Int) {
+        this.minWidth = width
+        this.minHeight = height
+    }
+
+    /**
+     * Sets a positive client-viewport aspect ratio constraint (`width / height`, e.g. `aspectRatio(16, 9)`).
+     */
+    fun aspectRatio(width: Int, height: Int) {
+        require(width > 0 && height > 0) {
+            "Window aspectRatio requires positive dimensions, got width=$width, height=$height."
+        }
+        this.aspectRatio = width.toDouble() / height.toDouble()
     }
 }
