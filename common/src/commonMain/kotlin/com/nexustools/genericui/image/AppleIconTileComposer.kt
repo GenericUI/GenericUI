@@ -1,8 +1,8 @@
 package com.nexustools.genericui.image
 
 import kotlin.math.abs
-import kotlin.math.exp
 import kotlin.math.floor
+import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.pow
@@ -57,13 +57,12 @@ object AppleIconTileComposer {
         val size = targetSize.coerceAtLeast(16)
         val out = ByteArray(size * size * 4)
 
-        val tileSize = if (fullBleedSquare) size.toDouble() else size * 0.808
+        val tileSize = if (fullBleedSquare) size.toDouble() else size * (420.0 / 512.0)
         val tileHalf = tileSize * 0.5
         val centerX = size * 0.5
-        val centerY = if (fullBleedSquare) size * 0.5 else size * 0.492
-        val cornerRadius = tileSize * 0.2237
+        val centerY = size * 0.5
 
-        // Step 1: Paint tile background (full-bleed white for iOS/iPadOS AppIcon, squircle + soft shadow for macOS)
+        // Step 1: Paint tile background (full-bleed white for iOS/iPadOS AppIcon, shadow-free centered superellipse for macOS)
         for (py in 0 until size) {
             val y = py + 0.5
             for (px in 0 until size) {
@@ -80,39 +79,16 @@ object AppleIconTileComposer {
 
                 val dx = abs(x - centerX)
                 val dy = abs(y - centerY)
-                val sdf = squircleDistance(dx, dy, tileHalf, cornerRadius)
-                val fillCov = (0.7 - sdf).coerceIn(0.0, 1.0)
-
-                // Soft downward ambient drop shadow beneath the white squircle tile
-                val shadowDx = abs(x - centerX)
-                val shadowDy = abs(y - (centerY + size * 0.018))
-                val shadowSdf = squircleDistance(shadowDx, shadowDy, tileHalf * 0.995, cornerRadius)
-                val shadowBlur = (size * 0.028).coerceAtLeast(1.2)
-                val shadowAlpha = if (shadowSdf > -shadowBlur) {
-                    val t = max(0.0, shadowSdf) / shadowBlur
-                    0.22 * exp(-t * t * 1.9)
-                } else {
-                    0.0
-                }
-
-                // Subtle hairline outer rim (#D4D8DF) so white tile edges remain defined on white wallpaper
-                val rimFactor = if (sdf in -1.15..0.35) {
-                    val band = 1.0 - abs(sdf + 0.3) / 0.85
-                    (band.coerceIn(0.0, 1.0)) * 0.14
-                } else {
-                    0.0
-                }
-
-                val baseWhite = (255.0 - rimFactor * 28.0).coerceIn(0.0, 255.0)
-                val outAlpha = (fillCov + shadowAlpha * (1.0 - fillCov)).coerceIn(0.0, 1.0)
-                if (outAlpha > 1e-4) {
-                    val premulR = baseWhite * fillCov
-                    val r = (premulR / outAlpha).roundToInt().coerceIn(0, 255)
-                    val a = (outAlpha * 255.0).roundToInt().coerceIn(0, 255)
-                    out[idx] = r.toByte()
-                    out[idx + 1] = r.toByte()
-                    out[idx + 2] = r.toByte()
-                    out[idx + 3] = a.toByte()
+                val sdf = squircleDistance(dx, dy, tileHalf)
+                val fillCov = if (sdf >= 0.0) 0.0 else (-sdf).coerceIn(0.0, 1.0)
+                if (fillCov > 1e-4) {
+                    val a = (fillCov * 255.0).roundToInt().coerceIn(0, 255)
+                    if (a > 0) {
+                        out[idx] = 255.toByte()
+                        out[idx + 1] = 255.toByte()
+                        out[idx + 2] = 255.toByte()
+                        out[idx + 3] = a.toByte()
+                    }
                 }
             }
         }
@@ -212,19 +188,20 @@ object AppleIconTileComposer {
     }
 
     /**
-     * Continuous Apple-style superellipse squircle signed distance (0 on perimeter, negative inside).
+     * Centered macOS 26/27 AppIcon global superellipse signed distance (`p = 3.85`, negative inside).
      */
-    private fun squircleDistance(dx: Double, dy: Double, halfSize: Double, cornerRadius: Double): Double {
-        val inner = (halfSize - cornerRadius).coerceAtLeast(1.0)
-        val cx = max(dx - inner, 0.0)
-        val cy = max(dy - inner, 0.0)
-        if (cx <= 0.0 && cy <= 0.0) {
-            return max(dx, dy) - halfSize
-        }
-        val exponent = 4.6
-        val nx = (cx / cornerRadius).pow(exponent)
-        val ny = (cy / cornerRadius).pow(exponent)
-        return cornerRadius * ((nx + ny).pow(1.0 / exponent) - 1.0)
+    private fun squircleDistance(dx: Double, dy: Double, halfSize: Double): Double {
+        if (dx == 0.0 && dy == 0.0) return -halfSize
+        val invHalf = 1.0 / halfSize
+        val rx = dx * invHalf
+        val ry = dy * invHalf
+        val p = 3.85
+        val level = (rx.pow(p) + ry.pow(p)).pow(1.0 / p)
+        if (level <= 1e-12) return -halfSize
+        val gx = (rx / level).pow(p - 1.0)
+        val gy = (ry / level).pow(p - 1.0)
+        val grad = hypot(gx, gy).coerceAtLeast(1e-6)
+        return (halfSize * (level - 1.0)) / grad
     }
 
     private data class PremulSample(val r: Double, val g: Double, val b: Double, val a: Double)

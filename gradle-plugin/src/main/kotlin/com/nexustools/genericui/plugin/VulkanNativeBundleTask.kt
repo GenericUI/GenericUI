@@ -8,6 +8,7 @@ import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.OutputDirectory
 import org.gradle.api.tasks.TaskAction
 import java.io.File
+import java.nio.file.Files
 
 /**
  * Gradle task that generates Vulkan loader, MoltenVK ICD, and Shaderc configuration metadata
@@ -77,6 +78,9 @@ abstract class VulkanNativeBundleTask : DefaultTask() {
         val dstSwiftShader = File(winGpuDir, "vk_swiftshader.dll")
         val srcSwiftShader = hostAngleDir?.let { File(it, "vk_swiftshader.dll") }?.takeIf { it.isFile }
         if (srcSwiftShader != null) {
+            if (Files.isSymbolicLink(dstSwiftShader.toPath())) {
+                Files.deleteIfExists(dstSwiftShader.toPath())
+            }
             if (!dstSwiftShader.isFile || dstSwiftShader.length() != srcSwiftShader.length()) {
                 srcSwiftShader.copyTo(dstSwiftShader, overwrite = true)
             }
@@ -86,6 +90,9 @@ abstract class VulkanNativeBundleTask : DefaultTask() {
         val dstIcdJson = File(winGpuDir, "vk_swiftshader_icd.json")
         val srcIcdJson = hostAngleDir?.let { File(it, "vk_swiftshader_icd.json") }?.takeIf { it.isFile }
         if (srcIcdJson != null) {
+            if (Files.isSymbolicLink(dstIcdJson.toPath())) {
+                Files.deleteIfExists(dstIcdJson.toPath())
+            }
             srcIcdJson.copyTo(dstIcdJson, overwrite = true)
         } else if (!dstIcdJson.isFile) {
             dstIcdJson.writeText(
@@ -107,10 +114,13 @@ abstract class VulkanNativeBundleTask : DefaultTask() {
         val dstMoltenVk = File(macGpuDir, "libMoltenVK.dylib")
         val srcMoltenVk = candidateLibDirs.map { File(it, "libMoltenVK.dylib") }.firstOrNull { it.isFile }
         if (srcMoltenVk != null) {
+            if (Files.isSymbolicLink(dstMoltenVk.toPath())) {
+                Files.deleteIfExists(dstMoltenVk.toPath())
+            }
             if (!dstMoltenVk.isFile || dstMoltenVk.length() != srcMoltenVk.length()) {
                 srcMoltenVk.copyTo(dstMoltenVk, overwrite = true)
             }
-        } else if (!dstMoltenVk.isFile || dstMoltenVk.length() == 0L) {
+        } else if (!dstMoltenVk.isFile || dstMoltenVk.length() == 0L || VlcNativeBundleTask.isHeaderOnlyMachOStub(dstMoltenVk)) {
             VlcNativeBundleTask.writeMachOArm64DylibStub(dstMoltenVk, "@rpath/libMoltenVK.dylib")
         }
 

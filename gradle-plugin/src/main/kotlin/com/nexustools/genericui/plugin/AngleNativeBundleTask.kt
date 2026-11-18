@@ -8,6 +8,7 @@ import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.OutputDirectory
 import org.gradle.api.tasks.TaskAction
 import java.io.File
+import java.nio.file.Files
 
 /**
  * Gradle task that stages Google ANGLE (`libEGL`, `libGLESv2`, `d3dcompiler_47`) and optional
@@ -93,6 +94,9 @@ abstract class AngleNativeBundleTask : DefaultTask() {
             val dst = File(winGpuDir, dllName)
             val src = hostAngleDir?.let { File(it, dllName) }?.takeIf { it.isFile }
             if (src != null) {
+                if (Files.isSymbolicLink(dst.toPath())) {
+                    Files.deleteIfExists(dst.toPath())
+                }
                 if (!dst.isFile || dst.length() != src.length()) {
                     src.copyTo(dst, overwrite = true)
                 }
@@ -103,6 +107,9 @@ abstract class AngleNativeBundleTask : DefaultTask() {
         val dstIcdJson = File(winGpuDir, "vk_swiftshader_icd.json")
         val srcIcdJson = hostAngleDir?.let { File(it, "vk_swiftshader_icd.json") }?.takeIf { it.isFile }
         if (srcIcdJson != null) {
+            if (Files.isSymbolicLink(dstIcdJson.toPath())) {
+                Files.deleteIfExists(dstIcdJson.toPath())
+            }
             srcIcdJson.copyTo(dstIcdJson, overwrite = true)
         } else if (!dstIcdJson.isFile) {
             dstIcdJson.writeText(
@@ -122,10 +129,13 @@ abstract class AngleNativeBundleTask : DefaultTask() {
             val dst = File(macGpuDir, dylibName)
             val src = candidateDirs.map { File(it, dylibName) }.firstOrNull { it.isFile }
             if (src != null) {
+                if (Files.isSymbolicLink(dst.toPath())) {
+                    Files.deleteIfExists(dst.toPath())
+                }
                 if (!dst.isFile || dst.length() != src.length()) {
                     src.copyTo(dst, overwrite = true)
                 }
-            } else if (!dst.isFile || dst.length() == 0L) {
+            } else if (!dst.isFile || dst.length() == 0L || VlcNativeBundleTask.isHeaderOnlyMachOStub(dst)) {
                 VlcNativeBundleTask.writeMachOArm64DylibStub(dst, "@rpath/$dylibName")
             }
         }
@@ -143,6 +153,9 @@ abstract class AngleNativeBundleTask : DefaultTask() {
             val dst = File(linuxGpuDir, soName)
             val src = candidateDirs.map { File(it, soName) }.firstOrNull { it.isFile }
             if (src != null) {
+                if (Files.isSymbolicLink(dst.toPath())) {
+                    Files.deleteIfExists(dst.toPath())
+                }
                 if (!dst.isFile || dst.length() != src.length()) {
                     src.copyTo(dst, overwrite = true)
                 }

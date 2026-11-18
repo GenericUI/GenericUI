@@ -1,6 +1,7 @@
 package com.nexustools.genericui.plugin
 
 import org.gradle.api.DefaultTask
+import org.gradle.api.GradleException
 import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.provider.ListProperty
 import org.gradle.api.provider.MapProperty
@@ -11,6 +12,8 @@ import org.gradle.api.tasks.Optional
 import org.gradle.api.tasks.OutputDirectory
 import org.gradle.api.tasks.TaskAction
 import java.io.File
+import java.nio.file.Files
+import java.nio.file.LinkOption
 
 /**
  * Generates and compiles native desktop application resources for Windows (`.rc` -> `.res` via `windres`
@@ -282,13 +285,13 @@ abstract class GenericUiDesktopResourceTask : DefaultTask() {
         }
         for (relPath in bundledResourcePaths.getOrElse(emptyList())) {
             val src = File(rootDir, relPath)
-            if (src.exists()) {
+            if (Files.exists(src.toPath(), LinkOption.NOFOLLOW_LINKS)) {
                 val dst = File(runtimeAssetsDir, src.name)
-                if (src.isDirectory) {
-                    src.copyRecursively(dst, overwrite = true)
-                } else {
-                    src.copyTo(dst, overwrite = true)
-                }
+                GenericUiSymlinkPreservingCopy.copyEntryPreservingSymlinks(
+                    src = src,
+                    dst = dst,
+                    sourceRoot = src.parentFile ?: rootDir
+                )
             }
         }
 
@@ -470,15 +473,31 @@ abstract class GenericUiDesktopResourceTask : DefaultTask() {
 
     private fun compileWindowsRcToRes(rcFile: File, resFile: File) {
         val windresExe = findWindresExecutable() ?: return
+        if (resFile.exists() && resFile.length() == 0L) {
+            resFile.delete()
+        }
         val clangExe = findClangPreprocessorExecutable()
-        if (clangExe != null) {
-            runCatching {
-                val cmd = listOf(
+        val attempts = buildList {
+            if (clangExe != null) {
+                add(
+                    listOf(
+                        windresExe.absolutePath,
+                        "--preprocessor=${clangExe.absolutePath}",
+                        "--preprocessor-arg=-E",
+                        "--preprocessor-arg=-xc-header",
+                        "--preprocessor-arg=-DRC_INVOKED",
+                        "-i",
+                        rcFile.absolutePath,
+                        "-o",
+                        resFile.absolutePath,
+                        "-O",
+                        "coff"
+                    )
+                )
+            }
+            add(
+                listOf(
                     windresExe.absolutePath,
-                    "--preprocessor=${clangExe.absolutePath}",
-                    "--preprocessor-arg=-E",
-                    "--preprocessor-arg=-xc-header",
-                    "--preprocessor-arg=-DRC_INVOKED",
                     "-i",
                     rcFile.absolutePath,
                     "-o",
@@ -486,33 +505,44 @@ abstract class GenericUiDesktopResourceTask : DefaultTask() {
                     "-O",
                     "coff"
                 )
+            )
+        }
+        var lastError = ""
+        for (cmd in attempts) {
+            if (resFile.exists() && resFile.length() == 0L) {
+                resFile.delete()
+            }
+            val result = runCatching {
                 val process = ProcessBuilder(cmd)
                     .redirectErrorStream(true)
                     .start()
-                process.waitFor()
+                val output = process.inputStream.bufferedReader(Charsets.UTF_8).readText()
+                val exit = process.waitFor()
+                exit to output
+            }
+            result.onSuccess { (exit, output) ->
+                if (exit == 0 && resFile.isFile && resFile.length() > 0L) {
+                    return
+                }
+                lastError = "exit=$exit output=${output.trim()}"
+            }.onFailure { err ->
+                lastError = err.message ?: err.javaClass.simpleName
             }
         }
-        if (!resFile.exists() || resFile.length() == 0L) {
-            runCatching {
-                val cmd = listOf(
-                    windresExe.absolutePath,
-                    "-i",
-                    rcFile.absolutePath,
-                    "-o",
-                    resFile.absolutePath,
-                    "-O",
-                    "coff"
-                )
-                val process = ProcessBuilder(cmd)
-                    .redirectErrorStream(true)
-                    .start()
-                process.waitFor()
-            }
+        if (!resFile.isFile || resFile.length() == 0L) {
+            throw GradleException(
+                "Failed to compile Windows resources ${rcFile.absolutePath} using ${windresExe.absolutePath}: $lastError"
+            )
         }
     }
 
     companion object {
+        private fun isWindowsHostOs(): Boolean =
+            System.getProperty("os.name").orEmpty().lowercase().contains("win")
+
         fun findClangPreprocessorExecutable(): File? {
+            val isWinHost = isWindowsHostOs()
+            val clangRelPath = if (isWinHost) "bin/clang.exe" else "bin/clang"
             val userHome = System.getProperty("user.home").orEmpty()
             val konanDepsDir = File(userHome, ".konan/dependencies")
             if (konanDepsDir.exists() && konanDepsDir.isDirectory) {
@@ -520,8 +550,8 @@ abstract class GenericUiDesktopResourceTask : DefaultTask() {
                     f.isDirectory && f.name.startsWith("llvm-")
                 }?.sortedByDescending { it.name }.orEmpty()
                 for (dir in llvmDirs) {
-                    val candidate = File(dir, "bin/clang.exe")
-                    if (candidate.exists() && candidate.isFile) {
+                    val candidate = File(dir, clangRelPath)
+                    if (candidate.isFile && candidate.canExecute()) {
                         return candidate
                     }
                 }
@@ -530,25 +560,42 @@ abstract class GenericUiDesktopResourceTask : DefaultTask() {
         }
 
         fun findWindresExecutable(): File? {
-            val userHome = System.getProperty("user.home").orEmpty()
-            val konanDepsDir = File(userHome, ".konan/dependencies")
-            if (konanDepsDir.exists() && konanDepsDir.isDirectory) {
-                val mingwDirs = konanDepsDir.listFiles { f ->
-                    f.isDirectory && f.name.startsWith("msys2-mingw-w64-x86_64")
-                }?.sortedByDescending { it.name }.orEmpty()
-                for (dir in mingwDirs) {
-                    val candidate = File(dir, "bin/windres.exe")
-                    if (candidate.exists() && candidate.isFile) {
-                        return candidate
+            val isWinHost = isWindowsHostOs()
+            if (isWinHost) {
+                val userHome = System.getProperty("user.home").orEmpty()
+                val konanDepsDir = File(userHome, ".konan/dependencies")
+                if (konanDepsDir.exists() && konanDepsDir.isDirectory) {
+                    val mingwDirs = konanDepsDir.listFiles { f ->
+                        f.isDirectory && f.name.startsWith("msys2-mingw-w64-x86_64")
+                    }?.sortedByDescending { it.name }.orEmpty()
+                    for (dir in mingwDirs) {
+                        val candidate = File(dir, "bin/windres.exe")
+                        if (candidate.isFile && candidate.canExecute()) {
+                            return candidate
+                        }
                     }
                 }
             }
-            val pathEnv = System.getenv("PATH").orEmpty()
-            for (entry in pathEnv.split(File.pathSeparator)) {
-                if (entry.isBlank()) continue
-                for (name in listOf("windres.exe", "windres")) {
-                    val candidate = File(entry, name)
-                    if (candidate.exists() && candidate.isFile) {
+            val searchDirs = buildList {
+                val pathEnv = System.getenv("PATH").orEmpty()
+                for (entry in pathEnv.split(File.pathSeparator)) {
+                    if (entry.isNotBlank()) add(File(entry))
+                }
+                if (!isWinHost) {
+                    add(File("/opt/homebrew/bin"))
+                    add(File("/usr/local/bin"))
+                }
+            }.distinct()
+            val names = if (isWinHost) {
+                listOf("windres.exe", "x86_64-w64-mingw32-windres.exe", "windres")
+            } else {
+                listOf("x86_64-w64-mingw32-windres", "windres")
+            }
+            for (dir in searchDirs) {
+                if (!dir.isDirectory) continue
+                for (name in names) {
+                    val candidate = File(dir, name)
+                    if (candidate.isFile && candidate.canExecute()) {
                         return candidate
                     }
                 }

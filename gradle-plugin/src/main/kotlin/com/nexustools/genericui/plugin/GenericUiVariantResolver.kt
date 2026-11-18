@@ -40,10 +40,12 @@ object GenericUiVariantResolver {
         var windowTitle: String = desktop.windowTitle.trim().ifEmpty { resolvedAppName }
         var windowWidth: Int = desktop.windowWidth
         var windowHeight: Int = desktop.windowHeight
+        var windowSizeExplicitlySet: Boolean = desktop.windowSizeExplicitlySet
         var minWindowWidth: Int = desktop.minWindowWidth
         var minWindowHeight: Int = desktop.minWindowHeight
         var windowResizable: Boolean = desktop.resizable
         var fullscreen: Boolean = false
+        var fullscreenExplicitlySet: Boolean = false
         var windowAlwaysOnTop: Boolean = false
         var windowAspectRatio: Double? = null
         var themeMode: String = if (desktop.darkTitleBarExplicitlySet) {
@@ -65,12 +67,21 @@ object GenericUiVariantResolver {
         // Apply top-level genericui { window { ... } } and genericui { theme { ... } }
         applyWindowConfig(extension.windowConfig) { t, w, h, mw, mh, r, fs, aot, ar, ic ->
             if (t != null) windowTitle = t
-            if (w != null) windowWidth = w
-            if (h != null) windowHeight = h
+            if (w != null) {
+                windowWidth = w
+                windowSizeExplicitlySet = true
+            }
+            if (h != null) {
+                windowHeight = h
+                windowSizeExplicitlySet = true
+            }
             if (mw != null) minWindowWidth = mw
             if (mh != null) minWindowHeight = mh
             if (r != null) windowResizable = r
-            if (fs != null) fullscreen = fs
+            if (fs != null) {
+                fullscreen = fs
+                fullscreenExplicitlySet = true
+            }
             if (aot != null) windowAlwaysOnTop = aot
             if (ar != null) windowAspectRatio = ar
             if (ic != null) genericIconPath = ic
@@ -105,12 +116,21 @@ object GenericUiVariantResolver {
             variant.styleSheet?.trim()?.takeIf { it.isNotEmpty() }?.let { globalStyleSheet = it }
             applyWindowConfig(variant.window) { t, w, h, mw, mh, r, fs, aot, ar, ic ->
                 if (t != null) windowTitle = t
-                if (w != null) windowWidth = w
-                if (h != null) windowHeight = h
+                if (w != null) {
+                    windowWidth = w
+                    windowSizeExplicitlySet = true
+                }
+                if (h != null) {
+                    windowHeight = h
+                    windowSizeExplicitlySet = true
+                }
                 if (mw != null) minWindowWidth = mw
                 if (mh != null) minWindowHeight = mh
                 if (r != null) windowResizable = r
-                if (fs != null) fullscreen = fs
+                if (fs != null) {
+                    fullscreen = fs
+                    fullscreenExplicitlySet = true
+                }
                 if (aot != null) windowAlwaysOnTop = aot
                 if (ar != null) windowAspectRatio = ar
                 if (ic != null && scope !in appleOnlyScopes) {
@@ -171,7 +191,9 @@ object GenericUiVariantResolver {
             iconPath = resolvedIconPath,
             appleIconExplicitlyProvided = appleIconExplicitlyProvided,
             globalStyleSheet = globalStyleSheet,
-            extensionOverrides = mergedExtensionOverrides
+            extensionOverrides = mergedExtensionOverrides,
+            windowSizeExplicitlySet = windowSizeExplicitlySet,
+            fullscreenExplicitlySet = fullscreenExplicitlySet
         )
     }
 

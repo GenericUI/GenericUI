@@ -39,6 +39,7 @@ Every `.kt` file in GenericUI strictly follows the **1 Public Class / Interface 
 
 - **`:tests`**: Single consolidated KMP verification module running `JestElectricRunner` across all 10 Kotlin targets (`commonMain`/`Test`, `systemMain`, `desktopMain`, `jvmAndAndroidMain`, `nativeDesktopMain`, `mingwMain`, `macosMain`, `linuxMain`, `mobileMain`, `iosMain`, `webMain`, `jsMain`, `wasmJsMain`).
 - **`:gradle-plugin` & `:idea-plugin`**: Build-time codegen/packaging plugin (`id("com.nexustools.genericui")`) and IntelliJ IDEA scaffolding/targets wizard.
+- **Native Desktop Dynamic Linking**: On native desktop targets (`macosArm64`, `linuxX64`, `linuxArm64`, `mingwX64`), `:gradle-plugin` links GenericUI core (`libgenericui.{dylib,so}` / `genericui.dll`), the active backend (`libgenericui-{macos,gtk,qt}.*` / `genericui-windows.dll`), `njs` (when used), enabled extensions (`libgenericui-ext-<ext>.*` + `-dsl`), and tests (`genericui-tests`) as separate shared libraries with strict GTK vs Qt isolation, while JVM Swing, Mobile (`Android`, `iOS`, `iPadOS`), and Web (`wasmJs` / `js`) remain integrated into their application packages.
 
 ---
 

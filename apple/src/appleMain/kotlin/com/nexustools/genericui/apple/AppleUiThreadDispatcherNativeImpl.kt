@@ -13,6 +13,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Runnable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import platform.CoreFoundation.CFRunLoopRunInMode
+import platform.CoreFoundation.kCFRunLoopDefaultMode
 import platform.Foundation.NSThread
 import platform.darwin.DISPATCH_TIME_FOREVER
 import platform.darwin.dispatch_async
@@ -187,27 +189,42 @@ class AppleUiThreadDispatcherNativeImpl(
             return 0
         }
         val startCount = lock.withLock { drainedLogicCounter }
-        while (true) {
+        var iterations = 0
+        while (iterations < 5000) {
+            iterations++
             if (NSThread.isMainThread) {
                 drainUiQueueOnMain()
             }
             val remaining = lock.withLock { inFlightLogicCount }
             if (remaining <= 0) break
-            usleep(50u)
+            if (NSThread.isMainThread) {
+                CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.001, true)
+            } else {
+                usleep(50u)
+            }
         }
         val endCount = lock.withLock { drainedLogicCounter }
         return (endCount - startCount).coerceAtLeast(0)
     }
 
     override fun flushAllQueues() {
-        while (true) {
+        val onLogic = isOnLogicThread()
+        var iterations = 0
+        while (iterations < 5000) {
+            iterations++
             val drainedUi = if (NSThread.isMainThread) drainUiQueueOnMain() else 0
-            val pending = lock.withLock { uiPendingTasks.size + inFlightLogicCount }
+            val pending = lock.withLock {
+                uiPendingTasks.size + if (onLogic) 0 else inFlightLogicCount
+            }
             if (pending == 0) {
                 if (drainedUi == 0) break
                 continue
             }
-            usleep(50u)
+            if (NSThread.isMainThread) {
+                CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.001, true)
+            } else {
+                usleep(50u)
+            }
         }
     }
 }

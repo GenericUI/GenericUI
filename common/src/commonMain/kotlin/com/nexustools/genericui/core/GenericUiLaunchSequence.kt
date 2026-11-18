@@ -88,12 +88,22 @@ object GenericUiLaunchSequence {
             if (descriptor.windowAlwaysOnTop) {
                 mainWindow.setAlwaysOnTop(true)
             }
-            mainWindow.setWindowSize(Size(descriptor.windowWidth, descriptor.windowHeight))
-            descriptor.windowAspectRatio?.let { ratio ->
-                mainWindow.setAspectRatio(ratio)
+            if (mainWindow.getMinWindowSize() == null &&
+                (descriptor.minWindowWidth != 320 || descriptor.minWindowHeight != 240)
+            ) {
+                mainWindow.setMinWindowSize(Size(descriptor.minWindowWidth, descriptor.minWindowHeight))
             }
-            if (descriptor.fullscreen) {
-                mainWindow.setFullscreen(true)
+            descriptor.windowAspectRatio?.let { ratio ->
+                if (mainWindow.getAspectRatio() == null) {
+                    mainWindow.setAspectRatio(ratio)
+                }
+            }
+            if (descriptor.windowSizeExplicitlySet) {
+                createdApp.setDefaultMainWindowGeometry(descriptor.windowWidth, descriptor.windowHeight)
+                mainWindow.setWindowSize(Size(descriptor.windowWidth, descriptor.windowHeight))
+            }
+            if (descriptor.fullscreen || descriptor.fullscreenExplicitlySet) {
+                createdApp.defaultMainWindowFullscreen = descriptor.fullscreen
             }
             val iconUriOrPath = descriptor.iconPath?.takeIf { it.isNotBlank() }
                 ?: descriptor.iconResourceId?.toResourceUri()
@@ -148,12 +158,18 @@ object GenericUiLaunchSequence {
         if (descriptor.windowAlwaysOnTop) {
             mainWindow.setAlwaysOnTop(true)
         }
-        mainWindow.setWindowSize(Size(descriptor.windowWidth, descriptor.windowHeight))
+        if (descriptor.minWindowWidth != 320 || descriptor.minWindowHeight != 240) {
+            mainWindow.setMinWindowSize(Size(descriptor.minWindowWidth, descriptor.minWindowHeight))
+        }
         descriptor.windowAspectRatio?.let { ratio ->
             mainWindow.setAspectRatio(ratio)
         }
-        if (descriptor.fullscreen) {
-            mainWindow.setFullscreen(true)
+        if (descriptor.windowSizeExplicitlySet) {
+            app.setDefaultMainWindowGeometry(descriptor.windowWidth, descriptor.windowHeight)
+            mainWindow.setWindowSize(Size(descriptor.windowWidth, descriptor.windowHeight))
+        }
+        if (descriptor.fullscreen || descriptor.fullscreenExplicitlySet) {
+            app.defaultMainWindowFullscreen = descriptor.fullscreen
         }
         val iconUriOrPath = descriptor.iconPath?.takeIf { it.isNotBlank() }
             ?: descriptor.iconResourceId?.toResourceUri()

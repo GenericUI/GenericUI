@@ -4,6 +4,7 @@ import com.nexustools.genericui.core.AbstractContainerNativeImpl
 import com.nexustools.genericui.core.NativeImpl
 import com.nexustools.genericui.enums.window.DisplayCutoutMode
 import com.nexustools.genericui.enums.window.WindowState
+import com.nexustools.genericui.geometry.Point
 import com.nexustools.genericui.geometry.Size
 import com.nexustools.genericui.window.PipConfig
 import com.nexustools.genericui.window.TitleBar
@@ -33,6 +34,9 @@ interface WindowNativeImpl<out W> : AbstractContainerNativeImpl<W> {
 
     fun setWindowSize(size: Size)
     fun getWindowSize(): Size
+    fun setWindowPosition(x: Int, y: Int) {}
+    fun getWindowPosition(): Point = Point.ZERO
+    fun hasExplicitWindowPosition(): Boolean = false
     fun getMinWindowSize(): Size? = null
     fun setMinWindowSize(minSize: Size?) {}
     fun setAlwaysOnTop(alwaysOnTop: Boolean) {}
@@ -64,6 +68,7 @@ interface WindowNativeImpl<out W> : AbstractContainerNativeImpl<W> {
     fun closeWindow()
 
     fun setOnWindowResize(listener: ((WindowConfiguration) -> Unit)?)
+    fun setOnWindowMoved(listener: ((Int, Int) -> Unit)?) {}
     fun setOnWindowFocusChanged(listener: ((Boolean) -> Unit)?)
     fun setOnWindowCloseRequested(listener: (() -> Boolean)?)
 

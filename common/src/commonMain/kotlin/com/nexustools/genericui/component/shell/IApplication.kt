@@ -259,6 +259,24 @@ interface IApplication : Disposable {
     ): T = mainIWindow.launchFragment(fragment, launchArgs, addToBackStack, launchMode)
 
     /**
+     * Enables or disables automatic main-window geometry and fullscreen persistence in [getPreferenceStore]
+     * on backends whose [NativeFactory.supportsWindowStatePersistence] is `true`. Defaults to `true`.
+     */
+    var persistMainWindowState: Boolean
+
+    /**
+     * Default fullscreen state applied when starting for the first time with no saved window state
+     * in [getPreferenceStore]. Defaults to `false`.
+     */
+    var defaultMainWindowFullscreen: Boolean
+
+    /**
+     * Sets the default windowed size (and optional desktop screen coordinates) used when no saved
+     * window state exists in [getPreferenceStore].
+     */
+    fun setDefaultMainWindowGeometry(width: Int, height: Int, x: Int? = null, y: Int? = null)
+
+    /**
      * Returns the application-scoped [PreferenceStore] instance, lazily creating and caching it on first access.
      */
     fun getPreferenceStore(): PreferenceStore

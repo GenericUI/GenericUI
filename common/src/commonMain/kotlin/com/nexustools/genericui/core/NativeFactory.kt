@@ -4,6 +4,8 @@ import com.nexustools.genericui.component.layout.DefaultLayoutFactory
 import com.nexustools.genericui.component.layout.LayoutFactory
 import com.nexustools.genericui.enums.bootstrap.BootstrapType
 import com.nexustools.genericui.enums.system.BackendTarget
+import com.nexustools.genericui.geometry.Rect
+import com.nexustools.genericui.window.MainWindowSavedState
 import com.nexustools.genericui.nativeimpl.action.ButtonNativeImpl
 import com.nexustools.genericui.nativeimpl.action.DropdownNativeImpl
 import com.nexustools.genericui.nativeimpl.action.StyledButtonNativeImpl
@@ -93,6 +95,26 @@ interface NativeFactory {
      */
     val providesNativeNavigationChrome: Boolean
         get() = false
+
+    /**
+     * `true` when this backend runs in desktop windows whose geometry and fullscreen state should be
+     * persisted and restored via the application's default [com.nexustools.genericui.component.system.PreferenceStore].
+     */
+    val supportsWindowStatePersistence: Boolean
+        get() = false
+
+    /**
+     * Returns the primary monitor's bounds `(x, y, width, height)` in desktop coordinates, or `null`
+     * when monitor geometry is unavailable (e.g. headless test environments or non-windowed platforms).
+     */
+    fun getPrimaryMonitorBounds(): Rect? = null
+
+    /**
+     * Returns `true` when [rect] has enough visible overlap with at least one connected monitor
+     * so the restored window remains reachable on-screen.
+     */
+    fun isWindowRectOnScreen(rect: Rect): Boolean =
+        getPrimaryMonitorBounds()?.let { MainWindowSavedState.intersectsVisibleArea(rect, it) } ?: true
 
     val isStyleSheetEngineEnabled: Boolean
         get() = true

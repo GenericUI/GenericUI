@@ -82,6 +82,14 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
 
     @get:Input
     @get:Optional
+    abstract val backendWindowSizeExplicitlySet: MapProperty<String, Boolean>
+
+    @get:Input
+    @get:Optional
+    abstract val backendFullscreenExplicitlySet: MapProperty<String, Boolean>
+
+    @get:Input
+    @get:Optional
     abstract val backendWindowAlwaysOnTops: MapProperty<String, Boolean>
 
     @get:Input
@@ -211,6 +219,8 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
         val alwaysOnTopsMap = backendWindowAlwaysOnTops.getOrElse(emptyMap())
         val aspectRatiosMap = backendWindowAspectRatios.getOrElse(emptyMap())
         val appleExplicitMap = backendAppleIconExplicitlyProvided.getOrElse(emptyMap())
+        val sizeExplicitMap = backendWindowSizeExplicitlySet.getOrElse(emptyMap())
+        val fullscreenExplicitMap = backendFullscreenExplicitlySet.getOrElse(emptyMap())
         val themeModesMap = backendThemeModes.getOrElse(emptyMap())
         val themeColorsMap = backendThemeColors.getOrElse(emptyMap())
         val lightThemeColorsMap = backendLightThemeColors.getOrElse(emptyMap())
@@ -249,7 +259,9 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
                 hasCustomThemeOverrides = hasCustomThemeMap[key] ?: (resolvedPrimary != "#0d6efd"),
                 iconPath = iconPathsMap[key]?.takeIf { it.isNotBlank() },
                 appleIconExplicitlyProvided = appleExplicitMap[key] ?: false,
-                globalStyleSheet = globalStyleSheetsMap[key]?.takeIf { it.isNotBlank() }
+                globalStyleSheet = globalStyleSheetsMap[key]?.takeIf { it.isNotBlank() },
+                windowSizeExplicitlySet = sizeExplicitMap[key] ?: false,
+                fullscreenExplicitlySet = fullscreenExplicitMap[key] ?: false
             )
             val providerCalls = providerCallsMap[key].orEmpty()
 
@@ -684,7 +696,9 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
             }
             appendLine("        windowAlwaysOnTop = ${variantConfig.windowAlwaysOnTop},")
             appendLine("        windowAspectRatio = ${variantConfig.windowAspectRatio?.toString() ?: "null"},")
-            appendLine("        appleIconExplicitlyProvided = ${variantConfig.appleIconExplicitlyProvided}")
+            appendLine("        appleIconExplicitlyProvided = ${variantConfig.appleIconExplicitlyProvided},")
+            appendLine("        windowSizeExplicitlySet = ${variantConfig.windowSizeExplicitlySet},")
+            appendLine("        fullscreenExplicitlySet = ${variantConfig.fullscreenExplicitlySet}")
             appendLine("    )")
             appendLine("}")
         }

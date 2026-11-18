@@ -38,5 +38,7 @@ data class GenericUiAppDescriptor(
     val precompiledStyleSheetInstaller: ((IApplication) -> Unit)? = null,
     val windowAlwaysOnTop: Boolean = false,
     val windowAspectRatio: Double? = null,
-    val appleIconExplicitlyProvided: Boolean = false
+    val appleIconExplicitlyProvided: Boolean = false,
+    val windowSizeExplicitlySet: Boolean = (windowWidth != 1280 || windowHeight != 800),
+    val fullscreenExplicitlySet: Boolean = fullscreen
 )

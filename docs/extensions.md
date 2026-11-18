@@ -96,3 +96,5 @@ genericui {
     }
 }
 ```
+
+On native desktop targets (`macosArm64`, `linuxX64`, `linuxArm64`, `mingwX64`), each enabled extension (`libgenericui-ext-<ext>.{dylib,so}` / `genericui-ext-<ext>.dll`), companion `:dsl` module (`libgenericui-ext-<ext>-dsl.*` / `genericui-ext-dsl.*`), and `libnjs` / `njs.dll` (only when `webView()` or `threeJs()` is enabled) is linked as an independent shared library and staged only when enabled. On Swing, Android, iOS, iPadOS, and Web, extensions remain integrated inside the application package as before.

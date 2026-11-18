@@ -114,11 +114,21 @@ open class GenericUiDesktopConfig(
     /** Default initial window title (defaults to [appName] when blank). */
     var windowTitle: String = ""
 
+    internal var windowSizeExplicitlySet: Boolean = false
+
     /** Default initial window width in pixels. */
     var windowWidth: Int = 1280
+        set(value) {
+            field = value
+            windowSizeExplicitlySet = true
+        }
 
     /** Default initial window height in pixels. */
     var windowHeight: Int = 820
+        set(value) {
+            field = value
+            windowSizeExplicitlySet = true
+        }
 
     /** Minimum window width in pixels. */
     var minWindowWidth: Int = 960
@@ -467,8 +477,11 @@ open class GenericUiDesktopConfig(
         resizable: Boolean = this.resizable
     ) {
         if (title.isNotBlank()) this.windowTitle = title
-        this.windowWidth = width
-        this.windowHeight = height
+        val sizeChanged = (width != this.windowWidth || height != this.windowHeight)
+        if (sizeChanged) {
+            this.windowWidth = width
+            this.windowHeight = height
+        }
         this.minWindowWidth = minWidth
         this.minWindowHeight = minHeight
         this.resizable = resizable

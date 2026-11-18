@@ -9,8 +9,12 @@ import com.nexustools.genericui.component.layout.Container
 import com.nexustools.genericui.component.system.PreferenceStore
 import com.nexustools.genericui.core.GenericUI
 import com.nexustools.genericui.core.NativeFactory
+import com.nexustools.genericui.core.UiTimerScheduler
 import com.nexustools.genericui.enums.bootstrap.BootstrapType
 import com.nexustools.genericui.enums.ui.ThemeMode
+import com.nexustools.genericui.enums.window.WindowState
+import com.nexustools.genericui.geometry.Rect
+import com.nexustools.genericui.geometry.Size
 import com.nexustools.genericui.nativeimpl.shell.ApplicationNativeImpl
 import com.nexustools.genericui.nativeimpl.system.NetworkMonitorNativeImpl
 import com.nexustools.genericui.res.Resources
@@ -21,7 +25,9 @@ import com.nexustools.genericui.style.css.StyleSheetRegistry
 import com.nexustools.genericui.style.theme.SystemThemeDetector
 import com.nexustools.genericui.style.theme.ThemeConfig
 import com.nexustools.genericui.window.IWindow
+import com.nexustools.genericui.window.MainWindowSavedState
 import com.nexustools.genericui.window.TitleBar
+import com.nexustools.genericui.window.WindowAspectRatioHelper
 import kotlin.reflect.KClass
 
 /**
@@ -221,6 +227,15 @@ open class Application(
     private var lastKnownOfflineState: Boolean = false
     private var defaultPreferenceStore: PreferenceStore? = null
 
+    override var persistMainWindowState: Boolean = true
+    override var defaultMainWindowFullscreen: Boolean = false
+    private var defaultMainWindowSize: Size? = null
+    private var defaultMainWindowPositionX: Int? = null
+    private var defaultMainWindowPositionY: Int? = null
+    private var isRestoringMainWindowState: Boolean = false
+    private var pendingMainWindowStateTimerId: Int? = null
+    private var pendingMainWindowStateDirty: Boolean = false
+
     private var isHandlingSystemThemeChange: Boolean = false
 
     private val systemThemeObserver: (ThemeMode) -> Unit = { detected ->
@@ -248,6 +263,15 @@ open class Application(
             }
         }
         registerWindowApplication(mainWindow, this)
+        mainWindow.onBeforeFirstVisibleShow = { factory ->
+            applyInitialMainWindowStateIfNeeded(factory)
+        }
+        mainWindow.onPersistentWindowStateChanged = { immediate ->
+            scheduleOrWriteMainWindowState(immediate)
+        }
+        mainWindow.onFlushPersistentWindowState = {
+            flushPendingMainWindowState()
+        }
         SystemThemeDetector.addSystemThemeListener(systemThemeObserver)
         if (GenericUI.activeFactory != null) {
             ensureNetworkMonitor(GenericUI.activeFactory)
@@ -638,6 +662,199 @@ open class Application(
 
     override fun getThemeConfig(): ThemeConfig = themeConfigState
 
+    override fun setDefaultMainWindowGeometry(width: Int, height: Int, x: Int?, y: Int?) {
+        defaultMainWindowSize = Size(width.coerceAtLeast(1), height.coerceAtLeast(1))
+        if (x != null && y != null) {
+            defaultMainWindowPositionX = x
+            defaultMainWindowPositionY = y
+        } else {
+            defaultMainWindowPositionX = null
+            defaultMainWindowPositionY = null
+        }
+    }
+
+    private fun isWindowStatePersistenceSupported(factory: NativeFactory? = activeFactory ?: GenericUI.activeFactory): Boolean =
+        factory?.supportsWindowStatePersistence ?: true
+
+    internal fun applyInitialMainWindowStateIfNeeded(factory: NativeFactory? = activeFactory ?: GenericUI.activeFactory) {
+        if (!isWindowStatePersistenceSupported(factory)) {
+            return
+        }
+        isRestoringMainWindowState = true
+        mainWindow.withSuppressedExplicitTracking {
+            try {
+                val saved = if (persistMainWindowState) {
+                    MainWindowSavedState.fromPreferenceElement(
+                        getPreferenceStore().getElement(MainWindowSavedState.PREF_KEY)
+                    )
+                } else {
+                    null
+                }
+                val monitorBounds = factory?.getPrimaryMonitorBounds()
+                val aspectRatio = mainWindow.getAspectRatio()
+                val minSize = mainWindow.getMinWindowSize()
+
+                if (saved != null && saved.hasValidSize) {
+                    val clamped = WindowAspectRatioHelper.clampClientSize(
+                        size = Size(saved.width, saved.height),
+                        aspectRatio = aspectRatio,
+                        minSize = minSize
+                    )
+                    mainWindow.setWindowSize(clamped)
+                    mainWindow.updateLastWindowedNormalSize(clamped)
+                    val savedBounds = saved.x?.let { sx ->
+                        saved.y?.let { sy -> Rect(sx, sy, clamped.width, clamped.height) }
+                    }
+                    if (savedBounds != null && (factory?.isWindowRectOnScreen(savedBounds) ?: true)) {
+                        mainWindow.setWindowPosition(savedBounds.x, savedBounds.y)
+                        mainWindow.updateLastWindowedNormalPosition(savedBounds.x, savedBounds.y)
+                    } else if (monitorBounds != null) {
+                        val centeredX = monitorBounds.x + ((monitorBounds.width - clamped.width) / 2).coerceAtLeast(0)
+                        val centeredY = monitorBounds.y + ((monitorBounds.height - clamped.height) / 2).coerceAtLeast(0)
+                        mainWindow.setWindowPosition(centeredX, centeredY)
+                        mainWindow.updateLastWindowedNormalPosition(centeredX, centeredY)
+                    }
+                } else {
+                    val baseSize = when {
+                        mainWindow.hasExplicitSize -> mainWindow.getWindowSize()
+                        defaultMainWindowSize != null -> defaultMainWindowSize!!
+                        monitorBounds != null -> Size(
+                            ((monitorBounds.width * 2) / 3).coerceAtLeast(1),
+                            ((monitorBounds.height * 2) / 3).coerceAtLeast(1)
+                        )
+                        else -> mainWindow.getWindowSize()
+                    }
+                    val clamped = WindowAspectRatioHelper.clampClientSize(
+                        size = baseSize,
+                        aspectRatio = aspectRatio,
+                        minSize = minSize
+                    )
+                    mainWindow.setWindowSize(clamped)
+                    mainWindow.updateLastWindowedNormalSize(clamped)
+
+                    val defX = defaultMainWindowPositionX
+                    val defY = defaultMainWindowPositionY
+                    if (mainWindow.hasExplicitPosition) {
+                        val currentBounds = mainWindow.windowBounds
+                        mainWindow.updateLastWindowedNormalPosition(currentBounds.x, currentBounds.y)
+                    } else if (defX != null && defY != null) {
+                        val candidate = Rect(defX, defY, clamped.width, clamped.height)
+                        if (factory?.isWindowRectOnScreen(candidate) ?: true) {
+                            mainWindow.setWindowPosition(defX, defY)
+                            mainWindow.updateLastWindowedNormalPosition(defX, defY)
+                        } else if (monitorBounds != null) {
+                            val centeredX = monitorBounds.x + ((monitorBounds.width - clamped.width) / 2).coerceAtLeast(0)
+                            val centeredY = monitorBounds.y + ((monitorBounds.height - clamped.height) / 2).coerceAtLeast(0)
+                            mainWindow.setWindowPosition(centeredX, centeredY)
+                            mainWindow.updateLastWindowedNormalPosition(centeredX, centeredY)
+                        }
+                    } else if (monitorBounds != null) {
+                        val centeredX = monitorBounds.x + ((monitorBounds.width - clamped.width) / 2).coerceAtLeast(0)
+                        val centeredY = monitorBounds.y + ((monitorBounds.height - clamped.height) / 2).coerceAtLeast(0)
+                        mainWindow.setWindowPosition(centeredX, centeredY)
+                        mainWindow.updateLastWindowedNormalPosition(centeredX, centeredY)
+                    }
+                }
+
+                if (saved != null) {
+                    if (saved.fullscreen) {
+                        mainWindow.setStateBeforeFullscreenInternal(saved.windowState)
+                        mainWindow.setFullscreen(true)
+                    } else {
+                        if (mainWindow.isFullscreen()) {
+                            mainWindow.setFullscreen(false)
+                        }
+                        if (saved.windowState != WindowState.NORMAL) {
+                            mainWindow.setWindowState(saved.windowState)
+                        }
+                    }
+                } else {
+                    val wantFullscreen = if (mainWindow.hasExplicitFullscreen) {
+                        mainWindow.isFullscreen()
+                    } else {
+                        defaultMainWindowFullscreen
+                    }
+                    if (wantFullscreen) {
+                        mainWindow.setFullscreen(true)
+                    }
+                }
+            } finally {
+                isRestoringMainWindowState = false
+            }
+        }
+    }
+
+    private fun scheduleOrWriteMainWindowState(immediate: Boolean) {
+        if (!persistMainWindowState ||
+            isRestoringMainWindowState ||
+            !mainWindow.hasShownVisiblyOnce ||
+            !isWindowStatePersistenceSupported()
+        ) {
+            return
+        }
+        pendingMainWindowStateDirty = true
+        if (immediate || (activeFactory == null && GenericUI.activeFactory == null)) {
+            flushPendingMainWindowState()
+            return
+        }
+        pendingMainWindowStateTimerId?.let { UiTimerScheduler.clearTimer(it) }
+        pendingMainWindowStateTimerId = UiTimerScheduler.setTimeout(MAIN_WINDOW_STATE_DEBOUNCE_MS) {
+            pendingMainWindowStateTimerId = null
+            if (pendingMainWindowStateDirty) {
+                pendingMainWindowStateDirty = false
+                writeMainWindowStateNow()
+            }
+        }
+    }
+
+    internal fun flushPendingMainWindowState() {
+        pendingMainWindowStateTimerId?.let { UiTimerScheduler.clearTimer(it) }
+        pendingMainWindowStateTimerId = null
+        if (!pendingMainWindowStateDirty) {
+            return
+        }
+        pendingMainWindowStateDirty = false
+        if (!persistMainWindowState ||
+            isRestoringMainWindowState ||
+            !mainWindow.hasShownVisiblyOnce ||
+            !isWindowStatePersistenceSupported()
+        ) {
+            return
+        }
+        writeMainWindowStateNow()
+    }
+
+    private fun writeMainWindowStateNow() {
+        val store = getPreferenceStore()
+        if (store.isDisposed) {
+            return
+        }
+        val normalSize = mainWindow.lastWindowedNormalSize
+        val currentSize = mainWindow.getWindowSize()
+        val width = if (normalSize.width > 0) normalSize.width else currentSize.width.coerceAtLeast(1)
+        val height = if (normalSize.height > 0) normalSize.height else currentSize.height.coerceAtLeast(1)
+        val fullscreen = mainWindow.isFullscreen()
+        val persistedState = if (fullscreen) {
+            mainWindow.stateBeforeFullscreen
+        } else {
+            when (mainWindow.getWindowState()) {
+                WindowState.MAXIMIZED -> WindowState.MAXIMIZED
+                else -> WindowState.NORMAL
+            }
+        }
+        val hasPos = mainWindow.hasLastWindowedNormalPosition
+        val saved = MainWindowSavedState(
+            x = if (hasPos) mainWindow.lastWindowedNormalPositionX else null,
+            y = if (hasPos) mainWindow.lastWindowedNormalPositionY else null,
+            width = width,
+            height = height,
+            fullscreen = fullscreen,
+            windowState = persistedState
+        )
+        store.putElement(MainWindowSavedState.PREF_KEY, saved.toPreferenceElement())
+        store.flush()
+    }
+
     override fun getPreferenceStore(): PreferenceStore {
         val existing = defaultPreferenceStore
         if (existing != null) {
@@ -649,6 +866,7 @@ open class Application(
     }
 
     open override fun run(factory: NativeFactory) {
+        isExitingApplication = false
         current = this
         activeFactory = factory
         GenericUI.initialize(factory)
@@ -715,12 +933,27 @@ open class Application(
 
     protected open fun onApplicationStarted() {}
 
+    private var isExitingApplication: Boolean = false
+
     override fun exit(exitCode: Int) {
-        mainWindow.close()
-        appNativeImpl?.exitApplication(exitCode)
+        if (isExitingApplication) return
+        isExitingApplication = true
+        try {
+            flushPendingMainWindowState()
+            mainWindow.close()
+            appNativeImpl?.exitApplication(exitCode)
+        } finally {
+            isExitingApplication = false
+        }
     }
 
     override fun dispose() {
+        flushPendingMainWindowState()
+        pendingMainWindowStateTimerId?.let { UiTimerScheduler.clearTimer(it) }
+        pendingMainWindowStateTimerId = null
+        mainWindow.onBeforeFirstVisibleShow = null
+        mainWindow.onPersistentWindowStateChanged = null
+        mainWindow.onFlushPersistentWindowState = null
         unregisterWindowApplication(mainWindow, this)
         defaultPreferenceStore?.dispose()
         defaultPreferenceStore = null
@@ -742,6 +975,7 @@ open class Application(
     }
 
     companion object {
+        private const val MAIN_WINDOW_STATE_DEBOUNCE_MS = 200
         var current: Application? = null
             internal set
 

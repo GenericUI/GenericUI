@@ -4,8 +4,7 @@ import java.awt.image.BufferedImage
 import java.io.ByteArrayOutputStream
 import javax.imageio.ImageIO
 import kotlin.math.abs
-import kotlin.math.exp
-import kotlin.math.max
+import kotlin.math.hypot
 import kotlin.math.min
 import kotlin.math.pow
 import kotlin.math.roundToInt
@@ -13,9 +12,9 @@ import kotlin.math.roundToInt
 /**
  * Pure-JVM compositor that wraps application icon artwork inside a Chrome-style clean white
  * Apple icon tile:
- * - For **macOS** (`fullBleedSquare = false`): a centered white macOS squircle tile (exponent `4.6`,
- *   rounded corner ratio `0.2237`, tile occupies ~80.8% of canvas with soft downward drop shadow and
- *   subtle cool hairline rim).
+ * - For **macOS** (`fullBleedSquare = false`): a centered white macOS squircle tile matching
+ *   macOS 26/27 AppIcon silhouette metrics (`420/512` centered continuous superellipse, exponent
+ *   `3.85`, pure white with zero external drop shadow or dark hairline rim).
  * - For **iOS / iPadOS App Store icons** (`fullBleedSquare = true`): an opaque solid white
  *   full-bleed square canvas with the artwork centered at the same balanced scale.
  *
@@ -25,10 +24,9 @@ import kotlin.math.roundToInt
 object GenericUiAppleIconTileComposer {
 
     const val DEFAULT_ARTWORK_SCALE: Float = 0.74f
-    private const val TILE_FRACTION: Double = 0.808
-    private const val TILE_CENTER_Y_FRACTION: Double = 0.492
-    private const val CORNER_RATIO: Double = 0.2237
-    private const val SQUIRCLE_EXPONENT: Double = 4.6
+    private const val TILE_FRACTION: Double = 420.0 / 512.0
+    private const val TILE_CENTER_Y_FRACTION: Double = 0.5
+    private const val SQUIRCLE_EXPONENT: Double = 3.85
     private const val ALPHA_OPAQUE_THRESHOLD: Int = 8
 
     /**
@@ -49,7 +47,6 @@ object GenericUiAppleIconTileComposer {
         val tileHalf = tileSize * 0.5
         val centerX = size * 0.5
         val centerY = if (fullBleedSquare) size * 0.5 else size * TILE_CENTER_Y_FRACTION
-        val cornerRadius = tileSize * CORNER_RATIO
 
         val bounds = findOpaqueBounds(rgbaSource)
         val cropX = bounds[0]
@@ -64,11 +61,6 @@ object GenericUiAppleIconTileComposer {
         val artLeft = centerX - artW * 0.5
         val artTop = centerY - artH * 0.5
 
-        val shadowCenterX = centerX
-        val shadowCenterY = centerY + size * 0.018
-        val shadowHalf = tileHalf * 0.995
-        val blurSigma = (size * 0.028).coerceAtLeast(1.2)
-
         val srcW = rgbaSource.width
         val srcH = rgbaSource.height
         val rowPixels = IntArray(size)
@@ -79,38 +71,15 @@ object GenericUiAppleIconTileComposer {
                 val px = x + 0.5
 
                 val tileAlpha: Double
-                val shadowAlpha: Double
-                var bgR: Double
-                var bgG: Double
-                var bgB: Double
+                var bgR = 255.0
+                var bgG = 255.0
+                var bgB = 255.0
 
                 if (fullBleedSquare) {
                     tileAlpha = 1.0
-                    shadowAlpha = 0.0
-                    bgR = 255.0
-                    bgG = 255.0
-                    bgB = 255.0
                 } else {
-                    val sdf = squircleSdf(px - centerX, py - centerY, tileHalf, cornerRadius)
-                    tileAlpha = (0.5 - sdf / 1.5).coerceIn(0.0, 1.0)
-
-                    val shadowSdf = squircleSdf(px - shadowCenterX, py - shadowCenterY, shadowHalf, cornerRadius)
-                    shadowAlpha = if (shadowSdf <= 0.0) {
-                        0.22
-                    } else {
-                        val t = shadowSdf / blurSigma
-                        (0.22 * exp(-t * t * 1.9)).coerceIn(0.0, 0.22)
-                    }
-
-                    val rimFactor = if (sdf in -1.15..0.35) {
-                        (1.0 - abs(sdf + 0.3) / 0.85).coerceIn(0.0, 1.0) * 0.14
-                    } else {
-                        0.0
-                    }
-                    val baseWhite = 255.0 - rimFactor * 28.0
-                    bgR = baseWhite - rimFactor * 43.0
-                    bgG = baseWhite - rimFactor * 39.0
-                    bgB = baseWhite - rimFactor * 32.0
+                    val sdf = squircleSdf(px - centerX, py - centerY, tileHalf)
+                    tileAlpha = if (sdf >= 0.0) 0.0 else (-sdf).coerceIn(0.0, 1.0)
                 }
 
                 // Sample artwork over tile surface if inside art bounding box
@@ -137,15 +106,13 @@ object GenericUiAppleIconTileComposer {
                         (bgG.roundToInt().coerceIn(0, 255) shl 8) or
                         bgB.roundToInt().coerceIn(0, 255)
                 } else {
-                    // Composite white tile (R=bgR, G=bgG, B=bgB, A=tileAlpha) over black shadow (0, 0, 0, shadowAlpha)
-                    val outA = tileAlpha + shadowAlpha * (1.0 - tileAlpha)
-                    if (outA <= 0.0001) {
+                    val alphaInt = (tileAlpha * 255.0).roundToInt().coerceIn(0, 255)
+                    if (alphaInt == 0) {
                         0
                     } else {
-                        val outR = ((bgR * tileAlpha) / outA).roundToInt().coerceIn(0, 255)
-                        val outG = ((bgG * tileAlpha) / outA).roundToInt().coerceIn(0, 255)
-                        val outB = ((bgB * tileAlpha) / outA).roundToInt().coerceIn(0, 255)
-                        val alphaInt = (outA * 255.0).roundToInt().coerceIn(0, 255)
+                        val outR = bgR.roundToInt().coerceIn(0, 255)
+                        val outG = bgG.roundToInt().coerceIn(0, 255)
+                        val outB = bgB.roundToInt().coerceIn(0, 255)
                         (alphaInt shl 24) or (outR shl 16) or (outG shl 8) or outB
                     }
                 }
@@ -185,18 +152,20 @@ object GenericUiAppleIconTileComposer {
         return converted
     }
 
-    private fun squircleSdf(dxRaw: Double, dyRaw: Double, half: Double, cornerRadius: Double): Double {
-        val dx = abs(dxRaw)
-        val dy = abs(dyRaw)
-        val radius = cornerRadius.coerceAtLeast(1.0)
-        val inner = (half - radius).coerceAtLeast(1.0)
-        return if (dx > inner && dy > inner) {
-            val nx = ((dx - inner) / radius).coerceAtLeast(0.0)
-            val ny = ((dy - inner) / radius).coerceAtLeast(0.0)
-            radius * ((nx.pow(SQUIRCLE_EXPONENT) + ny.pow(SQUIRCLE_EXPONENT)).pow(1.0 / SQUIRCLE_EXPONENT) - 1.0)
-        } else {
-            max(dx, dy) - half
-        }
+    private fun squircleSdf(dxRaw: Double, dyRaw: Double, half: Double): Double {
+        val ax = abs(dxRaw)
+        val ay = abs(dyRaw)
+        if (ax == 0.0 && ay == 0.0) return -half
+        val invHalf = 1.0 / half
+        val rx = ax * invHalf
+        val ry = ay * invHalf
+        val p = SQUIRCLE_EXPONENT
+        val level = (rx.pow(p) + ry.pow(p)).pow(1.0 / p)
+        if (level <= 1e-12) return -half
+        val gx = (rx / level).pow(p - 1.0)
+        val gy = (ry / level).pow(p - 1.0)
+        val grad = hypot(gx, gy).coerceAtLeast(1e-6)
+        return (half * (level - 1.0)) / grad
     }
 
     private fun findOpaqueBounds(img: BufferedImage): IntArray {

@@ -303,6 +303,12 @@ class GenericUiGradlePlugin : Plugin<Project> {
             backendAppleIconExplicitlyProvided.set(project.provider {
                 resolveBackendVariantMap(project, extension) { it.appleIconExplicitlyProvided }
             })
+            backendWindowSizeExplicitlySet.set(project.provider {
+                resolveBackendVariantMap(project, extension) { it.windowSizeExplicitlySet }
+            })
+            backendFullscreenExplicitlySet.set(project.provider {
+                resolveBackendVariantMap(project, extension) { it.fullscreenExplicitlySet }
+            })
             backendThemeModes.set(project.provider {
                 resolveBackendVariantMap(project, extension) { it.themeMode }
             })

@@ -44,10 +44,13 @@ object GenericUiDefaultIconProvider {
     private val ICO_SIZES = intArrayOf(16, 24, 32, 48, 64, 128, 256)
     private val ICNS_ENTRIES = listOf(
         "icp4" to 16,
+        "ic11" to 32,
         "icp5" to 32,
-        "icp6" to 64,
+        "ic12" to 64,
         "ic07" to 128,
+        "ic13" to 256,
         "ic08" to 256,
+        "ic14" to 512,
         "ic09" to 512,
         "ic10" to 1024
     )

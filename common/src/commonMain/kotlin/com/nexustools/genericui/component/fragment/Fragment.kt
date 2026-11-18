@@ -181,14 +181,14 @@ open class Fragment : Container("fragment"), IFragment {
     internal fun syncChromeToAttachedWindow() {
         val win = attachedWindow ?: (attachedIWindow as? Window)
         if (win != null) {
-            if (fullscreenExplicitlySetOnFragment || fullscreenMode) {
+            if (fullscreenExplicitlySetOnFragment) {
                 if (fullscreenMode) {
                     win.setFullscreen(true, displayCutoutMode)
                 } else if (win.fullscreenElement == null || win.fullscreenElement === this || win.fullscreenElement === win.getContent() || win.fullscreenElement === win) {
                     win.setFullscreen(false, displayCutoutMode)
                 }
-            } else if (win.isFullscreen()) {
-                fullscreenMode = true
+            } else {
+                fullscreenMode = win.isFullscreen()
             }
             win.setNavBar(if (fullscreenMode) null else navBar)
             win.setBottomNavigationBar(if (fullscreenMode) null else bottomNavigationBar)
@@ -201,10 +201,10 @@ open class Fragment : Container("fragment"), IFragment {
             return
         }
         val iWin = attachedIWindow ?: return
-        if (fullscreenExplicitlySetOnFragment || fullscreenMode) {
+        if (fullscreenExplicitlySetOnFragment) {
             iWin.setFullscreen(fullscreenMode, displayCutoutMode)
-        } else if (iWin.isFullscreen()) {
-            fullscreenMode = true
+        } else {
+            fullscreenMode = iWin.isFullscreen()
         }
         if (titleBar != null) {
             iWin.setTitleBar(titleBar)

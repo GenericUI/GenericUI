@@ -733,9 +733,11 @@ abstract class AbstractComponent(
         // Subclasses override to push component-specific state to typedNative()
     }
 
+    protected open fun resolveInitialNativeVisibility(): Boolean = visibleState
+
     protected open fun onAttachNative(impl: NativeImpl<*>) {
         syncStyleSnapshotToNative(impl)
-        impl.setVisible(visibleState)
+        impl.setVisible(resolveInitialNativeVisibility())
         impl.setEnabled(enabledState)
         impl.setHoveredState(hoveredState)
         impl.setFocusedState(focusedState)

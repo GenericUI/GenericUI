@@ -107,3 +107,5 @@ genericui {
 | **iOS (iPhone)** | `./gradlew developmentIos` | `./gradlew productionIos` |
 | **iPadOS (iPad)** | `./gradlew developmentIpados` | `./gradlew productionIpados` |
 | **Web (`wasmJs` + `js`)** | `./gradlew developmentWeb` | `./gradlew productionWeb` |
+
+Native desktop builds link shared libraries per layer (`libgenericui.{dylib,so}` / `genericui.dll`, `libgenericui-{macos,gtk,qt}.*` / `genericui-windows.dll`, and enabled `genericui-ext-*` / `njs` / `genericui-tests`) staged in `<App>.app/Contents/Frameworks/` on macOS and flat alongside the executable on Linux and Windows; Swing JARs, Android APKs, iOS/iPadOS frameworks, and Web bundles remain integrated in their application packages.

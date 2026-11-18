@@ -8,6 +8,8 @@ import org.gradle.api.file.SourceDirectorySet
 import org.gradle.api.plugins.ExtensionAware
 import org.gradle.api.tasks.TaskProvider
 import java.io.File
+import java.nio.file.Files
+import java.nio.file.LinkOption
 
 /**
  * Configures Kotlin Multiplatform targets, the GenericUI hierarchical sourceSet tree, native/web
@@ -888,8 +890,6 @@ object GenericUiMultiplatformConfigurator {
             "-Wl,-rpath,@executable_path"
         )
         val baseLinuxLinkerOpts = listOf(
-            "-static-libgcc",
-            "-static-libstdc++",
             "-Wl,-rpath,\$ORIGIN",
             "-Wl,-rpath,\$ORIGIN/lib"
         )
@@ -903,6 +903,8 @@ object GenericUiMultiplatformConfigurator {
         for (linuxTarget in linuxTargets) {
             applyLinkerOptsToAllBinaries(linuxTarget, baseLinuxLinkerOpts)
         }
+
+        GenericUiBuildNativeSharedLibsTask.configureProject(project, extension)
 
         val app = extension.application
         val entryPointStr = defaultEntryPoint.trim()
@@ -1196,38 +1198,21 @@ object GenericUiMultiplatformConfigurator {
         }
     }
 
-    private fun copyFilteredDirectoryContents(sourceDir: File, targetDir: File, setExecutableOnBinaries: Boolean = false) {
-        if (!sourceDir.isDirectory) return
-        targetDir.mkdirs()
-        sourceDir.walkTopDown().forEach { src ->
-            if (src == sourceDir) return@forEach
-            if (isExcludedStaticCoreLibrary(src)) return@forEach
-            val rel = src.relativeTo(sourceDir).Path
-            val dst = File(targetDir, rel)
-            if (src.isDirectory) {
-                dst.mkdirs()
-            } else {
-                dst.parentFile?.mkdirs()
-                runCatching {
-                    if (!dst.exists() || src.canonicalFile != dst.canonicalFile) {
-                        src.copyTo(dst, overwrite = true)
-                    }
-                    if (setExecutableOnBinaries && (dst.extension.isEmpty() || dst.extension == "so" || dst.extension == "dylib" || dst.name.contains(".so."))) {
-                        dst.setExecutable(true, false)
-                    }
-                }
-            }
-        }
+    internal fun copyFilteredDirectoryContents(sourceDir: File, targetDir: File, setExecutableOnBinaries: Boolean = false) {
+        GenericUiSymlinkPreservingCopy.copyDirectoryContentsPreservingSymlinks(
+            sourceDir = sourceDir,
+            targetDir = targetDir,
+            sourceRoot = sourceDir,
+            setExecutableOnBinaries = setExecutableOnBinaries,
+            entryFilter = { !isExcludedStaticCoreLibrary(it) }
+        )
     }
 
-    private val File.Path: String
-        get() = path
-
     private fun purgeExcludedStaticCoreLibraries(rootDir: File) {
-        if (!rootDir.exists()) return
-        rootDir.walkBottomUp().forEach { f ->
-            if (f.isFile && isExcludedStaticCoreLibrary(f)) {
-                runCatching { f.delete() }
+        GenericUiSymlinkPreservingCopy.walkPathsNoFollow(rootDir, bottomUp = true) { p ->
+            val f = p.toFile()
+            if (!Files.isDirectory(p, LinkOption.NOFOLLOW_LINKS) && isExcludedStaticCoreLibrary(f)) {
+                runCatching { Files.deleteIfExists(p) }
             }
         }
     }
@@ -1275,6 +1260,11 @@ object GenericUiMultiplatformConfigurator {
 
         for (dest in destinations) {
             purgeExcludedStaticCoreLibraries(dest)
+            dest.listFiles()?.forEach { f ->
+                if (f.isFile && f.name.lowercase().endsWith(".dll.a")) {
+                    runCatching { f.delete() }
+                }
+            }
         }
     }
 
@@ -1315,6 +1305,11 @@ object GenericUiMultiplatformConfigurator {
         File(contentsDir, "PkgInfo").writeText("APPL????", Charsets.US_ASCII)
 
         // 2. Main executable in Contents/MacOS/<executable>
+        macOsDir.listFiles()?.forEach { existing ->
+            if (existing.isFile && existing.name.endsWith(".dylib", ignoreCase = true)) {
+                runCatching { existing.delete() }
+            }
+        }
         val exeCandidates = buildList {
             for (binDir in candidateBinDirs) {
                 if (binDir.isDirectory) {
@@ -1324,21 +1319,20 @@ object GenericUiMultiplatformConfigurator {
                     }?.forEach { add(it) }
                 }
             }
-            distDir.listFiles()?.filter {
-                it.isFile && (it.extension == "kexe" || it.name == baseName) &&
-                    !it.name.endsWith(".dylib") && !it.name.endsWith(".plist")
-            }?.forEach { add(it) }
         }
         val primaryExe = exeCandidates.firstOrNull()
         val bundleExecutableName = baseName
         val targetExeFile = File(macOsDir, bundleExecutableName)
         if (primaryExe != null && primaryExe.isFile) {
+            if (targetExeFile.exists()) {
+                targetExeFile.delete()
+            }
             primaryExe.copyTo(targetExeFile, overwrite = true)
             targetExeFile.setExecutable(true, false)
-            if (primaryExe.name != bundleExecutableName) {
-                val kexeCopy = File(macOsDir, primaryExe.name)
-                primaryExe.copyTo(kexeCopy, overwrite = true)
-                kexeCopy.setExecutable(true, false)
+            macOsDir.listFiles()?.forEach { existing ->
+                if (existing.isFile && existing.name.endsWith(".kexe", ignoreCase = true) && existing != targetExeFile) {
+                    runCatching { existing.delete() }
+                }
             }
         } else {
             // Ensure Contents/MacOS/<baseName> placeholder exists when cross-building on non-macOS host
@@ -1398,7 +1392,53 @@ object GenericUiMultiplatformConfigurator {
             }
         }
 
-        // 5. Extension dynamic libraries & plugins in Contents/Frameworks/
+        // 5. GenericUI & extension dynamic libraries + plugins in Contents/Frameworks/
+        val activeFrameworkDylibNames = buildSet {
+            for (binDir in candidateBinDirs) {
+                if (!binDir.isDirectory) continue
+                binDir.listFiles()?.forEach { f ->
+                    val fPath = f.toPath()
+                    if ((Files.isSymbolicLink(fPath) || Files.isRegularFile(fPath, LinkOption.NOFOLLOW_LINKS)) &&
+                        f.extension.equals("dylib", ignoreCase = true) &&
+                        !isExcludedStaticCoreLibrary(f)
+                    ) {
+                        add(f.name)
+                    }
+                }
+            }
+        }
+        frameworksDir.listFiles()?.forEach { existing ->
+            val existingPath = existing.toPath()
+            if ((Files.isSymbolicLink(existingPath) || Files.isRegularFile(existingPath, LinkOption.NOFOLLOW_LINKS)) &&
+                GenericUiBuildNativeSharedLibsTask.isManagedSharedLibraryFileName(existing.name) &&
+                existing.name !in activeFrameworkDylibNames
+            ) {
+                runCatching { Files.deleteIfExists(existingPath) }
+            }
+        }
+        for (binDir in candidateBinDirs) {
+            if (!binDir.isDirectory) continue
+            val sortedEntries = binDir.listFiles()?.sortedWith(
+                compareBy<File> { if (Files.isSymbolicLink(it.toPath())) 1 else 0 }
+                    .thenBy { it.name }
+            ).orEmpty()
+            for (f in sortedEntries) {
+                if ((!f.extension.equals("dylib", ignoreCase = true) &&
+                        !f.name.endsWith(".framework", ignoreCase = true)) ||
+                    isExcludedStaticCoreLibrary(f)
+                ) {
+                    continue
+                }
+                GenericUiSymlinkPreservingCopy.copyEntryPreservingSymlinks(
+                    src = f,
+                    dst = File(frameworksDir, f.name),
+                    sourceRoot = binDir,
+                    setExecutableOnBinaries = true,
+                    entryFilter = { !isExcludedStaticCoreLibrary(it) }
+                )
+            }
+        }
+
         if (mediaEnabled) {
             val vlcMacDir = File(buildDir, "generated/genericui/nativeBundle/vlc/macos")
             if (vlcMacDir.isDirectory) {
@@ -1408,14 +1448,13 @@ object GenericUiMultiplatformConfigurator {
         if (gpuEnabled) {
             val gpuMacDir = File(buildDir, "generated/genericui/nativeBundle/gpu/macos")
             if (gpuMacDir.isDirectory) {
-                gpuMacDir.listFiles()?.forEach { f ->
-                    if (f.name == "MoltenVK_icd.json" || isExcludedStaticCoreLibrary(f)) return@forEach
-                    val dst = File(frameworksDir, f.name)
-                    f.copyTo(dst, overwrite = true)
-                    if (dst.extension == "dylib") {
-                        dst.setExecutable(true, false)
-                    }
-                }
+                GenericUiSymlinkPreservingCopy.copyDirectoryContentsPreservingSymlinks(
+                    sourceDir = gpuMacDir,
+                    targetDir = frameworksDir,
+                    sourceRoot = gpuMacDir,
+                    setExecutableOnBinaries = true,
+                    entryFilter = { it.name != "MoltenVK_icd.json" && !isExcludedStaticCoreLibrary(it) }
+                )
             }
         }
 
@@ -1426,18 +1465,18 @@ object GenericUiMultiplatformConfigurator {
             desktopIcns.copyTo(File(resourcesDir, "icon.icns"), overwrite = true)
         }
         if (resourceCompilerMacDir.isDirectory) {
-            resourceCompilerMacDir.walkTopDown().forEach { src ->
-                if (src == resourceCompilerMacDir || src.name.equals("Info.plist", ignoreCase = true)) return@forEach
-                if (isExcludedStaticCoreLibrary(src)) return@forEach
-                val rel = src.relativeTo(resourceCompilerMacDir).path
-                val dst = File(resourcesDir, rel)
-                if (src.isDirectory) {
-                    dst.mkdirs()
-                } else {
-                    dst.parentFile?.mkdirs()
-                    src.copyTo(dst, overwrite = true)
+            val resourceCompilerRootNorm = resourceCompilerMacDir.toPath().toAbsolutePath().normalize()
+            GenericUiSymlinkPreservingCopy.copyDirectoryContentsPreservingSymlinks(
+                sourceDir = resourceCompilerMacDir,
+                targetDir = resourcesDir,
+                sourceRoot = resourceCompilerMacDir,
+                setExecutableOnBinaries = false,
+                entryFilter = { candidate ->
+                    val isRootInfoPlist = candidate.parentFile?.toPath()?.toAbsolutePath()?.normalize() == resourceCompilerRootNorm &&
+                        candidate.name.equals("Info.plist", ignoreCase = true)
+                    !isRootInfoPlist && !isExcludedStaticCoreLibrary(candidate)
                 }
-            }
+            )
         }
         if (gpuEnabled) {
             val moltenVkIcd = File(buildDir, "generated/genericui/nativeBundle/gpu/macos/MoltenVK_icd.json")
@@ -1450,10 +1489,32 @@ object GenericUiMultiplatformConfigurator {
 
         purgeExcludedStaticCoreLibraries(appBundleDir)
         purgeExcludedStaticCoreLibraries(distDir)
+        distDir.listFiles()?.forEach { loose ->
+            if (loose.isFile && (loose.extension.equals("kexe", ignoreCase = true) || loose.extension.equals("dylib", ignoreCase = true))) {
+                runCatching { loose.delete() }
+            }
+        }
         val nowMs = System.currentTimeMillis()
         runCatching { appBundleDir.setLastModified(nowMs) }
         val osName = System.getProperty("os.name").orEmpty().lowercase()
         if (osName.contains("mac") || osName.contains("darwin")) {
+            if (primaryExe != null && primaryExe.isFile) {
+                val (regularBinaries, frameworkBundles) = GenericUiSymlinkPreservingCopy.collectMacCodeSignTargets(frameworksDir)
+                for (dylib in regularBinaries) {
+                    GenericUiBuildNativeSharedLibsTask.signMacBinary(dylib)
+                }
+                for (frameworkBundle in frameworkBundles) {
+                    GenericUiBuildNativeSharedLibsTask.signMacBinary(frameworkBundle)
+                }
+                val webViewHelper = File(macOsDir, "genericui-webview-process")
+                if (webViewHelper.isFile && !Files.isSymbolicLink(webViewHelper.toPath())) {
+                    GenericUiBuildNativeSharedLibsTask.signMacBinary(webViewHelper)
+                }
+                if (targetExeFile.isFile && !Files.isSymbolicLink(targetExeFile.toPath())) {
+                    GenericUiBuildNativeSharedLibsTask.signMacBinary(targetExeFile)
+                }
+                GenericUiBuildNativeSharedLibsTask.signMacBinary(appBundleDir)
+            }
             val lsregister = File("/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister")
             if (lsregister.isFile && lsregister.canExecute()) {
                 runCatching {
@@ -1508,13 +1569,22 @@ object GenericUiMultiplatformConfigurator {
         }
 
         distDir.listFiles()?.forEach { f ->
-            if (f.isFile && (f.extension == "kexe" || f.extension.isEmpty() || f.name.contains(".so"))) {
+            val p = f.toPath()
+            if (!Files.isSymbolicLink(p) &&
+                Files.isRegularFile(p, LinkOption.NOFOLLOW_LINKS) &&
+                (f.extension == "kexe" || f.extension.isEmpty() || f.name.contains(".so"))
+            ) {
                 runCatching { f.setExecutable(true, false) }
             }
         }
 
         for (dest in destinations) {
             purgeExcludedStaticCoreLibraries(dest)
+            dest.listFiles()?.forEach { f ->
+                if (f.isFile && f.name.lowercase().endsWith(".dll.a")) {
+                    runCatching { f.delete() }
+                }
+            }
         }
     }
 
@@ -1570,39 +1640,103 @@ object GenericUiMultiplatformConfigurator {
                     val buildDir = buildDirProvider.get()
                     val distDir = File(buildDir, distRelativePath)
                     distDir.mkdirs()
+                    val isMacDist = distRelativePath.startsWith("dist/mac/")
+                    val isLinuxGtkDist = distRelativePath.startsWith("dist/linux-gtk/")
+                    val isLinuxQtDist = distRelativePath.startsWith("dist/linux-qt/")
                     val excludedExtensions = setOf("svg", "png", "ico", "icns", "rc", "res", "desktop", "plist", "cur")
-                    val excludedNames = setOf("androidmanifest.xml", "info.plist")
+                    val excludedNames = setOf("androidmanifest.xml", "info.plist", "cached-libraries.txt")
                     fun isExcludedNonWebDistFile(file: File): Boolean {
                         val lowerName = file.name.lowercase()
-                        if (lowerName.contains(".exe.old") || lowerName in excludedNames) return true
+                        if (lowerName.contains(".exe.old") || lowerName.endsWith(".dll.a") || lowerName in excludedNames) {
+                            return true
+                        }
                         if (isExcludedStaticCoreLibrary(file)) return true
+                        if (isLinuxQtDist && (lowerName == "libgenericui-gtk.so" || lowerName.endsWith("-gtk.kexe"))) {
+                            return true
+                        }
+                        if (isLinuxGtkDist && (lowerName == "libgenericui-qt.so" || lowerName.endsWith("-qt.kexe"))) {
+                            return true
+                        }
                         if (file.isFile && file.extension.lowercase() in excludedExtensions) return true
                         return false
                     }
                     distDir.listFiles()?.forEach { existing ->
-                        if (isExcludedNonWebDistFile(existing)) {
-                            runCatching { existing.delete() }
+                        if (isExcludedNonWebDistFile(existing) ||
+                            (isMacDist && (existing.extension.equals("kexe", ignoreCase = true) ||
+                                existing.extension.equals("dylib", ignoreCase = true) ||
+                                existing.name.endsWith(".dSYM", ignoreCase = true)))
+                        ) {
+                            runCatching { GenericUiSymlinkPreservingCopy.deletePathNoFollow(existing.toPath()) }
                         }
                     }
-                    for (relSrc in candidateSourceDirs) {
-                        val srcDir = File(buildDir, relSrc)
-                        if (!srcDir.exists() || !srcDir.isDirectory) continue
-                        srcDir.listFiles()?.forEach { child ->
-                            if (isExcludedNonWebDistFile(child)) return@forEach
-                            val target = File(distDir, child.name)
-                            runCatching {
-                                if (child.isDirectory) {
-                                    copyFilteredDirectoryContents(child, target)
-                                } else if (child.canonicalFile != target.canonicalFile) {
-                                    target.parentFile?.mkdirs()
-                                    child.copyTo(target, overwrite = true)
+                    val resolvedSourceDirs = when {
+                        isLinuxQtDist -> {
+                            val qtOnly = candidateSourceDirs.filter { it.contains("/qt") }
+                            if (qtOnly.any { File(buildDir, it).let { d -> d.isDirectory && !d.list().isNullOrEmpty() } }) {
+                                qtOnly
+                            } else {
+                                candidateSourceDirs
+                            }
+                        }
+                        isLinuxGtkDist -> {
+                            val gtkOnly = candidateSourceDirs.filter { it.contains("/gtk") }
+                            if (gtkOnly.any { File(buildDir, it).let { d -> d.isDirectory && !d.list().isNullOrEmpty() } }) {
+                                gtkOnly
+                            } else {
+                                candidateSourceDirs
+                            }
+                        }
+                        else -> candidateSourceDirs
+                    }
+                    if (!isMacDist) {
+                        val activeManagedNames = buildSet {
+                            for (relSrc in resolvedSourceDirs) {
+                                val srcDir = File(buildDir, relSrc)
+                                if (!srcDir.exists() || !srcDir.isDirectory) continue
+                                srcDir.listFiles()?.forEach { f ->
+                                    val fp = f.toPath()
+                                    if ((Files.isSymbolicLink(fp) || Files.isRegularFile(fp, LinkOption.NOFOLLOW_LINKS)) &&
+                                        GenericUiBuildNativeSharedLibsTask.isManagedSharedLibraryFileName(f.name)
+                                    ) {
+                                        add(f.name)
+                                    }
+                                }
+                            }
+                        }
+                        distDir.listFiles()?.forEach { existing ->
+                            val ep = existing.toPath()
+                            if ((Files.isSymbolicLink(ep) || Files.isRegularFile(ep, LinkOption.NOFOLLOW_LINKS)) &&
+                                GenericUiBuildNativeSharedLibsTask.isManagedSharedLibraryFileName(existing.name) &&
+                                existing.name !in activeManagedNames
+                            ) {
+                                runCatching { GenericUiSymlinkPreservingCopy.deletePathNoFollow(ep) }
+                            }
+                        }
+                        for (relSrc in resolvedSourceDirs) {
+                            val srcDir = File(buildDir, relSrc)
+                            if (!srcDir.exists() || !srcDir.isDirectory) continue
+                            val sortedChildren = srcDir.listFiles()?.sortedWith(
+                                compareBy<File> { if (Files.isSymbolicLink(it.toPath())) 1 else 0 }
+                                    .thenBy { it.name }
+                            ).orEmpty()
+                            for (child in sortedChildren) {
+                                if (isExcludedNonWebDistFile(child)) continue
+                                val target = File(distDir, child.name)
+                                runCatching {
+                                    GenericUiSymlinkPreservingCopy.copyEntryPreservingSymlinks(
+                                        src = child,
+                                        dst = target,
+                                        sourceRoot = srcDir,
+                                        setExecutableOnBinaries = isLinuxGtkDist || isLinuxQtDist,
+                                        entryFilter = { !isExcludedNonWebDistFile(it) }
+                                    )
                                 }
                             }
                         }
                     }
 
                     val mode = if (distRelativePath.endsWith("/production")) "production" else "development"
-                    val candidateBinDirs = candidateSourceDirs.map { File(buildDir, it) }
+                    val candidateBinDirs = resolvedSourceDirs.map { File(buildDir, it) }
                     val mediaEnabled = isMediaExtensionEnabled(extension)
                     val webViewEnabled = isWebViewExtensionEnabled(extension)
                     val gpuEnabled = isGpuExtensionEnabled(extension)
@@ -1814,6 +1948,7 @@ object GenericUiMultiplatformConfigurator {
             }.configureEach {
                 dependsOn(project.provider {
                     buildList {
+                        add("prepareGenericUiDesktopResources")
                         if (isMediaExtensionEnabled(extension)) add("bundleGenericUiVlc")
                         if (isWebViewExtensionEnabled(extension)) add("bundleGenericUiWebViewProcess")
                         if (isGpuExtensionEnabled(extension)) {

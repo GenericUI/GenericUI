@@ -30,5 +30,7 @@ data class GenericUiResolvedVariantConfig(
     val iconPath: String? = null,
     val appleIconExplicitlyProvided: Boolean = false,
     val globalStyleSheet: String? = null,
-    val extensionOverrides: Map<String, Boolean> = emptyMap()
+    val extensionOverrides: Map<String, Boolean> = emptyMap(),
+    val windowSizeExplicitlySet: Boolean = false,
+    val fullscreenExplicitlySet: Boolean = false
 )

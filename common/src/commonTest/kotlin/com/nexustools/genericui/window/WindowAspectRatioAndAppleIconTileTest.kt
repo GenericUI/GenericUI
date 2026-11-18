@@ -164,6 +164,44 @@ class WindowAspectRatioAndAppleIconTileTest {
     }
 
     @Test
+    fun appleIconTileComposerMatchesCenteredMacos27SquircleSilhouette512() {
+        val srcSize = 64
+        val srcRgba = ByteArray(srcSize * srcSize * 4)
+        for (i in 0 until srcSize * srcSize) {
+            srcRgba[i * 4] = 0x22.toByte()
+            srcRgba[i * 4 + 1] = 0x99.toByte()
+            srcRgba[i * 4 + 2] = 0xDD.toByte()
+            srcRgba[i * 4 + 3] = 0xFF.toByte()
+        }
+        val sourceBuffer = ImageBuffer(srcSize, srcSize, pixelFormat = PixelFormat.RGBA_8888, bytes = srcRgba)
+        val icon512 = AppleIconTileComposer.composeImageBuffer(sourceBuffer, targetSize = 512, fullBleedSquare = false)
+        val bytes = icon512.bytes
+
+        fun alphaAt(x: Int, y: Int): Int = bytes[(y * 512 + x) * 4 + 3].toInt() and 0xFF
+        fun rgbaAt(x: Int, y: Int): List<Int> {
+            val i = (y * 512 + x) * 4
+            return listOf(
+                bytes[i].toInt() and 0xFF,
+                bytes[i + 1].toInt() and 0xFF,
+                bytes[i + 2].toInt() and 0xFF,
+                bytes[i + 3].toInt() and 0xFF
+            )
+        }
+
+        // Outside the [46..465] centered silhouette must have strictly zero alpha (no drop shadow or rim bleed)
+        assertEquals(0, alphaAt(2, 2))
+        assertEquals(0, alphaAt(44, 256))
+        assertEquals(0, alphaAt(467, 256))
+        assertEquals(0, alphaAt(56, 56))
+        assertEquals(0, alphaAt(455, 455))
+
+        // Inside diagonal (82, 82) and white midline border (60, 256) must be pure opaque white
+        val diag = rgbaAt(82, 82)
+        assertTrue(diag[3] >= 200 && diag[0] == 255 && diag[1] == 255 && diag[2] == 255, "diagonal=$diag")
+        assertEquals(listOf(255, 255, 255, 255), rgbaAt(60, 256))
+    }
+
+    @Test
     fun windowAspectRatioHelperEnforcesAxisDominantResize() {
         val ratio = 16.0 / 9.0
         val widthDragged = WindowAspectRatioHelper.enforceResizeDelta(

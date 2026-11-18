@@ -11,6 +11,9 @@ import java.io.ByteArrayOutputStream
 import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.nio.file.Files
+import java.nio.file.LinkOption
+import java.nio.file.Paths
 
 /**
  * Gradle task that stages LibVLC native runtime binaries (`libvlc`, `libvlccore`, and `plugins/`)
@@ -44,14 +47,27 @@ abstract class VlcNativeBundleTask : DefaultTask() {
                 true
             } else {
                 val out = outputDirectory.get().asFile
+                val isWindowsHost = System.getProperty("os.name").orEmpty().lowercase().contains("win")
+                val macSymlinksValid = isWindowsHost || (
+                    Files.isRegularFile(File(out, "macos/libvlc.5.dylib").toPath(), LinkOption.NOFOLLOW_LINKS) &&
+                        Files.isSymbolicLink(File(out, "macos/libvlc.dylib").toPath()) &&
+                        Files.isRegularFile(File(out, "macos/libvlccore.9.dylib").toPath(), LinkOption.NOFOLLOW_LINKS) &&
+                        Files.isSymbolicLink(File(out, "macos/libvlccore.dylib").toPath())
+                    )
+                val linuxSymlinksValid = isWindowsHost || (
+                    Files.isSymbolicLink(File(out, "linux/libvlc.so").toPath()) &&
+                        Files.isSymbolicLink(File(out, "linux/libvlccore.so").toPath())
+                    )
                 val macPlugins = File(out, "macos/plugins")
                 val hostMacPlugins = File("/Applications/VLC.app/Contents/MacOS/plugins")
                 if (hostMacPlugins.isDirectory) {
-                    File(out, "macos/libvlccore.dylib").isFile &&
+                    macSymlinksValid &&
+                        linuxSymlinksValid &&
+                        File(out, "macos/libvlccore.dylib").isFile &&
                         File(out, "macos/libvlc.dylib").isFile &&
                         (macPlugins.listFiles()?.any { it.isFile && it.name.endsWith(".dylib") } == true)
                 } else {
-                    true
+                    macSymlinksValid && linuxSymlinksValid
                 }
             }
         }
@@ -156,9 +172,9 @@ abstract class VlcNativeBundleTask : DefaultTask() {
             }
         } else {
             writeMachOArm64DylibStub(dstLibVlcCore, "@rpath/libvlccore.9.dylib")
-            writeMachOArm64DylibStub(dstLibVlcCoreUnversioned, "@rpath/libvlccore.dylib")
+            createOrUpdateSymlinkOrCopy(dstLibVlcCoreUnversioned, "libvlccore.9.dylib", dstLibVlcCore)
             writeMachOArm64DylibStub(dstLibVlc, "@rpath/libvlc.5.dylib")
-            writeMachOArm64DylibStub(dstLibVlcUnversioned, "@rpath/libvlc.dylib")
+            createOrUpdateSymlinkOrCopy(dstLibVlcUnversioned, "libvlc.5.dylib", dstLibVlc)
             ensureMinimalPluginsDir(dstPluginsDir)
         }
     }
@@ -166,7 +182,9 @@ abstract class VlcNativeBundleTask : DefaultTask() {
     private fun stageLinuxVlc(linuxOutDir: File) {
         linuxOutDir.mkdirs()
         val dstLibVlc = File(linuxOutDir, "libvlc.so.5")
+        val dstLibVlcUnversioned = File(linuxOutDir, "libvlc.so")
         val dstLibVlcCore = File(linuxOutDir, "libvlccore.so.9")
+        val dstLibVlcCoreUnversioned = File(linuxOutDir, "libvlccore.so")
         val dstPluginsDir = File(linuxOutDir, "plugins")
 
         val candidateLibDirs = buildList {
@@ -194,7 +212,9 @@ abstract class VlcNativeBundleTask : DefaultTask() {
             val srcVlc = File(foundLibDir, "libvlc.so.5").takeIf { it.isFile } ?: File(foundLibDir, "libvlc.so")
             val srcCore = File(foundLibDir, "libvlccore.so.9").takeIf { it.isFile } ?: File(foundLibDir, "libvlccore.so")
             copyFileIfChanged(srcVlc, dstLibVlc)
+            createOrUpdateSymlinkOrCopy(dstLibVlcUnversioned, "libvlc.so.5", srcVlc)
             copyFileIfChanged(srcCore, dstLibVlcCore)
+            createOrUpdateSymlinkOrCopy(dstLibVlcCoreUnversioned, "libvlccore.so.9", srcCore)
             val srcPlugins = File(foundLibDir, "vlc/plugins")
             if (srcPlugins.isDirectory) {
                 copyVlcPluginsFiltered(srcPlugins, dstPluginsDir)
@@ -203,6 +223,8 @@ abstract class VlcNativeBundleTask : DefaultTask() {
             }
         } else {
             compileOrWriteLinuxVlcStubSos(linuxOutDir, dstLibVlcCore, dstLibVlc)
+            createOrUpdateSymlinkOrCopy(dstLibVlcCoreUnversioned, "libvlccore.so.9", dstLibVlcCore)
+            createOrUpdateSymlinkOrCopy(dstLibVlcUnversioned, "libvlc.so.5", dstLibVlc)
             ensureMinimalPluginsDir(dstPluginsDir)
         }
     }
@@ -278,8 +300,8 @@ abstract class VlcNativeBundleTask : DefaultTask() {
 
         private fun copyFileIfChanged(src: File, dst: File) {
             if (!src.isFile) return
-            if (java.nio.file.Files.isSymbolicLink(dst.toPath())) {
-                java.nio.file.Files.deleteIfExists(dst.toPath())
+            if (Files.isSymbolicLink(dst.toPath())) {
+                Files.deleteIfExists(dst.toPath())
             }
             if (dst.isFile && dst.length() == src.length()) return
             dst.parentFile?.mkdirs()
@@ -287,18 +309,10 @@ abstract class VlcNativeBundleTask : DefaultTask() {
         }
 
         private fun createOrUpdateSymlinkOrCopy(dstLink: File, targetFileName: String, fallbackSrc: File) {
-            dstLink.parentFile?.mkdirs()
-            val linkPath = dstLink.toPath()
-            val targetPath = java.nio.file.Paths.get(targetFileName)
-            try {
-                if (java.nio.file.Files.isSymbolicLink(linkPath) &&
-                    java.nio.file.Files.readSymbolicLink(linkPath) == targetPath
-                ) {
-                    return
-                }
-                java.nio.file.Files.deleteIfExists(linkPath)
-                java.nio.file.Files.createSymbolicLink(linkPath, targetPath)
-            } catch (_: Throwable) {
+            GenericUiSymlinkPreservingCopy.createOrUpdateSymlinkOrFallback(
+                dstLink = dstLink,
+                targetPath = Paths.get(targetFileName)
+            ) {
                 copyFileIfChanged(fallbackSrc, dstLink)
             }
         }
@@ -306,25 +320,49 @@ abstract class VlcNativeBundleTask : DefaultTask() {
         private fun copyVlcPluginsFiltered(srcPluginsDir: File, dstPluginsDir: File) {
             dstPluginsDir.mkdirs()
             val pluginsDat = File(srcPluginsDir, "plugins.dat")
-            if (pluginsDat.isFile) {
-                copyFileIfChanged(pluginsDat, File(dstPluginsDir, "plugins.dat"))
+            if (Files.exists(pluginsDat.toPath(), LinkOption.NOFOLLOW_LINKS)) {
+                GenericUiSymlinkPreservingCopy.copyEntryPreservingSymlinks(
+                    src = pluginsDat,
+                    dst = File(dstPluginsDir, "plugins.dat"),
+                    sourceRoot = srcPluginsDir
+                )
             }
-            srcPluginsDir.listFiles()?.forEach { entry ->
-                if (entry.isFile) {
+            val sortedEntries = srcPluginsDir.listFiles()?.sortedWith(
+                compareBy<File> { if (Files.isSymbolicLink(it.toPath())) 1 else 0 }
+                    .thenBy { it.name }
+            ).orEmpty()
+            sortedEntries.forEach { entry ->
+                val entryPath = entry.toPath()
+                val isRealDir = Files.isDirectory(entryPath, LinkOption.NOFOLLOW_LINKS)
+                if (!isRealDir && (Files.isSymbolicLink(entryPath) || entry.isFile)) {
                     // macOS VLC.app stores all *_plugin.dylib modules flat inside Contents/MacOS/plugins/
                     val lower = entry.name.lowercase()
                     if (!lower.endsWith(".dylib") && !lower.endsWith(".so") && !lower.endsWith(".dll")) return@forEach
                     if (isExcludedVlcPluginFile(entry)) return@forEach
                     if (GenericUiMultiplatformConfigurator.isExcludedStaticCoreLibrary(entry)) return@forEach
-                    copyFileIfChanged(entry, File(dstPluginsDir, entry.name))
-                } else if (entry.isDirectory && entry.name in ESSENTIAL_VLC_PLUGIN_SUBDIRS) {
+                    GenericUiSymlinkPreservingCopy.copyEntryPreservingSymlinks(
+                        src = entry,
+                        dst = File(dstPluginsDir, entry.name),
+                        sourceRoot = srcPluginsDir
+                    )
+                } else if (isRealDir && entry.name in ESSENTIAL_VLC_PLUGIN_SUBDIRS) {
                     val targetSubDir = File(dstPluginsDir, entry.name)
                     targetSubDir.mkdirs()
-                    entry.listFiles()?.forEach { file ->
-                        if (!file.isFile) return@forEach
+                    val sortedSubEntries = entry.listFiles()?.sortedWith(
+                        compareBy<File> { if (Files.isSymbolicLink(it.toPath())) 1 else 0 }
+                            .thenBy { it.name }
+                    ).orEmpty()
+                    sortedSubEntries.forEach { file ->
+                        val filePath = file.toPath()
+                        if (Files.isDirectory(filePath, LinkOption.NOFOLLOW_LINKS)) return@forEach
+                        if (!Files.isSymbolicLink(filePath) && !file.isFile) return@forEach
                         if (isExcludedVlcPluginFile(file)) return@forEach
                         if (GenericUiMultiplatformConfigurator.isExcludedStaticCoreLibrary(file)) return@forEach
-                        copyFileIfChanged(file, File(targetSubDir, file.name))
+                        GenericUiSymlinkPreservingCopy.copyEntryPreservingSymlinks(
+                            src = file,
+                            dst = File(targetSubDir, file.name),
+                            sourceRoot = srcPluginsDir
+                        )
                     }
                 }
             }
@@ -531,6 +569,7 @@ abstract class VlcNativeBundleTask : DefaultTask() {
 
         internal fun writeMinimalPe64Dll(target: File) {
             target.parentFile?.mkdirs()
+            GenericUiSymlinkPreservingCopy.deletePathNoFollow(target.toPath())
             val buf = ByteBuffer.allocate(1024).order(ByteOrder.LITTLE_ENDIAN)
             // DOS Header ("MZ")
             buf.put(0, 'M'.code.toByte())
@@ -572,8 +611,47 @@ abstract class VlcNativeBundleTask : DefaultTask() {
             target.writeBytes(buf.array())
         }
 
+        internal fun isHeaderOnlyMachOStub(file: File): Boolean {
+            if (!file.isFile || file.length() != 4096L) return false
+            val header = ByteArray(20)
+            val read = file.inputStream().use { it.read(header) }
+            if (read < 20) return false
+            val buf = ByteBuffer.wrap(header).order(ByteOrder.LITTLE_ENDIAN)
+            val magic = buf.getInt(0)
+            val ncmds = buf.getInt(16)
+            return magic == 0xFEEDFACF.toInt() && ncmds <= 1
+        }
+
         internal fun writeMachOArm64DylibStub(target: File, installName: String) {
             target.parentFile?.mkdirs()
+            GenericUiSymlinkPreservingCopy.deletePathNoFollow(target.toPath())
+            val osName = System.getProperty("os.name").orEmpty().lowercase()
+            if (osName.contains("mac") || osName.contains("darwin")) {
+                if (target.exists()) {
+                    target.delete()
+                }
+                val compiled = runCatching {
+                    val proc = ProcessBuilder(
+                        "xcrun",
+                        "clang",
+                        "-arch",
+                        "arm64",
+                        "-dynamiclib",
+                        "-install_name",
+                        installName,
+                        "-x",
+                        "c",
+                        "/dev/null",
+                        "-o",
+                        target.absolutePath
+                    ).redirectErrorStream(true).start()
+                    proc.inputStream.bufferedReader(Charsets.UTF_8).readText()
+                    proc.waitFor() == 0 && target.isFile && target.length() > 0L
+                }.getOrDefault(false)
+                if (compiled) {
+                    return
+                }
+            }
             val nameBytes = (installName + "\u0000").toByteArray(Charsets.UTF_8)
             val cmdSize = (24 + nameBytes.size + 7) and -8
             val totalSize = (32 + cmdSize).coerceAtLeast(4096)
@@ -600,6 +678,7 @@ abstract class VlcNativeBundleTask : DefaultTask() {
 
         internal fun writeMinimalElf64SharedObject(target: File) {
             target.parentFile?.mkdirs()
+            GenericUiSymlinkPreservingCopy.deletePathNoFollow(target.toPath())
             val buf = ByteBuffer.allocate(256).order(ByteOrder.LITTLE_ENDIAN)
             // ELF64 header
             buf.put(0, 0x7F)
