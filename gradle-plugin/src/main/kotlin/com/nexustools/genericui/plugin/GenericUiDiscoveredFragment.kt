@@ -16,7 +16,8 @@ data class GenericUiDiscoveredFragment(
     val screenOrientation: String = "",
     val hasNoArgConstructor: Boolean = true,
     val sourceFilePath: String = "",
-    val isApplicationClass: Boolean = false
+    val isApplicationClass: Boolean = false,
+    val annotations: Set<String> = emptySet()
 ) {
     /**
      * Simple class name of the 1:1 Android `AppCompatActivity` generated for this fragment
@@ -30,4 +31,32 @@ data class GenericUiDiscoveredFragment(
      */
     val generatedActivityQualifiedName: String
         get() = if (packageName.isEmpty()) generatedActivitySimpleName else "$packageName.$generatedActivitySimpleName"
+
+    /**
+     * Returns `true` if this discovered class carries an annotation matching [simpleOrQualifiedName]
+     * (ignoring an optional leading `'@'`, case-insensitively across simple or qualified names).
+     */
+    fun hasAnnotation(simpleOrQualifiedName: String): Boolean {
+        val normalizedTarget = simpleOrQualifiedName.trim().removePrefix("@").trim()
+        if (normalizedTarget.isEmpty() || annotations.isEmpty()) return false
+        val targetSimple = normalizedTarget.substringAfterLast('.')
+        val targetIsQualified = '.' in normalizedTarget
+        return annotations.any { raw ->
+            val candidate = raw.trim().removePrefix("@").trim()
+            if (candidate.isEmpty()) {
+                false
+            } else if (candidate.equals(normalizedTarget, ignoreCase = true)) {
+                true
+            } else if (targetIsQualified) {
+                if ('.' in candidate) {
+                    candidate.equals(normalizedTarget, ignoreCase = true)
+                } else {
+                    candidate.equals(targetSimple, ignoreCase = true)
+                }
+            } else {
+                candidate.substringAfterLast('.').equals(normalizedTarget, ignoreCase = true) ||
+                    candidate.endsWith(".$normalizedTarget", ignoreCase = true)
+            }
+        }
+    }
 }

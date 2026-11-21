@@ -267,7 +267,7 @@ open class MdiWindow(
             WindowState.FULLSCREEN -> {
                 setFullscreen(true, DisplayCutoutMode.SHORT_EDGES)
             }
-            WindowState.NORMAL, WindowState.PICTURE_IN_PICTURE -> {
+            WindowState.NORMAL -> {
                 fullscreenState = false
                 restore()
             }

@@ -14,10 +14,20 @@ open class GenericUiAndroidServiceSpec(val className: String) : Serializable {
     var foregroundServiceType: String = ""
     var permission: String = ""
     var process: String = ""
+    var stopWithTask: Boolean? = null
+    var isolatedProcess: Boolean? = null
     val intentActions: MutableList<String> = mutableListOf()
     val intentFilters: MutableList<GenericUiAndroidIntentFilterSpec> = mutableListOf()
     val metaDataList: MutableList<GenericUiAndroidMetaDataSpec> = mutableListOf()
+    val properties: MutableMap<String, String> = linkedMapOf()
     var autoAddForegroundServicePermission: Boolean = false
+
+    /** Adds or replaces a `<property android:name="..." android:value="..." />` inside this `<service>`. */
+    fun property(name: String, value: String) {
+        val trimmed = name.trim()
+        require(trimmed.isNotEmpty()) { "Service <property> name must not be blank." }
+        properties[trimmed] = value
+    }
 
     /** Adds an `<action android:name="..."/>` to this service's default `<intent-filter>`. */
     fun intentAction(action: String) {
@@ -50,9 +60,12 @@ open class GenericUiAndroidServiceSpec(val className: String) : Serializable {
         copy.foregroundServiceType = foregroundServiceType
         copy.permission = permission
         copy.process = process
+        copy.stopWithTask = stopWithTask
+        copy.isolatedProcess = isolatedProcess
         copy.intentActions.addAll(intentActions)
         intentFilters.mapTo(copy.intentFilters) { it.copySpec() }
         metaDataList.mapTo(copy.metaDataList) { it.copy() }
+        copy.properties.putAll(properties)
         copy.autoAddForegroundServicePermission = autoAddForegroundServicePermission
     }
 }

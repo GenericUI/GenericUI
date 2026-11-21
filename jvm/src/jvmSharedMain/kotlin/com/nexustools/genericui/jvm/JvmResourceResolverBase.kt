@@ -26,9 +26,17 @@ open class JvmResourceResolverBase(
         val registered = Resources.activeTable.findResourceId(resId.id)
             ?: Resources.activeTable.findResourceId(resId.type, resId.name)
             ?: resId
+        val canonical = registered.canonicalRelativePath.trimStart('/')
         val rel = registered.relativePath.ifEmpty { resId.relativePath }.trimStart('/')
-        val fileName = rel.substringAfterLast('/').ifEmpty { resId.name }
+        val stripped = ResourceID.stripScopePrefix(canonical)
+        val fileName = canonical.substringAfterLast('/').ifEmpty { resId.name }
         return buildList {
+            if (canonical.isNotEmpty()) {
+                add(canonical)
+            }
+            if (stripped.isNotEmpty() && stripped != canonical) {
+                add(stripped)
+            }
             if (rel.isNotEmpty()) {
                 add(rel)
                 add("assets/$rel")

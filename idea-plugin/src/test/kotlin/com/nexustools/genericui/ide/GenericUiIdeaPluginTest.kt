@@ -137,7 +137,8 @@ class GenericUiIdeaPluginTest {
 
     @Test
     fun testAllCategorizedExtensionsDslModulesAndTransitiveDependencies() {
-        assertEquals(19, GenericUiExtensionModule.entries.size)
+        assertEquals(21, GenericUiExtensionModule.entries.size)
+        assertTrue(GenericUiExtensionModule.entries.contains(GenericUiExtensionModule.SERVICE_WORKER))
         for (ext in GenericUiExtensionModule.entries) {
             assertTrue(ext.description.isNotBlank(), "Missing description for $ext")
             assertEquals(ext, GenericUiExtensionModule.fromDslMethod(ext.dslMethodName))
@@ -175,6 +176,8 @@ class GenericUiIdeaPluginTest {
         assertEquals(":extensions:media:media:dsl", GenericUiExtensionModule.MEDIA.dslModulePath)
         assertEquals(":extensions:media:mediacontrols", GenericUiExtensionModule.MEDIA_CONTROLS.gradleModulePath)
         assertEquals(":extensions:media:mediacontrols:dsl", GenericUiExtensionModule.MEDIA_CONTROLS.dslModulePath)
+        assertEquals(":extensions:data:schema", GenericUiExtensionModule.SCHEMA.gradleModulePath)
+        assertEquals(":extensions:data:schema:dsl", GenericUiExtensionModule.SCHEMA.dslModulePath)
 
         assertEquals(":extensions:ui:dsl", GenericUiExtensionModule.DSL.gradleModulePath)
         assertEquals(":extensions:ui:overlay", GenericUiExtensionModule.OVERLAY.gradleModulePath)
@@ -193,9 +196,13 @@ class GenericUiIdeaPluginTest {
         assertFalse(GenericUiExtensionModule.IMAGE_PROCESSING.hasDslModule)
         assertFalse(GenericUiExtensionModule.DSL.hasDslModule)
 
-        // Media depends only on Overlay (not GPU)
+        // Media depends on Overlay and Schema (not GPU)
         assertEquals(
-            setOf(GenericUiExtensionModule.MEDIA, GenericUiExtensionModule.OVERLAY),
+            setOf(
+                GenericUiExtensionModule.MEDIA,
+                GenericUiExtensionModule.OVERLAY,
+                GenericUiExtensionModule.SCHEMA
+            ),
             GenericUiExtensionModule.resolveTransitive(setOf(GenericUiExtensionModule.MEDIA))
         )
 

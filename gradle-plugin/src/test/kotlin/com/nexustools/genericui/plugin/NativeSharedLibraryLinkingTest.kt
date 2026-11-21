@@ -76,6 +76,10 @@ class NativeSharedLibraryLinkingTest {
         assertEquals("genericui-ext-media.dll", GenericUiNativeSharedLibraryCatalog.sharedLibraryFileName("genericui-ext-media", "mingw_x64"))
         assertEquals("njs.dll", GenericUiNativeSharedLibraryCatalog.sharedLibraryFileName("njs", "mingw_x64"))
         assertEquals("genericui-tests.dll", GenericUiNativeSharedLibraryCatalog.sharedLibraryFileName("genericui-tests", "mingw_x64"))
+        assertEquals(
+            "org.jetbrains.kotlinx_atomicfu-cache.dll",
+            GenericUiNativeSharedLibraryCatalog.cacheArtifactFileName("org.jetbrains.kotlinx:atomicfu", "mingw_x64")
+        )
     }
 
     @Test
@@ -155,6 +159,7 @@ class NativeSharedLibraryLinkingTest {
             assertTrue(shimJar.isFile)
             ZipFile(shimJar).use { zip ->
                 assertNotNull(zip.getEntry("org/jetbrains/kotlin/backend/konan/CachedLibraries.class"))
+                assertNotNull(zip.getEntry("org/jetbrains/kotlin/backend/konan/CachedLibraries\$Companion.class"))
                 assertNotNull(zip.getEntry("org/jetbrains/kotlin/backend/konan/driver/phases/TopLevelPhasesKt.class"))
             }
 
@@ -172,7 +177,8 @@ class NativeSharedLibraryLinkingTest {
                 arrayOf(perFileShimJar.toURI().toURL(), shimJar.toURI().toURL(), embeddableJar.toURI().toURL()),
                 null
             ).use { loader ->
-                val cachedCls = Class.forName("org.jetbrains.kotlin.backend.konan.CachedLibraries", false, loader)
+                val cachedCls = Class.forName("org.jetbrains.kotlin.backend.konan.CachedLibraries", true, loader)
+                val companionCls = Class.forName("org.jetbrains.kotlin.backend.konan.CachedLibraries\$Companion", true, loader)
                 val phasesCls = Class.forName("org.jetbrains.kotlin.backend.konan.driver.phases.TopLevelPhasesKt", false, loader)
                 val propInlineCls = Class.forName(
                     "org.jetbrains.kotlin.backend.common.lower.optimizations.PropertyAccessorInlineLowering",
@@ -180,6 +186,12 @@ class NativeSharedLibraryLinkingTest {
                     loader
                 )
                 assertNotNull(cachedCls.declaredMethods.firstOrNull { it.name == "getHasDynamicCaches" })
+                val companionInstance = cachedCls.getField("Companion").get(null)
+                val getCachedNameMethod = companionCls.getMethod("getCachedLibraryName", String::class.java)
+                assertEquals(
+                    "org.jetbrains.kotlinx_atomicfu-cinterop-interop-cache",
+                    getCachedNameMethod.invoke(companionInstance, "org.jetbrains.kotlinx:atomicfu-cinterop-interop")
+                )
                 assertNotNull(phasesCls)
                 assertTrue(propInlineCls.declaredMethods.any { it.name == "isSafeToInline" })
             }
@@ -442,6 +454,106 @@ class NativeSharedLibraryLinkingTest {
         }
     }
 
+    @Test
+    fun `windows coff partitioner isolates dead MinGW imports so linked DLL loads cleanly`() {
+        val osName = System.getProperty("os.name").orEmpty().lowercase()
+        if (!osName.contains("win")) return
+        val konanHome = findInstalledKonanHome() ?: return
+        val konanDataDir = System.getenv("KONAN_DATA_DIR")?.takeIf { it.isNotBlank() }?.let { File(it) }
+            ?: File(System.getProperty("user.home"), ".konan")
+        val depsDir = File(konanDataDir, "dependencies")
+        val llvmDir = depsDir.listFiles()
+            ?.firstOrNull { it.isDirectory && File(it, "bin/clang.exe").isFile && File(it, "bin/ld.lld.exe").isFile }
+            ?: return
+        val sysRoot = File(depsDir, "msys2-mingw-w64-x86_64-2")
+        if (!sysRoot.isDirectory) return
+
+        val clangExe = File(llvmDir, "bin/clang.exe")
+        val llvmArExe = File(llvmDir, "bin/llvm-ar.exe")
+        val ldLldExe = File(llvmDir, "bin/ld.lld.exe")
+
+        val tempDir = Files.createTempDirectory("genericui-coff-partition-test").toFile()
+        try {
+            val libSrc = File(tempDir, "lib_monolith.c").apply {
+                writeText(
+                    """
+                    extern int _getdllprocaddr(void);
+                    int used_fn(void) { return 7; }
+                    int dead_fn(void) { return _getdllprocaddr(); }
+                    """.trimIndent(),
+                    Charsets.UTF_8
+                )
+            }
+            val callerSrc = File(tempDir, "caller.c").apply {
+                writeText(
+                    """
+                    extern int used_fn(void);
+                    __declspec(dllexport) int caller_entry(void) { return used_fn(); }
+                    """.trimIndent(),
+                    Charsets.UTF_8
+                )
+            }
+            val libObj = File(tempDir, "lib_monolith.o")
+            val callerObj = File(tempDir, "caller.o")
+            val archive = File(tempDir, "libpartitioned.a")
+            val outDll = File(tempDir, "partition_probe.dll")
+
+            fun runTool(args: List<String>) {
+                val proc = ProcessBuilder(args).redirectErrorStream(true).start()
+                val out = proc.inputStream.bufferedReader().readText()
+                assertEquals(0, proc.waitFor(), "Tool failed: ${args.joinToString(" ")}\n$out")
+            }
+
+            runTool(
+                listOf(
+                    clangExe.absolutePath,
+                    "-target", "x86_64-pc-windows-gnu",
+                    "-ffunction-sections", "-fdata-sections",
+                    "-c", libSrc.absolutePath,
+                    "-o", libObj.absolutePath
+                )
+            )
+            runTool(
+                listOf(
+                    clangExe.absolutePath,
+                    "-target", "x86_64-pc-windows-gnu",
+                    "-ffunction-sections", "-fdata-sections",
+                    "-c", callerSrc.absolutePath,
+                    "-o", callerObj.absolutePath
+                )
+            )
+
+            WindowsCoffObjectPartitioner.partitionObjectsIntoArchive(
+                objectFiles = listOf(libObj),
+                llvmArExecutable = llvmArExe,
+                targetArchive = archive
+            )
+            assertTrue(archive.isFile && archive.length() > 0L)
+
+            runTool(
+                listOf(
+                    clangExe.absolutePath,
+                    "--sysroot", sysRoot.absolutePath,
+                    "-target", "x86_64-pc-windows-gnu",
+                    "-shared",
+                    "-fuse-ld=${ldLldExe.absolutePath}",
+                    "-Wl,--gc-sections",
+                    "-o", outDll.absolutePath,
+                    callerObj.absolutePath,
+                    archive.absolutePath,
+                    "-lmsvcrt"
+                )
+            )
+            assertTrue(outDll.isFile && outDll.length() > 0L)
+
+            // Fails immediately with UnsatisfiedLinkError if _getdllprocaddr was pulled into msvcrt imports.
+            System.load(outDll.absolutePath)
+            assertNotNull(konanHome)
+        } finally {
+            runCatching { tempDir.deleteRecursively() }
+        }
+    }
+
     private fun writeFakeKlibDir(
         rootDir: File,
         folderName: String,
@@ -474,10 +586,12 @@ class NativeSharedLibraryLinkingTest {
         val konanDir = File(System.getProperty("user.home"), ".konan")
         if (!konanDir.isDirectory) return null
         return konanDir.listFiles()
-            ?.firstOrNull {
+            ?.filter {
                 it.isDirectory &&
                     it.name.startsWith("kotlin-native-prebuilt-") &&
                     File(it, "konan/lib/kotlin-native-compiler-embeddable.jar").isFile
             }
+            ?.sortedByDescending { it.name }
+            ?.firstOrNull()
     }
 }

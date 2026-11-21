@@ -1,15 +1,15 @@
-# GenericUI Image API, GPU, Overlays, Canvases, & Media Guide
+# GenericUI Image API, GPU, Overlays, Canvases, PiP, & Media Guide
 
 > **Root Repository**: [**GenericUI (`../README.md`)**](../README.md) | **Master Docs Index**: [**`docs/README.md`**](./README.md)  
-> **Related Guides**: [Extensions Overview (`extensions.md`)](./extensions.md) · [Resources (`resources.md`)](./resources.md) · [Platform Backends (`backends.md`)](./backends.md) · [Overlay Extension (`../extensions/docs/overlay.md`)](../extensions/docs/overlay.md) · [Media Extension (`../extensions/docs/media.md`)](../extensions/docs/media.md) · [Media Controls Extension (`../extensions/docs/mediacontrols.md`)](../extensions/docs/mediacontrols.md)
+> **Related Guides**: [Extensions Overview (`extensions.md`)](./extensions.md) · [Resources (`resources.md`)](./resources.md) · [Platform Backends (`backends.md`)](./backends.md) · [Overlay Extension (`../extensions/docs/overlay.md`)](../extensions/docs/overlay.md) · [Picture-in-Picture (`../extensions/docs/pip.md`)](../extensions/docs/pip.md) · [Media Extension (`../extensions/docs/media.md`)](../extensions/docs/media.md) · [Media Controls Extension (`../extensions/docs/mediacontrols.md`)](../extensions/docs/mediacontrols.md) · [Schema Extension (`../extensions/docs/schema.md`)](../extensions/docs/schema.md)
 
-GenericUI cleanly separates its base multi-format **Image API** (`com.nexustools.genericui.image.*`) and **`AbstractCanvas`** VBlank timing base class in `:common` from its modular extensions for GPU compute ([`:extensions:graphics:gpu`](../extensions/docs/gpu.md)), offscreen GPU image processing ([`:extensions:graphics:imageprocessing`](../extensions/docs/imageprocessing.md)), interactive overlays ([`:extensions:ui:overlay`](../extensions/docs/overlay.md)), 2D/3D hardware canvases ([`:extensions:graphics:canvas2d`](../extensions/docs/canvas2d.md), [`:extensions:graphics:canvas3d`](../extensions/docs/canvas3d.md)), media playback ([`:extensions:media:media`](../extensions/docs/media.md)), and OS/keyboard media controls ([`:extensions:media:mediacontrols`](../extensions/docs/mediacontrols.md)).
+GenericUI cleanly separates its base multi-format **Image API** (`com.nexustools.genericui.image.*`), hardware **`backdrop-filter`** support on **`StyledButton`** & **`StyledContainer`** across all 9 backends, and **`AbstractCanvas`** VBlank timing base class in `:common` from its modular extensions for GPU compute ([`:extensions:graphics:gpu`](../extensions/docs/gpu.md)), offscreen GPU image processing ([`:extensions:graphics:imageprocessing`](../extensions/docs/imageprocessing.md)), pure interactive overlays ([`:extensions:ui:overlay`](../extensions/docs/overlay.md)), Picture-in-Picture ([`:extensions:ui:pip`](../extensions/docs/pip.md)), 2D/3D hardware canvases ([`:extensions:graphics:canvas2d`](../extensions/docs/canvas2d.md), [`:extensions:graphics:canvas3d`](../extensions/docs/canvas3d.md)), media playback ([`:extensions:media:media`](../extensions/docs/media.md)), and OS/keyboard media controls ([`:extensions:media:mediacontrols`](../extensions/docs/mediacontrols.md)).
 
 ---
 
-## 1. Base `:common` Full Image API (`com.nexustools.genericui.image.*`)
+## 1. Base `:common` Full Image API (`com.nexustools.genericui.image.*`) & Hardware `backdrop-filter`
 
-Every GenericUI application has out-of-the-box access to a complete, cross-platform Image API in `:common`:
+Every GenericUI application has out-of-the-box access to a complete, cross-platform Image API in `:common`, plus full aesthetic `ComponentStyle` support (including hardware `backdropFilter` / `setBackdropBlur(...)` validated via `AestheticStylePolicy`) on both **`StyledButton`** and **`StyledContainer`**:
 
 | Class / Enum (`1 Class Per File`) | Responsibility |
 | :--- | :--- |
@@ -32,14 +32,14 @@ Every GenericUI application has out-of-the-box access to a complete, cross-platf
 
 ---
 
-## 3. `:extensions:ui:overlay` — Universal Overlay Chrome Architecture
+## 3. `:extensions:ui:overlay` — Pure `LayeredContainer` Chrome & `YoutubePlayerOverlay`
 
-[`:extensions:ui:overlay`](../extensions/docs/overlay.md) (`com.nexustools.genericui.ext.overlay`) is a standalone, 100% generic KMP extension depending **only on `:common`**. It is automatically enabled whenever `media()`, `canvas2d()`, or `canvas3d()` is enabled in `build.gradle.kts`, and can also be enabled directly via `overlay()`:
-- **Generic Layout Presets**:
-  - **`MobileOverlayPreset`**: Mobile-optimized layout with top gradient scrim, title/subtitle + generic `OverlayBadge` chip slot, trailing action buttons, optional `CenterTransportCluster` (`−skip`, `Play/Pause` with loading spinner, `+skip`), bottom status pill, 20dp `SliderSeekBar` with drag-with-preview, `OverlayModalDialog`, `SubtitleCueView`, and `OverlayCurtain`.
-  - **`WebSystemOverlayPreset`**: System + Web layout with top/bottom gradient scrims, metadata header + top status line, `TrackSeekBar` (6px track expanding to 10px on hover with time tooltip + drag-with-preview), bottom `OverlayButtonBar` (Play/Pause, hover-revealed Volume slider, Time label, custom leading/center/trailing slots, Fullscreen), `BELOW_HOST` `OverlayBadgeStrip` slot, anchored `OverlayPopoverPanel`, and immediate hide on `onPointerLeave`.
-  - **`OverlayPresetResolver`**: Automatically selects `MobileOverlayPreset` on mobile backends (`Android`, `IOS`, `IPadOS`) and `WebSystemOverlayPreset` on Web and desktop backends (`Windows`, `MacOS`, `Gtk`, `Qt`, `Swing`, `Web`).
-- **Shared Behavior Controllers**: `AutoHideController` (3500ms delay, 200ms fade, generic pin reasons, automatic hiding when `isInPictureInPictureMode == true`) and `OverlayInputRouter` (configurable app-wide keyboard shortcuts on all 9 backends, ignored when a text input has focus).
+[`:extensions:ui:overlay`](../extensions/docs/overlay.md) (`com.nexustools.genericui.ext.overlay`) is a standalone, 100% generic KMP extension depending **only on `:common`**. It is enabled automatically by `media()`, `pip()`, `canvas2d()`, and `canvas3d()` (or directly via `overlay()`):
+
+- **Pure, Background-Free Hosts & Overlay Chrome**: `OverlayHost` / `OverlayHostBox` and `Overlay` auto-attach zero default preset chrome or scrims until explicitly composed.
+- **9 Pure-Bezier Vector Icons & Styled Transport Controls**: [`OverlayIcons`](../extensions/ui/overlay/src/commonMain/kotlin/com/nexustools/genericui/ext/overlay/OverlayIcons.kt) resolves 9 SVG drawables from **`com.nexustools.genericui.ext.overlay.res.R.drawable`** (`ic_play`, `ic_pause`, `ic_rewind`, `ic_fast_forward`, `ic_stop`, `ic_next`, `ic_previous`, `ic_fullscreen_enter`, `ic_fullscreen_exit`), powering `OverlayControlButton` (`CIRCLE_PILL` / `CENTER_PRIMARY` / `CENTER_SECONDARY` / `INNER_PILL` variants + hardware `backdropFilter` glass support), `OverlayPlayPauseButton`, `OverlayFullscreenButton`, and `OverlayControlButtons`.
+- **`YoutubePlayerOverlay` & `HybridOverlayDifferenceController`**: Full 3-zone HUD (`topBar`, `centerZone`, `bottomBar` with configurable `ABOVE_CONTROLS` / `BELOW_CONTROLS` timeline placement), persistent auto-hide-exempt `subtitleBanner`, hover timeline preview (`seekHoverBubble`), registered popover pinning, and adaptive switching between `HybridOverlayLayoutMode.SMALL_MOBILE_PORTRAIT` (frosted `backdrop-filter` center `Rewind`/`PlayPause`/`FastForward` buttons + `BELOW_CONTROLS` timeline) and `HybridOverlayLayoutMode.MEDIUM_LARGE`.
+- **Shared Behavior Controllers**: `AutoHideController` (pin reasons + immediate Picture-in-Picture suppression via `setPictureInPictureMode(true)`) and `OverlayInputRouter` (`250ms` click debounce on Desktop/Web, tap-to-toggle on touch-primary targets, double-click fullscreen toggle, and configurable shortcuts ignored while text inputs have focus).
 
 ---
 
@@ -55,11 +55,13 @@ All canvases inherit from `:common`'s `AbstractCanvas` (`registerVBlankRender { 
 
 ---
 
-## 5. `:extensions:media:media` & `:extensions:media:mediacontrols`
+## 5. `:extensions:media:media`, `:extensions:ui:pip`, & `:extensions:media:mediacontrols`
 
-### A. `:extensions:media:media` (`VideoPlayer`, `AudioPlayer`, `AudioAnalyzer`, `VideoOverlayHost`)
-- **`VideoPlayer` & `VideoOverlayHost`**: Hardware-accelerated video player with uniform codec introspection (`getSupportedCodecs()`, `canPlayCodec(...)`), fail-fast provider validation in [`MediaExtension`](../extensions/media/media/src/commonMain/kotlin/com/nexustools/genericui/ext/media/MediaExtension.kt), and `VideoPlayer.attachVideoOverlay(...)` (`VideoPlayerOverlayBinder`) binding playback state, buffered ranges, tracks, and fullscreen directly to an `OverlayHost`.
-- **Desktop `libvlc` & `libvlcj`**: Consolidated inside `:extensions:media:media`'s `nativeDesktopMain` (`libvlc` C interop for Windows, macOS, GTK, Qt) and `jvmMain` (`uk.co.caprica:vlcj`), plus native media engines on Android, iOS/iPadOS, and Web.
+### A. `:extensions:media:media` (`VideoPlayer`, `AudioPlayer`, `AudioAnalyzer`, `ExpandingVolumeSlider`, `MediaExtension`)
+- **Transparent Codec Introspection Without Player Instantiation**: [`MediaExtension`](../extensions/media/media/src/commonMain/kotlin/com/nexustools/genericui/ext/media/MediaExtension.kt) delegates codec and capability queries directly to the registered [`MediaCodecSupportProvider`](../extensions/media/media/src/commonMain/kotlin/com/nexustools/genericui/ext/media/MediaCodecSupportProvider.kt) (`isVideoCodecSupported(VideoCodec)`, `isAudioCodecSupported(AudioCodec)`, `getSupportedVideoCodecs()`, `getSupportedAudioCodecs()`, `getMediaCapabilities()`, `supportsAudioTrackSelection()`, `supportsSubtitleTrackSelection()`). LibVLC desktop/Swing backends use [`LibVlcCodecSupportProvider`](../extensions/media/media/src/commonMain/kotlin/com/nexustools/genericui/ext/media/LibVlcCodecSupportProvider.kt) (flat `true` with zero probe overhead), while Android, iOS, and Web use [`CachingMediaCodecSupportProvider`](../extensions/media/media/src/commonMain/kotlin/com/nexustools/genericui/ext/media/CachingMediaCodecSupportProvider.kt) (`AtomicReference` lock-free cache).
+- **Dynamic `@SchemaData` Player Settings (`VlcConfiguration`)**: Exposes runtime LibVLC audio output/device selection, video renderer (`--vout`), hardware decoding (`--avcodec-hw`), deinterlacing, S/PDIF passthrough, and caching directly via `MediaExtension.hasConfigurablePlayerSettings()`, `getPlayerSettingsSchema()`, `getPlayerSettingsValues()`, and `applyPlayerSettingsValues(...)` powered by [`:extensions:data:schema`](../extensions/docs/schema.md).
+- **3-Wave `ExpandingVolumeSlider` & `YoutubeMediaOverlayHelper`**: Uses 5 pure-Bezier SVGs in `com.nexustools.genericui.component.media.res.R` (`MediaVolumeIcons`) with per-wave opacity fades synced natively onto desktop stage HUD renderers (`data-wave-*-opacity`), while [`VideoOverlayHost`](../extensions/media/media/src/commonMain/kotlin/com/nexustools/genericui/ext/media/overlay/VideoOverlayHost.kt) + [`YoutubeMediaOverlayHelper`](../extensions/media/media/src/commonMain/kotlin/com/nexustools/genericui/ext/media/overlay/YoutubeMediaOverlayHelper.kt) mount `SeekBar` + `ExpandingVolumeSlider` directly into `YoutubePlayerOverlay`.
+- **Picture-in-Picture (`:extensions:ui:pip`)**: Pairs seamlessly with [`FragmentPipHelper`](../extensions/docs/pip.md) / `@PiPCompatible` across Android, iOS (`AVPictureInPictureController`), Desktop/Swing floating windows, and Web (`documentPictureInPicture` / native `<video>` PiP / in-place fallback).
 
 ### B. `:extensions:media:mediacontrols` (`MediaControlsSession` & Default Real Factory)
 - Standalone extension (`com.nexustools.genericui.ext.mediacontrols`) depending **only on `:common`**:

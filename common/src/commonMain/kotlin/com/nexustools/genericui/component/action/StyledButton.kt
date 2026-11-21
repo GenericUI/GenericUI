@@ -16,6 +16,8 @@ import com.nexustools.genericui.style.color.RgbaColor
 import com.nexustools.genericui.style.css.ComputedStyle
 import com.nexustools.genericui.style.css.CssCornerRadii
 import com.nexustools.genericui.style.css.CssEdgeLengths
+import com.nexustools.genericui.style.css.CssFilter
+import com.nexustools.genericui.style.css.CssLength
 import com.nexustools.genericui.style.css.StyledVisualSpec
 import com.nexustools.genericui.style.gradient.Gradient.Gradient
 import com.nexustools.genericui.style.mapper.BootstrapStyleSnapshot
@@ -163,6 +165,18 @@ open class StyledButton(
             getStyle().setBorderStyle(value)
             syncVisualsToNative()
         }
+
+    var backdropFilter: CssFilter?
+        get() = getStyle().backdropFilter ?: computedStyle?.backdropFilter
+        set(value) {
+            getStyle().setBackdropFilter(value)
+            syncVisualsToNative()
+        }
+
+    fun setBackdropBlur(radiusPx: Number) {
+        val px = radiusPx.toFloat()
+        backdropFilter = if (px > 0f) CssFilter.blur(CssLength.px(px)) else null
+    }
 
     // -------------------------------------------------------------------------
     // Hover State Overrides (StyledButton Only)

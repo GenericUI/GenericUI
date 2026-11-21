@@ -17,9 +17,26 @@ import com.nexustools.genericui.style.color.RgbaColor
  */
 object ResourceResolver {
     private val fallbackResolver: ResourceResolverNativeImpl = DefaultResourceResolverNativeImpl()
+    private val moduleInitializers: LinkedHashSet<() -> Unit> = linkedSetOf()
+    private val initializedModules: HashSet<() -> Unit> = hashSetOf()
 
     /** Optional explicit override resolver for tests or custom host environments. */
     internal var customResolver: ResourceResolverNativeImpl? = null
+
+    fun registerModuleInitializer(initializer: () -> Unit) {
+        if (moduleInitializers.add(initializer) && initializedModules.add(initializer)) {
+            initializer.invoke()
+        }
+    }
+
+    fun ensureAllModulesInitialized() {
+        Resources.ensureBuiltInResourcesRegistered()
+        for (initializer in moduleInitializers.toList()) {
+            if (initializedModules.add(initializer)) {
+                initializer.invoke()
+            }
+        }
+    }
 
     private fun currentResolver(): ResourceResolverNativeImpl =
         customResolver ?: GenericUI.activeFactory?.createResourceResolver() ?: fallbackResolver

@@ -6,11 +6,15 @@ import org.gradle.api.artifacts.component.ModuleComponentIdentifier
 import org.gradle.api.artifacts.component.ProjectComponentIdentifier
 import org.gradle.api.attributes.Attribute
 import org.gradle.api.file.DirectoryProperty
+import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.provider.ListProperty
 import org.gradle.api.provider.Property
 import org.gradle.api.tasks.Input
+import org.gradle.api.tasks.InputFile
 import org.gradle.api.tasks.Optional
 import org.gradle.api.tasks.OutputDirectory
+import org.gradle.api.tasks.PathSensitive
+import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.TaskAction
 import org.gradle.work.DisableCachingByDefault
 import java.io.BufferedOutputStream
@@ -73,6 +77,15 @@ abstract class GenericUiPackageSwingJarTask : DefaultTask() {
     @get:Optional
     abstract val includedBuildRootPaths: ListProperty<String>
 
+    @get:InputFile
+    @get:Optional
+    @get:PathSensitive(PathSensitivity.NONE)
+    abstract val bundledNativeLibrariesManifest: RegularFileProperty
+
+    @get:Input
+    @get:Optional
+    abstract val jniLibsDirectories: ListProperty<String>
+
     @get:OutputDirectory
     abstract val outputDirectory: DirectoryProperty
 
@@ -129,17 +142,19 @@ abstract class GenericUiPackageSwingJarTask : DefaultTask() {
         val jarFileName = "$resolvedBaseName-$variant.jar"
         val finalJar = File(outDir, jarFileName)
 
-        // 5. Merge app classes/resources + runtime JARs into a single executable fat JAR
+        // 5. Merge app classes/resources + runtime JARs + bundled JNI libraries into a single executable fat JAR
         val allInputJars = buildList {
             add(appClassesJar)
             addAll(runtimeJars)
         }
+        val nativeJarEntries = collectBundledNativeEntries(buildDir, rootDir)
         buildFatSwingJar(
             inputJars = allInputJars,
             mainClass = resolvedMainClass,
             appTitle = resolvedAppName,
             appVersion = resolvedVersion,
-            outputJarFile = finalJar
+            outputJarFile = finalJar,
+            additionalEntries = nativeJarEntries
         )
 
         val finishedMs = System.currentTimeMillis().coerceAtLeast(taskStartMs)
@@ -169,19 +184,12 @@ abstract class GenericUiPackageSwingJarTask : DefaultTask() {
             File(buildDir, "classes/java/main")
         ).filter { it.isDirectory }
 
+        val hierarchicalResDir = File(buildDir, "generated/genericui/resources/backends/web")
         val resourceDirs = listOf(
-            File(buildDir, "processedResources/jvm/main"),
-            File(buildDir, "resources/main"),
+            hierarchicalResDir,
             File(buildDir, "generated/genericui/desktop-resources/runtime-assets"),
-            File(buildDir, "generated/genericui/resources/backends/web"),
-            File(rootDir, "src/commonMain/resources"),
-            File(rootDir, "src/common/resources"),
-            File(rootDir, "src/systemMain/resources"),
-            File(rootDir, "src/systemCommon/resources"),
-            File(rootDir, "src/jvmCommon/resources"),
-            File(rootDir, "src/desktopCommon/resources"),
-            File(rootDir, "src/swingMain/resources"),
-            File(rootDir, "src/jvmMain/resources")
+            File(buildDir, "processedResources/jvm/main"),
+            File(buildDir, "resources/main")
         ).filter { it.isDirectory }
 
         JarOutputStream(BufferedOutputStream(FileOutputStream(appJar))).use { jos ->
@@ -245,8 +253,16 @@ abstract class GenericUiPackageSwingJarTask : DefaultTask() {
             }
 
             for (resDir in resourceDirs) {
+                val isHierarchicalStagingDir = resDir == hierarchicalResDir
                 resDir.walkTopDown().filter { it.isFile }.forEach { file ->
                     val relPath = file.relativeTo(resDir).invariantSeparatorsPath.trimStart('/')
+                    if (isHierarchicalStagingDir && (
+                            relPath.startsWith("assets/") ||
+                                relPath in setOf("genericui-resources.json", "genericui-resource-vars.css")
+                            )
+                    ) {
+                        return@forEach
+                    }
                     if (relPath.isNotEmpty() &&
                         !relPath.equals("META-INF/MANIFEST.MF", ignoreCase = true) &&
                         seenEntries.add(relPath)
@@ -604,12 +620,44 @@ abstract class GenericUiPackageSwingJarTask : DefaultTask() {
         return foundJars
     }
 
+    internal fun collectBundledNativeEntries(buildDir: File, rootDir: File): Map<String, File> {
+        val entries = LinkedHashMap<String, File>()
+        val manifest = bundledNativeLibrariesManifest.orNull?.asFile
+            ?: File(buildDir, "intermediates/genericui_jni/host-bundle-manifest.txt")
+        if (manifest.isFile) {
+            for (line in manifest.readLines(StandardCharsets.UTF_8)) {
+                val parts = line.split('\t')
+                if (parts.size < 3) continue
+                val osArch = parts[0].trim()
+                val file = File(parts[1].trim())
+                val bundle = parts[2].trim().toBooleanStrictOrNull() ?: true
+                if (bundle && osArch.isNotEmpty() && file.isFile) {
+                    entries.putIfAbsent("META-INF/native/$osArch/${file.name}", file)
+                }
+            }
+        }
+        val nativeDirPattern = Regex("^(windows|macos|linux)-(x86_64|aarch64|x86|arm)$")
+        for (rawDir in jniLibsDirectories.orNull.orEmpty()) {
+            val baseDir = File(rawDir).let { if (it.isAbsolute) it else File(rootDir, it.path) }
+            if (!baseDir.isDirectory) continue
+            baseDir.listFiles()?.filter { it.isDirectory && nativeDirPattern.matches(it.name) }?.forEach { osArchDir ->
+                osArchDir.listFiles()
+                    ?.filter { it.isFile && it.extension.lowercase() in setOf("dll", "dylib", "so") }
+                    ?.forEach { libFile ->
+                        entries.putIfAbsent("META-INF/native/${osArchDir.name}/${libFile.name}", libFile)
+                    }
+            }
+        }
+        return entries
+    }
+
     internal fun buildFatSwingJar(
         inputJars: List<File>,
         mainClass: String,
         appTitle: String,
         appVersion: String,
-        outputJarFile: File
+        outputJarFile: File,
+        additionalEntries: Map<String, File> = emptyMap()
     ) {
         outputJarFile.parentFile?.mkdirs()
 
@@ -680,6 +728,14 @@ abstract class GenericUiPackageSwingJarTask : DefaultTask() {
                 val content = (providers.joinToString("\n") + "\n").toByteArray(StandardCharsets.UTF_8)
                 jos.putNextEntry(JarEntry(servicePath))
                 jos.write(content)
+                jos.closeEntry()
+            }
+
+            for ((entryPath, srcFile) in additionalEntries) {
+                val normalized = entryPath.trimStart('/')
+                if (normalized.isEmpty() || !srcFile.isFile || !seenEntries.add(normalized)) continue
+                jos.putNextEntry(JarEntry(normalized))
+                srcFile.inputStream().buffered().use { it.copyTo(jos) }
                 jos.closeEntry()
             }
         }

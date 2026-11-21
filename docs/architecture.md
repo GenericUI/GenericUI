@@ -3,7 +3,7 @@
 > **Root Repository**: [**GenericUI (`../README.md`)**](../README.md) | **Master Docs Index**: [**`docs/README.md`**](./README.md)  
 > **Related Guides**: [Shared JVM (`jvm.md`)](./jvm.md) · [Shared Apple (`apple.md`)](./apple.md) · [iPadOS (`ipados.md`)](./ipados.md) · [Fragments & Windows (`fragments-and-windows.md`)](./fragments-and-windows.md) · [Application (`application.md`)](./application.md) · [Resources (`resources.md`)](./resources.md) · [SourceSets (`sourcesets.md`)](./sourcesets.md) · [Platform Backends (`backends.md`)](./backends.md) · [Extensions (`extensions.md`)](./extensions.md) · [Gradle Plugin (`gradle-plugin.md`)](./gradle-plugin.md)
 
-`GenericUI` is a 45-project Kotlin Multiplatform (KMP) UI, windowing, docking, media, game-engine, and hardware-accelerated GPU canvas framework engineered for native OS responsiveness and zero runtime bloat.
+`GenericUI` is a **51-project** Kotlin Multiplatform (KMP) UI, windowing, docking, media, schema, background-worker, game-engine, and hardware-accelerated GPU canvas framework engineered for native OS responsiveness and zero runtime bloat.
 
 ---
 
@@ -12,25 +12,29 @@
 Desktop applications built on Chromium/NW.js or Electron bundle an entire browser engine per process, consuming hundreds of megabytes of baseline RAM and forcing every OS window, menu bar, and file dialog through web emulation.
 
 GenericUI solves this by combining:
-- **Single-`commonMain` Application Development**: Write `@MainAppFragment` and `@AppFragment` classes once in `src/commonMain/kotlin`. The GenericUI Gradle plugin generates per-backend launchers, 1:1 Android `AppCompatActivity` classes, Xcode iOS/iPadOS wrappers (`UIDeviceFamily = 1` and `2`), `AndroidManifest.xml`, and `Resource.ResourceID` translations automatically.
+- **Single-`commonMain` Application Development**: Write `@MainAppFragment`, `@AppFragment`, `@SchemaData`, and `@MainServiceWorker` / `@ServiceWorkerMessage` classes once in `src/commonMain/kotlin`. The GenericUI Gradle plugin generates per-backend launchers, 1:1 Android `AppCompatActivity` classes, Xcode iOS/iPadOS wrappers (`UIDeviceFamily = 1` and `2`), `AndroidManifest.xml`, reflection-free schema/IPC codecs, and module-scoped `R` / `RC` / `Resource` classes automatically.
 - **True Native OS Controls Across 9 Platform Backends**: `Windows` (`Win32`), `MacOS` (`AppKit`), `Gtk` (`GTK4 / Libadwaita`), `Qt` (`Qt6`), `Swing` (`JVM AWT/Swing`), `Android` (`Material 3`), `IOS` (`UIKit`), `IPadOS` (`UIKit multi-window Stage Manager + UIMenuSystem`), and `Web` (`HTML5 DOM / WebGL2 / WebGPU`).
-- **Consolidated Shared Foundations**: `:system`, `:jvm` (Swing + Android), and `:apple` (macOS + iOS + iPadOS), plus **19 categorized first-party extensions** (`extensions/{graphics,physics,game,media,ui}/*` + 16 companion `:dsl` modules + `:extensions:ui:dsl`).
+- **Consolidated Shared Foundations**: `:system`, `:jvm` (Swing + Android, including `JniLibraryLoader`), and `:apple` (macOS + iOS + iPadOS), plus **22 categorized first-party extensions** (`extensions/{graphics,physics,game,media,data,system,ui}/*` + **19** companion `:dsl` modules = 41 `:extensions:*` modules).
 
 ---
 
-## 2. Consolidated 45-Project Core & Multi-Backend Hierarchy
+## 2. Consolidated 51-Project Core & Multi-Backend Hierarchy
 
-Every `.kt` file in GenericUI strictly follows the **1 Public Class / Interface / Enum Per File** rule, and all multiplatform backend and extension modules are organized cleanly into **45 Gradle subprojects** (`settings.gradle.kts`):
+Every `.kt` file in GenericUI strictly follows the **1 Public Class / Interface / Enum Per File** rule, and all multiplatform backend and extension modules are organized cleanly into **51 Gradle subprojects** (`settings.gradle.kts`, with `49` library/test modules in `GenericUiGradlePlugin.KNOWN_GENERICUI_MODULES` plus `:gradle-plugin` & `:idea-plugin`, alongside `lib/NJS` via `includeBuild`):
 
 ```text
-:common                     (All 9 backends: UI widgets, IWindow, alwaysOnTop, windowed aspectRatio,
-                             TitleCapabilities, AppleIconTileComposer, IApplication, BackendTarget,
-                             AppTarget, IFragment, @MainAppFragment, @AppFragment, FragmentHostFragment,
-                             FragmentHostSystem, Resource/ResourceID/ResourceResolver, PreferenceStore, Image API)
-├── :web                    (Kotlin/Wasm primary + Kotlin/JS IR fallback, HTML5 DOM, WebGL2/WebGPU, #hash + History.state)
+:common                     (All 9 backends: UI widgets, Scoped R / ResourceTable, GenericUiExtensionRegistry,
+                             IWindow, alwaysOnTop, windowed aspectRatio, TitleCapabilities, AppleIconTileComposer,
+                             IApplication, BackendTarget, AppTarget, IFragment, @MainAppFragment, @AppFragment,
+                             FragmentHostFragment, FragmentHostSystem, Resource/ResourceID/ResourceResolver,
+                             PreferenceStore, Image API)
+├── :web                    (Kotlin/Wasm primary + Kotlin/JS IR fallback, HTML5 DOM, WebGL2/WebGPU,
+│                            #hash + History.state, web-root ./serviceworker.js + ${resolvedBase}.sw.js|wasm)
 └── :system                 (All 8 OS/system targets excluding Web: Blink layout & CSS matching engine + system utilities)
-    ├── :jvm                (Shared JVM 11 module for Swing + Android: JvmIoExecutor, NIO/sockets, JDBC/SQLite, Pixel Tint)
-    ├── :apple              (Shared Darwin module for macOS + iOS + iPadOS: CoreFoundation, Security TLS, Network, ImageIO, CoreGraphics, SQLite)
+    ├── :jvm                (Shared JVM 11 module for Swing + Android: JvmIoExecutor, NIO/sockets, JDBC/SQLite,
+    │                        JniLibraryLoader, Pixel Tint)
+    ├── :apple              (Shared Darwin module for macOS + iOS + iPadOS: CoreFoundation, Security TLS, Network,
+    │                        ImageIO, CoreGraphics, SQLite)
     ├── :desktop            (5 desktop targets across source sets: commonMain, jvmMain, nativeDesktopMain,
     │                        mingwMain [Win32], macosMain [AppKit], linuxMain [Gtk4 + Qt6 + XDG])
     └── :mobile             (3 mobile targets across source sets: commonMain, androidMain [AppCompat/Material 3],
@@ -38,22 +42,28 @@ Every `.kt` file in GenericUI strictly follows the **1 Public Class / Interface 
 ```
 
 - **`:tests`**: Single consolidated KMP verification module running `JestElectricRunner` across all 10 Kotlin targets (`commonMain`/`Test`, `systemMain`, `desktopMain`, `jvmAndAndroidMain`, `nativeDesktopMain`, `mingwMain`, `macosMain`, `linuxMain`, `mobileMain`, `iosMain`, `webMain`, `jsMain`, `wasmJsMain`).
-- **`:gradle-plugin` & `:idea-plugin`**: Build-time codegen/packaging plugin (`id("com.nexustools.genericui")`) and IntelliJ IDEA scaffolding/targets wizard.
-- **Native Desktop Dynamic Linking**: On native desktop targets (`macosArm64`, `linuxX64`, `linuxArm64`, `mingwX64`), `:gradle-plugin` links GenericUI core (`libgenericui.{dylib,so}` / `genericui.dll`), the active backend (`libgenericui-{macos,gtk,qt}.*` / `genericui-windows.dll`), `njs` (when used), enabled extensions (`libgenericui-ext-<ext>.*` + `-dsl`), and tests (`genericui-tests`) as separate shared libraries with strict GTK vs Qt isolation, while JVM Swing, Mobile (`Android`, `iOS`, `iPadOS`), and Web (`wasmJs` / `js`) remain integrated into their application packages.
+- **`:gradle-plugin` & `:idea-plugin`**: Build-time codegen/packaging/nativebuild plugin (`id("com.nexustools.genericui")`) and IntelliJ IDEA scaffolding/targets wizard.
+- **Native Desktop Dynamic Linking**: On native desktop targets (`macosArm64`, `linuxX64`, `linuxArm64`, `mingwX64`), `:gradle-plugin` (`GenericUiBuildNativeSharedLibsTask` + `GenericUiKonanCompilerShim` + `WindowsCoffObjectPartitioner` for MinGW >65,535 exports) links GenericUI core (`libgenericui.{dylib,so}` / `genericui.dll`), the active backend (`libgenericui-{macos,gtk,qt}.*` / `genericui-windows.dll`), `njs` (when used), enabled extensions (`libgenericui-ext-<ext>.*` + `-dsl`), and tests (`genericui-tests`) as separate shared libraries with embedded `nativeResourceKey` resource tables and strict GTK vs Qt isolation, while JVM Swing, Mobile (`Android`, `iOS`, `iPadOS`), and Web (`wasmJs` / `js`) remain integrated into their application packages.
 
 ---
 
-## 3. Categorized Single-Project Extensions & Fail-Fast Registry Pattern
+## 3. Categorized Single-Project Extensions, Extension SPI, & Fail-Fast Registry Pattern
 
-To keep `:common` and core backend modules 100% free of extension-specific logic, all **19 first-party extensions** live cleanly under 5 consolidated categories (`extensions/{graphics,physics,game,media,ui}/*`):
+To keep `:common` and core backend modules 100% free of extension-specific logic, all **22 first-party extensions** (plus **19 companion `:dsl` modules**) live cleanly under **7** consolidated categories (`extensions/{graphics,physics,game,media,data,system,ui}/*`):
 
 - **Graphics (`:extensions:graphics:*`)**: `gpu`, `imageprocessing`, `canvas2d` (+`:dsl`), `canvas3d` (+`:dsl`), `threejs` (+`:dsl`).
 - **Physics (`:extensions:physics:*`)**: `box2d` (+`:dsl`), `box3d` (+`:dsl`).
 - **Game & Input (`:extensions:game:*`)**: `gamepad` (+`:dsl`), `engine` (+`:dsl`), `engine2d` (+`:dsl`), `engine3d` (+`:dsl`).
 - **Media (`:extensions:media:*`)**: `media` (+`:dsl`), `mediacontrols` (+`:dsl`).
-- **UI & Tooling (`:extensions:ui:*`)**: `dsl`, `overlay` (+`:dsl`), `alien` (+`:dsl`), `webview` (+`:dsl`), `codeeditor` (+`:dsl`), `aichat` (+`:dsl`).
+- **Data (`:extensions:data:*`)**: `schema` (+`:dsl`) — reflection-free `@SchemaData` codegen (`<ClassName>SchemaDescriptor.kt`, `GeneratedSchemaRegistrar.kt`, `SchemaExtension`, `SchemaRegistry`, `SchemaForm`).
+- **System (`:extensions:system:*`)**: `serviceworker` (+`:dsl`) — `@MainServiceWorker` + `@ServiceWorkerMessage` IPC (`ServiceWorkerExtension`, `ServiceWorker`, `ServiceWorkerChannel`), desktop secondary `serviceworker` tray executables & autostart, Android foreground `<service>` / `BOOT_COMPLETED`, Web `./serviceworker.js` + `${resolvedBase}.sw.js|wasm`, and honest unsupported status on iOS/iPadOS (`ServiceWorkerExtension.isSupported == false`, zero simulation).
+- **UI & Tooling (`:extensions:ui:*`)**: `dsl`, `overlay` (+`:dsl`), `alien` (+`:dsl`), `webview` (+`:dsl`), `codeeditor` (+`:dsl`), `aichat` (+`:dsl`), `pip` (+`:dsl`).
 
 Every extension is a **single multiplatform KMP project** with internal platform source sets (e.g., `androidMain`, `appleMain`, `jvmMain`, `linuxMain`, `mingwMain`, `webMain`) instead of multi-module Project-of-Projects trees.
+
+### Decoupled Extension Integration (`GenericUiExtensionContributor` SPI & `GenericUiExtensionRegistry`)
+- **Build-Time Contributor SPI (`:gradle-plugin/.../spi/`)**: Extensions hook into compilation and packaging without touching core codegen via `GenericUiExtensionContributor` (`GenericUiExtensionContributorRegistry`, `ExtensionBuildContext`), supporting built-in contributors (`PipExtensionContributor`, `SchemaExtensionContributor`, `ServiceWorkerExtensionContributor`), `ServiceLoader`, and `META-INF/genericui/extensions/*.json` manifests to emit Android Activity/Manifest/Service/Receiver contributions (`AndroidExtensionContribution`), Desktop secondary executables (`SecondaryDesktopExecutableContribution`, e.g., `serviceworker` + `-gtk`/`-qt` variants) and autostart entries, Apple mobile `Info.plist` entries (`AppleMobileExtensionContribution`), and Web `./serviceworker.js` plugin scripts (`WebServiceWorkerContribution`).
+- **Runtime Extension Hooks (`:common`)**: [`GenericUiExtensionRegistry`](../common/src/commonMain/kotlin/com/nexustools/genericui/core/GenericUiExtensionRegistry.kt) lets extensions register [`ApplicationLifecycleExtensionHook`](../common/src/commonMain/kotlin/com/nexustools/genericui/core/ApplicationLifecycleExtensionHook.kt) callbacks (`onBeforeAppPrepare`, `onAppPrepared`, `onBeforeAppRun`, `onAppShutdown`) and extension properties without introducing core-to-extension dependencies.
 
 ### Fail-Fast Zero-Stub Extension Registries
 
@@ -111,7 +121,7 @@ On all 8 non-web system targets (`Windows`, `MacOS`, `Gtk`, `Qt`, `Swing`, `Andr
 | :--- | :---: | :---: | :--- |
 | **Text / Typography Elements** (`Label`, `Text`, `Heading`, `Badge`, `Blockquote`, `CodeBlock`, `MarkdownView`) | `true` | `false` | Honor all typography & text-color properties on `ComponentStyle` (`color` / `textColor`, `fontFamily`, `fontSize`, `fontWeight`, `fontStyle`, `lineHeight`, `letterSpacing`, `textAlign`, `textDecoration`, `textTransform`, `textOverflow`, `whiteSpace`, `wordBreak`) and `ComponentBootstrap` (`textColorType`, `fontSize`, `fontWeight`, `textAlignment`). |
 | **Buttons, Inputs, Controls, & Standard Containers** (`Button`, `IconButton`, `ToggleButton`, `CheckBox`, `RadioButton`, `Switch`, `Select`, `DropdownButton`, `TextField`, `TextArea`, `RangeSlider`, `ProgressBar`, `Spinner`, `TabContainer`, `Tab`, `Container`, `Card`, `VStack`, `HStack`, `FlexBox`, etc.) | `false` | `false` | Aesthetic skinning and typography overrides on `ComponentStyle` (`backgroundColor`, `background`, `color`, `accentColor`, `borderColor`, `borderWidth`, `borderStyle`, `borderRadius`, `boxShadow`, `textShadow`, `filter`, `backdropFilter`, `fontFamily`, `fontSize`, `fontWeight`, `fontStyle`) are **silently ignored**. Standard components can **ONLY** be tinted via `BootstrapType` (`bootstrap.type`, `bootstrap.backgroundType`, `bootstrap.textColorType`, `bootstrap.borderType`, `bootstrap.outline`). Layout/geometry properties (`width`, `height`, `padding`, `margin`, `gap`, `flexGrow`, `cursor`) are honored on all components. |
-| **`StyledContainer` & `StyledButton` (and `:extensions:ui:alien`)** | `true` | `true` | Explicitly opt-in custom-styled components that honor full `ComponentStyle` aesthetic (`backgroundColor`, `background` gradients, `borderColor`, `borderWidth`, `borderStyle`, `borderRadius`, `boxShadow`, `opacity`) and typography properties across all 9 backends. |
+| **`StyledContainer` & `StyledButton` (and `:extensions:ui:alien`)** | `true` | `true` | Explicitly opt-in custom-styled components that honor full `ComponentStyle` aesthetic (`backgroundColor`, `background` gradients, `borderColor`, `borderWidth`, `borderStyle`, `borderRadius`, `boxShadow`, `opacity`) and typography properties across all 9 backends. Under [`AestheticStylePolicy`](../common/src/commonMain/kotlin/com/nexustools/genericui/style/policy/AestheticStylePolicy.kt) (`supportsBackdropFilterBlur`), hardware `backdropFilter` / `setBackdropBlur(...)` frosted-glass blur is supported across all 9 backends on both `StyledContainer` and `StyledButton` (with [`FastBackdropBlurKernel`](../common/src/commonMain/kotlin/com/nexustools/genericui/style/css/FastBackdropBlurKernel.kt) CPU fallback), while explicitly **excluding `TextBubble`** even though `TextBubble` extends `StyledContainer`. |
 
 ### 6.3 Native Control Rendering (`BootstrapType.NONE`) vs. Offscreen Sprite + `ThemeConfig` Tint + Text Overlay (`BootstrapType != NONE`)
 

@@ -153,4 +153,71 @@ class UserDirectoryAndImageCacheTest {
             ImageLoader.clearCache()
         }
     }
+
+    @Test
+    fun `preference key filename codec round-trips losslessly and avoids collisions dotfiles and DOS names`() {
+        val sampleKeys = listOf(
+            "episodecaster.station.progress",
+            "audio_routing",
+            "window:pos",
+            "window/pos",
+            "window_pos",
+            "http://10.0.0.1:8080/a?b=1*2&c=<tag>|\"q\"",
+            "a%2Fb",
+            "100%done",
+            "",
+            "~",
+            "~tilde",
+            ".hidden",
+            ".",
+            "..",
+            "trailing.",
+            "CON",
+            "prn",
+            "nul.cfg",
+            "com1",
+            "lpt9.bson",
+            "spaces and tabs\there",
+            "café🎵日本語"
+        )
+
+        val encodedSet = LinkedHashSet<String>()
+        for (key in sampleKeys) {
+            val encoded = UserDirectory.encodePreferenceKeyToFileName(key)
+            assertTrue(encoded.isNotEmpty(), "Encoded filename must be non-empty for '$key'")
+            assertFalse(encoded.startsWith("."), "Encoded filename must not start with '.' for '$key' -> '$encoded'")
+            assertFalse(encoded.endsWith("."), "Encoded filename must not end with '.' for '$key' -> '$encoded'")
+            assertFalse(
+                encoded.any { it in "\\/:*?\"<>|" },
+                "Encoded filename contains forbidden filesystem char for '$key' -> '$encoded'"
+            )
+            assertTrue(encodedSet.add(encoded), "Collision detected for '$key' -> '$encoded'")
+            assertEquals(key, UserDirectory.decodePreferenceKeyFromFileName(encoded))
+        }
+
+        // Standard keys stay unencoded & human-readable on disk
+        assertEquals("episodecaster.station.progress", UserDirectory.encodePreferenceKeyToFileName("episodecaster.station.progress"))
+        assertEquals("audio_routing", UserDirectory.encodePreferenceKeyToFileName("audio_routing"))
+
+        // ConfigDirectory stores and decodes special keys losslessly without an index file
+        val configDir = ConfigDirectory(appName = "KeyCodecDirTest", subdirectory = "prefs")
+        try {
+            configDir.clear()
+            configDir.writeKeyBytes("window:pos", ".bson", byteArrayOf(1))
+            configDir.writeKeyBytes("window/pos", ".bson", byteArrayOf(2))
+            configDir.writeKeyBytes("window_pos", ".bson", byteArrayOf(3))
+            configDir.writeKeyBytes(".leadingDot", ".bson", byteArrayOf(4))
+            configDir.writeKeyBytes("", ".bson", byteArrayOf(5))
+            assertEquals(
+                setOf("window:pos", "window/pos", "window_pos", ".leadingDot", ""),
+                configDir.keysForExtension(".bson")
+            )
+            assertEquals(1, configDir.readKeyBytes("window:pos", ".bson")?.firstOrNull()?.toInt())
+            assertEquals(2, configDir.readKeyBytes("window/pos", ".bson")?.firstOrNull()?.toInt())
+            assertEquals(3, configDir.readKeyBytes("window_pos", ".bson")?.firstOrNull()?.toInt())
+        } finally {
+            configDir.clear()
+            configDir.dispose()
+        }
+    }
 }

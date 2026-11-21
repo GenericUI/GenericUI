@@ -1078,4 +1078,24 @@ class HybridLayoutsTest {
         val textArea = TextArea(placeholder = "Notes", label = "Description")
         assertEquals("Description", textArea.label)
     }
+
+    @Test
+    fun testHStackDefaultAndCustomGapStyles() {
+        val defaultStack = HStack()
+        assertEquals(8, defaultStack.gapPx)
+        assertEquals(8f, defaultStack.getStyle().getGap()?.resolvePx())
+
+        val zeroGapStack = HStack(0)
+        assertEquals(0, zeroGapStack.gapPx)
+        assertEquals(0f, zeroGapStack.getStyle().getGap()?.resolvePx())
+
+        val customGapStack = HStack(24)
+        assertEquals(24, customGapStack.gapPx)
+        assertEquals(24f, customGapStack.getStyle().getGap()?.resolvePx())
+
+        val scaleGapStack = HStack(SpacingScale.THREE)
+        assertEquals(SpacingScale.THREE, scaleGapStack.gap)
+        assertEquals(SpacingScale.THREE, scaleGapStack.getBootstrap().gap)
+        assertNull(scaleGapStack.getStyle().getGap())
+    }
 }

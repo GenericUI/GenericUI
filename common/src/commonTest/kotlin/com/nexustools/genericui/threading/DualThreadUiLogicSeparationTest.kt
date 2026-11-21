@@ -126,4 +126,27 @@ class DualThreadUiLogicSeparationTest {
 
         assertEquals(listOf("logic-before", "ui-inline", "logic-after"), order)
     }
+
+    @Test
+    fun drainUiQueueNeverDrainsLogicTaskQueue() {
+        val dispatcher = object : DefaultUiThreadDispatcherNativeImpl(isSplitThreadingEnabled = true) {
+            fun queueLogic(block: () -> Unit) = enqueueLogicTask(block)
+            fun queueUi(block: () -> Unit) = enqueueUiTask(block)
+            fun pendingLogic() = hasPendingLogicTasks()
+            fun pendingUi() = hasPendingUiTasks()
+        }
+        val order = mutableListOf<String>()
+        dispatcher.queueUi { order.add("ui-task") }
+        dispatcher.queueLogic { order.add("logic-task") }
+
+        val uiCount = dispatcher.drainUiQueue()
+        assertEquals(1, uiCount)
+        assertEquals(listOf("ui-task"), order)
+        assertFalse(dispatcher.pendingUi())
+        assertTrue(dispatcher.pendingLogic(), "drainUiQueue must NOT execute logicTaskQueue")
+
+        dispatcher.flushAllQueues()
+        assertEquals(listOf("ui-task", "logic-task"), order)
+        assertFalse(dispatcher.pendingLogic())
+    }
 }

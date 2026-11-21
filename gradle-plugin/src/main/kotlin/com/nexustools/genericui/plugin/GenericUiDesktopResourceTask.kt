@@ -115,13 +115,24 @@ abstract class GenericUiDesktopResourceTask : DefaultTask() {
     abstract val customResourceEntries: MapProperty<String, String>
 
     @get:Input
+    @get:Optional
     abstract val bundledResourcePaths: ListProperty<String>
+
+    @get:Input
+    @get:Optional
+    abstract val enabledExtensionModulePaths: ListProperty<String>
+
+    @get:Input
+    @get:Optional
+    abstract val extensionOptions: org.gradle.api.provider.MapProperty<String, String>
 
     @get:OutputDirectory
     abstract val outputDirectory: DirectoryProperty
 
     init {
         macAppleIconExplicitlyProvided.convention(false)
+        enabledExtensionModulePaths.convention(emptyList())
+        extensionOptions.convention(emptyMap())
     }
 
     @TaskAction
@@ -232,6 +243,25 @@ abstract class GenericUiDesktopResourceTask : DefaultTask() {
             rawMacCandidate.name
         } else {
             "icon.icns"
+        }
+        val customTrayPath = extensionOptions.getOrElse(emptyMap())["serviceWorker.trayIcon"]?.trim()?.takeIf { it.isNotEmpty() }
+        val explicitSwTrayFile = if (customTrayPath != null) {
+            resolveIconFile(rootDir, customTrayPath, null, emptyList())
+        } else {
+            null
+        }
+        val macTraySource = explicitSwTrayFile ?: rawMacCandidate ?: primaryFallbackCandidate
+        GenericUiDefaultIconProvider.ensurePngFromSourceOrDefault(
+            sourceIconFile = macTraySource,
+            projectRootDir = rootDir,
+            outputDir = macDir,
+            fileName = "tray_icon.png",
+            wrapInAppleTile = false,
+            fullBleedSquare = false,
+            requestedSizeOverride = 64
+        )
+        if (macTraySource != null && macTraySource.isFile && macTraySource.extension.equals("svg", ignoreCase = true)) {
+            macTraySource.copyTo(File(macDir, "tray_icon.svg"), overwrite = true)
         }
         val macIcnsFile = GenericUiDefaultIconProvider.ensureAppleIcnsFromSourceOrDefault(
             sourceIconFile = rawMacCandidate ?: primaryFallbackCandidate,
@@ -431,6 +461,68 @@ abstract class GenericUiDesktopResourceTask : DefaultTask() {
             },
             Charsets.UTF_8
         )
+
+        // 5. Emit desktop autostart entries contributed by SPI extensions (if any)
+        val enabledExtSet = enabledExtensionModulePaths.getOrElse(emptyList())
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .toSet()
+        if (enabledExtSet.isNotEmpty()) {
+            val discoveredFrags = GenericUiFragmentScanner.scanProject(rootDir)
+            val scanSpecs = com.nexustools.genericui.plugin.spi.GenericUiExtensionContributorRegistry
+                .allAnnotationScanSpecs(enabledExtSet, rootDir)
+            val discoveredSyms = GenericUiFragmentScanner.scanProjectSymbols(rootDir, scanSpecs)
+            val desktopCtx = com.nexustools.genericui.plugin.spi.ExtensionBuildContext(
+                projectRootDir = rootDir,
+                projectName = rootDir.name,
+                appId = resolvedAppId,
+                appName = resolvedAppName,
+                appVersion = resolvedVersion,
+                baseName = resolvedBase,
+                generatedPackageName = "",
+                enabledExtensionModulePaths = enabledExtSet,
+                discoveredFragments = discoveredFrags,
+                discoveredSymbols = discoveredSyms,
+                extensionOptions = extensionOptions.getOrElse(emptyMap())
+            )
+            val autostartEntries = com.nexustools.genericui.plugin.spi.GenericUiExtensionContributorRegistry
+                .collectDesktopContributions(desktopCtx)
+                .flatMap { it.autostartEntries }
+            if (autostartEntries.isNotEmpty()) {
+                val autostartRoot = File(outDir, "autostart").apply { mkdirs() }
+                for (entry in autostartEntries) {
+                    val safeId = entry.identifier.replace(Regex("[^A-Za-z0-9._-]"), "_")
+                    val execLine = if (entry.arguments.isEmpty()) entry.executableName else "${entry.executableName} ${entry.arguments.joinToString(" ")}"
+                    File(File(autostartRoot, "linux").apply { mkdirs() }, "$safeId.desktop").writeText(
+                        buildString {
+                            appendLine("[Desktop Entry]")
+                            appendLine("Type=Application")
+                            appendLine("Name=${entry.displayName}")
+                            appendLine("Exec=$execLine")
+                            appendLine("X-GNOME-Autostart-enabled=${entry.runAtStartup}")
+                        },
+                        Charsets.UTF_8
+                    )
+                    File(File(autostartRoot, "macos").apply { mkdirs() }, "$safeId.plist").writeText(
+                        buildString {
+                            appendLine("""<?xml version="1.0" encoding="UTF-8"?>""")
+                            appendLine("""<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">""")
+                            appendLine("""<plist version="1.0"><dict>""")
+                            appendLine("""    <key>Label</key><string>${escapeXml(entry.identifier)}</string>""")
+                            appendLine("""    <key>ProgramArguments</key><array>""")
+                            appendLine("""        <string>${escapeXml(entry.executableName)}</string>""")
+                            for (arg in entry.arguments) {
+                                appendLine("""        <string>${escapeXml(arg)}</string>""")
+                            }
+                            appendLine("""    </array>""")
+                            appendLine("""    <key>RunAtLoad</key>${if (entry.runAtStartup) "<true/>" else "<false/>"}""")
+                            appendLine("""</dict></plist>""")
+                        },
+                        Charsets.UTF_8
+                    )
+                }
+            }
+        }
     }
 
     private fun resolveIconFile(

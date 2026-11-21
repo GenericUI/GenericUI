@@ -82,11 +82,17 @@ class Wave4PluginFeaturesTest {
         assertTrue("com.nexustools.genericui.ext.canvas3d.mobile.MobileCanvas3DProvider.install()" in ipadosProviders)
 
         assertTrue(":extensions:ui:webview" in GenericUiGradlePlugin.KNOWN_GENERICUI_MODULES)
+        assertTrue(":extensions:ui:pip" in GenericUiGradlePlugin.KNOWN_GENERICUI_MODULES)
+        assertTrue(":extensions:ui:pip:dsl" in GenericUiGradlePlugin.KNOWN_GENERICUI_MODULES)
+        assertTrue(":extensions:data:schema" in GenericUiGradlePlugin.KNOWN_GENERICUI_MODULES)
+        assertTrue(":extensions:data:schema:dsl" in GenericUiGradlePlugin.KNOWN_GENERICUI_MODULES)
+        assertTrue(":extensions:system:serviceworker" in GenericUiGradlePlugin.KNOWN_GENERICUI_MODULES)
+        assertTrue(":extensions:system:serviceworker:dsl" in GenericUiGradlePlugin.KNOWN_GENERICUI_MODULES)
         assertTrue(":system" in GenericUiGradlePlugin.KNOWN_GENERICUI_MODULES)
         assertTrue(":jvm" in GenericUiGradlePlugin.KNOWN_GENERICUI_MODULES)
         assertTrue(":apple" in GenericUiGradlePlugin.KNOWN_GENERICUI_MODULES)
         assertTrue(":tests" in GenericUiGradlePlugin.KNOWN_GENERICUI_MODULES)
-        assertEquals(43, GenericUiGradlePlugin.KNOWN_GENERICUI_MODULES.size)
+        assertEquals(49, GenericUiGradlePlugin.KNOWN_GENERICUI_MODULES.size)
     }
 
     @Test
@@ -462,8 +468,9 @@ class Wave4PluginFeaturesTest {
         val compileResTask = projectExplicit.tasks.getByName("compileGenericUiResources") as GenericUiResourceCompilerTask
         compileResTask.compileResources()
         val backendResRoot = compileResTask.backendOutputDirectory.get().asFile
-        val compiledMacIcon = ImageIO.read(File(backendResRoot, "apple/Assets.xcassets/AppIcon.appiconset/icon.png"))
-        assertTrue((compiledMacIcon.getRGB(0, 0) and 0xFF) > 200, "Compiled mac/apple AppIcon should preserve unwrapped blue corner")
+        val compiledIosIcon = ImageIO.read(File(backendResRoot, "ios/Assets.xcassets/AppIcon.appiconset/icon.png"))
+        assertTrue((compiledIosIcon.getRGB(0, 0) and 0xFF) > 200, "Compiled ios AppIcon should preserve unwrapped blue corner")
+        assertFalse(File(backendResRoot, "apple/Assets.xcassets").exists(), "macOS must not emit loose Assets.xcassets")
         val compiledIpadosIcon = ImageIO.read(File(backendResRoot, "ipados/Assets.xcassets/AppIcon.appiconset/icon.png"))
         assertTrue(((compiledIpadosIcon.getRGB(0, 0) ushr 8) and 0xFF) > 140, "Compiled ipados AppIcon should preserve unwrapped green corner")
     }

@@ -6,7 +6,7 @@ IntelliJ IDEA plugin and project scaffolding toolkit for creating and managing *
 
 1. **New GenericUI Project Wizard (`GenericUI.NewProject`)**
    - Scaffolds a single-`commonMain` Kotlin Multiplatform project applying `id("com.nexustools.genericui.settings")` in `settings.gradle.kts` and `id("com.nexustools.genericui")` in `build.gradle.kts` across the consolidated core modules (`:common`, `:system`, `:jvm`, `:apple`, `:desktop`, `:mobile`, `:web`, and `:tests` `JestElectricRunner`).
-   - Supports all 9 target backends (`windows`, `macos`, `gtk`, `qt`, `swing`, `android`, `ios`, `ipados`, `web`) with quick presets (`All Except Swing`, `Desktop Only (No Swing)`, `Mobile Only`, `Apple Only`, `Select All`, `Clear All`).
+   - Supports all 9 target backends (`windows`, `macos`, `gtk`, `qt`, `swing`, `android`, `ios`, `ipados`, `web`) with quick presets (`All Except Swing`, `Desktop Only (No Swing)`, `Mobile Only`, `Apple Only`, `Select All`, `Clear All`) and all **7** `GenericUiProjectTemplateType` templates (`STANDARD_FRAGMENT`, `DOCK_WORKSPACE`, `OVERLAY_DOCK_3D`, `ADAPTIVE_SPLIT_TAB`, `GAME_2D`, `GAME_3D`, `WIZARD_PAGE_SYSTEM`).
    - Generates a `@MainAppFragment`-annotated `MainFragment.kt` in `src/commonMain/kotlin/<package>/MainFragment.kt` (no manual per-platform entry points or `Main.kt` files required), plus a `MainFragmentTest.kt` `JestElectricRunner` suite in `src/commonTest/kotlin/<package>/MainFragmentTest.kt`.
    - Configures build-time SASS/CSS compilation (`src/commonMain/resources/styles/main.scss`) with pre-compiled stylesheet embedding (`globalStyleSheet = "styles/main.scss"`), automatic OS dark/light theme synchronization (`theme { mode = "auto" }`), optional `window { alwaysOnTop; aspectRatio(16, 9) }` defaults, and shared `appleIcon` / per-target Apple icon options (`macos { icon(...) }`, `ios { icon(...) }`, `ipados { icon(...) }`).
    - Generates starter component styling code in `MainFragment.kt`:
@@ -14,8 +14,8 @@ IntelliJ IDEA plugin and project scaffolding toolkit for creating and managing *
      - Uses core `getBootstrap().apply { ... }` and `getStyle().apply { ... }` accessors when `:extensions:ui:dsl` is not enabled.
 
 2. **Manage GenericUI Targets & Extensions Dialog (`GenericUI.ManageTargets`)**
-   - Inspects an existing project's `build.gradle.kts` (`app`, `application`, `window`, `theme`, `backends`, `macos`/`ios`/`ipados` icons, `graphics`, `extensions`, `styles`, `testing`) via `GenericUiBuildFileInspector`.
-   - Automatically resolves transitive dependencies across all 19 categorized extensions (`Graphics`, `Physics`, `Game & Input`, `Media`, `UI`, and companion `:dsl` modules).
+   - Inspects an existing project's `build.gradle.kts` (`app`, `application`, `window`, `theme`, `backends`, `macos`/`ios`/`ipados` icons, `graphics`, `extensions` including `schema()` and `serviceWorker()`, `styles`, `testing`) via `GenericUiBuildFileInspector`.
+   - Automatically resolves transitive dependencies across **21** extension checkboxes organized under **7** categories (`Graphics`, `Physics`, `Game & Input`, `Media`, **`Data`**, **`System`**, `UI`, plus companion `:dsl` modules; note `:extensions:ui:pip` is enabled directly via `pip()` in `build.gradle.kts`). Selecting **`schema()`** (`:extensions:data:schema`) or **`serviceWorker()`** (`:extensions:system:serviceworker`) activates `:gradle-plugin`'s compile-time `@SchemaData` descriptor codegen and `@MainServiceWorker` validation / `@ServiceWorkerMessage` IPC codec generation (no separate PSI `LocalInspectionTool` editor inspections live in `:idea-plugin`).
    - Updates `build.gradle.kts` in-place while preserving project metadata, theme mode, window defaults, and global stylesheet settings.
 
 ## Generated `genericui { ... }` DSL Example

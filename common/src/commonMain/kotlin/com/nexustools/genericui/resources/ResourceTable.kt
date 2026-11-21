@@ -15,6 +15,7 @@ import kotlin.io.encoding.ExperimentalEncodingApi
  */
 class ResourceTable {
     private val byNumericId = mutableMapOf<Int, ResourceID>()
+    private val byCanonicalPath = mutableMapOf<String, ResourceID>()
     private val byTypeAndName = mutableMapOf<Pair<ResourceType, String>, ResourceID>()
 
     private val strings = mutableMapOf<Int, String>()
@@ -31,7 +32,39 @@ class ResourceTable {
 
     fun registerResourceId(resId: ResourceID) {
         byNumericId[resId.id] = resId
-        byTypeAndName[resId.type to resId.name] = resId
+        byCanonicalPath[resId.canonicalStem.lowercase()] = resId
+        byCanonicalPath[resId.canonicalRelativePath.lowercase()] = resId
+        byCanonicalPath[resId.toResourceUri().lowercase()] = resId
+        byCanonicalPath[resId.flatName.lowercase()] = resId
+        val rawRel = resId.relativePath.trim().replace('\\', '/').trimStart('/')
+        if (rawRel.isNotEmpty()) {
+            byCanonicalPath[rawRel.lowercase()] = resId
+        }
+        val key = resId.type to resId.name
+        val existing = byTypeAndName[key]
+        if (existing == null || resId.moduleByte == ResourceType.DEFAULT_APP_MODULE_BYTE) {
+            byTypeAndName[key] = resId
+        }
+    }
+
+    fun findResourceId(pathOrUri: String): ResourceID? {
+        val clean = pathOrUri.trim().replace('\\', '/')
+        if (clean.isEmpty()) return null
+        val lower = clean.lowercase()
+        byCanonicalPath[lower]?.let { return it }
+        if (lower.startsWith("res://")) {
+            val withoutScheme = lower.removePrefix("res://").trimStart('/')
+            byCanonicalPath[withoutScheme]?.let { return it }
+            val lastSlash = withoutScheme.lastIndexOf('/')
+            val lastDot = withoutScheme.lastIndexOf('.')
+            val stem = if (lastDot > lastSlash) withoutScheme.substring(0, lastDot) else withoutScheme
+            byCanonicalPath[stem]?.let { return it }
+        } else {
+            val trimmedRel = lower.trimStart('/')
+            byCanonicalPath[trimmedRel]?.let { return it }
+            byCanonicalPath["res://$trimmedRel"]?.let { return it }
+        }
+        return null
     }
 
     fun registerString(resId: ResourceID, value: String) {
@@ -105,8 +138,12 @@ class ResourceTable {
     fun findResourceId(type: ResourceType, name: String): ResourceID? =
         byTypeAndName[type to normalizeName(name)]
 
+    private fun resolveFallbackId(resId: ResourceID): ResourceID? =
+        findResourceId(resId.toResourceUri())
+            ?: byTypeAndName[resId.type to resId.name]
+
     fun getStringOrNull(resId: ResourceID): String? =
-        strings[resId.id] ?: byTypeAndName[ResourceType.STRING to resId.name]?.let { strings[it.id] }
+        strings[resId.id] ?: resolveFallbackId(resId)?.let { strings[it.id] }
 
     fun getString(resId: ResourceID): String =
         getStringOrNull(resId) ?: resId.name
@@ -115,44 +152,47 @@ class ResourceTable {
         strings[id] ?: byNumericId[id]?.name ?: ""
 
     fun getStringByName(name: String): String? =
-        findResourceId(ResourceType.STRING, name)?.let { strings[it.id] }
+        findResourceId(name)?.takeIf { it.type == ResourceType.STRING }?.let { strings[it.id] }
+            ?: findResourceId(ResourceType.STRING, name)?.let { strings[it.id] }
 
     fun getColorOrNull(resId: ResourceID): RgbaColor? =
-        colors[resId.id] ?: byTypeAndName[ResourceType.COLOR to resId.name]?.let { colors[it.id] }
+        colors[resId.id] ?: resolveFallbackId(resId)?.let { colors[it.id] }
 
     fun getColor(resId: ResourceID): RgbaColor =
         getColorOrNull(resId) ?: RgbaColor.BLACK
 
     fun getColorByName(name: String): RgbaColor? =
-        findResourceId(ResourceType.COLOR, name)?.let { colors[it.id] }
+        findResourceId(name)?.takeIf { it.type == ResourceType.COLOR }?.let { colors[it.id] }
+            ?: findResourceId(ResourceType.COLOR, name)?.let { colors[it.id] }
 
     fun getDimenOrNull(resId: ResourceID): Float? =
-        dimens[resId.id] ?: byTypeAndName[ResourceType.DIMEN to resId.name]?.let { dimens[it.id] }
+        dimens[resId.id] ?: resolveFallbackId(resId)?.let { dimens[it.id] }
 
     fun getDimen(resId: ResourceID): Float =
         getDimenOrNull(resId) ?: 0f
 
     fun getInteger(resId: ResourceID): Int =
-        integers[resId.id] ?: byTypeAndName[ResourceType.INTEGER to resId.name]?.let { integers[it.id] } ?: 0
+        integers[resId.id] ?: resolveFallbackId(resId)?.let { integers[it.id] } ?: 0
 
     fun getBool(resId: ResourceID): Boolean =
-        bools[resId.id] ?: byTypeAndName[ResourceType.BOOL to resId.name]?.let { bools[it.id] } ?: false
+        bools[resId.id] ?: resolveFallbackId(resId)?.let { bools[it.id] } ?: false
 
     fun getDrawable(resId: ResourceID): DrawableResource? =
-        drawables[resId.id] ?: byTypeAndName[ResourceType.DRAWABLE to resId.name]?.let { drawables[it.id] }
+        drawables[resId.id] ?: resolveFallbackId(resId)?.let { drawables[it.id] }
 
     fun getDrawableByName(name: String): DrawableResource? =
-        findResourceId(ResourceType.DRAWABLE, name)?.let { drawables[it.id] }
+        findResourceId(name)?.takeIf { it.type == ResourceType.DRAWABLE }?.let { drawables[it.id] }
+            ?: findResourceId(ResourceType.DRAWABLE, name)?.let { drawables[it.id] }
 
     fun getRawText(resId: ResourceID): String? =
-        rawTexts[resId.id] ?: byTypeAndName[ResourceType.RAW to resId.name]?.let { rawTexts[it.id] }
+        rawTexts[resId.id] ?: resolveFallbackId(resId)?.let { rawTexts[it.id] }
 
     fun getRawBase64(resId: ResourceID): String? =
-        rawBase64[resId.id] ?: byTypeAndName[ResourceType.RAW to resId.name]?.let { rawBase64[it.id] }
+        rawBase64[resId.id] ?: resolveFallbackId(resId)?.let { rawBase64[it.id] }
 
     fun getRawBytes(resId: ResourceID): ByteArray? {
         rawBytes[resId.id]?.let { return it }
-        byTypeAndName[resId.type to resId.name]?.let { matched ->
+        resolveFallbackId(resId)?.let { matched ->
             rawBytes[matched.id]?.let { return it }
         }
         getRawBase64(resId)?.let { b64 ->
@@ -176,14 +216,15 @@ class ResourceTable {
 
     fun getUrl(resId: ResourceID): String {
         val registered = byNumericId[resId.id]
+            ?: findResourceId(resId.toResourceUri())
             ?: byTypeAndName[resId.type to resId.name]
             ?: resId
-        val rel = registered.relativePath.trim()
+        val rel = registered.relativePath.trim().replace('\\', '/').trimStart('/')
         if (rel.isNotEmpty()) {
-            val fileName = rel.substringAfterLast('/')
-            if (fileName.isNotEmpty()) {
-                return "assets/${registered.type.directoryName}/$fileName"
+            if (rel.startsWith("gui/") || rel.startsWith("app/")) {
+                return rel
             }
+            return registered.canonicalRelativePath
         }
         return registered.toResourceUri()
     }
@@ -195,10 +236,11 @@ class ResourceTable {
     }
 
     fun getFontPath(resId: ResourceID): String? =
-        fontPaths[resId.id] ?: byTypeAndName[ResourceType.FONT to resId.name]?.let { fontPaths[it.id] }
+        fontPaths[resId.id] ?: resolveFallbackId(resId)?.let { fontPaths[it.id] }
 
     fun getStyleSheet(resId: ResourceID): PrecompiledStyleSheet? =
         styleSheets[resId.id]
+            ?: resolveFallbackId(resId)?.let { styleSheets[it.id] }
             ?: byTypeAndName[ResourceType.STYLE to resId.name]?.let { styleSheets[it.id] }
             ?: StyleSheetRegistry.resolveByResourceId(resId)
 

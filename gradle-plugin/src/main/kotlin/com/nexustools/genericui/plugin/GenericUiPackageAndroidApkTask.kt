@@ -51,7 +51,7 @@ abstract class GenericUiPackageAndroidApkTask : DefaultTask() {
         val androidJar: File
     )
 
-    private data class ExtractedAar(
+    internal data class ExtractedAar(
         val name: String,
         val packageName: String?,
         val classesJars: List<File>,
@@ -60,9 +60,47 @@ abstract class GenericUiPackageAndroidApkTask : DefaultTask() {
         val jniDir: File?
     )
 
+    private class CountingOutputStream(
+        private val delegate: java.io.OutputStream
+    ) : java.io.OutputStream() {
+        var bytesWritten: Long = 0L
+            private set
+
+        override fun write(b: Int) {
+            delegate.write(b)
+            bytesWritten++
+        }
+
+        override fun write(b: ByteArray) {
+            delegate.write(b)
+            bytesWritten += b.size.toLong()
+        }
+
+        override fun write(b: ByteArray, off: Int, len: Int) {
+            delegate.write(b, off, len)
+            bytesWritten += len.toLong()
+        }
+
+        override fun flush() {
+            delegate.flush()
+        }
+
+        override fun close() {
+            delegate.close()
+        }
+    }
+
     @get:Input
     @get:Optional
     abstract val androidEnabled: Property<Boolean>
+
+    @get:Input
+    @get:Optional
+    abstract val jniLibsDirectories: ListProperty<String>
+
+    @get:Input
+    @get:Optional
+    abstract val pageSize16Kb: Property<Boolean>
 
     @get:Input
     @get:Optional
@@ -297,9 +335,20 @@ abstract class GenericUiPackageAndroidApkTask : DefaultTask() {
             unsignedApk = unsignedApk
         )
 
-        // 12. Zipalign (-f -p 4)
+        // 12. Zipalign (-f -P 16 4 for 16KB page alignment on Android 15+, falling back to -f -p 4)
         val alignedApk = File(workDir, "aligned.apk")
-        runCommand(
+        val use16KbPageAlign = pageSize16Kb.orNull != false
+        val zipalignArgs = if (use16KbPageAlign) {
+            listOf(
+                sdkTools.zipalign.absolutePath,
+                "-f",
+                "-P",
+                "16",
+                "4",
+                unsignedApk.absolutePath,
+                alignedApk.absolutePath
+            )
+        } else {
             listOf(
                 sdkTools.zipalign.absolutePath,
                 "-f",
@@ -307,9 +356,26 @@ abstract class GenericUiPackageAndroidApkTask : DefaultTask() {
                 "4",
                 unsignedApk.absolutePath,
                 alignedApk.absolutePath
-            ),
-            "zipalign"
-        )
+            )
+        }
+        val (alignExit, alignOut) = executeProcess(zipalignArgs)
+        if (alignExit != 0) {
+            if (use16KbPageAlign) {
+                runCommand(
+                    listOf(
+                        sdkTools.zipalign.absolutePath,
+                        "-f",
+                        "-p",
+                        "4",
+                        unsignedApk.absolutePath,
+                        alignedApk.absolutePath
+                    ),
+                    "zipalign"
+                )
+            } else {
+                throw GradleException("Android APK packaging step 'zipalign' failed (exit $alignExit):\n$alignOut")
+            }
+        }
         if (!alignedApk.isFile || alignedApk.length() == 0L) {
             throw GradleException("zipalign failed to produce aligned APK at ${alignedApk.absolutePath}")
         }
@@ -323,26 +389,39 @@ abstract class GenericUiPackageAndroidApkTask : DefaultTask() {
         }
         val apkFileName = "$resolvedBaseName-$variant.apk"
         val finalApk = File(outDir, apkFileName)
-        runCommand(
-            listOf(
-                resolveJavaExecutable().absolutePath,
-                "-jar",
-                sdkTools.apksignerJar.absolutePath,
-                "sign",
-                "--ks",
-                keystoreFile.absolutePath,
-                "--ks-pass",
-                "pass:android",
-                "--ks-key-alias",
-                "androiddebugkey",
-                "--key-pass",
-                "pass:android",
-                "--out",
-                finalApk.absolutePath,
-                alignedApk.absolutePath
-            ),
-            "apksigner"
+        val baseSignArgs = listOf(
+            resolveJavaExecutable().absolutePath,
+            "-jar",
+            sdkTools.apksignerJar.absolutePath,
+            "sign",
+            "--ks",
+            keystoreFile.absolutePath,
+            "--ks-pass",
+            "pass:android",
+            "--ks-key-alias",
+            "androiddebugkey",
+            "--key-pass",
+            "pass:android",
+            "--out",
+            finalApk.absolutePath,
+            alignedApk.absolutePath
         )
+        if (use16KbPageAlign) {
+            // Retain zipalign -P 16 .so entry alignment through APK v2/v3 signing when apksigner supports it.
+            val preservedSignArgs = baseSignArgs.toMutableList().apply {
+                add(4, "--alignment-preserved")
+            }
+            val (signExit, signOut) = executeProcess(preservedSignArgs)
+            if (signExit != 0) {
+                if (signOut.contains("alignment-preserved", ignoreCase = true)) {
+                    runCommand(baseSignArgs, "apksigner")
+                } else {
+                    throw GradleException("Android APK packaging step 'apksigner' failed (exit $signExit):\n$signOut")
+                }
+            }
+        } else {
+            runCommand(baseSignArgs, "apksigner")
+        }
 
         val finishedMs = System.currentTimeMillis().coerceAtLeast(taskStartMs)
         finalApk.setLastModified(finishedMs)
@@ -1027,16 +1106,8 @@ abstract class GenericUiPackageAndroidApkTask : DefaultTask() {
         val excludedNames = setOf(".ds_store", "thumbs.db", "desktop.ini")
 
         val candidateResRoots = buildList {
-            add(File(rootDir, "src/commonMain/resources"))
-            add(File(rootDir, "src/common/resources"))
-            add(File(rootDir, "src/systemMain/resources"))
-            add(File(rootDir, "src/systemCommon/resources"))
-            add(File(rootDir, "src/jvmCommon/resources"))
-            add(File(rootDir, "src/mobileCommon/resources"))
-            add(File(rootDir, "src/mobileMain/resources"))
-            add(File(rootDir, "src/android/resources"))
-            add(File(rootDir, "src/androidMain/resources"))
             add(File(rootDir, "src/androidMain/res"))
+            add(File(rootDir, "src/android/res"))
             if (genResDir != null) {
                 add(genResDir)
             }
@@ -1513,7 +1584,7 @@ abstract class GenericUiPackageAndroidApkTask : DefaultTask() {
         }
     }
 
-    private fun assembleUnsignedApk(
+    internal fun assembleUnsignedApk(
         linkedApFile: File,
         dexOutDir: File,
         rootDir: File,
@@ -1521,12 +1592,16 @@ abstract class GenericUiPackageAndroidApkTask : DefaultTask() {
         extractedAars: List<ExtractedAar>,
         allInputJars: List<File>,
         abiFilter: String,
-        unsignedApk: File
+        unsignedApk: File,
+        extraJniLibsDirs: List<File> = emptyList(),
+        alignSoTo16Kb: Boolean = pageSize16Kb.orNull != false
     ) {
         val addedEntries = HashSet<String>()
         val serviceFiles = LinkedHashMap<String, LinkedHashSet<String>>()
+        val soAlignment = if (alignSoTo16Kb) 16384 else 4096
 
-        ZipOutputStream(BufferedOutputStream(FileOutputStream(unsignedApk))).use { zos ->
+        val countingOut = CountingOutputStream(BufferedOutputStream(FileOutputStream(unsignedApk)))
+        ZipOutputStream(countingOut).use { zos ->
             // 1. Copy linked resources and binary AndroidManifest.xml from linked.ap_, preserving STORED entries (especially resources.arsc)
             ZipFile(linkedApFile).use { apZip ->
                 val entries = apZip.entries()
@@ -1538,7 +1613,8 @@ abstract class GenericUiPackageAndroidApkTask : DefaultTask() {
 
                     val bytes = apZip.getInputStream(srcEntry).use { it.readBytes() }
                     if (srcEntry.method == ZipEntry.STORED || entryName == "resources.arsc") {
-                        writeStoredEntry(zos, entryName, bytes)
+                        val align = if (entryName.endsWith(".so", ignoreCase = true)) soAlignment else 4
+                        writeStoredEntry(zos, countingOut, entryName, bytes, align)
                     } else {
                         val dstEntry = ZipEntry(entryName)
                         dstEntry.method = ZipEntry.DEFLATED
@@ -1625,23 +1701,43 @@ abstract class GenericUiPackageAndroidApkTask : DefaultTask() {
                 }
             }
 
-            // 5. Add JNI native libraries (lib/<abi>/*.so) from AARs and Kotlin/Native outputs
+            // 5. Add JNI native libraries (lib/<abi>/*.so) from project jniLibs, configured jniLibsDirs,
+            // compiled consumer JNI outputs, AARs, and Kotlin/Native outputs
             val allowedAbis = if (abiFilter.isNotEmpty()) {
                 setOf(abiFilter)
             } else {
                 setOf("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
             }
 
+            fun stageAbiDirectory(jniRoot: File) {
+                if (!jniRoot.isDirectory) return
+                jniRoot.listFiles()?.filter { it.isDirectory && it.name in allowedAbis }?.forEach { abiDir ->
+                    abiDir.walkTopDown()
+                        .filter { it.isFile && it.extension.equals("so", ignoreCase = true) }
+                        .sortedBy { it.name }
+                        .forEach { soFile ->
+                            val entryPath = "lib/${abiDir.name}/${soFile.name}"
+                            if (addedEntries.add(entryPath)) {
+                                writeStoredEntry(zos, countingOut, entryPath, soFile.readBytes(), soAlignment)
+                            }
+                        }
+                }
+            }
+
+            stageAbiDirectory(File(rootDir, "src/androidMain/jniLibs"))
+            stageAbiDirectory(File(rootDir, "src/android/jniLibs"))
+            for (configuredPath in jniLibsDirectories.orNull.orEmpty()) {
+                val dir = File(configuredPath).let { if (it.isAbsolute) it else File(rootDir, it.path) }
+                stageAbiDirectory(dir)
+            }
+            for (extraDir in extraJniLibsDirs) {
+                stageAbiDirectory(extraDir)
+            }
+            stageAbiDirectory(File(buildDir, "intermediates/genericui_jni/android"))
+
             for (aar in extractedAars) {
                 val jniDir = aar.jniDir ?: continue
-                jniDir.listFiles()?.filter { it.isDirectory && it.name in allowedAbis }?.forEach { abiDir ->
-                    abiDir.walkTopDown().filter { it.isFile && it.extension.equals("so", ignoreCase = true) }.forEach { soFile ->
-                        val entryPath = "lib/${abiDir.name}/${soFile.name}"
-                        if (addedEntries.add(entryPath)) {
-                            writeStoredEntry(zos, entryPath, soFile.readBytes())
-                        }
-                    }
-                }
+                stageAbiDirectory(jniDir)
             }
 
             val nativeTargetDirMap = mapOf(
@@ -1657,14 +1753,21 @@ abstract class GenericUiPackageAndroidApkTask : DefaultTask() {
                 binTargetDir.walkTopDown().filter { it.isFile && it.extension.equals("so", ignoreCase = true) }.forEach { soFile ->
                     val entryPath = "lib/$abi/${soFile.name}"
                     if (addedEntries.add(entryPath)) {
-                        writeStoredEntry(zos, entryPath, soFile.readBytes())
+                        writeStoredEntry(zos, countingOut, entryPath, soFile.readBytes(), soAlignment)
                     }
                 }
             }
         }
     }
 
-    private fun writeStoredEntry(zos: ZipOutputStream, entryName: String, bytes: ByteArray) {
+    private fun writeStoredEntry(
+        zos: ZipOutputStream,
+        countingOut: CountingOutputStream,
+        entryName: String,
+        bytes: ByteArray,
+        alignment: Int = 4
+    ) {
+        zos.flush()
         val crc = CRC32()
         crc.update(bytes)
         val entry = ZipEntry(entryName)
@@ -1672,6 +1775,22 @@ abstract class GenericUiPackageAndroidApkTask : DefaultTask() {
         entry.size = bytes.size.toLong()
         entry.compressedSize = bytes.size.toLong()
         entry.crc = crc.value
+        if (alignment > 1) {
+            val nameLen = entryName.toByteArray(StandardCharsets.UTF_8).size
+            val dataBase = countingOut.bytesWritten + 30L + nameLen.toLong()
+            val rem = (dataBase % alignment.toLong()).toInt()
+            val rawPad = if (rem == 0) 0 else (alignment - rem)
+            val extraLen = if (rawPad in 1..3) rawPad + alignment else rawPad
+            if (extraLen >= 4) {
+                val extra = ByteArray(extraLen)
+                val dataLen = extraLen - 4
+                extra[0] = 0x35.toByte()
+                extra[1] = 0xD9.toByte()
+                extra[2] = (dataLen and 0xFF).toByte()
+                extra[3] = ((dataLen ushr 8) and 0xFF).toByte()
+                entry.extra = extra
+            }
+        }
         zos.putNextEntry(entry)
         zos.write(bytes)
         zos.closeEntry()

@@ -21,42 +21,18 @@ import com.nexustools.genericui.style.css.StyleSheetRegistry
 object Resources {
     val activeTable: ResourceTable = ResourceTable()
 
-    val GENERICUI: ResourceID = ResourceID(
-        id = 0x7f0c0ff1,
-        type = ResourceType.STYLE,
-        name = "genericui",
-        relativePath = "gui/genericui.css"
-    )
-    val BOOTSTRAP: ResourceID = ResourceID(
-        id = 0x7f0c0ff2,
-        type = ResourceType.STYLE,
-        name = "bootstrap",
-        relativePath = "gui/bootstrap.min.css"
-    )
-    val BOOTSTRAP_JS: ResourceID = ResourceID(
-        id = 0x7f070ff1,
-        type = ResourceType.RAW,
-        name = "bootstrap_js",
-        relativePath = "gui/bootstrap.bundle.min.js"
-    )
-    val BOOTSTRAP_ICONS: ResourceID = ResourceID(
-        id = 0x7f0c0ff3,
-        type = ResourceType.STYLE,
-        name = "bootstrap_icons",
-        relativePath = "gui/bootstrap-icons.min.css"
-    )
-    val GENERICUI_NAMESPACE: ResourceID = ResourceID(
-        id = 0x7f090ff1,
-        type = ResourceType.XML,
-        name = "genericui_namespace",
-        relativePath = "genericui-namespace.xml"
-    )
-    val LOADING_IMAGE: ResourceID = ResourceID(
-        id = 0x7f020ff1,
-        type = ResourceType.DRAWABLE,
-        name = "loading",
-        relativePath = "gui/drawable/loading.svg"
-    )
+    val GENERICUI: ResourceID
+        get() = Resource.style.genericui
+    val BOOTSTRAP: ResourceID
+        get() = Resource.style.bootstrap_min
+    val BOOTSTRAP_JS: ResourceID
+        get() = Resource.raw.bootstrap_bundle_min
+    val BOOTSTRAP_ICONS: ResourceID
+        get() = Resource.style.bootstrap_icons_min
+    val GENERICUI_NAMESPACE: ResourceID
+        get() = Resource.xml.genericui_namespace
+    val LOADING_IMAGE: ResourceID
+        get() = Resource.drawable.loading
 
     const val DEFAULT_LOADING_SVG: String =
         "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 48 48\" width=\"48\" height=\"48\">" +
@@ -69,14 +45,15 @@ object Resources {
     val DEFAULT_LOADING_SVG_DATA_URL: String =
         DataUrlCodec.encodeUtf8Text(DEFAULT_LOADING_SVG, "image/svg+xml")
 
-    private val defaultLoadingDrawable: DrawableResource = DrawableResource(
-        resId = LOADING_IMAGE,
-        format = "svg",
-        svgSource = DEFAULT_LOADING_SVG,
-        svgPathDataList = listOf("M8 36L19 23L27 31L33 25L40 36Z"),
-        viewBoxWidth = 48f,
-        viewBoxHeight = 48f
-    )
+    private val defaultLoadingDrawable: DrawableResource
+        get() = DrawableResource(
+            resId = LOADING_IMAGE,
+            format = "svg",
+            svgSource = DEFAULT_LOADING_SVG,
+            svgPathDataList = listOf("M8 36L19 23L27 31L33 25L40 36Z"),
+            viewBoxWidth = 48f,
+            viewBoxHeight = 48f
+        )
 
     private val genericUiStyleSheet: PrecompiledStyleSheet = object : PrecompiledStyleSheet {
         override val name: String = "genericui"
@@ -107,19 +84,23 @@ object Resources {
     }
 
     fun ensureBuiltInResourcesRegistered() {
+        GeneratedResourceRegistry.ensureInitialized(activeTable)
         activeTable.registerStyleSheet(GENERICUI, genericUiStyleSheet)
         StyleSheetRegistry.register("genericui.css", "gui/genericui.css", GENERICUI, genericUiStyleSheet)
         StyleSheetRegistry.register("gui/genericui.css", "gui/genericui.css", GENERICUI, genericUiStyleSheet)
+        StyleSheetRegistry.register("gui/styles/genericui.css", "gui/styles/genericui.css", GENERICUI, genericUiStyleSheet)
         StyleSheetRegistry.register("genericui", "styles/genericui.css", GENERICUI, genericUiStyleSheet)
         activeTable.registerStyleSheet(BOOTSTRAP, bootstrapStyleSheet)
         StyleSheetRegistry.register("bootstrap", "gui/bootstrap.min.css", BOOTSTRAP, bootstrapStyleSheet)
         StyleSheetRegistry.register("bootstrap.min", "gui/bootstrap.min.css", BOOTSTRAP, bootstrapStyleSheet)
         StyleSheetRegistry.register("gui/bootstrap.min.css", "gui/bootstrap.min.css", BOOTSTRAP, bootstrapStyleSheet)
+        StyleSheetRegistry.register("gui/styles/bootstrap.min.css", "gui/styles/bootstrap.min.css", BOOTSTRAP, bootstrapStyleSheet)
         activeTable.registerStyleSheet(BOOTSTRAP_ICONS, bootstrapIconsStyleSheet)
         StyleSheetRegistry.register("bootstrap-icons", "gui/bootstrap-icons.min.css", BOOTSTRAP_ICONS, bootstrapIconsStyleSheet)
         StyleSheetRegistry.register("bootstrap_icons", "gui/bootstrap-icons.min.css", BOOTSTRAP_ICONS, bootstrapIconsStyleSheet)
         StyleSheetRegistry.register("bootstrap-icons.min", "gui/bootstrap-icons.min.css", BOOTSTRAP_ICONS, bootstrapIconsStyleSheet)
         StyleSheetRegistry.register("gui/bootstrap-icons.min.css", "gui/bootstrap-icons.min.css", BOOTSTRAP_ICONS, bootstrapIconsStyleSheet)
+        StyleSheetRegistry.register("gui/styles/bootstrap-icons.min.css", "gui/styles/bootstrap-icons.min.css", BOOTSTRAP_ICONS, bootstrapIconsStyleSheet)
         activeTable.registerResourceId(BOOTSTRAP_JS)
         activeTable.registerResourceId(GENERICUI_NAMESPACE)
         activeTable.registerDrawable(defaultLoadingDrawable)

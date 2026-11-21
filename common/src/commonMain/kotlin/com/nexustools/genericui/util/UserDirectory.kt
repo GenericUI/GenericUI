@@ -214,9 +214,105 @@ abstract class UserDirectory internal constructor(
     }
 
     companion object {
+        private val HEX_DIGITS = charArrayOf(
+            '0', '1', '2', '3', '4', '5', '6', '7',
+            '8', '9', 'A', 'B', 'C', 'D', 'E', 'F'
+        )
+
+        private val WINDOWS_RESERVED_STEMS = setOf(
+            "CON", "PRN", "AUX", "NUL",
+            "COM0", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+            "LPT0", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"
+        )
+
         fun sanitizeFileName(raw: String): String {
             val trimmed = raw.trim().trim('/', '\\').ifEmpty { "unnamed" }
             return trimmed.replace(Regex("[\\\\/:*?\"<>|]"), "_")
+        }
+
+        /**
+         * Bijectively encodes an arbitrary preference [key] into a valid, non-dotfile single-segment
+         * filename stem safe across Windows, macOS, and Linux filesystems.
+         */
+        fun encodePreferenceKeyToFileName(key: String): String {
+            if (key.isEmpty()) return "~"
+            val utf8 = key.encodeToByteArray()
+            val prefixBeforeDot = key.substringBefore('.').uppercase()
+            val escapeFirstForReservedDevice = prefixBeforeDot in WINDOWS_RESERVED_STEMS
+            val sb = StringBuilder(utf8.size + 8)
+            for (i in utf8.indices) {
+                val b = utf8[i].toInt() and 0xFF
+                val mustEscapeBoundaryDot = (b == '.'.code) && (i == 0 || i == utf8.lastIndex)
+                val mustEscapeReservedStart = (i == 0) && escapeFirstForReservedDevice
+                if (!mustEscapeBoundaryDot && !mustEscapeReservedStart && isSafePreferenceKeyByte(b)) {
+                    sb.append(Char(b))
+                } else {
+                    sb.append('%')
+                    sb.append(HEX_DIGITS[(b ushr 4) and 0x0F])
+                    sb.append(HEX_DIGITS[b and 0x0F])
+                }
+            }
+            return sb.toString()
+        }
+
+        /**
+         * Losslessly decodes an encoded preference filename stem back into the original preference key.
+         */
+        fun decodePreferenceKeyFromFileName(encodedStem: String): String {
+            if (encodedStem == "~") return ""
+            if (encodedStem.isEmpty()) return ""
+            if ('%' !in encodedStem) return encodedStem
+            val len = encodedStem.length
+            val out = ByteArray(len * 4)
+            var outLen = 0
+            var i = 0
+            while (i < len) {
+                val ch = encodedStem[i]
+                if (ch == '%' && i + 2 < len) {
+                    val hi = hexDigitValue(encodedStem[i + 1])
+                    val lo = hexDigitValue(encodedStem[i + 2])
+                    if (hi >= 0 && lo >= 0) {
+                        out[outLen++] = ((hi shl 4) or lo).toByte()
+                        i += 3
+                        continue
+                    }
+                }
+                if (ch.code < 0x80) {
+                    out[outLen++] = ch.code.toByte()
+                    i++
+                } else {
+                    val end = if (ch.isHighSurrogate() && i + 1 < len && encodedStem[i + 1].isLowSurrogate()) {
+                        i + 2
+                    } else {
+                        i + 1
+                    }
+                    val charBytes = encodedStem.substring(i, end).encodeToByteArray()
+                    for (cb in charBytes) {
+                        out[outLen++] = cb
+                    }
+                    i = end
+                }
+            }
+            return out.decodeToString(0, outLen)
+        }
+
+        private fun isSafePreferenceKeyByte(b: Int): Boolean = when {
+            b in 'A'.code..'Z'.code -> true
+            b in 'a'.code..'z'.code -> true
+            b in '0'.code..'9'.code -> true
+            else -> when (b) {
+                '.'.code, '_'.code, '-'.code, '+'.code, '@'.code, '$'.code,
+                ','.code, ';'.code, '='.code, '('.code, ')'.code, '['.code,
+                ']'.code, '{'.code, '}'.code, '!'.code, '\''.code -> true
+                else -> false
+            }
+        }
+
+        private fun hexDigitValue(ch: Char): Int = when (ch) {
+            in '0'..'9' -> ch.code - '0'.code
+            in 'A'..'F' -> ch.code - 'A'.code + 10
+            in 'a'..'f' -> ch.code - 'a'.code + 10
+            else -> -1
         }
     }
 }

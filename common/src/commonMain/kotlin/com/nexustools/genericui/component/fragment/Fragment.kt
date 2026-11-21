@@ -132,9 +132,13 @@ open class Fragment : Container("fragment"), IFragment {
         }
     }
 
-    override fun isFullscreen(): Boolean =
-        (attachedWindow ?: attachedIWindow ?: (application ?: Application.current)?.mainWindow)?.isFullscreen()
-            ?: fullscreenMode || super.isFullscreen()
+    override fun isFullscreen(): Boolean {
+        if (fullscreenExplicitlySetOnFragment) {
+            return fullscreenMode || super.isFullscreen()
+        }
+        val windowFullscreen = (attachedWindow ?: attachedIWindow ?: (application ?: Application.current)?.mainWindow)?.isFullscreen()
+        return (windowFullscreen ?: fullscreenMode) || super.isFullscreen()
+    }
 
     override fun getDisplayCutoutMode(): DisplayCutoutMode = displayCutoutMode
 

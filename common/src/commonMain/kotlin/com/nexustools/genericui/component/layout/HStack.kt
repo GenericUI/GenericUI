@@ -42,6 +42,8 @@ open class HStack(gap: SpacingScale? = null) : Container("genericui:hstack", "d-
         getStyle().setFlexDirection(FlexDirection.ROW)
         if (gap != null) {
             getBootstrap().gap = gap
+        } else {
+            getStyle().setGap(CssLength.px(gapPx))
         }
     }
 

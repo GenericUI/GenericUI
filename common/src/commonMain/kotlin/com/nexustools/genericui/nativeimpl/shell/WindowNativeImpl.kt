@@ -6,7 +6,6 @@ import com.nexustools.genericui.enums.window.DisplayCutoutMode
 import com.nexustools.genericui.enums.window.WindowState
 import com.nexustools.genericui.geometry.Point
 import com.nexustools.genericui.geometry.Size
-import com.nexustools.genericui.window.PipConfig
 import com.nexustools.genericui.window.TitleBar
 import com.nexustools.genericui.window.TitleCapabilities
 import com.nexustools.genericui.window.WindowConfiguration
@@ -60,14 +59,15 @@ interface WindowNativeImpl<out W> : AbstractContainerNativeImpl<W> {
     fun setNavBarNative(navBarImpl: NativeImpl<*>?)
     fun setBottomNavigationBarNative(bottomNavImpl: NativeImpl<*>?)
 
-    fun enterPictureInPicture(config: PipConfig): Boolean
-    fun exitPictureInPicture()
-    fun isInPictureInPicture(): Boolean
+    fun isUndecorated(): Boolean = false
+    fun setUndecorated(undecorated: Boolean) {}
+    fun startSystemMove() {}
 
     fun showWindow()
     fun closeWindow()
 
     fun setOnWindowResize(listener: ((WindowConfiguration) -> Unit)?)
+    fun setOnWindowStateChanged(listener: ((WindowState) -> Unit)?) {}
     fun setOnWindowMoved(listener: ((Int, Int) -> Unit)?) {}
     fun setOnWindowFocusChanged(listener: ((Boolean) -> Unit)?)
     fun setOnWindowCloseRequested(listener: (() -> Boolean)?)

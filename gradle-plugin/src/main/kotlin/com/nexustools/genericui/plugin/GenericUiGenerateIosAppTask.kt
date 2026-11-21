@@ -72,11 +72,24 @@ abstract class GenericUiGenerateIosAppTask : DefaultTask() {
     @get:Optional
     abstract val appleIconExplicitlyProvided: Property<Boolean>
 
+    @get:Input
+    @get:Optional
+    abstract val projectBuildPath: Property<String>
+
+    @get:Input
+    @get:Optional
+    abstract val enabledExtensionModulePaths: ListProperty<String>
+
+    @get:Input
+    @get:Optional
+    abstract val extensionOptions: org.gradle.api.provider.MapProperty<String, String>
+
     @get:OutputDirectory
     abstract val outputDirectory: DirectoryProperty
 
     init {
         deviceFamily.convention(DEVICE_FAMILY_IPHONE)
+        extensionOptions.convention(emptyMap())
         frameworkSearchSubdirDebug.convention("debugFramework")
         frameworkSearchSubdirRelease.convention("releaseFramework")
         appleIconExplicitlyProvided.convention(false)
@@ -106,6 +119,12 @@ abstract class GenericUiGenerateIosAppTask : DefaultTask() {
         val debugFwDir = frameworkSearchSubdirDebug.orNull?.trim().orEmpty().ifEmpty { "debugFramework" }
         val releaseFwDir = frameworkSearchSubdirRelease.orNull?.trim().orEmpty().ifEmpty { "releaseFramework" }
         val rootDir = projectRootPath.orNull?.trim()?.takeIf { it.isNotEmpty() }?.let { File(it) }
+        val buildDir = projectBuildPath.orNull?.trim()?.takeIf { it.isNotEmpty() }?.let { File(it) }
+            ?: rootDir?.let { File(it, "build") }
+        val backendDirName = if (resolvedDeviceFamily == DEVICE_FAMILY_IPAD) "ipados" else "ios"
+        val compiledBackendResDir = buildDir?.let {
+            File(it, "generated/genericui/resources/backends/$backendDirName").takeIf { d -> d.isDirectory }
+        }
 
         generateIosHostProject(
             outputDir = outDir,
@@ -120,7 +139,10 @@ abstract class GenericUiGenerateIosAppTask : DefaultTask() {
             frameworkSearchSubdirRelease = releaseFwDir,
             projectRootDir = rootDir,
             iconPath = iconPath.orNull ?: fallbackIconPath.orNull,
-            appleIconExplicitlyProvided = appleIconExplicitlyProvided.getOrElse(false)
+            appleIconExplicitlyProvided = appleIconExplicitlyProvided.getOrElse(false),
+            enabledExtensionModulePaths = enabledExtensionModulePaths.orNull.orEmpty(),
+            extensionOptions = extensionOptions.getOrElse(emptyMap()),
+            compiledBackendResourceDir = compiledBackendResDir
         )
     }
 
@@ -173,7 +195,10 @@ abstract class GenericUiGenerateIosAppTask : DefaultTask() {
             frameworkSearchSubdirRelease: String = "releaseFramework",
             projectRootDir: File? = null,
             iconPath: String? = null,
-            appleIconExplicitlyProvided: Boolean = false
+            appleIconExplicitlyProvided: Boolean = false,
+            enabledExtensionModulePaths: List<String> = emptyList(),
+            extensionOptions: Map<String, String> = emptyMap(),
+            compiledBackendResourceDir: File? = null
         ): List<File> {
             outputDir.mkdirs()
             val sanitizedFramework = sanitizeFrameworkName(frameworkName)
@@ -187,7 +212,10 @@ abstract class GenericUiGenerateIosAppTask : DefaultTask() {
                     appId = appId,
                     appVersion = appVersion,
                     orientations = orientations,
-                    deviceFamily = deviceFamily
+                    deviceFamily = deviceFamily,
+                    enabledExtensionModulePaths = enabledExtensionModulePaths,
+                    extensionOptions = extensionOptions,
+                    projectRootDir = projectRootDir
                 ),
                 Charsets.UTF_8
             )
@@ -255,6 +283,35 @@ abstract class GenericUiGenerateIosAppTask : DefaultTask() {
             )
             generatedFiles.add(appIconContents)
 
+            val resourcesGuiDir = File(outputDir, "Resources/gui").apply { mkdirs() }
+            val resourcesAppDir = File(outputDir, "Resources/app").apply { mkdirs() }
+            if (compiledBackendResourceDir != null && compiledBackendResourceDir.isDirectory) {
+                val compiledXcassetsDir = File(compiledBackendResourceDir, "Assets.xcassets")
+                if (compiledXcassetsDir.isDirectory) {
+                    compiledXcassetsDir.listFiles()?.forEach { child ->
+                        if (child.name == "AppIcon.appiconset" || child.name == "Contents.json") return@forEach
+                        val target = File(xcassetsDir, child.name)
+                        if (child.isDirectory) {
+                            child.copyRecursively(target, overwrite = true)
+                        } else if (child.isFile) {
+                            child.copyTo(target, overwrite = true)
+                        }
+                    }
+                }
+                val compiledGuiDir = File(compiledBackendResourceDir, "gui")
+                if (compiledGuiDir.isDirectory) {
+                    compiledGuiDir.copyRecursively(resourcesGuiDir, overwrite = true)
+                }
+                val compiledAppDir = File(compiledBackendResourceDir, "app")
+                if (compiledAppDir.isDirectory) {
+                    compiledAppDir.copyRecursively(resourcesAppDir, overwrite = true)
+                }
+                val compiledLprojDir = File(compiledBackendResourceDir, "en.lproj")
+                if (compiledLprojDir.isDirectory) {
+                    compiledLprojDir.copyRecursively(File(outputDir, "en.lproj"), overwrite = true)
+                }
+            }
+
             val projectYmlFile = File(outputDir, "project.yml")
             projectYmlFile.writeText(
                 renderProjectYml(
@@ -319,10 +376,85 @@ abstract class GenericUiGenerateIosAppTask : DefaultTask() {
             appId: String,
             appVersion: String,
             orientations: List<String> = DEFAULT_ORIENTATIONS,
-            deviceFamily: Int = DEVICE_FAMILY_IPHONE
+            deviceFamily: Int = DEVICE_FAMILY_IPHONE,
+            enabledExtensionModulePaths: List<String> = emptyList(),
+            projectRootDir: File? = null,
+            extensionOptions: Map<String, String> = emptyMap()
         ): String {
             val orientationEntries = orientations.joinToString("\n") {
                 "        <string>${escapeXml(it)}</string>"
+            }
+            val normalizedExtensions = enabledExtensionModulePaths.map { it.trim() }.filter { it.isNotEmpty() }.toSet()
+            val discoveredFrags = if (projectRootDir != null) {
+                GenericUiFragmentScanner.scanProject(projectRootDir)
+            } else {
+                emptyList()
+            }
+            val discoveredSyms = if (projectRootDir != null && normalizedExtensions.isNotEmpty()) {
+                val scanSpecs = com.nexustools.genericui.plugin.spi.GenericUiExtensionContributorRegistry
+                    .allAnnotationScanSpecs(normalizedExtensions, projectRootDir)
+                GenericUiFragmentScanner.scanProjectSymbols(projectRootDir, scanSpecs)
+            } else {
+                emptyList()
+            }
+            val appleContributions = com.nexustools.genericui.plugin.spi.GenericUiExtensionContributorRegistry
+                .collectAppleMobileContributions(
+                    com.nexustools.genericui.plugin.spi.ExtensionBuildContext(
+                        projectRootDir = projectRootDir ?: File("."),
+                        projectName = appName,
+                        appId = appId,
+                        appName = appName,
+                        appVersion = appVersion,
+                        baseName = appName,
+                        generatedPackageName = "",
+                        enabledExtensionModulePaths = normalizedExtensions,
+                        discoveredFragments = discoveredFrags,
+                        discoveredSymbols = discoveredSyms,
+                        extensionOptions = extensionOptions
+                    )
+                )
+            val backgroundModes = linkedSetOf<String>()
+            if (":extensions:ui:pip" in normalizedExtensions || ":extensions:media:media" in normalizedExtensions) {
+                backgroundModes.add("audio")
+            }
+            appleContributions.flatMap { it.backgroundModes }
+                .map { it.trim() }
+                .filter { it.isNotEmpty() }
+                .forEach { backgroundModes.add(it) }
+            val userActivityTypes = appleContributions.flatMap { it.userActivityTypes }
+                .map { it.trim() }
+                .filter { it.isNotEmpty() }
+                .distinct()
+            val extraPlistEntries = linkedMapOf<String, Any>()
+            for (c in appleContributions) {
+                extraPlistEntries.putAll(c.infoPlistEntries)
+            }
+
+            val backgroundModesBlock = buildString {
+                if (backgroundModes.isNotEmpty()) {
+                    appendLine("    <key>UIBackgroundModes</key>")
+                    appendLine("    <array>")
+                    for (mode in backgroundModes) {
+                        appendLine("        <string>${escapeXml(mode)}</string>")
+                    }
+                    appendLine("    </array>")
+                }
+                if (userActivityTypes.isNotEmpty()) {
+                    appendLine("    <key>NSUserActivityTypes</key>")
+                    appendLine("    <array>")
+                    for (ua in userActivityTypes) {
+                        appendLine("        <string>${escapeXml(ua)}</string>")
+                    }
+                    appendLine("    </array>")
+                }
+                for ((k, v) in extraPlistEntries) {
+                    appendLine("    <key>${escapeXml(k)}</key>")
+                    when (v) {
+                        is Boolean -> appendLine(if (v) "    <true/>" else "    <false/>")
+                        is Int, is Long -> appendLine("    <integer>$v</integer>")
+                        else -> appendLine("    <string>${escapeXml(v.toString())}</string>")
+                    }
+                }
             }
             return """
                 |<?xml version="1.0" encoding="UTF-8"?>
@@ -373,7 +505,7 @@ abstract class GenericUiGenerateIosAppTask : DefaultTask() {
                 |    <array>
                 |$orientationEntries
                 |    </array>
-                |</dict>
+                |$backgroundModesBlock</dict>
                 |</plist>
                 |
             """.trimMargin()
@@ -447,6 +579,10 @@ abstract class GenericUiGenerateIosAppTask : DefaultTask() {
                 |      - iOSApp.swift
                 |      - ContentView.swift
                 |      - Assets.xcassets
+                |      - path: Resources/gui
+                |        type: folder
+                |      - path: Resources/app
+                |        type: folder
                 |    info:
                 |      path: Info.plist
                 |    settings:
@@ -493,6 +629,8 @@ abstract class GenericUiGenerateIosAppTask : DefaultTask() {
                 |		A10000010000000000000001 /* iOSApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000001 /* iOSApp.swift */; };
                 |		A10000020000000000000002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000020000000000000002 /* ContentView.swift */; };
                 |		A10000030000000000000003 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A20000050000000000000005 /* Assets.xcassets */; };
+                |		A10000040000000000000004 /* Resources/gui in Resources */ = {isa = PBXBuildFile; fileRef = A20000060000000000000006 /* Resources/gui */; };
+                |		A10000050000000000000005 /* Resources/app in Resources */ = {isa = PBXBuildFile; fileRef = A20000070000000000000007 /* Resources/app */; };
                 |/* End PBXBuildFile section */
                 |
                 |/* Begin PBXFileReference section */
@@ -501,6 +639,8 @@ abstract class GenericUiGenerateIosAppTask : DefaultTask() {
                 |		A20000030000000000000003 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
                 |		A20000040000000000000004 /* $projectName.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = $projectName.app; sourceTree = BUILT_PRODUCTS_DIR; };
                 |		A20000050000000000000005 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+                |		A20000060000000000000006 /* gui */ = {isa = PBXFileReference; lastKnownFileType = folder; name = gui; path = Resources/gui; sourceTree = "<group>"; };
+                |		A20000070000000000000007 /* app */ = {isa = PBXFileReference; lastKnownFileType = folder; name = app; path = Resources/app; sourceTree = "<group>"; };
                 |/* End PBXFileReference section */
                 |
                 |/* Begin PBXGroup section */
@@ -511,6 +651,8 @@ abstract class GenericUiGenerateIosAppTask : DefaultTask() {
                 |				A20000020000000000000002 /* ContentView.swift */,
                 |				A20000030000000000000003 /* Info.plist */,
                 |				A20000050000000000000005 /* Assets.xcassets */,
+                |				A20000060000000000000006 /* gui */,
+                |				A20000070000000000000007 /* app */,
                 |				A20000040000000000000004 /* $projectName.app */,
                 |			);
                 |			sourceTree = "<group>";
@@ -563,6 +705,8 @@ abstract class GenericUiGenerateIosAppTask : DefaultTask() {
                 |			buildActionMask = 2147483647;
                 |			files = (
                 |				A10000030000000000000003 /* Assets.xcassets in Resources */,
+                |				A10000040000000000000004 /* Resources/gui in Resources */,
+                |				A10000050000000000000005 /* Resources/app in Resources */,
                 |			);
                 |			runOnlyForDeploymentPostprocessing = 0;
                 |		};

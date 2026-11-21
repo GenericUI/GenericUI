@@ -142,6 +142,28 @@ enum class GenericUiExtensionModule(
         dslModulePath = ":extensions:media:mediacontrols:dsl"
     ),
 
+    // --- Data ---
+    SCHEMA(
+        id = "schema",
+        dslMethodName = "schema",
+        category = "Data",
+        displayName = "Meta-Schema Forms & Codegen (:extensions:data:schema)",
+        description = "Declarative ObjectSchema engine, SchemaForm/SchemaModal, reactive rules, JSON Schema draft-07, and @SchemaData codegen",
+        gradleModulePath = ":extensions:data:schema",
+        dslModulePath = ":extensions:data:schema:dsl"
+    ),
+
+    // --- System ---
+    SERVICE_WORKER(
+        id = "serviceWorker",
+        dslMethodName = "serviceWorker",
+        category = "System",
+        displayName = "Background Service Worker (:extensions:system:serviceworker)",
+        description = "Cross-platform background ServiceWorker runtime, @MainServiceWorker validation, @ServiceWorkerMessage IPC codecs, system tray, foreground service, and Web Worker/ServiceWorker support",
+        gradleModulePath = ":extensions:system:serviceworker",
+        dslModulePath = ":extensions:system:serviceworker:dsl"
+    ),
+
     // --- UI ---
     DSL(
         id = "dsl",
@@ -218,8 +240,10 @@ enum class GenericUiExtensionModule(
         ENGINE -> linkedSetOf(GAMEPAD)
         ENGINE_2D -> linkedSetOf(GPU, IMAGE_PROCESSING, CANVAS_2D, CANVAS_3D, BOX_2D, GAMEPAD, ENGINE, OVERLAY)
         ENGINE_3D -> linkedSetOf(GPU, IMAGE_PROCESSING, CANVAS_2D, CANVAS_3D, THREE_JS, BOX_3D, GAMEPAD, ENGINE, OVERLAY)
-        MEDIA -> linkedSetOf(OVERLAY)
+        MEDIA -> linkedSetOf(OVERLAY, SCHEMA)
         MEDIA_CONTROLS -> emptySet()
+        SCHEMA -> emptySet()
+        SERVICE_WORKER -> emptySet()
         DSL -> emptySet()
         OVERLAY -> emptySet()
         ALIEN -> linkedSetOf(GPU, IMAGE_PROCESSING, CANVAS_2D, OVERLAY)
@@ -235,6 +259,8 @@ enum class GenericUiExtensionModule(
             "Physics",
             "Game & Input",
             "Media",
+            "Data",
+            "System",
             "UI"
         )
 

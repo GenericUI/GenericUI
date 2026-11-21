@@ -1,5 +1,8 @@
 package com.nexustools.genericui.plugin
 
+import com.nexustools.genericui.plugin.nativebuild.GenericUiCInteropConfig
+import com.nexustools.genericui.plugin.nativebuild.GenericUiJniConfig
+import com.nexustools.genericui.plugin.nativebuild.GenericUiNativeLibraryLinkConfig
 import org.gradle.api.Action
 
 /**
@@ -149,6 +152,15 @@ open class GenericUiExtension {
 
     /** Cross-platform `JestElectricRunner` UI testing suite configuration (`:tests:*`). */
     val testing: GenericUiTestingConfig = GenericUiTestingConfig()
+
+    /** Top-level consumer JNI libraries, prebuilt `jniLibsDirs`, and external CMake builds (`genericui { jni { ... } }`). */
+    val jni: GenericUiJniConfig = GenericUiJniConfig()
+
+    /** Top-level Kotlin/Native `cinterop` bindings (`genericui { cinterops { create(...) { ... } } }`). */
+    val cinterops: GenericUiCInteropConfig = GenericUiCInteropConfig()
+
+    /** Top-level native library linker options (`genericui { nativeLibraries { link(...) } }`). */
+    val nativeLibraries: GenericUiNativeLibraryLinkConfig = GenericUiNativeLibraryLinkConfig()
 
     /**
      * Tasks registered by companion plugins (e.g. `id("com.nexustools.njs")` `transpileNjsDependencies`)
@@ -575,6 +587,24 @@ open class GenericUiExtension {
     /** Configures the `JestElectricRunner` UI testing suite (`:tests:*`) and Windows visual test runner. */
     fun testing(action: Action<in GenericUiTestingConfig>) {
         action.execute(testing)
+    }
+
+    /** Configures consumer C/C++ JNI libraries, prebuilt `jniLibsDirs`, and external CMake targets. */
+    fun jni(action: Action<in GenericUiJniConfig>) {
+        action.execute(jni)
+        onConfiguredCallback?.invoke()
+    }
+
+    /** Configures Kotlin/Native `cinterop` bindings wired across enabled native targets. */
+    fun cinterops(action: Action<in GenericUiCInteropConfig>) {
+        action.execute(cinterops)
+        onConfiguredCallback?.invoke()
+    }
+
+    /** Configures native library linker options applied to enabled Kotlin/Native targets. */
+    fun nativeLibraries(action: Action<in GenericUiNativeLibraryLinkConfig>) {
+        action.execute(nativeLibraries)
+        onConfiguredCallback?.invoke()
     }
 
     /** Configures core application identity and metadata (`genericui { app { ... } }`). */

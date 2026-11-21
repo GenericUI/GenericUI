@@ -57,6 +57,13 @@ data class StyledVisualSpec(
     val hasBackdropBlur: Boolean
         get() = (backdropBlurPx ?: 0f) > 0f || (backdropFilter?.blur?.resolvePx() ?: 0f) > 0f
 
+    val hasBackdropFilter: Boolean
+        get() = hasBackdropBlur || (backdropFilter?.hasActiveEffects == true)
+
+    fun withoutBackdropFilter(): StyledVisualSpec =
+        if (backdropBlurPx == null && backdropFilter == null) this
+        else copy(backdropBlurPx = null, backdropFilter = null)
+
     /**
      * Merges [overrideSpec] on top of this [StyledVisualSpec], preferring non-null properties from [overrideSpec].
      */
@@ -93,19 +100,24 @@ data class StyledVisualSpec(
      * - On Desktop targets (`WINDOWS`, `MACOS`, `GTK`, `QT`, `SWING`), strips [backdropBlurPx] and [backdropFilter]
      *   while preserving alpha-translucent [backgroundColor], [backgroundGradient], borders, shadows, and geometry.
      */
+    /**
+     * Resolves this visual spec for the target backend.
+     *
+     * All 9 backends (`WEB`, `ANDROID`, `IOS`, `IPADOS`, `WINDOWS`, `MACOS`, `GTK`, `QT`, `SWING`) retain
+     * all styling properties including [backdropBlurPx] and [backdropFilter]; component-level gating to
+     * [com.nexustools.genericui.component.layout.StyledContainer] is enforced by component policy and
+     * native implementations.
+     */
     fun forBackend(backendTarget: LayoutBackendTarget): StyledVisualSpec = when (backendTarget) {
         LayoutBackendTarget.WEB,
         LayoutBackendTarget.ANDROID,
         LayoutBackendTarget.IOS,
-        LayoutBackendTarget.IPADOS -> this
+        LayoutBackendTarget.IPADOS,
         LayoutBackendTarget.WINDOWS,
         LayoutBackendTarget.MACOS,
         LayoutBackendTarget.GTK,
         LayoutBackendTarget.QT,
-        LayoutBackendTarget.SWING -> copy(
-            backdropBlurPx = null,
-            backdropFilter = null
-        )
+        LayoutBackendTarget.SWING -> this
     }
 
     companion object {

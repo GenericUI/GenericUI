@@ -24,19 +24,23 @@ The `:idea-plugin` module (`idea-plugin/`) provides an IntelliJ IDEA integration
    - **Mobile Targets**: Android (`android`), iOS (`ios` — iPhone), and **iPadOS (`ipados` — iPad)**.
    - **Web Targets**: Web (`web` — dual Kotlin/Wasm primary + Kotlin/JS IR fallback).
    - **Quick-Select Preset Buttons**: `"All Except Swing"`, `"Desktop Only (No Swing)"`, `"Mobile Only"`, `"Apple Only"`, `"Select All"`, `"Clear All"`.
-3. **Transitive Extension Checkboxes (`GenericUiExtensionModule` — All 19 Categorized Extensions)**:
-   - Interactive checkboxes across all 5 categories (`Graphics`, `Physics`, `Game & Input`, `Media`, `UI`):
+3. **Transitive Extension Checkboxes (`GenericUiExtensionModule` — 21 Categorized Extensions Across 7 Categories)**:
+   - Interactive checkboxes across all **7** categories (`Graphics`, `Physics`, `Game & Input`, `Media`, **`Data`**, **`System`**, `UI`):
      - **Graphics**: `gpu`, `imageProcessing`, `canvas2d`, `canvas3d`, `threeJs`
      - **Physics**: `box2d`, `box3d`
      - **Game & Input**: `gamepad`, `engine`, `engine2d`, `engine3d`
      - **Media**: `media`, `mediaControls`
-     - **UI**: `dsl`, `overlay`, `alien`, `webView`, `codeEditor`, `aiChat`
-   - Checking a dependent extension (e.g., `engine3d`, `box3d`, `media`, `aiChat`) automatically checks its required transitive extensions.
-4. **Starter Project Templates (`GenericUiProjectTemplateType`)**:
+     - **Data**: `schema` (`:extensions:data:schema` — declarative `ObjectSchema` / `SchemaForm` + wiring `schema()` in `build.gradle.kts` for `:gradle-plugin` `@SchemaData` descriptor codegen via `generateGenericUiSchemas`)
+     - **System**: `serviceWorker` (`:extensions:system:serviceworker` — background runtime + wiring `serviceWorker()` in `build.gradle.kts` for `:gradle-plugin` `@MainServiceWorker` validation and `@ServiceWorkerMessage` IPC codec generation via `generateGenericUiServiceWorkerCodecs`)
+     - **UI**: `dsl`, `overlay`, `alien`, `webView`, `codeEditor`, `aiChat` *(note: `:extensions:ui:pip` is enabled manually via `pip()` in `build.gradle.kts` and is not yet listed as a checkbox in `GenericUiExtensionModule`)*
+   - Checking a dependent extension (e.g., `engine3d`, `box3d`, `media` $\rightarrow$ `overlay` + `schema`, `aiChat`) automatically checks its required transitive extensions.
+4. **Starter Project Templates (`GenericUiProjectTemplateType` — All 7 Templates)**:
    - `STANDARD_FRAGMENT` — Zero-boilerplate `@MainAppFragment` with `FragmentHostFragment` and `TitleBar`
    - `DOCK_WORKSPACE` — `@MainAppFragment` hosting `DockWorkspaceFragment` (GIMP Single-Window vs. Multi-Window IDE)
    - `OVERLAY_DOCK_3D` — `@MainAppFragment` hosting `OverlayDockWorkspaceFragment` (Full-viewport Three.js 3D canvas with `:extensions:ui:overlay` floating panels)
    - `ADAPTIVE_SPLIT_TAB` — `@MainAppFragment` hosting `AdaptiveSplitTabFragment` (Responsive Desktop/Tablet multi-column + Phone portrait tab flow)
+   - `GAME_2D` — Hardware-accelerated 2D game loop with `Game2DCanvasHost`, Box2D physics, tilemaps, sprites, and gamepad navigation (`ENGINE_2D`, `DSL`)
+   - `GAME_3D` — Hardware-accelerated 3D game loop with `Game3DCanvasHost`, Three.js scene graph, Box3D physics, and gamepad navigation (`ENGINE_3D`, `DSL`)
    - `WIZARD_PAGE_SYSTEM` — `@MainAppFragment` hosting `CenteredMenuPageFragment` & `ValidatedStepPageFragment` (Multi-step validated wizard)
 5. **Live `build.gradle.kts` Inspector & In-Place Updater (`GenericUiBuildFileInspector` & `GenericUI.ManageTargets`)**:
-   - Parses an existing project's `build.gradle.kts` (`app`, `application`, `window`, `theme`, `backends`, Apple icons, `graphics`, `extensions`, `styles`, `testing`), pre-populates checkboxes in `Tools -> GenericUI -> Manage GenericUI Targets & Extensions...`, and updates `build.gradle.kts` cleanly in place.
+   - Parses an existing project's `build.gradle.kts` (`app`, `application`, `window`, `theme`, `backends`, Apple icons, `graphics`, `extensions` including `schema()` and `serviceWorker()`, `styles`, `testing`), pre-populates checkboxes in `Tools -> GenericUI -> Manage GenericUI Targets & Extensions...`, and updates `build.gradle.kts` cleanly in place so `@SchemaData`, `@MainServiceWorker`, and `@ServiceWorkerMessage` Gradle codegen/validation tasks activate automatically when selected. *(Note: compile-time annotation validation and codegen run in `:gradle-plugin` tasks `generateGenericUiSchemas` / `generateGenericUiServiceWorkerCodecs` rather than custom PSI `LocalInspectionTool` editor inspections inside `:idea-plugin`.)*

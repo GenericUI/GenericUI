@@ -2135,6 +2135,189 @@ class ComponentStyle(
         return out
     }
 
+    private fun applyVisualAndPositionPropertyToComputed(
+        property: CssProperty,
+        current: ComputedStyle,
+        sheetBase: ComputedStyle?
+    ): ComputedStyle? = when (property) {
+        CssProperty.BACKGROUND_COLOR -> current.copy(backgroundColor = _backgroundColor ?: sheetBase?.backgroundColor)
+        CssProperty.BACKGROUND_IMAGE -> current.copy(
+            backgroundGradient = _backgroundImage?.gradient ?: sheetBase?.backgroundGradient,
+            backgroundImageUrl = _backgroundImage?.urlOrPath ?: sheetBase?.backgroundImageUrl
+        )
+        CssProperty.BACKGROUND_SIZE -> current.copy(backgroundSize = _backgroundSize?.toCssString() ?: sheetBase?.backgroundSize)
+        CssProperty.BACKGROUND_POSITION -> current.copy(backgroundPosition = _backgroundPosition?.toCssString() ?: sheetBase?.backgroundPosition)
+        CssProperty.BACKGROUND_REPEAT -> current.copy(backgroundRepeat = _backgroundRepeat?.cssValue ?: sheetBase?.backgroundRepeat)
+        CssProperty.BACKGROUND_ATTACHMENT -> current.copy(backgroundAttachment = _backgroundAttachment?.cssValue ?: sheetBase?.backgroundAttachment)
+        CssProperty.BACKGROUND_CLIP -> current.copy(backgroundClip = _backgroundClip ?: sheetBase?.backgroundClip)
+        CssProperty.BACKGROUND_ORIGIN -> current.copy(backgroundOrigin = _backgroundOrigin ?: sheetBase?.backgroundOrigin)
+        CssProperty.COLOR -> current.copy(textColor = _color ?: sheetBase?.textColor)
+        CssProperty.ACCENT_COLOR -> current.copy(accentColor = _accentColor ?: sheetBase?.accentColor)
+        CssProperty.OPACITY -> current.copy(opacity = _opacity ?: sheetBase?.opacity ?: 1.0f)
+        CssProperty.DISPLAY -> current.copy(display = _display?.cssValue ?: sheetBase?.display)
+        CssProperty.VISIBILITY -> current.copy(visibility = _visibility ?: sheetBase?.visibility)
+        CssProperty.POSITION -> current.copy(position = _position?.cssValue ?: sheetBase?.position)
+        CssProperty.TOP -> current.copy(top = _top?.toCssString() ?: sheetBase?.top)
+        CssProperty.RIGHT -> current.copy(right = _right?.toCssString() ?: sheetBase?.right)
+        CssProperty.BOTTOM -> current.copy(bottom = _bottom?.toCssString() ?: sheetBase?.bottom)
+        CssProperty.LEFT -> current.copy(left = _left?.toCssString() ?: sheetBase?.left)
+        CssProperty.WIDTH -> current.copy(width = _width?.toCssString() ?: sheetBase?.width)
+        CssProperty.HEIGHT -> current.copy(height = _height?.toCssString() ?: sheetBase?.height)
+        CssProperty.MIN_WIDTH -> current.copy(minWidth = _minWidth?.toCssString() ?: sheetBase?.minWidth)
+        CssProperty.MIN_HEIGHT -> current.copy(minHeight = _minHeight?.toCssString() ?: sheetBase?.minHeight)
+        CssProperty.MAX_WIDTH -> current.copy(maxWidth = _maxWidth?.toCssString() ?: sheetBase?.maxWidth)
+        CssProperty.MAX_HEIGHT -> current.copy(maxHeight = _maxHeight?.toCssString() ?: sheetBase?.maxHeight)
+        CssProperty.MARGIN -> current.copy(margin = _margin ?: sheetBase?.margin)
+        CssProperty.MARGIN_TOP -> current.copy(marginTop = _marginTop ?: sheetBase?.marginTop)
+        CssProperty.MARGIN_RIGHT -> current.copy(marginRight = _marginRight ?: sheetBase?.marginRight)
+        CssProperty.MARGIN_BOTTOM -> current.copy(marginBottom = _marginBottom ?: sheetBase?.marginBottom)
+        CssProperty.MARGIN_LEFT -> current.copy(marginLeft = _marginLeft ?: sheetBase?.marginLeft)
+        CssProperty.PADDING -> current.copy(padding = _padding ?: sheetBase?.padding)
+        CssProperty.PADDING_TOP -> current.copy(paddingTop = _paddingTop ?: sheetBase?.paddingTop)
+        CssProperty.PADDING_RIGHT -> current.copy(paddingRight = _paddingRight ?: sheetBase?.paddingRight)
+        CssProperty.PADDING_BOTTOM -> current.copy(paddingBottom = _paddingBottom ?: sheetBase?.paddingBottom)
+        CssProperty.PADDING_LEFT -> current.copy(paddingLeft = _paddingLeft ?: sheetBase?.paddingLeft)
+        CssProperty.BOX_SIZING -> current.copy(boxSizing = _boxSizing ?: sheetBase?.boxSizing)
+        CssProperty.FLOAT -> current.copy(floatSide = _floatSide?.cssValue ?: sheetBase?.floatSide)
+        CssProperty.CLEAR -> current.copy(clearSide = _clearSide?.cssValue ?: sheetBase?.clearSide)
+        else -> null
+    }
+
+    private fun applyBorderAndShadowPropertyToComputed(
+        property: CssProperty,
+        current: ComputedStyle,
+        sheetBase: ComputedStyle?
+    ): ComputedStyle? = when (property) {
+        CssProperty.BORDER_WIDTH -> {
+            val bw = _borderWidth
+            current.copy(
+                borderWidthPx = bw?.top?.resolvePx() ?: sheetBase?.borderWidthPx,
+                borderTopWidthPx = bw?.top?.resolvePx() ?: sheetBase?.borderTopWidthPx,
+                borderRightWidthPx = bw?.right?.resolvePx() ?: sheetBase?.borderRightWidthPx,
+                borderBottomWidthPx = bw?.bottom?.resolvePx() ?: sheetBase?.borderBottomWidthPx,
+                borderLeftWidthPx = bw?.left?.resolvePx() ?: sheetBase?.borderLeftWidthPx
+            )
+        }
+        CssProperty.BORDER_STYLE -> current.copy(borderStyle = _borderStyle?.cssValue ?: sheetBase?.borderStyle)
+        CssProperty.BORDER_COLOR -> current.copy(
+            borderColor = _borderColor ?: sheetBase?.borderColor,
+            borderTopColor = _borderTopColor ?: _borderColor ?: sheetBase?.borderTopColor,
+            borderRightColor = _borderRightColor ?: _borderColor ?: sheetBase?.borderRightColor,
+            borderBottomColor = _borderBottomColor ?: _borderColor ?: sheetBase?.borderBottomColor,
+            borderLeftColor = _borderLeftColor ?: _borderColor ?: sheetBase?.borderLeftColor
+        )
+        CssProperty.BORDER_RADIUS -> {
+            val br = _borderRadius
+            val tl = br?.topLeft
+            current.copy(
+                borderRadius = br ?: sheetBase?.borderRadius,
+                borderRadiusPx = tl?.takeIf { it.unit != CssUnit.PERCENT }?.resolvePx() ?: sheetBase?.borderRadiusPx,
+                borderRadiusPercent = tl?.takeIf { it.unit == CssUnit.PERCENT }?.value ?: sheetBase?.borderRadiusPercent,
+                borderRadiusTopLeftPx = br?.topLeft?.resolvePx() ?: sheetBase?.borderRadiusTopLeftPx,
+                borderRadiusTopRightPx = br?.topRight?.resolvePx() ?: sheetBase?.borderRadiusTopRightPx,
+                borderRadiusBottomRightPx = br?.bottomRight?.resolvePx() ?: sheetBase?.borderRadiusBottomRightPx,
+                borderRadiusBottomLeftPx = br?.bottomLeft?.resolvePx() ?: sheetBase?.borderRadiusBottomLeftPx
+            )
+        }
+        CssProperty.OUTLINE_WIDTH -> current.copy(
+            outlineWidthPx = _outlineWidth?.resolvePx() ?: sheetBase?.outlineWidthPx,
+            focusRingWidthPx = _focusRingWidthPx ?: _outlineWidth?.resolvePx() ?: sheetBase?.focusRingWidthPx
+        )
+        CssProperty.OUTLINE_STYLE -> current.copy(outlineStyle = _outlineStyle?.cssValue ?: sheetBase?.outlineStyle)
+        CssProperty.OUTLINE_COLOR -> current.copy(
+            outlineColor = _outlineColor ?: sheetBase?.outlineColor,
+            focusRingColor = _focusRingColor ?: _outlineColor ?: sheetBase?.focusRingColor
+        )
+        CssProperty.OUTLINE -> current.copy(
+            outlineWidthPx = _outlineWidth?.resolvePx() ?: sheetBase?.outlineWidthPx,
+            outlineStyle = _outlineStyle?.cssValue ?: sheetBase?.outlineStyle,
+            outlineColor = _outlineColor ?: sheetBase?.outlineColor,
+            outlineOffsetPx = _outlineOffset?.resolvePx() ?: sheetBase?.outlineOffsetPx
+        )
+        CssProperty.BOX_SHADOW -> current.copy(
+            boxShadow = _boxShadow?.toCssString() ?: sheetBase?.boxShadow,
+            boxShadowList = _boxShadow ?: sheetBase?.boxShadowList
+        )
+        CssProperty.TEXT_SHADOW -> current.copy(
+            textShadow = _textShadow?.toCssString() ?: sheetBase?.textShadow,
+            textShadowList = _textShadow ?: sheetBase?.textShadowList
+        )
+        else -> null
+    }
+
+    private fun applyTypographyAndFlexPropertyToComputed(
+        property: CssProperty,
+        current: ComputedStyle,
+        sheetBase: ComputedStyle?
+    ): ComputedStyle? = when (property) {
+        CssProperty.FONT_FAMILY -> current.copy(fontFamily = _fontFamily?.resolvedPrimaryName() ?: sheetBase?.fontFamily)
+        CssProperty.FONT_SIZE -> {
+            val fs = _fontSize
+            current.copy(
+                fontSizePx = fs?.takeIf { it.unit != CssUnit.PERCENT }?.resolvePx() ?: sheetBase?.fontSizePx,
+                fontSizePercent = fs?.takeIf { it.unit == CssUnit.PERCENT }?.value ?: sheetBase?.fontSizePercent
+            )
+        }
+        CssProperty.FONT_WEIGHT -> current.copy(fontWeightNumeric = fontWeightNumeric ?: sheetBase?.fontWeightNumeric)
+        CssProperty.FONT_STYLE -> current.copy(fontStyle = _fontStyle ?: sheetBase?.fontStyle)
+        CssProperty.LINE_HEIGHT -> current.copy(lineHeight = _lineHeight ?: sheetBase?.lineHeight)
+        CssProperty.LETTER_SPACING -> current.copy(letterSpacing = _letterSpacing ?: sheetBase?.letterSpacing)
+        CssProperty.TEXT_ALIGN -> current.copy(textAlign = getSinglePropertyCssString(CssProperty.TEXT_ALIGN) ?: sheetBase?.textAlign)
+        CssProperty.TEXT_DECORATION -> current.copy(textDecoration = _textDecoration ?: sheetBase?.textDecoration)
+        CssProperty.TEXT_TRANSFORM -> current.copy(textTransform = _textTransform ?: sheetBase?.textTransform)
+        CssProperty.TEXT_OVERFLOW -> current.copy(textOverflow = _textOverflow ?: sheetBase?.textOverflow)
+        CssProperty.WHITE_SPACE -> current.copy(whiteSpace = _whiteSpace?.cssValue ?: sheetBase?.whiteSpace)
+        CssProperty.WORD_BREAK -> current.copy(wordBreak = _wordBreak ?: sheetBase?.wordBreak)
+        CssProperty.VERTICAL_ALIGN -> current.copy(verticalAlign = _verticalAlign?.cssValue ?: sheetBase?.verticalAlign)
+        CssProperty.FLEX_DIRECTION -> current.copy(flexDirection = _flexDirection ?: sheetBase?.flexDirection)
+        CssProperty.FLEX_WRAP -> current.copy(flexWrap = _flexWrap ?: sheetBase?.flexWrap)
+        CssProperty.JUSTIFY_CONTENT -> current.copy(justifyContent = _justifyContent ?: sheetBase?.justifyContent)
+        CssProperty.ALIGN_ITEMS -> current.copy(alignItems = _alignItems ?: sheetBase?.alignItems)
+        CssProperty.ALIGN_SELF -> current.copy(alignSelf = _alignSelf ?: sheetBase?.alignSelf)
+        CssProperty.ALIGN_CONTENT -> current.copy(alignContent = _alignContent ?: sheetBase?.alignContent)
+        CssProperty.FLEX_GROW -> current.copy(flexGrow = _flexGrow ?: sheetBase?.flexGrow)
+        CssProperty.FLEX_SHRINK -> current.copy(flexShrink = _flexShrink ?: sheetBase?.flexShrink)
+        CssProperty.FLEX_BASIS -> current.copy(flexBasis = _flexBasis ?: sheetBase?.flexBasis)
+        CssProperty.ORDER -> current.copy(order = _order ?: sheetBase?.order)
+        CssProperty.GAP -> current.copy(gap = _gap ?: sheetBase?.gap)
+        CssProperty.ROW_GAP -> current.copy(rowGap = _rowGap ?: sheetBase?.rowGap)
+        CssProperty.COLUMN_GAP -> current.copy(columnGap = _columnGap ?: sheetBase?.columnGap)
+        else -> null
+    }
+
+    private fun applyOverflowAndTransformPropertyToComputed(
+        property: CssProperty,
+        current: ComputedStyle,
+        sheetBase: ComputedStyle?
+    ): ComputedStyle? = when (property) {
+        CssProperty.OVERFLOW -> current.copy(overflow = _overflow?.name?.lowercase() ?: sheetBase?.overflow)
+        CssProperty.OVERFLOW_X -> current.copy(overflowX = _overflowX ?: sheetBase?.overflowX)
+        CssProperty.OVERFLOW_Y -> current.copy(overflowY = _overflowY ?: sheetBase?.overflowY)
+        CssProperty.CURSOR -> current.copy(
+            cursor = (_cursor as? CssCursor)?.cssValue ?: sheetBase?.cursor,
+            customCursor = _cursor ?: sheetBase?.customCursor
+        )
+        CssProperty.POINTER_EVENTS -> current.copy(
+            pointerEventsEnabled = _pointerEvents?.let { it != CssPointerEvents.NONE } ?: sheetBase?.pointerEventsEnabled ?: true
+        )
+        CssProperty.USER_SELECT -> current.copy(userSelect = _userSelect ?: sheetBase?.userSelect)
+        CssProperty.OBJECT_FIT -> current.copy(objectFit = _objectFit ?: sheetBase?.objectFit)
+        CssProperty.ASPECT_RATIO -> current.copy(aspectRatio = _aspectRatio?.numericRatio ?: sheetBase?.aspectRatio)
+        CssProperty.Z_INDEX -> current.copy(zIndex = _zIndex ?: sheetBase?.zIndex)
+        CssProperty.TRANSFORM -> current.copy(
+            transform = _transform?.toCssString() ?: sheetBase?.transform,
+            transform2D = _transform ?: sheetBase?.transform2D
+        )
+        CssProperty.TRANSFORM_ORIGIN -> current.copy(transformOrigin = _transformOrigin ?: sheetBase?.transformOrigin)
+        CssProperty.TRANSITION -> current.copy(
+            transition = getSinglePropertyCssString(CssProperty.TRANSITION) ?: sheetBase?.transition,
+            transitions = _transitions ?: sheetBase?.transitions
+        )
+        CssProperty.FILTER -> current.copy(filter = _filter ?: sheetBase?.filter)
+        CssProperty.BACKDROP_FILTER -> current.copy(backdropFilter = _backdropFilter ?: sheetBase?.backdropFilter)
+        else -> null
+    }
+
     /**
      * Incrementally updates a single [CssProperty] on [current] from this [ComponentStyle],
      * falling back to [sheetBase] when the property was cleared (`null`).
@@ -2166,160 +2349,11 @@ class ComponentStyle(
             if ((present && imp) || (!present && baseImp)) current.importantBitmaskHigh or mask else current.importantBitmaskHigh and mask.inv()
         } else current.importantBitmaskHigh
 
-        val updated = when (property) {
-            CssProperty.BACKGROUND_COLOR -> current.copy(backgroundColor = _backgroundColor ?: sheetBase?.backgroundColor)
-            CssProperty.BACKGROUND_IMAGE -> current.copy(
-                backgroundGradient = _backgroundImage?.gradient ?: sheetBase?.backgroundGradient,
-                backgroundImageUrl = _backgroundImage?.urlOrPath ?: sheetBase?.backgroundImageUrl
-            )
-            CssProperty.BACKGROUND_SIZE -> current.copy(backgroundSize = _backgroundSize?.toCssString() ?: sheetBase?.backgroundSize)
-            CssProperty.BACKGROUND_POSITION -> current.copy(backgroundPosition = _backgroundPosition?.toCssString() ?: sheetBase?.backgroundPosition)
-            CssProperty.BACKGROUND_REPEAT -> current.copy(backgroundRepeat = _backgroundRepeat?.cssValue ?: sheetBase?.backgroundRepeat)
-            CssProperty.BACKGROUND_ATTACHMENT -> current.copy(backgroundAttachment = _backgroundAttachment?.cssValue ?: sheetBase?.backgroundAttachment)
-            CssProperty.BACKGROUND_CLIP -> current.copy(backgroundClip = _backgroundClip ?: sheetBase?.backgroundClip)
-            CssProperty.BACKGROUND_ORIGIN -> current.copy(backgroundOrigin = _backgroundOrigin ?: sheetBase?.backgroundOrigin)
-            CssProperty.COLOR -> current.copy(textColor = _color ?: sheetBase?.textColor)
-            CssProperty.ACCENT_COLOR -> current.copy(accentColor = _accentColor ?: sheetBase?.accentColor)
-            CssProperty.OPACITY -> current.copy(opacity = _opacity ?: sheetBase?.opacity ?: 1.0f)
-            CssProperty.DISPLAY -> current.copy(display = _display?.cssValue ?: sheetBase?.display)
-            CssProperty.VISIBILITY -> current.copy(visibility = _visibility ?: sheetBase?.visibility)
-            CssProperty.POSITION -> current.copy(position = _position?.cssValue ?: sheetBase?.position)
-            CssProperty.TOP -> current.copy(top = _top?.toCssString() ?: sheetBase?.top)
-            CssProperty.RIGHT -> current.copy(right = _right?.toCssString() ?: sheetBase?.right)
-            CssProperty.BOTTOM -> current.copy(bottom = _bottom?.toCssString() ?: sheetBase?.bottom)
-            CssProperty.LEFT -> current.copy(left = _left?.toCssString() ?: sheetBase?.left)
-            CssProperty.WIDTH -> current.copy(width = _width?.toCssString() ?: sheetBase?.width)
-            CssProperty.HEIGHT -> current.copy(height = _height?.toCssString() ?: sheetBase?.height)
-            CssProperty.MIN_WIDTH -> current.copy(minWidth = _minWidth?.toCssString() ?: sheetBase?.minWidth)
-            CssProperty.MIN_HEIGHT -> current.copy(minHeight = _minHeight?.toCssString() ?: sheetBase?.minHeight)
-            CssProperty.MAX_WIDTH -> current.copy(maxWidth = _maxWidth?.toCssString() ?: sheetBase?.maxWidth)
-            CssProperty.MAX_HEIGHT -> current.copy(maxHeight = _maxHeight?.toCssString() ?: sheetBase?.maxHeight)
-            CssProperty.MARGIN -> current.copy(margin = _margin ?: sheetBase?.margin)
-            CssProperty.MARGIN_TOP -> current.copy(marginTop = _marginTop ?: sheetBase?.marginTop)
-            CssProperty.MARGIN_RIGHT -> current.copy(marginRight = _marginRight ?: sheetBase?.marginRight)
-            CssProperty.MARGIN_BOTTOM -> current.copy(marginBottom = _marginBottom ?: sheetBase?.marginBottom)
-            CssProperty.MARGIN_LEFT -> current.copy(marginLeft = _marginLeft ?: sheetBase?.marginLeft)
-            CssProperty.PADDING -> current.copy(padding = _padding ?: sheetBase?.padding)
-            CssProperty.PADDING_TOP -> current.copy(paddingTop = _paddingTop ?: sheetBase?.paddingTop)
-            CssProperty.PADDING_RIGHT -> current.copy(paddingRight = _paddingRight ?: sheetBase?.paddingRight)
-            CssProperty.PADDING_BOTTOM -> current.copy(paddingBottom = _paddingBottom ?: sheetBase?.paddingBottom)
-            CssProperty.PADDING_LEFT -> current.copy(paddingLeft = _paddingLeft ?: sheetBase?.paddingLeft)
-            CssProperty.BOX_SIZING -> current.copy(boxSizing = _boxSizing ?: sheetBase?.boxSizing)
-            CssProperty.FLOAT -> current.copy(floatSide = _floatSide?.cssValue ?: sheetBase?.floatSide)
-            CssProperty.CLEAR -> current.copy(clearSide = _clearSide?.cssValue ?: sheetBase?.clearSide)
-            CssProperty.BORDER_WIDTH -> {
-                val bw = _borderWidth
-                current.copy(
-                    borderWidthPx = bw?.top?.resolvePx() ?: sheetBase?.borderWidthPx,
-                    borderTopWidthPx = bw?.top?.resolvePx() ?: sheetBase?.borderTopWidthPx,
-                    borderRightWidthPx = bw?.right?.resolvePx() ?: sheetBase?.borderRightWidthPx,
-                    borderBottomWidthPx = bw?.bottom?.resolvePx() ?: sheetBase?.borderBottomWidthPx,
-                    borderLeftWidthPx = bw?.left?.resolvePx() ?: sheetBase?.borderLeftWidthPx
-                )
-            }
-            CssProperty.BORDER_STYLE -> current.copy(borderStyle = _borderStyle?.cssValue ?: sheetBase?.borderStyle)
-            CssProperty.BORDER_COLOR -> current.copy(
-                borderColor = _borderColor ?: sheetBase?.borderColor,
-                borderTopColor = _borderTopColor ?: _borderColor ?: sheetBase?.borderTopColor,
-                borderRightColor = _borderRightColor ?: _borderColor ?: sheetBase?.borderRightColor,
-                borderBottomColor = _borderBottomColor ?: _borderColor ?: sheetBase?.borderBottomColor,
-                borderLeftColor = _borderLeftColor ?: _borderColor ?: sheetBase?.borderLeftColor
-            )
-            CssProperty.BORDER_RADIUS -> {
-                val br = _borderRadius
-                val tl = br?.topLeft
-                current.copy(
-                    borderRadius = br ?: sheetBase?.borderRadius,
-                    borderRadiusPx = tl?.takeIf { it.unit != CssUnit.PERCENT }?.resolvePx() ?: sheetBase?.borderRadiusPx,
-                    borderRadiusPercent = tl?.takeIf { it.unit == CssUnit.PERCENT }?.value ?: sheetBase?.borderRadiusPercent,
-                    borderRadiusTopLeftPx = br?.topLeft?.resolvePx() ?: sheetBase?.borderRadiusTopLeftPx,
-                    borderRadiusTopRightPx = br?.topRight?.resolvePx() ?: sheetBase?.borderRadiusTopRightPx,
-                    borderRadiusBottomRightPx = br?.bottomRight?.resolvePx() ?: sheetBase?.borderRadiusBottomRightPx,
-                    borderRadiusBottomLeftPx = br?.bottomLeft?.resolvePx() ?: sheetBase?.borderRadiusBottomLeftPx
-                )
-            }
-            CssProperty.OUTLINE_WIDTH -> current.copy(
-                outlineWidthPx = _outlineWidth?.resolvePx() ?: sheetBase?.outlineWidthPx,
-                focusRingWidthPx = _focusRingWidthPx ?: _outlineWidth?.resolvePx() ?: sheetBase?.focusRingWidthPx
-            )
-            CssProperty.OUTLINE_STYLE -> current.copy(outlineStyle = _outlineStyle?.cssValue ?: sheetBase?.outlineStyle)
-            CssProperty.OUTLINE_COLOR -> current.copy(
-                outlineColor = _outlineColor ?: sheetBase?.outlineColor,
-                focusRingColor = _focusRingColor ?: _outlineColor ?: sheetBase?.focusRingColor
-            )
-            CssProperty.OUTLINE -> current.copy(
-                outlineWidthPx = _outlineWidth?.resolvePx() ?: sheetBase?.outlineWidthPx,
-                outlineStyle = _outlineStyle?.cssValue ?: sheetBase?.outlineStyle,
-                outlineColor = _outlineColor ?: sheetBase?.outlineColor,
-                outlineOffsetPx = _outlineOffset?.resolvePx() ?: sheetBase?.outlineOffsetPx
-            )
-            CssProperty.BOX_SHADOW -> current.copy(
-                boxShadow = _boxShadow?.toCssString() ?: sheetBase?.boxShadow,
-                boxShadowList = _boxShadow ?: sheetBase?.boxShadowList
-            )
-            CssProperty.TEXT_SHADOW -> current.copy(
-                textShadow = _textShadow?.toCssString() ?: sheetBase?.textShadow,
-                textShadowList = _textShadow ?: sheetBase?.textShadowList
-            )
-            CssProperty.FONT_FAMILY -> current.copy(fontFamily = _fontFamily?.resolvedPrimaryName() ?: sheetBase?.fontFamily)
-            CssProperty.FONT_SIZE -> {
-                val fs = _fontSize
-                current.copy(
-                    fontSizePx = fs?.takeIf { it.unit != CssUnit.PERCENT }?.resolvePx() ?: sheetBase?.fontSizePx,
-                    fontSizePercent = fs?.takeIf { it.unit == CssUnit.PERCENT }?.value ?: sheetBase?.fontSizePercent
-                )
-            }
-            CssProperty.FONT_WEIGHT -> current.copy(fontWeightNumeric = fontWeightNumeric ?: sheetBase?.fontWeightNumeric)
-            CssProperty.FONT_STYLE -> current.copy(fontStyle = _fontStyle ?: sheetBase?.fontStyle)
-            CssProperty.LINE_HEIGHT -> current.copy(lineHeight = _lineHeight ?: sheetBase?.lineHeight)
-            CssProperty.LETTER_SPACING -> current.copy(letterSpacing = _letterSpacing ?: sheetBase?.letterSpacing)
-            CssProperty.TEXT_ALIGN -> current.copy(textAlign = getSinglePropertyCssString(CssProperty.TEXT_ALIGN) ?: sheetBase?.textAlign)
-            CssProperty.TEXT_DECORATION -> current.copy(textDecoration = _textDecoration ?: sheetBase?.textDecoration)
-            CssProperty.TEXT_TRANSFORM -> current.copy(textTransform = _textTransform ?: sheetBase?.textTransform)
-            CssProperty.TEXT_OVERFLOW -> current.copy(textOverflow = _textOverflow ?: sheetBase?.textOverflow)
-            CssProperty.WHITE_SPACE -> current.copy(whiteSpace = _whiteSpace?.cssValue ?: sheetBase?.whiteSpace)
-            CssProperty.WORD_BREAK -> current.copy(wordBreak = _wordBreak ?: sheetBase?.wordBreak)
-            CssProperty.VERTICAL_ALIGN -> current.copy(verticalAlign = _verticalAlign?.cssValue ?: sheetBase?.verticalAlign)
-            CssProperty.FLEX_DIRECTION -> current.copy(flexDirection = _flexDirection ?: sheetBase?.flexDirection)
-            CssProperty.FLEX_WRAP -> current.copy(flexWrap = _flexWrap ?: sheetBase?.flexWrap)
-            CssProperty.JUSTIFY_CONTENT -> current.copy(justifyContent = _justifyContent ?: sheetBase?.justifyContent)
-            CssProperty.ALIGN_ITEMS -> current.copy(alignItems = _alignItems ?: sheetBase?.alignItems)
-            CssProperty.ALIGN_SELF -> current.copy(alignSelf = _alignSelf ?: sheetBase?.alignSelf)
-            CssProperty.ALIGN_CONTENT -> current.copy(alignContent = _alignContent ?: sheetBase?.alignContent)
-            CssProperty.FLEX_GROW -> current.copy(flexGrow = _flexGrow ?: sheetBase?.flexGrow)
-            CssProperty.FLEX_SHRINK -> current.copy(flexShrink = _flexShrink ?: sheetBase?.flexShrink)
-            CssProperty.FLEX_BASIS -> current.copy(flexBasis = _flexBasis ?: sheetBase?.flexBasis)
-            CssProperty.ORDER -> current.copy(order = _order ?: sheetBase?.order)
-            CssProperty.GAP -> current.copy(gap = _gap ?: sheetBase?.gap)
-            CssProperty.ROW_GAP -> current.copy(rowGap = _rowGap ?: sheetBase?.rowGap)
-            CssProperty.COLUMN_GAP -> current.copy(columnGap = _columnGap ?: sheetBase?.columnGap)
-            CssProperty.OVERFLOW -> current.copy(overflow = _overflow?.name?.lowercase() ?: sheetBase?.overflow)
-            CssProperty.OVERFLOW_X -> current.copy(overflowX = _overflowX ?: sheetBase?.overflowX)
-            CssProperty.OVERFLOW_Y -> current.copy(overflowY = _overflowY ?: sheetBase?.overflowY)
-            CssProperty.CURSOR -> current.copy(
-                cursor = (_cursor as? CssCursor)?.cssValue ?: sheetBase?.cursor,
-                customCursor = _cursor ?: sheetBase?.customCursor
-            )
-            CssProperty.POINTER_EVENTS -> current.copy(
-                pointerEventsEnabled = _pointerEvents?.let { it != CssPointerEvents.NONE } ?: sheetBase?.pointerEventsEnabled ?: true
-            )
-            CssProperty.USER_SELECT -> current.copy(userSelect = _userSelect ?: sheetBase?.userSelect)
-            CssProperty.OBJECT_FIT -> current.copy(objectFit = _objectFit ?: sheetBase?.objectFit)
-            CssProperty.ASPECT_RATIO -> current.copy(aspectRatio = _aspectRatio?.numericRatio ?: sheetBase?.aspectRatio)
-            CssProperty.Z_INDEX -> current.copy(zIndex = _zIndex ?: sheetBase?.zIndex)
-            CssProperty.TRANSFORM -> current.copy(
-                transform = _transform?.toCssString() ?: sheetBase?.transform,
-                transform2D = _transform ?: sheetBase?.transform2D
-            )
-            CssProperty.TRANSFORM_ORIGIN -> current.copy(transformOrigin = _transformOrigin ?: sheetBase?.transformOrigin)
-            CssProperty.TRANSITION -> current.copy(
-                transition = getSinglePropertyCssString(CssProperty.TRANSITION) ?: sheetBase?.transition,
-                transitions = _transitions ?: sheetBase?.transitions
-            )
-            CssProperty.FILTER -> current.copy(filter = _filter ?: sheetBase?.filter)
-            CssProperty.BACKDROP_FILTER -> current.copy(backdropFilter = _backdropFilter ?: sheetBase?.backdropFilter)
-            else -> current
-        }
+        val updated = applyVisualAndPositionPropertyToComputed(property, current, sheetBase)
+            ?: applyBorderAndShadowPropertyToComputed(property, current, sheetBase)
+            ?: applyTypographyAndFlexPropertyToComputed(property, current, sheetBase)
+            ?: applyOverflowAndTransformPropertyToComputed(property, current, sheetBase)
+            ?: current
 
         return updated.copy(
             activeBitmaskLow = nextActLow,

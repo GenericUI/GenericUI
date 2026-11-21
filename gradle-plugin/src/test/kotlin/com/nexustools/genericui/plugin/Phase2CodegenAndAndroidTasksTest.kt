@@ -253,8 +253,8 @@ class Phase2CodegenAndAndroidTasksTest {
         val curBytes = winCurFile.readBytes()
         assertTrue(curBytes.size > 22, "Expected non-empty .cur binary")
         assertEquals(2, (curBytes[2].toInt() and 0xFF) or ((curBytes[3].toInt() and 0xFF) shl 8), "Expected ICONDIR idType == 2 (.cur)")
-        assertTrue(File(backendResDir, "web/assets/drawable/logo.png").isFile, "Expected Web drawable asset")
-        assertTrue(File(backendResDir, "web/assets/xml/app_config.xml").isFile, "Expected Web xml asset")
+        assertTrue(File(backendResDir, "web/app/drawable/logo.png").isFile, "Expected Web hierarchical app drawable asset")
+        assertTrue(File(backendResDir, "web/app/xml/app_config.xml").isFile, "Expected Web hierarchical app xml asset")
         assertTrue(File(backendResDir, "manifest/genericui-module-resources.json").isFile, "Expected module resource manifest")
         assertTrue(File(backendResDir, "windows/genericui_resources.rc").isFile, "Expected Windows .rc script")
 

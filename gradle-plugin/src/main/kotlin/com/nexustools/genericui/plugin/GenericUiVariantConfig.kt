@@ -1,5 +1,8 @@
 package com.nexustools.genericui.plugin
 
+import com.nexustools.genericui.plugin.nativebuild.GenericUiCInteropConfig
+import com.nexustools.genericui.plugin.nativebuild.GenericUiJniConfig
+import com.nexustools.genericui.plugin.nativebuild.GenericUiNativeLibraryLinkConfig
 import org.gradle.api.Action
 import org.gradle.api.GradleException
 
@@ -13,6 +16,9 @@ import org.gradle.api.GradleException
 open class GenericUiVariantConfig(val scope: GenericUiVariantScope) {
     val window: GenericUiWindowConfig = GenericUiWindowConfig()
     val theme: GenericUiThemeConfig = GenericUiThemeConfig()
+    val jni: GenericUiJniConfig = GenericUiJniConfig()
+    val cinterops: GenericUiCInteropConfig = GenericUiCInteropConfig()
+    val nativeLibraries: GenericUiNativeLibraryLinkConfig = GenericUiNativeLibraryLinkConfig()
     var icon: String? = null
     var title: String? = null
     var themeColor: String? = null
@@ -23,6 +29,21 @@ open class GenericUiVariantConfig(val scope: GenericUiVariantScope) {
             styleSheet = value
         }
     val extensionOverrides: MutableMap<String, Boolean> = linkedMapOf()
+
+    /** Configures consumer JNI libraries, prebuilt `jniLibsDirs`, and CMake targets for this scope. */
+    fun jni(action: Action<in GenericUiJniConfig>) {
+        action.execute(jni)
+    }
+
+    /** Configures Kotlin/Native `cinterop` bindings for targets matching this scope. */
+    fun cinterops(action: Action<in GenericUiCInteropConfig>) {
+        action.execute(cinterops)
+    }
+
+    /** Configures native library linker options (`nativeLibraries { link(...) }`) for targets matching this scope. */
+    fun nativeLibraries(action: Action<in GenericUiNativeLibraryLinkConfig>) {
+        action.execute(nativeLibraries)
+    }
 
     /** Configures window geometry, title, resizability, fullscreen, and icon for this scope. */
     fun window(action: Action<in GenericUiWindowConfig>) {

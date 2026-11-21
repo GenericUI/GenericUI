@@ -134,10 +134,6 @@ interface IApplication : Disposable {
     val supportsDirectFileSystemAccess: Boolean
         get() = GenericUI.activeFactory?.supportsDirectFileSystemAccess ?: true
 
-    /** `true` if Picture-in-Picture (PiP) mode is supported. */
-    val supportsPictureInPicture: Boolean
-        get() = true
-
     /** `true` if fullscreen window/viewport mode is supported. */
     val supportsFullscreen: Boolean
         get() = true

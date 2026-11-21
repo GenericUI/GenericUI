@@ -1,5 +1,7 @@
 package com.nexustools.genericui.system
 
+import com.nexustools.genericui.util.UserDirectory
+
 /**
  * Pure-Kotlin storage key and path sanitization helper shared across all non-Web system platforms
  * (`:desktop:common`, `:desktop:nativeCommon`, `:desktop:swing`, `:mobile:common`, `:mobile:android`, `:mobile:ios`).
@@ -18,8 +20,8 @@ object SystemStorageKeyHelper {
     }
 
     /**
-     * Sanitizes a storage or preference key into a safe single-segment file name by replacing
-     * invalid filesystem characters with `_`, defaulting to [fallback] when blank.
+     * Sanitizes a storage or cache key into a single-segment file name by replacing invalid
+     * filesystem characters with `_`, defaulting to [fallback] when blank.
      */
     fun sanitizeKey(key: String, fallback: String = "default"): String {
         val trimmed = key.trim().ifEmpty { fallback }
@@ -27,30 +29,16 @@ object SystemStorageKeyHelper {
     }
 
     /**
-     * Encodes a set of preference/storage keys into a newline-delimited UTF-8 [ByteArray].
+     * Bijectively encodes a preference [key] into a valid, non-dotfile filename stem.
      */
-    fun encodeKeySet(keys: Set<String>): ByteArray =
-        keys.joinToString("\n").encodeToByteArray()
+    fun encodePreferenceKeyToFileName(key: String): String =
+        UserDirectory.encodePreferenceKeyToFileName(key)
 
     /**
-     * Decodes a newline-delimited UTF-8 [ByteArray] into an ordered [LinkedHashSet] of non-empty keys.
+     * Losslessly decodes an encoded preference filename stem back into the original preference key.
      */
-    fun decodeKeySet(bytes: ByteArray): LinkedHashSet<String> =
-        decodeKeySet(bytes.decodeToString())
-
-    /**
-     * Decodes a newline-delimited string into an ordered [LinkedHashSet] of non-empty keys.
-     */
-    fun decodeKeySet(text: String): LinkedHashSet<String> {
-        val set = LinkedHashSet<String>()
-        for (line in text.lineSequence()) {
-            val k = line.trim()
-            if (k.isNotEmpty()) {
-                set.add(k)
-            }
-        }
-        return set
-    }
+    fun decodePreferenceKeyFromFileName(encodedStem: String): String =
+        UserDirectory.decodePreferenceKeyFromFileName(encodedStem)
 
     /**
      * Normalizes all path separators (`\` and `/`) in [path] to [separator].

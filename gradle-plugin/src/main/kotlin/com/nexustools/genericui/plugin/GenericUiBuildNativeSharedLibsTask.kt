@@ -162,8 +162,15 @@ abstract class GenericUiBuildNativeSharedLibsTask : DefaultTask() {
             klibStageAFingerprints[klib.uniqueName] = sha256Hex(material.toByteArray(Charsets.UTF_8)).take(24)
         }
 
+        val groupEmbeddedPayloads = plan.groupsOrdered.associate { group ->
+            group.groupId to GenericUiModuleResourceManifestParser.collectResourcePayloadsForGroup(
+                sources = group.klibs.map { it.file },
+                targetGroupId = group.groupId
+            )
+        }
         val groupFingerprints = mutableMapOf<String, String>()
         for (group in plan.groupsOrdered) {
+            val embeddedPayloads = groupEmbeddedPayloads[group.groupId].orEmpty()
             val material = buildString {
                 append(CACHE_SCHEMA_VERSION).append('|')
                 append(shimStampHash).append('|')
@@ -185,6 +192,9 @@ abstract class GenericUiBuildNativeSharedLibsTask : DefaultTask() {
                 }
                 for (klib in group.klibs) {
                     append("klib:").append(klib.uniqueName).append('=').append(klibStageAFingerprints.getValue(klib.uniqueName)).append('|')
+                }
+                for (resKey in embeddedPayloads.keys.sorted()) {
+                    append("res:").append(resKey).append('=').append(sha256Hex(embeddedPayloads.getValue(resKey)).take(16)).append('|')
                 }
             }
             groupFingerprints[group.groupId] = sha256Hex(material.toByteArray(Charsets.UTF_8)).take(24)
@@ -215,6 +225,7 @@ abstract class GenericUiBuildNativeSharedLibsTask : DefaultTask() {
                             upstreamGroupDirs = cachedGroupDirs,
                             klibByUniqueName = klibByUniqueName,
                             klibStageAFingerprints = klibStageAFingerprints,
+                            embeddedPayloads = groupEmbeddedPayloads[group.groupId].orEmpty(),
                             konanHomeDir = konanHomeDir,
                             konanDataDir = konanDataDir,
                             konanProps = konanProps,
@@ -250,7 +261,8 @@ abstract class GenericUiBuildNativeSharedLibsTask : DefaultTask() {
                     // Populate task-local monolithic cache facades pointing at targetSharedLib
                     // (or static archive for Linux/Windows platform.* klibs).
                     for (klib in group.klibs) {
-                        val facadeName = "${klib.uniqueName}-cache"
+                        val cacheStem = GenericUiNativeSharedLibraryCatalog.cacheStem(klib.uniqueName)
+                        val facadeName = "$cacheStem-cache"
                         val cachedFacade = File(persistentGroupDir, "facades/${sanitizeFacadeDirName(klib.uniqueName)}")
                         val taskFacade = File(facadeOutDir, facadeName)
                         val taskFacadeBin = File(taskFacade, "bin")
@@ -258,7 +270,7 @@ abstract class GenericUiBuildNativeSharedLibsTask : DefaultTask() {
                         copyFacadeSupportToCacheDir(cachedFacade, taskFacade)
 
                         if (isStaticPlatformCacheKlib(klib.uniqueName, target)) {
-                            val staticArtifactName = "lib${klib.uniqueName}-cache.a"
+                            val staticArtifactName = "lib$cacheStem-cache.a"
                             val srcStatic = File(cachedFacade, staticArtifactName)
                             if (!srcStatic.isFile) {
                                 throw GradleException(
@@ -297,6 +309,7 @@ abstract class GenericUiBuildNativeSharedLibsTask : DefaultTask() {
         upstreamGroupDirs: Map<String, File>,
         klibByUniqueName: Map<String, GenericUiNativeSharedLibraryCatalog.KlibManifestInfo>,
         klibStageAFingerprints: Map<String, String>,
+        embeddedPayloads: Map<String, ByteArray>,
         konanHomeDir: File,
         konanDataDir: File,
         konanProps: Properties,
@@ -351,12 +364,13 @@ abstract class GenericUiBuildNativeSharedLibsTask : DefaultTask() {
                     val uniqueNameFile = File(metaDir, "unique_name")
                     if (!uniqueNameFile.isFile) return@forEach
                     val uniqueName = uniqueNameFile.readText(Charsets.UTF_8).trim()
-                    val stageFacade = File(stageAFacadesRoot, "$uniqueName-cache")
+                    val cacheStem = GenericUiNativeSharedLibraryCatalog.cacheStem(uniqueName)
+                    val stageFacade = File(stageAFacadesRoot, "$cacheStem-cache")
                     val binDir = File(stageFacade, "bin")
                     binDir.mkdirs()
                     copyFacadeSupportToCacheDir(metaDir, stageFacade)
                     if (isStaticPlatformCacheKlib(uniqueName, konanTarget)) {
-                        val staticName = "lib$uniqueName-cache.a"
+                        val staticName = "lib$cacheStem-cache.a"
                         val staticArchive = File(metaDir, staticName)
                         if (!staticArchive.isFile) {
                             throw GradleException(
@@ -392,13 +406,14 @@ abstract class GenericUiBuildNativeSharedLibsTask : DefaultTask() {
 
             for ((klibIdx, klib) in group.klibs.withIndex()) {
                 val sanitizedKlibName = sanitizeFacadeDirName(klib.uniqueName)
+                val cacheStem = GenericUiNativeSharedLibraryCatalog.cacheStem(klib.uniqueName)
                 val klibStageAFp = klibStageAFingerprints.getValue(klib.uniqueName)
                 val persistentKlibDir = File(klibsCacheRoot, "$sanitizedKlibName-$klibStageAFp")
                 val klibCompleteMarker = File(persistentKlibDir, ".complete")
-                val cacheDirName = "${klib.uniqueName}-cache"
+                val cacheDirName = "$cacheStem-cache"
                 val isStaticPlatform = isStaticPlatformCacheKlib(klib.uniqueName, konanTarget)
                 val stageAArtifactName = if (isStaticPlatform) {
-                    "lib${klib.uniqueName}-cache.a"
+                    "lib$cacheStem-cache.a"
                 } else {
                     GenericUiNativeSharedLibraryCatalog.cacheArtifactFileName(
                         klib.uniqueName,
@@ -498,7 +513,7 @@ abstract class GenericUiBuildNativeSharedLibsTask : DefaultTask() {
                         File(stagedFacadeOut, "unique_name").writeText(klib.uniqueName, Charsets.UTF_8)
 
                         if (isLinuxPerFilePartitioned) {
-                            val perFileDir = File(localStageADir, "${klib.uniqueName}-per-file-cache")
+                            val perFileDir = File(localStageADir, "$cacheStem-per-file-cache")
                             if (!perFileDir.isDirectory) {
                                 throw GradleException(
                                     "Expected per-file cache directory missing at ${perFileDir.absolutePath} " +
@@ -620,10 +635,6 @@ abstract class GenericUiBuildNativeSharedLibsTask : DefaultTask() {
                                     stageAArtifact.copyTo(cachedStageABin, overwrite = true)
                                 }
                             } else if (stageAArtifact.isFile) {
-                                stageAArtifact.copyTo(cachedStageABin, overwrite = true)
-                                if (!isWindows && !isStaticPlatform) {
-                                    cachedStageABin.setExecutable(true, false)
-                                }
                                 if (isWindows && isStaticPlatform) {
                                     val probeUpstreamLibs = buildList {
                                         addAll(upstreamWindowsImplibs)
@@ -644,7 +655,7 @@ abstract class GenericUiBuildNativeSharedLibsTask : DefaultTask() {
                                         konanHomeDir = konanHomeDir,
                                         konanTarget = konanTarget
                                     )
-                                    appendWindowsPlatformDeadIntrinsicStubs(
+                                    val stubObj = buildWindowsPlatformDeadIntrinsicStubObject(
                                         llvmHomeDir = llvmHomeDir,
                                         dependenciesDir = dependenciesDir,
                                         konanProps = konanProps,
@@ -653,9 +664,18 @@ abstract class GenericUiBuildNativeSharedLibsTask : DefaultTask() {
                                         alreadyBuiltPlatformArchives = builtPlatArchives,
                                         upstreamLibs = probeUpstreamLibs,
                                         klibOpts = klibOpts,
-                                        targetArchive = cachedStageABin,
                                         workDir = objTmpDir
                                     )
+                                    WindowsCoffObjectPartitioner.partitionObjectsIntoArchive(
+                                        objectFiles = klibObjs + listOfNotNull(stubObj),
+                                        llvmArExecutable = resolveLlvmTool(llvmHomeDir, "llvm-ar"),
+                                        targetArchive = cachedStageABin
+                                    )
+                                } else {
+                                    stageAArtifact.copyTo(cachedStageABin, overwrite = true)
+                                    if (!isWindows && !isStaticPlatform) {
+                                        cachedStageABin.setExecutable(true, false)
+                                    }
                                 }
                             } else if (isStaticPlatform) {
                                 throw GradleException(
@@ -663,12 +683,14 @@ abstract class GenericUiBuildNativeSharedLibsTask : DefaultTask() {
                                 )
                             }
 
-                            klibObjs.forEachIndexed { oIdx, objFile ->
-                                val paddedIdx = oIdx.toString().padStart(4, '0')
-                                objFile.copyTo(
-                                    File(stagedObjectsOut, "${paddedIdx}_${objFile.name}"),
-                                    overwrite = true
-                                )
+                            if (!isStaticPlatform) {
+                                klibObjs.forEachIndexed { oIdx, objFile ->
+                                    val paddedIdx = oIdx.toString().padStart(4, '0')
+                                    objFile.copyTo(
+                                        File(stagedObjectsOut, "${paddedIdx}_${objFile.name}"),
+                                        overwrite = true
+                                    )
+                                }
                             }
                         }
 
@@ -761,7 +783,51 @@ abstract class GenericUiBuildNativeSharedLibsTask : DefaultTask() {
                 }
             }
 
-            // Stage B: Link the combined group shared library.
+            // Stage B: Embed group module resources (if any) and link the combined group shared library.
+            if (embeddedPayloads.isNotEmpty()) {
+                val resEmbedDir = File(stagingDir, "embedded-resources").apply { mkdirs() }
+                val clangExe = runCatching { resolveLlvmTool(llvmHomeDir, "clang") }.getOrNull()
+                if (isWindows) {
+                    val rcFile = File(resEmbedDir, "group_resources.rc")
+                    rcFile.writeText(
+                        GenericUiNativeResourceEmbedder.generateWindowsRcSource(embeddedPayloads, resEmbedDir),
+                        Charsets.UTF_8
+                    )
+                    val resObj = File(resEmbedDir, "group_resources.o")
+                    val compiled = GenericUiNativeResourceEmbedder.compileWindowsRcToObject(
+                        rcFile = rcFile,
+                        objOut = resObj,
+                        includeDir = resEmbedDir,
+                        clangExecutable = clangExe
+                    )
+                    if (compiled && resObj.isFile && resObj.length() > 0L) {
+                        groupObjectFiles.add(resObj)
+                    }
+                } else if (isMac || isLinux) {
+                    val lookupSymbol = GenericUiNativeResourceEmbedder.lookupSymbolForGroup(group.groupId)
+                    val cFile = File(resEmbedDir, "module_resources.c")
+                    cFile.writeText(
+                        GenericUiNativeResourceEmbedder.generatePosixResourceTableCSource(
+                            lookupSymbol = lookupSymbol,
+                            resources = embeddedPayloads,
+                            includeMachOConstSection = isMac
+                        ),
+                        Charsets.UTF_8
+                    )
+                    val resObj = File(resEmbedDir, "module_resources.o")
+                    val compiled = GenericUiNativeResourceEmbedder.compileCSourceToObject(
+                        cFile = cFile,
+                        objOut = resObj,
+                        konanTargetName = konanTarget,
+                        clangExecutable = clangExe
+                    )
+                    if (compiled && resObj.isFile && resObj.length() > 0L) {
+                        groupObjectFiles.add(resObj)
+                    }
+                }
+            }
+
+            // Link the combined group shared library.
             val demandPlatformArchives = (upstreamPlatformStaticArchives + groupPlatformStaticArchives)
                 .distinctBy { it.name }
                 .reversed()
@@ -1377,7 +1443,11 @@ abstract class GenericUiBuildNativeSharedLibsTask : DefaultTask() {
                 staticArchives.forEach { add(it.absolutePath) }
                 add("-Wl,--no-whole-archive")
             }
-            platformStaticArchives.forEach { add(it.absolutePath) }
+            if (platformStaticArchives.isNotEmpty()) {
+                add("-Wl,--start-group")
+                platformStaticArchives.forEach { add(it.absolutePath) }
+                add("-Wl,--end-group")
+            }
             upstreamLibraries.forEach { add(it.absolutePath) }
             addAll(extraLinkerOpts)
             add("-static-libgcc")
@@ -1399,7 +1469,7 @@ abstract class GenericUiBuildNativeSharedLibsTask : DefaultTask() {
         runProcess(cmd)
     }
 
-    private fun appendWindowsPlatformDeadIntrinsicStubs(
+    private fun buildWindowsPlatformDeadIntrinsicStubObject(
         llvmHomeDir: File,
         dependenciesDir: File,
         konanProps: Properties,
@@ -1408,13 +1478,11 @@ abstract class GenericUiBuildNativeSharedLibsTask : DefaultTask() {
         alreadyBuiltPlatformArchives: List<File>,
         upstreamLibs: List<File>,
         klibOpts: List<String>,
-        targetArchive: File,
         workDir: File
-    ) {
+    ): File? {
         val clangPlusPlus = resolveLlvmTool(llvmHomeDir, "clang++")
         val clangExe = resolveLlvmTool(llvmHomeDir, "clang")
         val ldLld = resolveLlvmTool(llvmHomeDir, "ld.lld")
-        val llvmAr = resolveLlvmTool(llvmHomeDir, "llvm-ar")
         val sysRootRel = resolveTargetKonanProperty(konanProps, "targetSysRoot", host = null, target = konanTarget)
             ?: throw GradleException("targetSysRoot.$konanTarget missing in konan.properties")
         val sysRoot = File(dependenciesDir, sysRootRel)
@@ -1491,7 +1559,7 @@ abstract class GenericUiBuildNativeSharedLibsTask : DefaultTask() {
         }
 
         if (rawSyms.isEmpty() && impSyms.isEmpty()) {
-            return
+            return null
         }
 
         fun escapeIrSym(sym: String): String = sym.replace("\\", "\\5C").replace("\"", "\\22")
@@ -1537,14 +1605,7 @@ abstract class GenericUiBuildNativeSharedLibsTask : DefaultTask() {
                 stubObj.absolutePath
             )
         )
-        runProcess(
-            listOf(
-                llvmAr.absolutePath,
-                "rcs",
-                targetArchive.absolutePath,
-                stubObj.absolutePath
-            )
-        )
+        return stubObj
     }
 
     private fun extractBundledKlibNativeBinaries(
@@ -2034,7 +2095,7 @@ abstract class GenericUiBuildNativeSharedLibsTask : DefaultTask() {
     }
 
     companion object {
-        private const val CACHE_SCHEMA_VERSION = "v3"
+        private const val CACHE_SCHEMA_VERSION = "v6"
         private const val EXTRA_LINKING_REGISTERED = "genericUiNativeSharedLinkingRegistered"
         private const val EXTRA_TASK_CONFIGURED = "genericUiNativeSharedTaskConfigured"
         private val MANAGED_SHARED_LIB_REGEX = Regex(

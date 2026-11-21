@@ -87,6 +87,25 @@ class BottomNavigationBar : AbstractComponent(htmlTag = "genericui:bottomnavigat
     protected override fun createNativeImpl(factory: NativeFactory): BottomNavigationBarNativeImpl<*> =
         factory.createBottomNavigationBar()
 
+    override fun resolveActiveFactory(): NativeFactory? =
+        super.resolveActiveFactory() ?: com.nexustools.genericui.core.GenericUI.activeFactory
+
+    fun ensureChromeNativeImpl(): BottomNavigationBarNativeImpl<*>? {
+        val existing = typedNative<BottomNavigationBarNativeImpl<*>>()
+        if (existing != null) return existing
+        val factory = super.resolveActiveFactory() ?: com.nexustools.genericui.core.GenericUI.activeFactory ?: return null
+        val created = createNativeImpl(factory)
+        nativeImpl = created
+        created.beginBatchAttach()
+        try {
+            onAttachNative(created)
+            syncStateToNative()
+        } finally {
+            created.endBatchAttach()
+        }
+        return created
+    }
+
     override fun syncStateToNative() {
         super.syncStateToNative()
         val impl = typedNative<BottomNavigationBarNativeImpl<*>>() ?: return

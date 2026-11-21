@@ -302,7 +302,7 @@ class GenericUiGradlePluginTest {
         val styleCssContent = rootStyleCss.readText()
         assertTrue(styleCssContent.contains("#112233"), "Compiled web style.css should resolve imported SASS variables")
         assertTrue(styleCssContent.contains("#2563eb"), "Compiled web style.css should resolve @color/brand_primary")
-        assertTrue(styleCssContent.contains("assets/drawable/hero_bg.svg"), "Compiled web style.css should resolve @drawable/hero_bg to web asset URL")
+        assertTrue(styleCssContent.contains("app/drawable/hero_bg.svg"), "Compiled web style.css should resolve @drawable/hero_bg to web app/ asset URL")
         assertTrue(styleCssContent.contains("16px"), "Compiled web style.css should resolve @dimen/card_pad")
         assertTrue(styleCssContent.contains("body .hero"), "Compiled web style.css should flatten nested SASS selectors")
         assertTrue(rootAppCss.readText().contains("#ff6600"), "Compiled web app.css should resolve SASS variables")
@@ -692,26 +692,27 @@ class GenericUiGradlePluginTest {
         val namespaceXmlFile = java.io.File(distDir, "genericui-namespace.xml")
         val genericUiCssFile = java.io.File(distDir, "gui/genericui.css")
         val resourcesManifestFile = java.io.File(distDir, "resources.json")
-        val stagedIconFile = java.io.File(distDir, "res/web-icon.svg")
+        val stagedIconFile = java.io.File(distDir, "app/web-icon.svg")
 
         assertTrue(indexHtmlFile.exists(), "index.html should be generated in build/dist/web/development")
         assertTrue(loaderJsFile.exists(), "loader.js should be generated in build/dist/web/development")
         assertTrue(namespaceXmlFile.exists(), "genericui-namespace.xml should be generated in build/dist/web/development")
         assertTrue(genericUiCssFile.exists(), "gui/genericui.css should be generated in build/dist/web/development")
         assertTrue(resourcesManifestFile.exists(), "resources.json should be generated in build/dist/web/development")
-        assertTrue(stagedIconFile.exists(), "res/web-icon.svg should be staged in build/dist/web/development")
+        assertTrue(stagedIconFile.exists(), "app/web-icon.svg should be staged in build/dist/web/development")
 
-        // Verify root directory only contains allowed root files + gui/ + res/
+        // Verify root directory only contains allowed root files + gui/ + app/
         val allowedRootEntries = setOf(
             "index.html",
             "loader.js",
+            "serviceworker.js",
             "manifest.webmanifest",
             "genericui-namespace.xml",
             "resources.json",
             "test-web-studio.js",
             "test-web-studio.wasm",
             "gui",
-            "res"
+            "app"
         )
         for (entry in distDir.listFiles().orEmpty()) {
             assertTrue(entry.name in allowedRootEntries, "Unexpected entry '${entry.name}' in root of web distribution")
@@ -724,13 +725,13 @@ class GenericUiGradlePluginTest {
         assertTrue(resourcesManifestJson.contains("\"id\": \"xml/genericui-namespace\""))
         assertTrue(resourcesManifestJson.contains("\"path\": \"genericui-namespace.xml\""))
         assertTrue(resourcesManifestJson.contains("\"id\": \"drawable/hero-banner\""))
-        assertTrue(resourcesManifestJson.contains("\"path\": \"res/drawable/hero-banner.png\""))
+        assertTrue(resourcesManifestJson.contains("\"path\": \"app/drawable/hero-banner.png\""))
         assertTrue(resourcesManifestJson.contains("\"mimeType\": \"image/png\""))
         assertTrue(resourcesManifestJson.contains("\"id\": \"styles/custom-theme\""))
-        assertTrue(resourcesManifestJson.contains("\"path\": \"res/styles/custom-theme.css\""))
+        assertTrue(resourcesManifestJson.contains("\"path\": \"app/styles/custom-theme.css\""))
         assertTrue(resourcesManifestJson.contains("\"mimeType\": \"text/css\""))
         assertTrue(resourcesManifestJson.contains("\"id\": \"xml/main-layout\""))
-        assertTrue(resourcesManifestJson.contains("\"path\": \"res/xml/main-layout.xml\""))
+        assertTrue(resourcesManifestJson.contains("\"path\": \"app/xml/main-layout.xml\""))
         assertTrue(resourcesManifestJson.contains("\"hash\": \""))
         assertTrue(resourcesManifestJson.contains("\"mimeType\": \"application/xml\""))
         assertTrue(resourcesManifestJson.contains("\"size\": "))
@@ -755,8 +756,8 @@ class GenericUiGradlePluginTest {
         assertTrue(html.contains("<link id=\"genericui-css\" rel=\"stylesheet\" href=\"gui/genericui.css?"))
         assertTrue(html.contains("<genericui:app></genericui:app>"))
         assertTrue(!html.contains("<div id=\"genericui-app\""))
-        assertTrue(html.contains("<link id=\"genericui-favicon\" rel=\"icon\" type=\"image/svg+xml\" href=\"res/web-icon.svg\">"))
-        assertTrue(html.contains("<img id=\"genericui-splash-icon\" src=\"res/web-icon.svg\""))
+        assertTrue(html.contains("<link id=\"genericui-favicon\" rel=\"icon\" type=\"image/svg+xml\" href=\"app/web-icon.svg\">"))
+        assertTrue(html.contains("<img id=\"genericui-splash-icon\" src=\"app/web-icon.svg\""))
         assertTrue(html.contains("width=\"64\" height=\"64\""))
         assertTrue(html.contains("id=\"genericui-splash-progress-bar\""))
         assertTrue(html.contains("id=\"genericui-splash-error-stack\""))
@@ -857,19 +858,20 @@ class GenericUiGradlePluginTest {
         distDirEarly.mkdirs()
         java.io.File(distDirEarly, "bootstrap.min.css").writeText("/* GenericUI Offline Bootstrap 5.3.3 Stylesheet (bootstrap.min.css) */\n")
 
-        // 1. Verify Web Distribution (manifest.webmanifest + gui/genericui-sw.js + resources.json + installable WebApp HTML tags + themeColor)
+        // 1. Verify Web Distribution (manifest.webmanifest + ./serviceworker.js + resources.json + installable WebApp HTML tags + themeColor)
         val webDistTask = project.tasks.getByName("packageGenericUiWebDistribution") as GenericUiWebDistributionTask
         webDistTask.packageWebDistribution()
 
         val distDir = webDistTask.outputDirectory.get().asFile
         val manifestFile = java.io.File(distDir, "manifest.webmanifest")
-        val swFile = java.io.File(distDir, "gui/genericui-sw.js")
+        val swFile = java.io.File(distDir, "serviceworker.js")
         val resourcesManifestFile = java.io.File(distDir, "resources.json")
         val indexHtmlFile = java.io.File(distDir, "index.html")
         val loaderJsFile = java.io.File(distDir, "loader.js")
 
         assertTrue(manifestFile.exists(), "manifest.webmanifest should be generated when allowInstallAsWebApp or webManifest is enabled")
-        assertTrue(swFile.exists(), "gui/genericui-sw.js should be generated when allowInstallAsWebApp or webManifest is enabled")
+        assertTrue(swFile.exists(), "serviceworker.js should be generated in distribution root when allowInstallAsWebApp or webManifest is enabled")
+        assertFalse(java.io.File(distDir, "gui/genericui-sw.js").exists(), "Legacy gui/genericui-sw.js must not be generated")
         assertTrue(resourcesManifestFile.exists(), "resources.json should be generated in build/dist/web/development")
 
         val manifestJson = manifestFile.readText()
@@ -900,32 +902,34 @@ class GenericUiGradlePluginTest {
         assertTrue(sampleResourcesJson.contains("\"id\": \"wasm/sample-web-studio\""))
         assertTrue(sampleResourcesJson.contains("\"id\": \"js/sample-web-studio\""))
         assertTrue(sampleResourcesJson.contains("\"size\": "))
-        assertTrue(manifestJson.contains("\"res/web-icon.svg\""))
-        assertTrue(manifestJson.contains("\"res/icon-192.png\""))
-        assertTrue(manifestJson.contains("\"res/icon-512.png\""))
-        assertTrue(manifestJson.contains("\"res/favicon.ico\""))
-        assertTrue(manifestJson.contains("\"res/font/inter.woff2\""))
+        assertTrue(manifestJson.contains("\"app/web-icon.svg\""))
+        assertTrue(manifestJson.contains("\"app/icon-192.png\""))
+        assertTrue(manifestJson.contains("\"app/icon-512.png\""))
+        assertTrue(manifestJson.contains("\"app/favicon.ico\""))
+        assertTrue(manifestJson.contains("\"app/font/inter.woff2\""))
 
         val swJs = swFile.readText()
-        assertTrue(swJs.contains("const CACHE_NAME = \"genericui-offline-v1\";"))
-        assertTrue(swJs.contains("cache.addAll(OFFLINE_RESOURCES)"))
+        assertTrue(swJs.contains("const CACHE_NAME = \"genericui-offline-"))
+        assertTrue(swJs.contains("const BUILD_HASH = "))
         assertTrue(swJs.contains("self.skipWaiting()"))
         assertTrue(swJs.contains("self.clients.claim()"))
         assertTrue(swJs.contains("\"./\""))
         assertTrue(swJs.contains("\"index.html\""))
         assertTrue(swJs.contains("\"resources.json\""))
-        assertTrue(swJs.contains("\"res/font/inter.woff2\""))
+        assertTrue(swJs.contains("\"app/font/inter.woff2\""))
 
         val html = indexHtmlFile.readText()
         val loaderJs = loaderJsFile.readText()
         assertTrue(html.contains("<link id=\"genericui-web-manifest\" rel=\"manifest\" href=\"manifest.webmanifest?"))
+        assertTrue(html.contains("<meta id=\"genericui-build-hash\""))
+        assertTrue(html.contains("<meta id=\"genericui-sw-enabled\" content=\"true\">"))
         assertTrue(html.contains("<meta id=\"genericui-theme-color\" name=\"theme-color\" content=\"#2A80FF\">"))
         assertTrue(html.contains("<meta id=\"genericui-mobile-web-app-capable\" name=\"mobile-web-app-capable\" content=\"yes\">"))
         assertTrue(html.contains("<meta id=\"genericui-apple-mobile-web-app-capable\" name=\"apple-mobile-web-app-capable\" content=\"yes\">"))
         assertTrue(html.contains("<meta id=\"genericui-application-name\" name=\"application-name\" content=\"SampleWebStudio\">"))
-        assertTrue(html.contains("<link id=\"genericui-apple-touch-icon\" rel=\"apple-touch-icon\" href=\"res/web-icon.svg\">"))
-        assertTrue(html.contains("navigator.serviceWorker.register('./gui/genericui-sw.js')"))
-        assertTrue(loaderJs.contains("navigator.serviceWorker.register('./gui/genericui-sw.js')"))
+        assertTrue(html.contains("<link id=\"genericui-apple-touch-icon\" rel=\"apple-touch-icon\" href=\"app/web-icon.svg\">"))
+        assertFalse(html.contains("id=\"genericui-sw-register\""), "Unified loader registers ./serviceworker.js post-preload without inline script")
+        assertTrue(loaderJs.contains("navigator.serviceWorker.register(\"./serviceworker.js\")"))
 
         // 2. Verify Desktop Resources (Windows .rc, macOS Info.plist, Linux .desktop) receive themeColor
         val desktopResTask = project.tasks.getByName("prepareGenericUiDesktopResources") as GenericUiDesktopResourceTask
@@ -957,10 +961,10 @@ class GenericUiGradlePluginTest {
         assertTrue(regKtText.contains("GenericUI.applicationName = APP_NAME"))
 
         val androidColorsXml = java.io.File(backendResOut, "android/res/values/colors.xml").readText()
-        assertTrue(androidColorsXml.contains("<color name=\"theme_color\">#2A80FF</color>"))
-        assertTrue(androidColorsXml.contains("<color name=\"colorPrimary\">#2A80FF</color>"))
+        assertTrue(androidColorsXml.contains("<color name=\"app_color_theme_color\">#2A80FF</color>"))
+        assertTrue(androidColorsXml.contains("<color name=\"app_color_colorprimary\">#2A80FF</color>"))
 
-        val appleAccentColorJson = java.io.File(backendResOut, "apple/Assets.xcassets/AccentColor.colorset/Contents.json").readText()
+        val appleAccentColorJson = java.io.File(backendResOut, "ios/Assets.xcassets/AccentColor.colorset/Contents.json").readText()
         assertTrue(appleAccentColorJson.contains("\"hex\": \"#2A80FF\""))
 
         val webCssVars = java.io.File(backendResOut, "web/genericui-resource-vars.css").readText()
@@ -1022,13 +1026,15 @@ class GenericUiGradlePluginTest {
         assertTrue(rKtFile.readText().contains("val icon: ResourceID"), "R.drawable.icon should be generated by default")
         val backendResOut = resTask.backendOutputDirectory.get().asFile
         assertTrue(java.io.File(backendResOut, "windows/icon.ico").exists(), "Windows backend resources should include icon.ico")
-        assertTrue(java.io.File(backendResOut, "android/res/drawable/icon.xml").exists(), "Android backend resources should include vector icon.xml")
+        assertTrue(java.io.File(backendResOut, "android/res/drawable/app_drawable_icon.xml").exists(), "Android backend resources should include flattened app_drawable_icon.xml")
         assertTrue(java.io.File(backendResOut, "android/res/mipmap-anydpi-v26/ic_launcher.xml").exists(), "Android backend resources should include adaptive ic_launcher.xml")
-        assertTrue(java.io.File(backendResOut, "apple/Assets.xcassets/AppIcon.appiconset/icon.png").exists(), "Apple backend resources should include icon.png")
-        assertTrue(java.io.File(backendResOut, "apple/Assets.xcassets/AppIcon.appiconset/icon.icns").exists(), "Apple backend resources should include icon.icns")
-        assertTrue(java.io.File(backendResOut, "apple/icon.icns").exists(), "Apple backend root should include icon.icns")
+        assertTrue(java.io.File(backendResOut, "ios/Assets.xcassets/AppIcon.appiconset/icon.png").exists(), "iOS backend resources should include icon.png")
+        assertTrue(java.io.File(backendResOut, "ios/Assets.xcassets/AppIcon.appiconset/icon.icns").exists(), "iOS backend resources should include icon.icns")
+        assertFalse(java.io.File(backendResOut, "apple/Assets.xcassets").exists(), "macOS must not emit loose/apple Assets.xcassets")
+        assertTrue(java.io.File(backendResOut, "ios/icon.icns").exists(), "iOS backend resources should include icon.icns")
         assertTrue(java.io.File(desktopOutDir, "macos/icon.icns").exists(), "macOS desktop resources should include icon.icns")
-        assertTrue(java.io.File(backendResOut, "linux/drawable/icon.png").exists(), "Linux backend resources should include icon.png")
+        assertTrue(java.io.File(backendResOut, "linux/genericui_app_resources.c").exists(), "Linux backend should embed resources into C table")
+        assertFalse(java.io.File(backendResOut, "linux/drawable/icon.png").exists(), "Linux backend must not stage loose drawable/icon.png")
         assertTrue(java.io.File(backendResOut, "web/icon.png").exists(), "Web/Swing backend resources should include icon.png")
         assertTrue(java.io.File(backendResOut, "web/icon.ico").exists(), "Web/Swing backend resources should include icon.ico")
 

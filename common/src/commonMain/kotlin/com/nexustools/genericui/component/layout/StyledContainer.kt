@@ -9,10 +9,12 @@ import com.nexustools.genericui.style.color.RgbaColor
 import com.nexustools.genericui.style.css.ComputedStyle
 import com.nexustools.genericui.style.css.CssCornerRadii
 import com.nexustools.genericui.style.css.CssEdgeLengths
+import com.nexustools.genericui.style.css.CssFilter
 import com.nexustools.genericui.style.css.CssLength
 import com.nexustools.genericui.style.css.StyledVisualSpec
 import com.nexustools.genericui.style.gradient.Gradient.Gradient
 import com.nexustools.genericui.style.mapper.BootstrapStyleSnapshot
+import com.nexustools.genericui.style.policy.AestheticStylePolicy
 
 /**
  * Cross-platform styled container (`<genericui:styled-container>`) that renders consistent
@@ -65,6 +67,19 @@ open class StyledContainer(
             getStyle().setGap(value?.let { CssLength.px(it) })
         }
 
+    var backdropFilter: CssFilter?
+        get() = getStyle().backdropFilter ?: computedStyle?.backdropFilter
+        set(value) {
+            getStyle().setBackdropFilter(value)
+            syncVisualsToNative()
+        }
+
+    fun setBackdropBlur(radiusPx: Number) {
+        val px = radiusPx.toFloat().coerceAtLeast(0f)
+        getStyle().setBackdropFilter(if (px > 0f) CssFilter.blur(CssLength.px(px)) else null)
+        syncVisualsToNative()
+    }
+
     fun setBorder(
         widthPx: Number,
         color: RgbaColor,
@@ -98,12 +113,13 @@ open class StyledContainer(
     fun resolveVisualSpec(): StyledVisualSpec {
         val isDark = Application.current?.getResolvedTheme() != ThemeMode.LIGHT
         val snapshot = getBootstrap().applyToSnapshot(BootstrapStyleSnapshot(componentPrefix = componentClassPrefix))
-        return StyledVisualSpec.fromComponentAndComputed(
+        val raw = StyledVisualSpec.fromComponentAndComputed(
             componentStyle = getStyle(),
             computedStyle = computedStyle,
             snapshot = snapshot,
             darkTheme = isDark
         )
+        return if (AestheticStylePolicy.isStyledContainerOnly(this)) raw else raw.withoutBackdropFilter()
     }
 
     private var lastSyncedVisualSpec: StyledVisualSpec? = null

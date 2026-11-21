@@ -179,55 +179,82 @@ object BinaryPlist {
     ): T? = decodeAs(readable, T::class, defaultValue)
 
     /**
+     * Strictly decodes a `"bplist00"` binary property list [ByteArray] into a [PreferenceElement] tree,
+     * returning `null` if the input is not a valid `bplist00` file, has invalid trailer values,
+     * out-of-bounds object offsets, cyclic object references, or truncated/corrupt payloads.
+     *
+     * Note: A valid `bplist00` file encoding `0x00` returns [PreferenceElement.Null] (non-null).
+     */
+    fun decodeElementOrNull(bytes: ByteArray): PreferenceElement? {
+        if (!isBinaryPlist(bytes)) return null
+        return decodeElementOrNull(ByteBuffer.wrap(bytes, byteOrder = ByteOrder.BIG_ENDIAN))
+    }
+
+    /**
+     * Strictly decodes a `"bplist00"` binary property list [ByteBuffer] into a [PreferenceElement] tree,
+     * returning `null` on invalid, corrupt, cyclic, or truncated inputs.
+     */
+    fun decodeElementOrNull(buffer: ByteBuffer): PreferenceElement? {
+        if (!isBinaryPlist(buffer)) return null
+        return try {
+            val trailerPos = buffer.size - 32
+            if (trailerPos < 8) return null
+            val offsetIntSize = buffer.readUByte(trailerPos + 6).toInt()
+            val objectRefSize = buffer.readUByte(trailerPos + 7).toInt()
+            val numObjectsLong = buffer.readLong(trailerPos + 8, ByteOrder.BIG_ENDIAN)
+            val topObjectIndexLong = buffer.readLong(trailerPos + 16, ByteOrder.BIG_ENDIAN)
+            val offsetTableStartLong = buffer.readLong(trailerPos + 24, ByteOrder.BIG_ENDIAN)
+
+            if (offsetIntSize !in setOf(1, 2, 4, 8) || objectRefSize !in setOf(1, 2, 4, 8)) {
+                return null
+            }
+            if (offsetTableStartLong < 8L || offsetTableStartLong >= trailerPos.toLong()) {
+                return null
+            }
+            val maxOffsets = (trailerPos.toLong() - offsetTableStartLong) / offsetIntSize.toLong()
+            if (numObjectsLong <= 0L || numObjectsLong > maxOffsets || numObjectsLong > Int.MAX_VALUE.toLong()) {
+                return null
+            }
+            val numObjects = numObjectsLong.toInt()
+            val offsetTableStart = offsetTableStartLong.toInt()
+            if (topObjectIndexLong !in 0L until numObjectsLong) {
+                return null
+            }
+
+            val offsets = IntArray(numObjects)
+            for (i in 0 until numObjects) {
+                val pos = offsetTableStart + i * offsetIntSize
+                val objOffset = readUnsignedLong(buffer, pos, offsetIntSize)
+                if (objOffset < 8L || objOffset >= offsetTableStartLong) {
+                    return null
+                }
+                offsets[i] = objOffset.toInt()
+            }
+
+            decodeObjectAtIndexOrNull(
+                buffer = buffer,
+                offsets = offsets,
+                offsetTableStart = offsetTableStart,
+                objectRefSize = objectRefSize,
+                index = topObjectIndexLong.toInt(),
+                visiting = mutableSetOf()
+            )
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
+    /**
      * Decodes a `"bplist00"` binary property list [ByteArray] into a [PreferenceElement] tree.
      */
-    fun decodeElement(bytes: ByteArray): PreferenceElement {
-        if (!isBinaryPlist(bytes)) return PreferenceElement.Null
-        return decodeElement(ByteBuffer.wrap(bytes, byteOrder = ByteOrder.BIG_ENDIAN))
-    }
+    fun decodeElement(bytes: ByteArray): PreferenceElement =
+        decodeElementOrNull(bytes) ?: PreferenceElement.Null
 
     /**
      * Decodes a `"bplist00"` binary property list [ByteBuffer] into a [PreferenceElement] tree.
      */
-    fun decodeElement(buffer: ByteBuffer): PreferenceElement {
-        if (!isBinaryPlist(buffer)) return PreferenceElement.Null
-
-        val trailerPos = buffer.size - 32
-        val offsetIntSize = buffer.readUByte(trailerPos + 6).toInt()
-        val objectRefSize = buffer.readUByte(trailerPos + 7).toInt()
-        val numObjects = buffer.readLong(trailerPos + 8, ByteOrder.BIG_ENDIAN).toInt()
-        val topObjectIndex = buffer.readLong(trailerPos + 16, ByteOrder.BIG_ENDIAN).toInt()
-        val offsetTableStart = buffer.readLong(trailerPos + 24, ByteOrder.BIG_ENDIAN).toInt()
-
-        if (numObjects <= 0 || offsetIntSize !in setOf(1, 2, 4, 8) || objectRefSize !in setOf(1, 2, 4, 8)) {
-            return PreferenceElement.Null
-        }
-        if (offsetTableStart < 8 || offsetTableStart + numObjects * offsetIntSize > trailerPos) {
-            return PreferenceElement.Null
-        }
-
-        val offsets = IntArray(numObjects)
-        for (i in 0 until numObjects) {
-            val pos = offsetTableStart + i * offsetIntSize
-            offsets[i] = if (offsetIntSize == 8) {
-                buffer.readLong(pos, ByteOrder.BIG_ENDIAN).toInt()
-            } else {
-                buffer.readUnsignedInt(pos, offsetIntSize, ByteOrder.BIG_ENDIAN)
-            }
-        }
-
-        if (topObjectIndex !in 0 until numObjects) {
-            return PreferenceElement.Null
-        }
-
-        return decodeObjectAtIndex(
-            buffer = buffer,
-            offsets = offsets,
-            objectRefSize = objectRefSize,
-            index = topObjectIndex,
-            visiting = mutableSetOf()
-        )
-    }
+    fun decodeElement(buffer: ByteBuffer): PreferenceElement =
+        decodeElementOrNull(buffer) ?: PreferenceElement.Null
 
     /**
      * Decodes a `"bplist00"` binary property list into standard Kotlin primitives, [List]s, and [LinkedHashMap]s.
@@ -249,8 +276,7 @@ object BinaryPlist {
         targetClass: KClass<T>,
         defaultValue: T? = null
     ): T? {
-        if (!isBinaryPlist(bytes)) return defaultValue
-        val element = runCatching { decodeElement(bytes) }.getOrNull() ?: return defaultValue
+        val element = decodeElementOrNull(bytes) ?: return defaultValue
         return PreferenceObjectCodec.fromElement(element, targetClass, defaultValue)
     }
 
@@ -262,8 +288,7 @@ object BinaryPlist {
         targetClass: KClass<T>,
         defaultValue: T? = null
     ): T? {
-        if (!isBinaryPlist(buffer)) return defaultValue
-        val element = runCatching { decodeElement(buffer) }.getOrNull() ?: return defaultValue
+        val element = decodeElementOrNull(buffer) ?: return defaultValue
         return PreferenceObjectCodec.fromElement(element, targetClass, defaultValue)
     }
 
@@ -419,19 +444,20 @@ object BinaryPlist {
         }
     }
 
-    private fun decodeObjectAtIndex(
+    private fun decodeObjectAtIndexOrNull(
         buffer: ByteBuffer,
         offsets: IntArray,
+        offsetTableStart: Int,
         objectRefSize: Int,
         index: Int,
         visiting: MutableSet<Int>
-    ): PreferenceElement {
-        if (index !in offsets.indices) return PreferenceElement.Null
-        if (!visiting.add(index)) return PreferenceElement.Null
+    ): PreferenceElement? {
+        if (index !in offsets.indices) return null
+        if (!visiting.add(index)) return null
 
         try {
             val pos = offsets[index]
-            if (pos < 8 || pos >= buffer.size - 32) return PreferenceElement.Null
+            if (pos < 8 || pos >= offsetTableStart) return null
 
             val marker = buffer.readUByte(pos).toInt()
             val high = marker and 0xF0
@@ -439,101 +465,152 @@ object BinaryPlist {
 
             return when (high) {
                 0x00 -> when (marker) {
+                    0x00 -> PreferenceElement.Null
                     0x08 -> PreferenceElement.ofBoolean(false)
                     0x09 -> PreferenceElement.ofBoolean(true)
-                    else -> PreferenceElement.Null
+                    else -> null
                 }
                 0x10 -> {
+                    if (low > 3) return null
                     val byteCount = 1 shl low
                     val payloadPos = pos + 1
+                    if (payloadPos + byteCount > offsetTableStart) return null
                     when (byteCount) {
                         1 -> PreferenceElement.ofByte(buffer.readByte(payloadPos))
                         2 -> PreferenceElement.ofShort(buffer.readShort(payloadPos, ByteOrder.BIG_ENDIAN))
                         4 -> PreferenceElement.ofInt(buffer.readInt(payloadPos, ByteOrder.BIG_ENDIAN))
                         8 -> PreferenceElement.ofLong(buffer.readLong(payloadPos, ByteOrder.BIG_ENDIAN))
-                        else -> PreferenceElement.ofLong(buffer.readLong(payloadPos, ByteOrder.BIG_ENDIAN))
+                        else -> null
                     }
                 }
                 0x20 -> {
+                    if (low != 2 && low != 3) return null
+                    val byteCount = 1 shl low
                     val payloadPos = pos + 1
+                    if (payloadPos + byteCount > offsetTableStart) return null
                     when (low) {
                         2 -> PreferenceElement.ofFloat(buffer.readFloat(payloadPos, ByteOrder.BIG_ENDIAN))
                         3 -> PreferenceElement.ofDouble(buffer.readDouble(payloadPos, ByteOrder.BIG_ENDIAN))
-                        else -> PreferenceElement.ofDouble(0.0)
+                        else -> null
                     }
                 }
                 0x40 -> {
-                    val (count, dataStart) = readLengthAndPayloadOffset(buffer, pos, low)
+                    val (count, dataStart) = readLengthAndPayloadOffsetOrNull(buffer, pos, low, offsetTableStart)
+                        ?: return null
+                    if (count < 0 || dataStart.toLong() + count.toLong() > offsetTableStart.toLong()) return null
                     val list = ArrayList<PreferenceElement>(count)
                     for (i in 0 until count) {
-                        if (dataStart + i < buffer.size) {
-                            list.add(PreferenceElement.ofByte(buffer.readByte(dataStart + i)))
-                        }
+                        list.add(PreferenceElement.ofByte(buffer.readByte(dataStart + i)))
                     }
                     PreferenceElement.ofArray(list)
                 }
                 0x50 -> {
-                    val (count, strStart) = readLengthAndPayloadOffset(buffer, pos, low)
-                    val end = (strStart + count).coerceAtMost(buffer.size)
-                    PreferenceElement.ofString(buffer.toString("ascii", strStart, end))
+                    val (count, strStart) = readLengthAndPayloadOffsetOrNull(buffer, pos, low, offsetTableStart)
+                        ?: return null
+                    if (count < 0 || strStart.toLong() + count.toLong() > offsetTableStart.toLong()) return null
+                    PreferenceElement.ofString(buffer.toString("ascii", strStart, strStart + count))
                 }
                 0x60 -> {
-                    val (charCount, strStart) = readLengthAndPayloadOffset(buffer, pos, low)
-                    val end = (strStart + charCount * 2).coerceAtMost(buffer.size)
-                    PreferenceElement.ofString(buffer.toString("utf16be", strStart, end))
+                    val (charCount, strStart) = readLengthAndPayloadOffsetOrNull(buffer, pos, low, offsetTableStart)
+                        ?: return null
+                    if (charCount < 0 || strStart.toLong() + charCount.toLong() * 2L > offsetTableStart.toLong()) {
+                        return null
+                    }
+                    PreferenceElement.ofString(buffer.toString("utf16be", strStart, strStart + charCount * 2))
                 }
                 0xA0 -> {
-                    val (count, refsStart) = readLengthAndPayloadOffset(buffer, pos, low)
+                    val (count, refsStart) = readLengthAndPayloadOffsetOrNull(buffer, pos, low, offsetTableStart)
+                        ?: return null
+                    if (count < 0 || refsStart.toLong() + count.toLong() * objectRefSize.toLong() > offsetTableStart.toLong()) {
+                        return null
+                    }
                     val list = ArrayList<PreferenceElement>(count)
                     for (i in 0 until count) {
                         val refPos = refsStart + i * objectRefSize
-                        val childIdx = readObjectRef(buffer, refPos, objectRefSize)
-                        list.add(decodeObjectAtIndex(buffer, offsets, objectRefSize, childIdx, visiting))
+                        val childIdx = readUnsignedLong(buffer, refPos, objectRefSize)
+                        if (childIdx !in 0L until offsets.size.toLong()) return null
+                        val child = decodeObjectAtIndexOrNull(
+                            buffer,
+                            offsets,
+                            offsetTableStart,
+                            objectRefSize,
+                            childIdx.toInt(),
+                            visiting
+                        ) ?: return null
+                        list.add(child)
                     }
                     PreferenceElement.ofArray(list)
                 }
                 0xD0 -> {
-                    val (count, refsStart) = readLengthAndPayloadOffset(buffer, pos, low)
+                    val (count, refsStart) = readLengthAndPayloadOffsetOrNull(buffer, pos, low, offsetTableStart)
+                        ?: return null
+                    val neededBytes = count.toLong() * 2L * objectRefSize.toLong()
+                    if (count < 0 || refsStart.toLong() + neededBytes > offsetTableStart.toLong()) return null
                     val valRefsStart = refsStart + count * objectRefSize
                     val entries = LinkedHashMap<String, PreferenceElement>(count)
                     for (i in 0 until count) {
-                        val kIdx = readObjectRef(buffer, refsStart + i * objectRefSize, objectRefSize)
-                        val vIdx = readObjectRef(buffer, valRefsStart + i * objectRefSize, objectRefSize)
-                        val keyElem = decodeObjectAtIndex(buffer, offsets, objectRefSize, kIdx, visiting)
-                        val valElem = decodeObjectAtIndex(buffer, offsets, objectRefSize, vIdx, visiting)
-                        val keyStr = keyElem.asString("") ?: ""
-                        entries[keyStr] = valElem
+                        val kIdx = readUnsignedLong(buffer, refsStart + i * objectRefSize, objectRefSize)
+                        val vIdx = readUnsignedLong(buffer, valRefsStart + i * objectRefSize, objectRefSize)
+                        if (kIdx !in 0L until offsets.size.toLong() || vIdx !in 0L until offsets.size.toLong()) {
+                            return null
+                        }
+                        val keyElem = decodeObjectAtIndexOrNull(
+                            buffer,
+                            offsets,
+                            offsetTableStart,
+                            objectRefSize,
+                            kIdx.toInt(),
+                            visiting
+                        ) ?: return null
+                        if (!keyElem.isString) return null
+                        val valElem = decodeObjectAtIndexOrNull(
+                            buffer,
+                            offsets,
+                            offsetTableStart,
+                            objectRefSize,
+                            vIdx.toInt(),
+                            visiting
+                        ) ?: return null
+                        entries[keyElem.stringValue ?: ""] = valElem
                     }
                     PreferenceElement.ofObject(entries)
                 }
-                else -> PreferenceElement.Null
+                else -> null
             }
         } finally {
             visiting.remove(index)
         }
     }
 
-    private fun readObjectRef(buffer: ByteBuffer, offset: Int, objectRefSize: Int): Int =
-        if (objectRefSize == 8) {
-            buffer.readLong(offset, ByteOrder.BIG_ENDIAN).toInt()
-        } else {
-            buffer.readUnsignedInt(offset, objectRefSize, ByteOrder.BIG_ENDIAN)
+    private fun readUnsignedLong(buffer: ByteBuffer, offset: Int, byteCount: Int): Long =
+        when (byteCount) {
+            8 -> buffer.readLong(offset, ByteOrder.BIG_ENDIAN)
+            4 -> buffer.readUnsignedInt(offset, 4, ByteOrder.BIG_ENDIAN).toLong() and 0xFFFFFFFFL
+            else -> buffer.readUnsignedInt(offset, byteCount, ByteOrder.BIG_ENDIAN).toLong()
         }
 
-    private fun readLengthAndPayloadOffset(buffer: ByteBuffer, markerPos: Int, lowNibble: Int): Pair<Int, Int> {
+    private fun readLengthAndPayloadOffsetOrNull(
+        buffer: ByteBuffer,
+        markerPos: Int,
+        lowNibble: Int,
+        offsetTableStart: Int
+    ): Pair<Int, Int>? {
         if (lowNibble < 0x0F) {
-            return lowNibble to (markerPos + 1)
+            val payloadPos = markerPos + 1
+            if (payloadPos > offsetTableStart) return null
+            return lowNibble to payloadPos
         }
         val intMarkerPos = markerPos + 1
-        if (intMarkerPos >= buffer.size) return 0 to intMarkerPos
+        if (intMarkerPos >= offsetTableStart) return null
         val intMarker = buffer.readUByte(intMarkerPos).toInt()
-        val byteCount = 1 shl (intMarker and 0x0F)
+        if ((intMarker and 0xF0) != 0x10) return null
+        val intLow = intMarker and 0x0F
+        if (intLow > 3) return null
+        val byteCount = 1 shl intLow
         val countPos = intMarkerPos + 1
-        val count = if (byteCount == 8) {
-            buffer.readLong(countPos, ByteOrder.BIG_ENDIAN).toInt()
-        } else {
-            buffer.readUnsignedInt(countPos, byteCount.coerceIn(1, 4), ByteOrder.BIG_ENDIAN)
-        }
-        return count to (countPos + byteCount)
+        if (countPos + byteCount > offsetTableStart) return null
+        val countLong = readUnsignedLong(buffer, countPos, byteCount)
+        if (countLong < 0L || countLong > Int.MAX_VALUE.toLong()) return null
+        return countLong.toInt() to (countPos + byteCount)
     }
 }

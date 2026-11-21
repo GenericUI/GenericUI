@@ -2,6 +2,7 @@ package com.nexustools.genericui.component.layout
 
 import com.nexustools.genericui.core.AbstractComponent
 import com.nexustools.genericui.core.AbstractContainer
+import com.nexustools.genericui.core.GenericUI
 import com.nexustools.genericui.enums.bootstrap.DisplayMode
 import com.nexustools.genericui.enums.bootstrap.FlexDirection
 import com.nexustools.genericui.window.WindowConfiguration
@@ -36,6 +37,7 @@ open class CollapsibleBottomDockLayout(
 
     private var hasDockContent: Boolean = false
     private var lastKnownVisibleState: Boolean = false
+    private var lastWindowConfiguration: WindowConfiguration? = null
 
     var isDockCollapsed: Boolean = false
         set(value) {
@@ -243,12 +245,12 @@ open class CollapsibleBottomDockLayout(
     }
 
     /**
-     * Applies a [WindowConfiguration] snapshot, automatically syncing [isFullscreen],
-     * [isInPictureInPictureMode], and viewport breakpoints.
+     * Applies a [WindowConfiguration] snapshot, automatically syncing [isFullscreen]
+     * and viewport breakpoints.
      */
     fun applyWindowConfiguration(config: WindowConfiguration) {
+        lastWindowConfiguration = config
         isFullscreen = config.isFullscreen
-        isInPictureInPictureMode = config.isInPictureInPicture
         val widthDp = breakpointSpec.toDp(config.widthPx, config.densityScale)
         val heightDp = breakpointSpec.toDp(config.heightPx, config.densityScale)
         updateViewport(
@@ -265,7 +267,23 @@ open class CollapsibleBottomDockLayout(
 
     override fun onResize(viewportWidth: Int, viewportHeight: Int) {
         super.onResize(viewportWidth, viewportHeight)
-        updateViewport(viewportWidth, viewportHeight)
+        val cfg = lastWindowConfiguration
+        val effectiveDensity = cfg?.densityScale?.takeIf { it > 0f }
+            ?: (host.resolveActiveFactory() ?: GenericUI.activeFactory)?.displayDensityScale?.takeIf { it > 0f }
+            ?: 1.0f
+        if (effectiveDensity != 1.0f) {
+            val wDp = breakpointSpec.toDp(viewportWidth, effectiveDensity)
+            val hDp = breakpointSpec.toDp(viewportHeight, effectiveDensity)
+            val rawSmallest = cfg?.smallestScreenWidthDp ?: 0
+            val smallestDp = when {
+                rawSmallest <= 0 -> min(wDp, hDp)
+                cfg != null && rawSmallest == min(cfg.widthPx, cfg.heightPx) -> min(wDp, hDp)
+                else -> rawSmallest.coerceAtMost(min(wDp, hDp))
+            }
+            updateViewport(wDp, hDp, smallestDp)
+        } else {
+            updateViewport(viewportWidth, viewportHeight)
+        }
     }
 
     /**

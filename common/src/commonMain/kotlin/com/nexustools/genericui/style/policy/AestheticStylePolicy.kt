@@ -16,9 +16,9 @@ import com.nexustools.genericui.enums.system.BackendTarget
  * 1. **Explicitly Styled Components** ([StyledContainer], [StyledButton], [TextBubble], [Card], [Badge], [Alert]):
  *    - Support full custom backgrounds, alpha translucency, gradients, borders, corner radii, shadows,
  *      and focus rings across all 9 backends.
- *    - Support `backdrop-filter: blur(...)` (`backdropBlurPx`) on Web, Android, iOS, and iPadOS; on Desktop
- *      backends (`WINDOWS`, `MACOS`, `GTK`, `QT`, `SWING`), fall back cleanly to alpha-translucent
- *      solid/gradient fills.
+ *    - `backdrop-filter` / `backdropBlurPx` is supported on both [StyledContainer] (excluding
+ *      [TextBubble]) and [StyledButton] across all 9 backends (`WEB`, `ANDROID`, `IOS`, `IPADOS`,
+ *      `WINDOWS`, `MACOS`, `GTK`, `QT`, `SWING`).
  * 2. **Standard System-Themed Controls** (`Button`, `Container`, `TextInput`, `Select`, `CheckBox`, etc.):
  *    - On Desktop and Mobile backends, use the host OS / system theme appearance (supporting Dark, Light,
  *      and Auto themes) while still obeying layout CSS (`width`, `height`, `flex`, `margin`, `padding`,
@@ -26,6 +26,14 @@ import com.nexustools.genericui.enums.system.BackendTarget
  *    - On Web, all components support full CSS styling natively in the browser DOM.
  */
 object AestheticStylePolicy {
+
+    private val STYLED_BACKDROP_TAG_TOKENS = setOf(
+        "styledcontainer",
+        "styled-container",
+        "styledbutton",
+        "styled-button",
+        "styled-btn"
+    )
 
     private val STYLED_TAG_TOKENS = setOf(
         "styledcontainer",
@@ -79,24 +87,33 @@ object AestheticStylePolicy {
     ): Boolean = supportsExtendedVisualStyles(component, LayoutBackendTarget.fromBackendTarget(backendTarget))
 
     /**
-     * Returns `true` when [component] supports `backdrop-filter: blur(...)` on [backendTarget]:
-     * - `WEB`: `true` for all components.
-     * - `ANDROID`, `IOS`, `IPADOS`: `true` for explicitly styled components ([StyledContainer], [StyledButton], [TextBubble], etc.).
-     * - `WINDOWS`, `MACOS`, `GTK`, `QT`, `SWING`: `false` (Desktop backends use alpha-translucent fills instead).
+     * Returns `true` if [component] is a [StyledContainer] (excluding [TextBubble] and other
+     * components such as [StyledButton], [Card], [Badge], [Alert]).
+     */
+    fun isStyledContainerOnly(component: AbstractComponent): Boolean {
+        if (component is TextBubble) return false
+        if (component is StyledContainer) return true
+        val normalizedTag = component.htmlTag.trim().lowercase().removePrefix("genericui:")
+        if (normalizedTag == "styledcontainer" || normalizedTag == "styled-container") return true
+        val prefixTokens = component.componentClassPrefix.trim().lowercase().split(Regex("\\s+")).filter { it.isNotEmpty() }
+        return prefixTokens.any { it == "styledcontainer" || it == "styled-container" }
+    }
+
+    /**
+     * Returns `true` when [component] supports `backdrop-filter` on [backendTarget]:
+     * both [StyledContainer] (excluding [TextBubble]) and [StyledButton] across all 9 backends
+     * (`WEB`, `ANDROID`, `IOS`, `IPADOS`, `WINDOWS`, `MACOS`, `GTK`, `QT`, `SWING`).
      */
     fun supportsBackdropFilterBlur(
         component: AbstractComponent,
         backendTarget: LayoutBackendTarget
-    ): Boolean = when (backendTarget) {
-        LayoutBackendTarget.WEB -> true
-        LayoutBackendTarget.ANDROID,
-        LayoutBackendTarget.IOS,
-        LayoutBackendTarget.IPADOS -> isExplicitlyStyledComponent(component)
-        LayoutBackendTarget.WINDOWS,
-        LayoutBackendTarget.MACOS,
-        LayoutBackendTarget.GTK,
-        LayoutBackendTarget.QT,
-        LayoutBackendTarget.SWING -> false
+    ): Boolean {
+        if (component is TextBubble) return false
+        if (component is StyledContainer || component is StyledButton) return true
+        val normalizedTag = component.htmlTag.trim().lowercase().removePrefix("genericui:")
+        if (normalizedTag in STYLED_BACKDROP_TAG_TOKENS) return true
+        val prefixTokens = component.componentClassPrefix.trim().lowercase().split(Regex("\\s+")).filter { it.isNotEmpty() }
+        return prefixTokens.any { it in STYLED_BACKDROP_TAG_TOKENS }
     }
 
     fun supportsBackdropFilterBlur(

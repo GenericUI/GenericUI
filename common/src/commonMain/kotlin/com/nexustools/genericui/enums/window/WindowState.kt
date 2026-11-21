@@ -1,12 +1,11 @@
 package com.nexustools.genericui.enums.window
 
 /**
- * Window state (`NORMAL`, `MINIMIZED`, `MAXIMIZED`, `FULLSCREEN`, `PICTURE_IN_PICTURE`).
+ * Window state (`NORMAL`, `MINIMIZED`, `MAXIMIZED`, `FULLSCREEN`).
  */
 enum class WindowState {
     NORMAL,
     MINIMIZED,
     MAXIMIZED,
-    FULLSCREEN,
-    PICTURE_IN_PICTURE
+    FULLSCREEN
 }

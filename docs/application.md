@@ -13,7 +13,7 @@ This guide covers [`IApplication`](../common/src/commonMain/kotlin/com/nexustool
 
 Most GenericUI applications need **only** a `@MainAppFragment`-annotated `Fragment` class in `src/commonMain/kotlin` and `genericui { app { ... } }` in `build.gradle.kts`. For every enabled backend target, the GenericUI Gradle plugin generates a `GenericUiAppDescriptor` and target launcher (`WindowsLauncher`, `MacosLauncher`, `GtkLauncher`, `QtLauncher`, `SwingLauncher`, `AndroidLauncher`, `IosLauncher`, `IpadosLauncher`, `WebLauncher`) that:
 1. Initializes the platform's `NativeFactory` (`GenericUI.initialize(...)`) and sets Apple icon metadata (`GenericUI.appleIconExplicitlyProvided`) so macOS wraps generic/default Dock icons inside a Chrome-style rounded white squircle automatically when no Apple-specific override (`appleIcon` / `macIcon`) was supplied.
-2. Registers all enabled extension providers automatically.
+2. Registers all enabled extension providers automatically and dispatches [`GenericUiExtensionRegistry`](../common/src/commonMain/kotlin/com/nexustools/genericui/core/GenericUiExtensionRegistry.kt) [`ApplicationLifecycleExtensionHook`](../common/src/commonMain/kotlin/com/nexustools/genericui/core/ApplicationLifecycleExtensionHook.kt) callbacks (`onBeforeAppPrepare`, `onAppPrepared`, `onBeforeAppRun`, `onAppShutdown`).
 3. Registers the resolved `@MainAppFragment` and all matching `@AppFragment` classes in `FragmentRegistry`.
 4. Constructs `FragmentApplication` with the resolved variant window geometry (`width`, `height`, `minWidth`, `minHeight`, `resizable`, `fullscreen`, `alwaysOnTop`, `aspectRatio`), title, icon, theme mode (defaulting to **`ThemeMode.AUTO`**), and `themeColor`.
 5. Automatically calls `app.addStyleSheet(...)` in generated startup code whenever `styles { globalStyleSheet = "..." }` (or `theme { styleSheet = "..." }`) is configured in `build.gradle.kts`.
@@ -177,7 +177,7 @@ app.setThemeConfig(customTheme)
 | `backendName` / `systemOsName` | `String` | Descriptive backend name from `NativeFactory.backendName` and `backendTarget.osFamilyName`. |
 | `titleCapabilities` | `TitleCapabilities` | `TitleCapabilities` of `mainWindow`. |
 | `supportsMultipleWindows` / `supportsToolModalWindows` | `Boolean` | `true` on desktop backends and **iPadOS (`BackendTarget.IPadOS`)** (`IpadosNativeFactory`); `false` on single-window iPhone `IOS`, `Android`, and `Web`. |
-| `supportsServices` | `Boolean` | `true` **only** on Android (`BackendTarget.Android`). |
+| `supportsServices` | `Boolean` | `true` **only** on Android (`BackendTarget.Android`). Note that cross-platform `:extensions:system:serviceworker` separately reports `ServiceWorkerExtension.isSupported` (`true` on Desktop, Android, and Web; explicitly `false` on `IOS` and `IPadOS` with zero simulation) and `ServiceWorkerExtension.isAutostartSupported` (`true` on Desktop and Android; `false` on `IOS`, `IPadOS`, and `Web`). |
 | `supportsCustomTitleBar` / `supportsEmbeddedMenuBarInTitleBar` | `Boolean` | Delegates to `titleCapabilities`. |
 | `supportsSystemMenuBar` | `Boolean` | `true` on **macOS** (`NSApplication.mainMenu`) and **iPadOS** (`UIMenuSystem.mainSystem`). |
 | `supportsNavbarMenuBar` | `Boolean` | `true` on Android and iPhone iOS (`false` on iPadOS where `MenuBar` uses `UIMenuSystem.mainSystem`). |

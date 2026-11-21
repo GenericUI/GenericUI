@@ -2,14 +2,18 @@ package com.nexustools.genericui.plugin
 
 import org.gradle.api.DefaultTask
 import org.gradle.api.GradleException
+import org.gradle.api.file.ConfigurableFileCollection
 import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.provider.ListProperty
 import org.gradle.api.provider.Property
 import org.gradle.api.tasks.Input
+import org.gradle.api.tasks.InputFiles
 import org.gradle.api.tasks.Optional
 import org.gradle.api.tasks.OutputDirectory
 import org.gradle.api.tasks.OutputFile
+import org.gradle.api.tasks.PathSensitive
+import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.TaskAction
 import org.gradle.work.DisableCachingByDefault
 import java.io.File
@@ -37,6 +41,11 @@ abstract class GenericUiGenerateAndroidManifestTask : DefaultTask() {
     @get:Input
     @get:Optional
     abstract val sourceDirectories: ListProperty<String>
+
+    @get:InputFiles
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    @get:Optional
+    abstract val sourceFiles: ConfigurableFileCollection
 
     @get:Input
     @get:Optional
@@ -66,6 +75,14 @@ abstract class GenericUiGenerateAndroidManifestTask : DefaultTask() {
     @get:Optional
     abstract val overlayManifestPaths: ListProperty<String>
 
+    @get:Input
+    @get:Optional
+    abstract val enabledExtensionModulePaths: ListProperty<String>
+
+    @get:Input
+    @get:Optional
+    abstract val extensionOptions: org.gradle.api.provider.MapProperty<String, String>
+
     @get:OutputDirectory
     @get:Optional
     abstract val outputDirectory: DirectoryProperty
@@ -80,6 +97,7 @@ abstract class GenericUiGenerateAndroidManifestTask : DefaultTask() {
 
     init {
         manifestMergerVersion.convention(GenericUiAndroidManifestMergerRunner.DEFAULT_MERGER_VERSION)
+        extensionOptions.convention(emptyMap())
     }
 
     @TaskAction
@@ -125,7 +143,18 @@ abstract class GenericUiGenerateAndroidManifestTask : DefaultTask() {
 
         val mergerVersion = manifestMergerVersion.orNull?.trim()?.ifEmpty { null }
             ?: GenericUiAndroidManifestMergerRunner.DEFAULT_MERGER_VERSION
+        val enabledExtensions = enabledExtensionModulePaths.orNull.orEmpty()
+        val scanSpecs = com.nexustools.genericui.plugin.spi.GenericUiExtensionContributorRegistry.allAnnotationScanSpecs(
+            enabledExtensionModulePaths = enabledExtensions.toSet(),
+            projectRootDir = rootDir
+        )
+        val discoveredSymbols = GenericUiFragmentScanner.scanProjectSymbols(
+            projectDir = rootDir,
+            scanSpecs = scanSpecs,
+            extraDirectories = customDirs
+        )
 
+        val extOpts = extensionOptions.getOrElse(emptyMap())
         val baseOutput = GenericUiAndroidManifestXmlGenerator.generate(
             appId = resolvedAppId,
             appName = resolvedAppName,
@@ -133,7 +162,11 @@ abstract class GenericUiGenerateAndroidManifestTask : DefaultTask() {
             model = model,
             fragments = androidFragments,
             winningMainFragment = winningMain,
-            defaultPackageName = resolvedPkg
+            defaultPackageName = resolvedPkg,
+            enabledExtensionModulePaths = enabledExtensions,
+            projectRootDir = rootDir,
+            discoveredSymbols = discoveredSymbols,
+            extensionOptions = extOpts
         )
 
         val baseOverlays = collectOverlayManifestFiles(rootDir, model.mergeManifestPaths)
@@ -170,7 +203,11 @@ abstract class GenericUiGenerateAndroidManifestTask : DefaultTask() {
                     model = variantModel.manifest,
                     fragments = androidFragments,
                     winningMainFragment = winningMain,
-                    defaultPackageName = resolvedPkg
+                    defaultPackageName = resolvedPkg,
+                    enabledExtensionModulePaths = enabledExtensions,
+                    projectRootDir = rootDir,
+                    discoveredSymbols = discoveredSymbols,
+                    extensionOptions = extOpts
                 )
                 val variantDir = File(variantsRootDir, variantName).apply { mkdirs() }
                 val variantOverlays = collectVariantOverlayFiles(
@@ -272,7 +309,8 @@ abstract class GenericUiGenerateAndroidManifestTask : DefaultTask() {
             fragments: List<GenericUiDiscoveredFragment>,
             winningMainFragment: GenericUiDiscoveredFragment? = fragments.firstOrNull { it.isMainFragment },
             defaultPackageName: String = appId,
-            appVersion: String = "1.0.0"
+            appVersion: String = "1.0.0",
+            enabledExtensionModulePaths: List<String> = emptyList()
         ): String {
             val model = GenericUiAndroidManifestModelSerializer.toModel(
                 manifestConfig = manifestConfig,
@@ -285,7 +323,8 @@ abstract class GenericUiGenerateAndroidManifestTask : DefaultTask() {
                 model = model,
                 fragments = fragments,
                 winningMainFragment = winningMainFragment,
-                defaultPackageName = defaultPackageName
+                defaultPackageName = defaultPackageName,
+                enabledExtensionModulePaths = enabledExtensionModulePaths
             ).manifestXml
         }
     }

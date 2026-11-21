@@ -1,20 +1,24 @@
 # `:gradle-plugin` — GenericUI Gradle Plugin (`com.nexustools.genericui`)
 
 ## Overview
-`:gradle-plugin` implements the `com.nexustools.genericui` Gradle plugin, which powers GenericUI's **Single-`commonMain` Consumer Architecture**, **Build-Time `.scss` Precompilation (`SassKotlinPrecompiler`)**, **Windows `.cur` Custom Cursor Generation (`WindowsCurResourceGenerator`)**, and **8-Backend Launcher & Resource Compilation Pipeline**.
+`:gradle-plugin` implements the `com.nexustools.genericui` Gradle plugin, which powers GenericUI's **Single-`commonMain` Consumer Architecture**, **Build-Time `.scss` Precompilation (`SassKotlinPrecompiler`)**, **Windows `.cur` Custom Cursor Generation (`WindowsCurResourceGenerator`)**, **Extension Contributor SPI (`GenericUiExtensionContributor`)**, **Consumer Native / JNI / CInterop Builds (`nativebuild/`)**, and **9-Backend Launcher, Shared Library, & Three-Tier Resource Compilation Pipeline**.
 
 ---
 
 ## Plugin Architecture & Key Tasks
 
-| Class | Package | Responsibility |
+| Class / Package | Package | Responsibility |
 |-------|---------|----------------|
-| `GenericUiGradlePlugin` | `com.nexustools.genericui.plugin` | Registers the `genericui { ... }` DSL extension and wires code, stylesheet, cursor, and resource generation tasks into Kotlin Multiplatform target compilations |
-| `GenericUiExtension` | `com.nexustools.genericui.plugin` | Type-safe DSL configuring `app { ... }`, `backends { ... }`, `window { ... }`, `theme { mode = "auto" \| "dark" \| "light"; primaryColor = ...; light { ... }; dark { ... } }`, `styles { globalStyleSheet = "..." }`, `android { manifest { ... } services { ... } }`, `extensions { ... }`, and `testing { visualOnWindows = ... }` |
+| `GenericUiGradlePlugin` | `com.nexustools.genericui.plugin` | Registers the `genericui { ... }` DSL extension (tracking 49 core/extension/test modules in `KNOWN_GENERICUI_MODULES` of 51 root subprojects) and wires code, schema, serviceworker, stylesheet, cursor, JNI/CInterop, shared-lib, and resource tasks into KMP compilations |
+| `GenericUiExtension` & `GenericUiVariantConfig` | `com.nexustools.genericui.plugin` | Type-safe DSL configuring `app`, `window` (`alwaysOnTop`, `aspectRatio`), `theme`, `styles`, `backends` (all 9 targets), `extensions` (all 22 extensions + `custom`/`option`), `android { manifest; services }`, `jni`, `cinterops`, `nativeLibraries`, and per-variant scopes (`0 -> 6`) |
+| `GenericUiGenerateSchemaSourcesTask` & `GenericUiGenerateServiceWorkerCodecsTask` | `com.nexustools.genericui.plugin` | Scans consumer Kotlin sources for `@SchemaData` (`<ClassName>SchemaDescriptor.kt` + `GeneratedSchemaRegistrar.kt`) and validates `@MainServiceWorker` + emits `<Msg>ServiceWorkerCodec.kt` + `GeneratedServiceWorkerCodecRegistrar.kt` (`@ServiceWorkerMessage`) |
+| `GenericUiExtensionContributor` & `GenericUiExtensionContributorRegistry` | `com.nexustools.genericui.plugin.spi` | Extensible SPI (built-in `PipExtensionContributor`, `SchemaExtensionContributor`, `ServiceWorkerExtensionContributor`, `ServiceLoader`, `META-INF/genericui/extensions/*.json`) contributing Android manifest/service/receiver hooks, Desktop secondary executables (`serviceworker` + `-gtk`/`-qt` variants), Apple mobile `Info.plist`, and Web `./serviceworker.js` hooks |
 | `GenericUiSassCompileTask` & `SassKotlinPrecompiler` | `com.nexustools.genericui.plugin` | Compiles `.scss` / `.sass` / `.css` files in `src/commonMain/resources/**` into typed `PrecompiledStyleSheet` (`CompiledStyleRule`) `.kt` objects for non-web targets and `.css` bundles for `:web`, registering each stylesheet as `ResourceType.STYLE` (`R.style.<name>` / `Resource.style.<name>`) |
-| `WindowsCurResourceGenerator` | `com.nexustools.genericui.plugin` | Converts `.png` and `.svg` cursor assets at build time into valid Windows `.cur` binary files (`ICONDIR` `idType = 2`, `ICONDIRENTRY` `wXHotSpot` & `wYHotSpot`, 32-bit BGRA DIB + 1-bpp AND mask) under `backends/windows/cursors/<name>.cur` |
-| `GenericUiGenerateLaunchersTask` & `GenericUiGenerateAndroidActivitiesTask` | `com.nexustools.genericui.plugin` | Scans `src/commonMain/kotlin` for `@MainAppFragment` and `@AppFragment` annotations and generates platform launchers (`WindowsLauncher`, `MacosLauncher`, `GtkLauncher`, `QtLauncher`, `SwingLauncher`, `GeneratedAndroidApplication` + 1:1 `AppCompatActivity` subclasses + `AndroidManifest.xml`, `IosLauncher`, `WebLauncher`, and `GeneratedWindowsVisualTestLauncher`), automatically emitting `app.setThemeConfig(ThemeConfig(...))`, `app.addStyleSheet(...)`, and `app.setTheme(...)` when configured |
-| `GenericUiCompileResourcesTask` & `GenericUiGenerateAndroidResourcesTask` | `com.nexustools.genericui.plugin` | Compiles `src/commonMain/resources/` (`values/strings.xml`, `values-<lang>/strings.xml`, `values/colors.xml`, `values/dimens.xml`, `values/themes.xml`, `styles/*.scss`, `layout/*.xml`, `drawable/*`, `raw/*`, `font/*`) into typed `R.kt` / `Resource.kt` accessors, Android Material theme XMLs (`res/values/genericui_theme_colors.xml`, `res/values/themes.xml`, `res/values-night/themes.xml` with `@style/Theme.GenericUI.App`), Web `gui/genericui-theme.css` (`<link id="genericui-build-theme-css">`), and native platform resource bundles |
+| `WindowsCurResourceGenerator` | `com.nexustools.genericui.plugin` | Converts `.png` and `.svg` cursor assets at build time into valid Windows `.cur` binary files (`ICONDIR` `idType = 2`, `ICONDIRENTRY` `wXHotSpot` & `wYHotSpot`, 32-bit BGRA DIB + 1-bpp AND mask) |
+| `GenericUiGenerateLaunchersTask` & `GenericUiGenerateAndroidActivitiesTask` | `com.nexustools.genericui.plugin` | Scans `src/commonMain/kotlin` for `@MainAppFragment` and `@AppFragment` annotations and generates platform launchers (`WindowsLauncher`, `MacosLauncher`, `GtkLauncher`, `QtLauncher`, `SwingLauncher`, `GeneratedAndroidApplication` + 1:1 `AppCompatActivity` subclasses + `AndroidManifest.xml`, `IosLauncher`, `IpadosLauncher`, `WebLauncher`, and `GeneratedWindowsVisualTestLauncher`), wiring `ThemeConfig`, `addStyleSheet(...)`, SPI installers, and `SecondaryDesktopExecutableContribution` binaries |
+| `GenericUiResourceCompilerTask` & `GenericUiNativeResourceEmbedder` | `com.nexustools.genericui.plugin` | Compiles `src/commonMain/resources/` into isolated consumer `R.kt`/`RC.kt`/`Resource.kt`/`GeneratedResourceRegistry.kt` (`0x7f`), Android flat `res/` (`gui_*`/`gui_ext_*`/`app_*`), Swing/Web/Apple hierarchical trees (`gui/`/`gui/ext/<cat>/<ext>/`/`app/` + web-root `./serviceworker.js`), and prefix-free native binary/shared-lib resource tables (`RT_RCDATA`, Mach-O `__TEXT,__const`, ELF `.rodata`) |
+| `GenericUiBuildNativeSharedLibsTask`, `GenericUiKonanCompilerShim`, & `WindowsCoffObjectPartitioner` | `com.nexustools.genericui.plugin` | Compiles core, native desktop backend, `njs`, enabled extension/DSL, and test shared libraries (partitioning MinGW COFF objects when exports exceed 65,535 symbols) |
+| `GenericUiFetchNativeSourceArchiveTask`, `GenericUiCompileJniTask`, & `GenericUiJniToolchainResolver` | `com.nexustools.genericui.plugin.nativebuild` | Fetches verified source archives and compiles consumer C/C++/CMake JNI libraries (`-Wl,-z,max-page-size=16384` Android NDK or zero-NDK Konan LLVM + `target-sysroot-1-android_ndk` + JVM host `.so`/`.dylib`/`.dll` + Swing `META-INF/native/<os>-<arch>/`), paired with `cinterops` and `nativeLibraries` linking |
 
 ---
 
@@ -81,6 +85,33 @@ genericui {
     extensions {
         dsl()
         alien()
+        schema()
+        serviceWorker {
+            autostart = false
+            trayIcon = null
+            openWindowOnLaunch = true
+            androidForegroundServiceType = "specialUse"
+            androidSpecialUseFgsSubtype = "GenericUI background ServiceWorker execution"
+        }
+    }
+
+    jni {
+        library("my_native") {
+            sources("src/native/cpp")
+            abis("arm64-v8a", "x86_64")
+            buildHostLibraryForTests = true
+        }
+    }
+
+    cinterops {
+        create("my_c_api") {
+            defFile("src/native/my_c_api.def")
+            packageName("com.example.myapp.native")
+        }
+    }
+
+    nativeLibraries {
+        link("mylib")
     }
 
     android {
@@ -130,15 +161,14 @@ During `compileGenericUiResources`, `WindowsCurResourceGenerator` converts `.png
 
 ---
 
-## Multiplatform Resource Compilation (`GenericUiCompileResourcesTask`)
+## Three-Tier Multiplatform Resource Compilation (`GenericUiResourceCompilerTask`)
 
 | Target Platform | Compiled Output Format | Runtime Resolver |
 |-----------------|------------------------|------------------|
-| Windows (`:desktop:windows`) | Win32 `genericui_resources.rc` $\rightarrow$ `windres` `.res` (`STRINGTABLE` + `RCDATA`) + `.cur` cursors | `WindowsResourceResolverImpl` (`FindResourceW` / `LoadResource`) |
-| macOS (`:desktop:macos`) | Apple `.app/Contents/Resources/` + `.lproj/Localizable.strings` | `MacosResourceResolverImpl` (`NSBundle.mainBundle`) |
-| Linux GTK (`:desktop:gtk`) | `genericui.gresource.xml` $\rightarrow$ `glib-compile-resources` `.gresource` | `GtkResourceResolverImpl` (`GResource`) |
-| Linux Qt (`:desktop:qt`) | `genericui_resources.qrc` $\rightarrow$ `rcc` `.rcc` bundle | `QtResourceResolverImpl` (`QResource`) |
-| JVM Swing (`:desktop:swing`) | Classpath JAR resources | `SwingResourceResolverImpl` (`ClassLoader.getResource`) |
-| Android (`:mobile:android`) | Standard Android `res/values*/`, `res/values/genericui_theme_colors.xml`, `res/values/themes.xml`, `res/values-night/themes.xml` (`@style/Theme.GenericUI.App`), `res/drawable/`, `res/raw/`, `res/font/` | `AndroidResourceResolverImpl` (`Context.resources`) + `AndroidApplicationImpl` |
-| iOS (`:mobile:ios`) | Apple bundle resources + `.lproj/Localizable.strings` | `IosResourceResolverImpl` (`NSBundle.mainBundle`) |
-| Web (`:web`) | `assets/<type>/<fileName>` + compiled `styles/<name>.css` + pre-generated `gui/genericui-theme.css` (`<link id="genericui-build-theme-css">`) | `WebResourceResolverImpl` (`assets/...` URLs) + `WebStyleSheetManager` (`<style id="genericui-runtime-theme-css">`) |
+| Windows (`:desktop:windows`) *(Tier 3)* | `GenericUiNativeResourceEmbedder` (`RT_RCDATA`, `resId.nativeResourceKey`) embedded directly inside `genericui.dll`, `genericui-ext-<ext>.dll`, & `<app>.exe` (`WindowsResourceResolverImpl`) + `.cur` cursors | `WindowsResourceResolverImpl` (`GetModuleHandleW` + `FindResourceW` / `LoadStringW`) |
+| macOS (`:desktop:macos`) *(Tier 3)* | Mach-O `__TEXT,__const` tables (`genericui_res_lookup_<group>` / `genericui_res_lookup_app`, including unwrapped `tray_icon_png`/`tray_icon_svg`) sealed inside signed `.dylib`s & `<app>` (`Contents/Resources/` contains only `icon.icns` + optional MoltenVK ICD) | `MacosResourceResolverImpl` (`dlsym`) |
+| Linux GTK4 & Qt6 (`:desktop:gtk`, `:desktop:qt`) *(Tier 3)* | ELF `.rodata` tables (`genericui_res_lookup_<group>` / `genericui_res_lookup_app`) embedded directly inside `libgenericui*.so` & `<app>` (`--export-dynamic-symbol=genericui_res_lookup_app`) | `LinuxResourceResolverImpl` (`dlsym`) |
+| JVM Swing (`:desktop:swing`) *(Tier 1)* | Hierarchical `gui/...`, `gui/ext/<cat>/<ext>/...`, & `app/...` staged in fat JAR (+ `META-INF/native/<os>-<arch>/` for host JNI libs loaded via `JniLibraryLoader`) | `SwingResourceResolverImpl` (`ClassLoader.getResource`) |
+| Android (`:mobile:android`) *(Tier 2)* | Flat Android `res/values*/`, `res/values/genericui_theme_colors.xml`, `res/values/themes.xml`, `res/values-night/themes.xml` (`@style/Theme.GenericUI.App`), flat `gui_*` / `gui_ext_*` / `app_*` assets, & 16KB-aligned `lib/<abi>/*.so` | `AndroidResourceResolverImpl` (`Context.resources`) + `AndroidApplicationImpl` |
+| iOS & iPadOS (`:mobile:ios`) *(Tier 1 + Tier 2)* | Hierarchical `Resources/gui` + `Resources/app` folders alongside flat `Assets.xcassets` + `.lproj/Localizable.strings` inside generated `.app`/Xcode bundles | `AppleResourceResolverNativeImpl` (`NSBundle.mainBundle`) |
+| Web (`:web`) *(Tier 1)* | Hierarchical `gui/...`, `gui/ext/<cat>/<ext>/...`, `app/...`, `styles/<name>.css`, `gui/genericui-theme.css`, `loader.js`, `manifest.webmanifest`, & web-root `./serviceworker.js` (+ SPI `${resolvedBase}.sw.js\|wasm` & `WebSwPluginScript`) | `WebResourceResolverImpl` (`DataUrlCodec` preloaded Data-URLs) + `WebStyleSheetManager` |

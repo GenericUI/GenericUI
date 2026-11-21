@@ -87,15 +87,37 @@ class AppleResourceResolverNativeImpl(
     }
 
     private fun findBundlePath(resId: ResourceID): String? {
-        val candidates = ArrayList<String>(4)
-        if (resId.relativePath.isNotBlank()) {
-            candidates.add(resId.relativePath.trimStart('/'))
-            candidates.add("resources/${resId.relativePath.trimStart('/')}")
+        val candidates = linkedSetOf<String>()
+        val canonical = resId.canonicalRelativePath.replace('\\', '/').trimStart('/')
+        if (canonical.isNotBlank()) {
+            candidates.add(canonical)
+            candidates.add("Resources/$canonical")
+        }
+        val rel = resId.relativePath.replace('\\', '/').trimStart('/')
+        if (rel.isNotBlank()) {
+            candidates.add(rel)
+            candidates.add("Resources/$rel")
+            candidates.add("resources/$rel")
+        }
+        if (resId.flatName.isNotBlank()) {
+            candidates.add(resId.flatName)
+            candidates.add("drawable/${resId.flatName}")
         }
         val typeDir = resId.type.directoryName
         if (typeDir.isNotBlank() && resId.name.isNotBlank()) {
             candidates.add("$typeDir/${resId.name}")
             candidates.add("resources/$typeDir/${resId.name}")
+        }
+
+        val bundleRoot = bundle.resourcePath?.trimEnd('/')
+        if (!bundleRoot.isNullOrBlank()) {
+            val fm = NSFileManager.defaultManager
+            for (candidate in candidates) {
+                val directPath = "$bundleRoot/$candidate"
+                if (fm.fileExistsAtPath(directPath)) {
+                    return directPath
+                }
+            }
         }
 
         for (candidate in candidates) {

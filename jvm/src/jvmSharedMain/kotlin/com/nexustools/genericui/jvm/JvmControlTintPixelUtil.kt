@@ -403,6 +403,8 @@ object JvmControlTintPixelUtil {
 
                 if (preserveInteriorForOutline) {
                     if (!isOuterFrame && !isHighContrastEdge) {
+                        val interiorAlpha = ((0.08f * effectiveTint.a) * (a / 255f)).roundToInt().coerceIn(0, 26)
+                        pixels[idx] = (interiorAlpha shl 24) or (tintR shl 16) or (tintG shl 8) or tintB
                         continue
                     }
                     val borderWeight = when {

@@ -108,10 +108,17 @@ object GenericUiNativeSharedLibraryCatalog {
     }
 
     /**
-     * Matches Kotlin/Native `CachedLibrariesKt.getArtifactName` (`Family.dynamicPrefix + cacheName + "." + dynamicSuffix`).
+     * Replaces colon (`:`) characters in a klib `uniqueName` with underscore (`_`) so file/directory
+     * names used for Kotlin/Native compiler caches remain valid on Windows NTFS.
+     */
+    fun cacheStem(uniqueName: String): String = uniqueName.replace(':', '_')
+
+    /**
+     * Matches Kotlin/Native `CachedLibrariesKt.getArtifactName` (`Family.dynamicPrefix + cacheName + "." + dynamicSuffix`)
+     * with `:` replaced by `_` for Windows filesystem compatibility.
      */
     fun cacheArtifactFileName(uniqueName: String, konanTargetName: String): String {
-        val cacheName = "$uniqueName-cache"
+        val cacheName = "${cacheStem(uniqueName)}-cache"
         return when {
             konanTargetName.startsWith("macos") -> "lib$cacheName.dylib"
             konanTargetName.startsWith("linux") -> "lib$cacheName.so"

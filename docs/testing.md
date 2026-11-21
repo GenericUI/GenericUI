@@ -9,17 +9,17 @@
 
 ## 1. Consolidated `:tests` Module Architecture (10 Kotlin Targets, Zero Child Subprojects)
 
-In the 45-project architecture, `:tests` is a single multiplatform KMP module whose internal source sets mirror GenericUI's [SourceSet Hierarchy](./sourcesets.md):
+`:tests` is a single multiplatform KMP module whose internal source sets mirror GenericUI's [SourceSet Hierarchy](./sourcesets.md):
 
 | `:tests` Source Set | Linked Core Module | Key Runner & Verification Classes |
 | :--- | :--- | :--- |
-| **`commonMain` / `commonTest`** | `:common` | [`JestElectricRunner`](../tests/src/commonMain/kotlin/com/nexustools/genericui/tests/JestElectricRunner.kt), `JestSuiteScope`, `JestExpectation`, `RoboAppController`, `RoboFragmentController`, `RoboNodeInteraction`, `RoboComponentTreeFinder`, and the 12 modular `JestElectric*RenderUtil` snapshot utilities (`JestElectricRenderContext`, `JestElectricButtonRenderUtil`, `JestElectricContainerChromeRenderUtil`, `JestElectricControlTintRenderUtil`, `JestElectricDataDisplayRenderUtil`, `JestElectricInputFieldRenderUtil`, `JestElectricMediaCanvasRenderUtil`, `JestElectricNavigationRenderUtil`, `JestElectricSliderProgressRenderUtil`, `JestElectricTextRenderUtil`, `JestElectricToggleSelectionRenderUtil`, `JestElectricWorkspaceWindowRenderUtil`). |
+| **`commonMain` / `commonTest`** | `:common` | [`JestElectricRunner`](../tests/src/commonMain/kotlin/com/nexustools/genericui/tests/JestElectricRunner.kt), [`JestSuiteScope`](../tests/src/commonMain/kotlin/com/nexustools/genericui/tests/JestSuiteScope.kt), `JestSuspendRunner`, `JestExpectation`, [`RoboAppController`](../tests/src/commonMain/kotlin/com/nexustools/genericui/tests/RoboAppController.kt), [`RoboFragmentController`](../tests/src/commonMain/kotlin/com/nexustools/genericui/tests/RoboFragmentController.kt), [`RoboNodeInteraction`](../tests/src/commonMain/kotlin/com/nexustools/genericui/tests/RoboNodeInteraction.kt), `RoboComponentTreeFinder`, and the 12 modular `JestElectric*RenderUtil` snapshot utilities (`JestElectricRenderContext`, `JestElectricButtonRenderUtil`, `JestElectricContainerChromeRenderUtil`, `JestElectricControlTintRenderUtil`, `JestElectricDataDisplayRenderUtil`, `JestElectricInputFieldRenderUtil`, `JestElectricMediaCanvasRenderUtil`, `JestElectricNavigationRenderUtil`, `JestElectricSliderProgressRenderUtil`, `JestElectricTextRenderUtil`, `JestElectricToggleSelectionRenderUtil`, `JestElectricWorkspaceWindowRenderUtil`). |
 | **`systemMain`** | `:system` | Non-web Blink style/layout verification & shared system test helpers. |
 | **`desktopMain` / `nativeDesktopMain`** | `:desktop` | [`DesktopSharedRunnerNativeImpl`](../tests/src/nativeDesktopMain/kotlin/com/nexustools/genericui/tests/desktop/DesktopSharedRunnerNativeImpl.kt) shared native desktop window & event pumping harness. |
 | **`jvmAndAndroidMain`** | `:jvm` | Shared JVM & Android screenshot/filesystem host test helpers ([`JestScreenshotHostIo`](../tests/src/jvmAndAndroidMain/kotlin/com/nexustools/genericui/tests/JestScreenshotHostIo.kt)). |
-| **`mingwMain` / `mingwX64Test`** | `:desktop` (`mingwMain`) | `WindowsVisualAppRunnerNativeImpl` — launches a **real onscreen Win32 window** when `testing { visualOnWindows = true }` (`windowsVisualTest`), or runs fast headless Win32/UxTheme/Direct2D verification by default. |
+| **`mingwMain` / `mingwX64Test`** | `:desktop` (`mingwMain`) | `WindowsVisualAppRunnerNativeImpl` — launches a **real onscreen Win32 window** when `testing { visualOnWindows = true }` (`windowsVisualTest`), or runs fast headless Win32/UxTheme/Direct2D verification (including `WindowsBackdropBlurTest`). |
 | **`macosMain` / `macosArm64Test`** | `:desktop` + `:apple` | `MacosJestElectricRunnerNativeImpl` for AppKit `NSWindow` / `NSView` & runtime squircle icon verification. |
-| **`linuxMain` / `linuxTest`** | `:desktop` (`linuxMain`) | Co-hosts both **`GtkJestElectricRunnerNativeImpl`** (GTK4 / Libadwaita) and **`QtJestElectricRunnerNativeImpl`** (Qt6 `QMainWindow`) cleanly inside a single binary (`LinuxGtkAndQtRunnerTest`). |
+| **`linuxMain` / `linuxTest`** | `:desktop` (`linuxMain`) | Co-hosts both **`GtkJestElectricRunnerNativeImpl`** (GTK4 / Libadwaita) and **`QtJestElectricRunnerNativeImpl`** (Qt6 `QMainWindow`) inside a single binary (`LinuxGtkAndQtRunnerTest`). |
 | **`jvmMain` / `jvmTest`** | `:desktop` (`jvmMain`) + `:jvm` | `SwingJUnitRunnerNativeImpl` & `JestElectricSwingTestBase` (pumps AWT/Swing EDT `EventQueue`). |
 | **`mobileMain`** | `:mobile` | [`MobileSharedRunnerNativeImpl`](../tests/src/mobileMain/kotlin/com/nexustools/genericui/tests/mobile/MobileSharedRunnerNativeImpl.kt) shared posture & mobile lifecycle harness. |
 | **`androidMain` / `androidHostTest`** | `:mobile` + `:jvm` | `AndroidRobolectricRunnerNativeImpl` & `JestElectricRobolectricTestBase`. |
@@ -28,7 +28,25 @@ In the 45-project architecture, `:tests` is a single multiplatform KMP module wh
 
 ---
 
-## 2. Single-`commonTest` Consumer Workflow & Headed Linux XQuartz Setup
+## 2. Headless `backdropFilter`, Thread Dispatching, & `ServiceWorker` Test Harnesses
+
+1. **`JestElectricButtonRenderUtil` & Headless `backdropFilter` Snapshots**:
+   - [`JestElectricButtonRenderUtil`](../tests/src/commonMain/kotlin/com/nexustools/genericui/test/jestelectric/render/JestElectricButtonRenderUtil.kt) and [`JestElectricContainerChromeRenderUtil`](../tests/src/commonMain/kotlin/com/nexustools/genericui/test/jestelectric/render/JestElectricContainerChromeRenderUtil.kt) resolve `CssFilter.backdropBlurOrFilter(styledSpec.backdropBlurPx, styledSpec.backdropFilter)` on `StyledButton` and `StyledContainer` (excluding `TextBubble`, which strips `backdropFilter`) and invoke `applyBackdropToImageBufferRegion(...)` (`FastBackdropBlurKernel`) onto the headless snapshot `RGBA_8888` buffer.
+   - When `effBackdropFilter != null` and no opaque background/tint is explicitly configured on `StyledButton`, `fillBg` defaults to `null` (transparent glass) instead of falling back to opaque `ctx.bgElevated`. Verified by `JestElectricRunnerTest.testSnapshotRendererAppliesBackdropBlurToStyledContainerAndStyledButton` and hardware backend tests such as `WindowsBackdropBlurTest` (`desktop/src/mingwX64Test/.../WindowsBackdropBlurTest.kt`).
+2. **`DefaultUiThreadDispatcherNativeImpl`, `JvmUiThreadDispatcherBase`, & Coroutines in Tests**:
+   - [`DefaultUiThreadDispatcherNativeImpl`](../common/src/commonMain/kotlin/com/nexustools/genericui/threading/DefaultUiThreadDispatcherNativeImpl.kt) enforces dual-queue UI vs. Logic thread separation when `isSplitThreadingEnabled = true` (`dispatchToUi`, `dispatchToLogic`, `runOnUiBlocking`).
+   - [`JvmUiThreadDispatcherBase`](../jvm/src/jvmSharedMain/kotlin/com/nexustools/genericui/jvm/JvmUiThreadDispatcherBase.kt) backs Swing and Android using `Executors.newSingleThreadExecutor()` for the Logic thread and synchronous `CountDownLatch` blocking for `runOnUiBlocking`, while falling back cleanly to inline synchronous execution inside headless unit/Robolectric test processes where no AWT `EventQueue` or Android Main `Looper` pump is running.
+   - `JestSuspendRunner` adapts suspend tests to blocking dispatchers on JVM, Android, and Kotlin/Native, and completes synchronously/via promises on Web.
+3. **`ServiceWorker` Test Harnesses Across Platforms**:
+   - **Shared Lifecycle Isolation (`ServiceWorkerExtension.resetForTests()`)**: Resets registered worker state, options, and notification state cleanly between tests.
+   - **Desktop Loopback & OS Helper Suite (`ServiceWorkerRuntimeAndIpcTest`)**: Exercises `DesktopServiceWorkerHost` bound to ephemeral `127.0.0.1:0` loopback TCP with 32-byte hex token auth + `DesktopServiceWorkerChannelClient` IPC, `DesktopOsHelpers.acquireSingleInstanceLock`, and `WindowsShortcutWriter` (`.lnk` generation) without needing persistent tray daemons.
+   - **Android Robolectric Suite (`AndroidServiceWorkerRobolectricTest`)**: Runs under Robolectric SDK 35 driving `GeneratedAndroidServiceWorkerService` / `AndroidServiceWorkerController`, asserting `NotificationChannel` registration, `ServiceCompat.startForeground`, `setNotificationTitle`/`setNotificationText`/`setNotificationSubText` ongoing notification updates, default `"Stop"` action (`ServiceWorkerNotificationAction.DEFAULT_STOP_ACTION_ID`), `extendNotificationActions` / `replaceNotificationActions` `Intent` dispatch, and `AndroidServiceWorkerBinder` IPC.
+   - **iOS & iPadOS Unsupported Suite (`AppleMobileServiceWorkerTest`)**: Verifies `ServiceWorkerExtension.isSupported == false`, `isAutostartSupported == false`, and zero `@MainServiceWorker` instantiation under UIKit.
+   - **Web Node Bridge Suite (`WebServiceWorkerBridgeTest`) & Shared Suite (`ServiceWorkerCrossPlatformTest`)**: Verifies `WebServiceWorkerClientBridge` and `WebWorkerGlobalBridge` safely report `isServiceWorkerSupported == false` / `isWorkerGlobalScope == false` and degrade gracefully under headless Node.js test runs alongside cross-platform `ServiceWorker` contract tests.
+
+---
+
+## 3. Single-`commonTest` Consumer Workflow & Headed Linux XQuartz Setup
 
 Consumer apps write UI tests once in `src/commonTest/kotlin`. When `testing { enabled = true }` is set in `build.gradle.kts`, the Gradle plugin automatically generates backend test runners and registers convenience tasks (`testSwing`, `testWindows`, `testMac`, `testLinux`, `testLinuxGtk`, `testLinuxQt`, `testAndroid`, `testIos`, `testIpados`, `testWeb`):
 
@@ -43,29 +61,22 @@ genericui {
 
 ### Running Linux GTK4 / Qt6 Tests from macOS OrbStack (XQuartz)
 
-Linux containers running under **OrbStack on macOS** render live GTK4 and Qt6 windows directly on the macOS desktop via **XQuartz** (rather than a headless framebuffer):
-
 ```bash
-# In macOS terminal: ensure XQuartz is running with network connections allowed ("Allow connections from network clients")
-# Inside OrbStack Linux container/VM (or via `orb`):
 export DISPLAY=host.orb.internal:0
 ./gradlew :tests:linuxX64Test
 ```
 
-### Common Test Commands (`GenericUI` Root Repo & Example Projects)
+### Common Test Commands
 
 ```bash
-# Common, JVM Swing, Android host, Apple Darwin, Web, and consolidated :tests suites:
 ./gradlew :common:jvmTest :jvm:jvmTest :tests:jvmTest :tests:wasmJsTest :tests:jsTest
 ./gradlew :apple:macosArm64Test :tests:macosArm64Test :tests:iosSimulatorArm64Test
-
-# Consumer example project convenience test tasks:
 ./gradlew testSwing testWindows testMac testLinux testIos testIpados testWeb windowsVisualTest
 ```
 
 ---
 
-## 3. Quick-Start Test Example (`src/commonTest/kotlin`)
+## 4. Quick-Start Test Example (`src/commonTest/kotlin`)
 
 ```kotlin
 package com.example.studio

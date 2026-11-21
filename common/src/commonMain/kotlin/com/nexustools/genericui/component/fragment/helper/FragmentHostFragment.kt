@@ -144,6 +144,9 @@ open class FragmentHostFragment(
             }
         }
 
+    override fun isFullscreen(): Boolean =
+        currentFragment?.isFullscreen() ?: super.isFullscreen()
+
     override val currentFragment: Fragment?
         get() = hostSystem.currentFragment
 

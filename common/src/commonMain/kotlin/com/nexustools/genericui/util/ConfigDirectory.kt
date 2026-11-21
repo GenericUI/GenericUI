@@ -39,13 +39,26 @@ open class ConfigDirectory internal constructor(
         activeFactory.createConfigDirectory(appName, subdirectory)
 
     fun fileNameForKey(key: String, extensionWithDot: String): String {
-        val cleanKey = sanitizeFileName(key.trim().ifEmpty { "default" })
-        val ext = when {
-            extensionWithDot.isBlank() -> ""
-            extensionWithDot.startsWith(".") -> extensionWithDot
-            else -> ".$extensionWithDot"
-        }
+        val cleanKey = encodePreferenceKeyToFileName(key)
+        val ext = normalizeExtension(extensionWithDot)
         return "$cleanKey$ext"
+    }
+
+    fun decodeKeyFromFileName(fileName: String, extensionWithDot: String): String? {
+        if (fileName.startsWith(".")) return null
+        val ext = normalizeExtension(extensionWithDot)
+        val stem = when {
+            ext.isEmpty() -> fileName
+            fileName.endsWith(ext) && fileName.length > ext.length -> fileName.removeSuffix(ext)
+            else -> return null
+        }
+        return decodePreferenceKeyFromFileName(stem)
+    }
+
+    private fun normalizeExtension(extensionWithDot: String): String = when {
+        extensionWithDot.isBlank() -> ""
+        extensionWithDot.startsWith(".") -> extensionWithDot
+        else -> ".$extensionWithDot"
     }
 
     fun resolveKeyPath(key: String, extensionWithDot: String): String =
@@ -83,19 +96,9 @@ open class ConfigDirectory internal constructor(
         delete(fileNameForKey(key, extensionWithDot))
 
     fun keysForExtension(extensionWithDot: String): Set<String> {
-        val ext = when {
-            extensionWithDot.isBlank() -> ""
-            extensionWithDot.startsWith(".") -> extensionWithDot
-            else -> ".$extensionWithDot"
-        }
         val out = LinkedHashSet<String>()
         for (fileName in listFiles()) {
-            if (fileName.startsWith(".")) continue
-            if (ext.isEmpty()) {
-                out.add(fileName)
-            } else if (fileName.endsWith(ext) && fileName.length > ext.length) {
-                out.add(fileName.removeSuffix(ext))
-            }
+            decodeKeyFromFileName(fileName, extensionWithDot)?.let { out.add(it) }
         }
         return out
     }

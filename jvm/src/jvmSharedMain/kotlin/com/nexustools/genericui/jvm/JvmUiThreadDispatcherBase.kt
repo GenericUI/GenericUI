@@ -30,11 +30,19 @@ abstract class JvmUiThreadDispatcherBase(
     private val blockingUiRequests = ConcurrentLinkedQueue<() -> Unit>()
 
     private val logicExecutor = Executors.newSingleThreadExecutor { runnable ->
-        Thread(runnable, logicThreadName).apply {
+        Thread({
+            runCatching { onLogicThreadStarted() }
+            runnable.run()
+        }, logicThreadName).apply {
             isDaemon = true
             logicWorkerThread = this
         }
     }
+
+    /**
+     * Hook invoked once at startup on the dedicated logic worker thread.
+     */
+    protected open fun onLogicThreadStarted() {}
 
     /**
      * Returns `true` if the current thread is the underlying UI toolkit's main thread
@@ -56,12 +64,14 @@ abstract class JvmUiThreadDispatcherBase(
 
     override fun isOnLogicThread(): Boolean {
         if (uiBlockingOverrideDepth > 0) return false
-        return Thread.currentThread() === logicWorkerThread || super.isOnLogicThread()
+        val worker = logicWorkerThread
+        return if (worker != null) Thread.currentThread() === worker else super.isOnLogicThread()
     }
 
     override fun isOnUiThread(): Boolean {
         if (uiBlockingOverrideDepth > 0) return true
-        if (Thread.currentThread() === logicWorkerThread || super.isOnLogicThread()) return false
+        if (isOnLogicThread()) return false
+        if (canPostToToolkitUiThread()) return isOnToolkitMainThread()
         return isOnToolkitMainThread() || super.isOnUiThread()
     }
 
@@ -122,8 +132,11 @@ abstract class JvmUiThreadDispatcherBase(
         enqueueLogicTask(block)
         val latch = CountDownLatch(1)
         var logicFailure: Throwable? = null
+        val isToolkitMain = isOnToolkitMainThread()
         val previousPumper = pumpingUiThread
-        pumpingUiThread = Thread.currentThread()
+        if (isToolkitMain) {
+            pumpingUiThread = Thread.currentThread()
+        }
         try {
             logicExecutor.execute {
                 try {
@@ -134,21 +147,35 @@ abstract class JvmUiThreadDispatcherBase(
                     latch.countDown()
                 }
             }
-            while (!latch.await(1, TimeUnit.MILLISECONDS)) {
+            if (isToolkitMain) {
+                while (!latch.await(1, TimeUnit.MILLISECONDS)) {
+                    while (true) {
+                        val req = blockingUiRequests.poll() ?: break
+                        req()
+                    }
+                }
                 while (true) {
                     val req = blockingUiRequests.poll() ?: break
                     req()
                 }
-            }
-            while (true) {
-                val req = blockingUiRequests.poll() ?: break
-                req()
+            } else {
+                latch.await()
             }
         } finally {
-            pumpingUiThread = previousPumper
+            if (isToolkitMain) {
+                pumpingUiThread = previousPumper
+            }
         }
-        if (logicExecutionDepth == 0 && uiBlockingOverrideDepth == 0) {
-            drainUiQueue()
+        if (uiBlockingOverrideDepth == 0) {
+            if (isToolkitMain || !canPostToToolkitUiThread()) {
+                if (isToolkitMain || logicExecutionDepth == 0) {
+                    drainUiQueue()
+                }
+            } else if (hasPendingUiTasks()) {
+                postToToolkitUiThread {
+                    drainUiQueue()
+                }
+            }
         }
         logicFailure?.let { throw it }
     }

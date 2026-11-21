@@ -158,6 +158,13 @@ open class HybridColumnFragment(
     fun selectTab(columnId: String): Boolean =
         layout.selectTab(columnId)
 
+    override fun isFullscreen(): Boolean =
+        if (fullscreenPolicy != HybridFullscreenPolicy.DISABLED) {
+            layout.isFullscreen
+        } else {
+            layout.isFullscreen || super.isFullscreen()
+        }
+
     override fun setFullscreen(fullscreen: Boolean, cutoutMode: DisplayCutoutMode) {
         super.setFullscreen(fullscreen, cutoutMode)
         if (layout.isFullscreen != fullscreen) {

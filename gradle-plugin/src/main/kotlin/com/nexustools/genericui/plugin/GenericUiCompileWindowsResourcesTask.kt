@@ -79,7 +79,11 @@ abstract class GenericUiCompileWindowsResourcesTask : DefaultTask() {
                 format = "res",
                 outFile = resOut
             )
-            coffCompiled = runWindres(
+            coffCompiled = GenericUiNativeResourceEmbedder.compileWindowsRcToObject(
+                rcFile = rcFile,
+                objOut = objOut,
+                includeDir = includeDir
+            ) || runWindres(
                 windres = windres,
                 includeDir = includeDir,
                 rcFile = rcFile,

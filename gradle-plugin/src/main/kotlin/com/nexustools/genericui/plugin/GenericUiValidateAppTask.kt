@@ -1,8 +1,11 @@
 package com.nexustools.genericui.plugin
 
+import com.nexustools.genericui.plugin.spi.ExtensionBuildContext
+import com.nexustools.genericui.plugin.spi.GenericUiExtensionContributorRegistry
 import org.gradle.api.DefaultTask
 import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.provider.ListProperty
+import org.gradle.api.provider.MapProperty
 import org.gradle.api.provider.Property
 import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.Optional
@@ -39,6 +42,14 @@ abstract class GenericUiValidateAppTask : DefaultTask() {
     @get:Input
     abstract val requireMainAppFragment: Property<Boolean>
 
+    @get:Input
+    @get:Optional
+    abstract val enabledExtensionModulePaths: ListProperty<String>
+
+    @get:Input
+    @get:Optional
+    abstract val extensionOptions: MapProperty<String, String>
+
     @get:OutputFile
     @get:Optional
     abstract val validationReportFile: RegularFileProperty
@@ -47,6 +58,8 @@ abstract class GenericUiValidateAppTask : DefaultTask() {
         group = GenericUiGradlePlugin.TASK_GROUP
         description = "Validates @MainAppFragment and @AppFragment annotations for all enabled GenericUI backend targets."
         requireMainAppFragment.convention(true)
+        enabledExtensionModulePaths.convention(emptyList())
+        extensionOptions.convention(emptyMap())
     }
 
     @TaskAction
@@ -65,7 +78,9 @@ abstract class GenericUiValidateAppTask : DefaultTask() {
             extraSourceDirs = extraDirs,
             enabledBackends = enabledBackends,
             generatedLauncherPackage = generatedLauncherPackage.orNull.orEmpty(),
-            requireMainAppFragment = requireMainAppFragment.getOrElse(true)
+            requireMainAppFragment = requireMainAppFragment.getOrElse(true),
+            enabledExtensionModulePaths = enabledExtensionModulePaths.getOrElse(emptyList()).toSet(),
+            extensionOptions = extensionOptions.getOrElse(emptyMap())
         )
 
         val outFile = validationReportFile.orNull?.asFile
@@ -88,7 +103,9 @@ abstract class GenericUiValidateAppTask : DefaultTask() {
             extraSourceDirs: List<File> = emptyList(),
             enabledBackends: List<GenericUiVariantScope> = emptyList(),
             generatedLauncherPackage: String = "",
-            requireMainAppFragment: Boolean = true
+            requireMainAppFragment: Boolean = true,
+            enabledExtensionModulePaths: Set<String> = emptySet(),
+            extensionOptions: Map<String, String> = emptyMap()
         ): List<String> {
             val discoveredFromProject = GenericUiFragmentScanner.scanProject(projectDir)
             val discoveredFromExtra = if (extraSourceDirs.isNotEmpty()) {
@@ -98,6 +115,30 @@ abstract class GenericUiValidateAppTask : DefaultTask() {
             }
             val discovered = (discoveredFromProject + discoveredFromExtra)
                 .distinctBy { "${it.qualifiedName}:${it.isMainFragment}:${it.isApplicationClass}" }
+
+            val normalizedExts = enabledExtensionModulePaths.map { it.trim() }.filter { it.isNotEmpty() }.toSet()
+            val mergedOptions = LinkedHashMap<String, String>(extensionOptions)
+            if (enabledBackends.isNotEmpty() && "genericui.enabledBackends" !in mergedOptions) {
+                mergedOptions["genericui.enabledBackends"] = enabledBackends.joinToString(",") { it.id }
+            }
+            if (normalizedExts.isNotEmpty()) {
+                val scanSpecs = GenericUiExtensionContributorRegistry.allAnnotationScanSpecs(normalizedExts, projectDir)
+                val symbols = GenericUiFragmentScanner.scanProjectSymbols(projectDir, scanSpecs, extraSourceDirs)
+                val extCtx = ExtensionBuildContext(
+                    projectRootDir = projectDir,
+                    projectName = projectDir.name,
+                    appId = "com.nexustools.genericui.app",
+                    appName = projectDir.name,
+                    appVersion = "1.0.0",
+                    baseName = projectDir.name,
+                    generatedPackageName = generatedLauncherPackage,
+                    enabledExtensionModulePaths = normalizedExts,
+                    discoveredFragments = discovered,
+                    discoveredSymbols = symbols,
+                    extensionOptions = mergedOptions
+                )
+                GenericUiExtensionContributorRegistry.validateActiveContributors(extCtx, symbols)
+            }
 
             return validateDiscoveredFragments(
                 discoveredFragments = discovered,

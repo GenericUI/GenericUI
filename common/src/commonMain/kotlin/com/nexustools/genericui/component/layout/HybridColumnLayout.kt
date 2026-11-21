@@ -5,6 +5,7 @@ import com.nexustools.genericui.component.tabs.TabContainer
 import com.nexustools.genericui.component.tabs.TabPosition
 import com.nexustools.genericui.core.AbstractComponent
 import com.nexustools.genericui.core.AbstractContainer
+import com.nexustools.genericui.core.GenericUI
 import com.nexustools.genericui.enums.bootstrap.AlignItems
 import com.nexustools.genericui.enums.bootstrap.DisplayMode
 import com.nexustools.genericui.enums.bootstrap.FlexDirection
@@ -61,6 +62,8 @@ open class HybridColumnLayout(
     private var lastAppliedMode: HybridLayoutMode? = null
     private var internalFullscreenState: Boolean = false
     private var internalPipState: Boolean = false
+    private var lastWindowConfiguration: WindowConfiguration? = null
+    private var lastObservedConfigFullscreen: Boolean? = null
 
     var foldMode: HybridFoldMode = foldMode
         set(value) {
@@ -515,6 +518,7 @@ open class HybridColumnLayout(
      * Applies a [WindowConfiguration] snapshot by converting pixel dimensions to `dp` via [breakpointSpec].
      */
     fun applyWindowConfiguration(config: WindowConfiguration) {
+        lastWindowConfiguration = config
         val widthDp = breakpointSpec.toDp(config.widthPx, config.densityScale)
         val heightDp = breakpointSpec.toDp(config.heightPx, config.densityScale)
         val rawSmallest = config.smallestScreenWidthDp
@@ -523,17 +527,23 @@ open class HybridColumnLayout(
         } else {
             rawSmallest
         }
-        if (config.isInPictureInPicture != isInPictureInPictureMode) {
-            isInPictureInPictureMode = config.isInPictureInPicture
-        }
-        if (fullscreenPolicy != HybridFullscreenPolicy.DISABLED && config.isFullscreen != isFullscreen) {
+        val observedFs = lastObservedConfigFullscreen
+        lastObservedConfigFullscreen = config.isFullscreen
+        if (fullscreenPolicy != HybridFullscreenPolicy.DISABLED &&
+            observedFs != null &&
+            observedFs != config.isFullscreen &&
+            config.isFullscreen != isFullscreen
+        ) {
             isFullscreen = config.isFullscreen
+        } else if (fullscreenPolicy != HybridFullscreenPolicy.DISABLED && config.isFullscreen && !isFullscreen) {
+            isFullscreen = true
         }
         updateViewport(
             viewportWidthDp = widthDp,
             viewportHeightDp = heightDp,
             smallestScreenWidthDp = smallestDp
         )
+        lastObservedConfigFullscreen = this.isFullscreen
     }
 
     override fun onConfigurationChanged(config: WindowConfiguration) {
@@ -543,7 +553,23 @@ open class HybridColumnLayout(
 
     override fun onResize(viewportWidth: Int, viewportHeight: Int) {
         super.onResize(viewportWidth, viewportHeight)
-        updateViewport(viewportWidth, viewportHeight)
+        val cfg = lastWindowConfiguration
+        val effectiveDensity = cfg?.densityScale?.takeIf { it > 0f }
+            ?: (host.resolveActiveFactory() ?: GenericUI.activeFactory)?.displayDensityScale?.takeIf { it > 0f }
+            ?: 1.0f
+        if (effectiveDensity != 1.0f) {
+            val wDp = breakpointSpec.toDp(viewportWidth, effectiveDensity)
+            val hDp = breakpointSpec.toDp(viewportHeight, effectiveDensity)
+            val rawSmallest = cfg?.smallestScreenWidthDp ?: 0
+            val smallestDp = when {
+                rawSmallest <= 0 -> min(wDp, hDp)
+                cfg != null && rawSmallest == min(cfg.widthPx, cfg.heightPx) -> min(wDp, hDp)
+                else -> rawSmallest.coerceAtMost(min(wDp, hDp))
+            }
+            updateViewport(wDp, hDp, smallestDp)
+        } else {
+            updateViewport(viewportWidth, viewportHeight)
+        }
     }
 
     /**
@@ -605,6 +631,9 @@ open class HybridColumnLayout(
                 val targetReg = visibleRegs.getOrNull(fullscreenTargetColumnIndex) ?: visibleRegs.firstOrNull()
                 if (targetReg != null) {
                     targetReg.component.isVisible = true
+                    targetReg.component.heightPx = null
+                    targetReg.component.aspectRatio = null
+                    targetReg.compactSizingApplied = true
                     targetReg.component.getStyle().setWidth(com.nexustools.genericui.style.css.CssLength.PERCENT_100)
                     targetReg.component.getStyle().setHeight(com.nexustools.genericui.style.css.CssLength.PERCENT_100)
                     targetReg.component.setFlexGrow(1f)

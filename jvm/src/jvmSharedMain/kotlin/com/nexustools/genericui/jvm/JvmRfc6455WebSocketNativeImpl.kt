@@ -182,8 +182,9 @@ open class JvmRfc6455WebSocketNativeImpl(
                     fb.setOnError(onErrorListener)
                     fb.setOnClose(onCloseListener)
                     mockFallback = fb
+                    isConnected = true
                     val ok = fb.connect(cleanUrl, headers)
-                    isConnected = ok
+                    if (!ok) isConnected = false
                     ok
                 } else {
                     onErrorListener?.invoke(err)

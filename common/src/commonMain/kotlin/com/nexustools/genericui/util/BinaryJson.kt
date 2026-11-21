@@ -123,6 +123,49 @@ object BinaryJson {
         defaultValue: T? = null
     ): T? = decodeAs(readable, T::class, defaultValue)
 
+    private const val MAX_DECODE_DEPTH = 512
+    private const val STREAM_CHUNK_SIZE = 65536
+
+    /**
+     * Returns `true` if [bytes] encodes a valid, complete binary JSON value with no trailing bytes.
+     */
+    fun isBinaryJson(bytes: ByteArray): Boolean = decodeElementOrNull(bytes) != null
+
+    /**
+     * Returns `true` if the remaining bytes of [buffer] encode a valid, complete binary JSON value
+     * without advancing [buffer]'s position.
+     */
+    fun isBinaryJson(buffer: ByteBuffer): Boolean {
+        if (!buffer.hasRemaining) return false
+        val savedPosition = buffer.position
+        val valid = decodeElementOrNull(buffer) != null
+        buffer.position = savedPosition
+        return valid
+    }
+
+    /**
+     * Strictly decodes binary JSON bytes into a [PreferenceElement] tree, or returns `null` if the
+     * payload is empty, truncated, corrupt, has an unknown type tag, or has trailing bytes.
+     */
+    fun decodeElementOrNull(bytes: ByteArray): PreferenceElement? {
+        if (bytes.isEmpty()) return null
+        return decodeElementOrNull(ByteBuffer.wrap(bytes, byteOrder = ByteOrder.BIG_ENDIAN))
+    }
+
+    /**
+     * Strictly decodes a binary JSON [ByteBuffer] into a [PreferenceElement] tree, or returns `null`
+     * if the buffer has no remaining bytes, contains corrupt/truncated data, or leaves unconsumed
+     * trailing bytes after the root element.
+     */
+    fun decodeElementOrNull(buffer: ByteBuffer): PreferenceElement? {
+        if (!buffer.hasRemaining) return null
+        val cursor = StrictReadCursor(buffer, buffer.position, buffer.limit)
+        val element = readElementStrictOrNull(cursor, depth = 0) ?: return null
+        if (cursor.position != buffer.limit) return null
+        buffer.position = cursor.position
+        return element
+    }
+
     /**
      * Decodes binary JSON bytes into a [PreferenceElement] tree.
      */
@@ -162,8 +205,7 @@ object BinaryJson {
         targetClass: KClass<T>,
         defaultValue: T? = null
     ): T? {
-        if (bytes.isEmpty()) return defaultValue
-        val element = runCatching { decodeElement(bytes) }.getOrNull() ?: return defaultValue
+        val element = decodeElementOrNull(bytes) ?: return defaultValue
         return PreferenceObjectCodec.fromElement(element, targetClass, defaultValue)
     }
 
@@ -295,8 +337,12 @@ object BinaryJson {
             TYPE_STRING -> PreferenceElement.ofString(readUtf8(readable))
             TYPE_ARRAY -> {
                 val countBuf = readable.tryReadFully(4) ?: return PreferenceElement.ofArray(emptyList())
-                val count = countBuf.readInt(0, ByteOrder.BIG_ENDIAN).coerceAtLeast(0)
-                val list = ArrayList<PreferenceElement>(count)
+                val count = countBuf.readInt(0, ByteOrder.BIG_ENDIAN)
+                if (count <= 0) return PreferenceElement.ofArray(emptyList())
+                if (readable is ReadableByteBuffer && count > readable.remaining) {
+                    return PreferenceElement.ofArray(emptyList())
+                }
+                val list = ArrayList<PreferenceElement>(minOf(count, 256))
                 for (i in 0 until count) {
                     if (!readable.isReadable || readable.isEnded) break
                     list.add(readElement(readable))
@@ -305,8 +351,12 @@ object BinaryJson {
             }
             TYPE_MAP -> {
                 val countBuf = readable.tryReadFully(4) ?: return PreferenceElement.ofMap(emptyMap())
-                val count = countBuf.readInt(0, ByteOrder.BIG_ENDIAN).coerceAtLeast(0)
-                val map = LinkedHashMap<String, PreferenceElement>(count)
+                val count = countBuf.readInt(0, ByteOrder.BIG_ENDIAN)
+                if (count <= 0) return PreferenceElement.ofMap(emptyMap())
+                if (readable is ReadableByteBuffer && count.toLong() * 5L > readable.remaining.toLong()) {
+                    return PreferenceElement.ofMap(emptyMap())
+                }
+                val map = LinkedHashMap<String, PreferenceElement>(minOf(count, 256))
                 for (i in 0 until count) {
                     if (!readable.isReadable || readable.isEnded) break
                     val key = readUtf8(readable)
@@ -317,8 +367,12 @@ object BinaryJson {
             }
             TYPE_OBJECT -> {
                 val countBuf = readable.tryReadFully(4) ?: return PreferenceElement.ofObject(emptyMap())
-                val count = countBuf.readInt(0, ByteOrder.BIG_ENDIAN).coerceAtLeast(0)
-                val fields = LinkedHashMap<String, PreferenceElement>(count)
+                val count = countBuf.readInt(0, ByteOrder.BIG_ENDIAN)
+                if (count <= 0) return PreferenceElement.ofObject(emptyMap())
+                if (readable is ReadableByteBuffer && count.toLong() * 5L > readable.remaining.toLong()) {
+                    return PreferenceElement.ofObject(emptyMap())
+                }
+                val fields = LinkedHashMap<String, PreferenceElement>(minOf(count, 256))
                 for (i in 0 until count) {
                     if (!readable.isReadable || readable.isEnded) break
                     val fieldName = readUtf8(readable)
@@ -333,10 +387,142 @@ object BinaryJson {
 
     private suspend fun readUtf8(readable: Readable): String {
         val lenBuf = readable.tryReadFully(4) ?: return ""
-        val len = lenBuf.readInt(0, ByteOrder.BIG_ENDIAN).coerceAtLeast(0)
-        if (len == 0) return ""
-        val payload = readable.tryReadFully(len) ?: return ""
-        return payload.toString("utf8")
+        val len = lenBuf.readInt(0, ByteOrder.BIG_ENDIAN)
+        if (len <= 0) return ""
+        if (readable is ReadableByteBuffer && len > readable.remaining) return ""
+        if (len <= STREAM_CHUNK_SIZE) {
+            val payload = readable.tryReadFully(len) ?: return ""
+            return payload.toString("utf8")
+        }
+        val out = WritableByteBuffer(initialCapacity = STREAM_CHUNK_SIZE, byteOrder = ByteOrder.BIG_ENDIAN)
+        var remaining = len
+        while (remaining > 0) {
+            val chunkLen = minOf(remaining, STREAM_CHUNK_SIZE)
+            val chunk = readable.tryReadFully(chunkLen) ?: return ""
+            out.write(chunk)
+            remaining -= chunkLen
+        }
+        return out.toByteBuffer().toString("utf8")
+    }
+
+    private class StrictReadCursor(
+        private val buffer: ByteBuffer,
+        var position: Int,
+        val limit: Int
+    ) {
+        val remaining: Int
+            get() = limit - position
+
+        fun readByteOrNull(): Byte? {
+            if (position >= limit) return null
+            return buffer.readByte(position++)
+        }
+
+        fun readShortBEOrNull(): Short? {
+            if (remaining < 2) return null
+            val v = buffer.readShort(position, ByteOrder.BIG_ENDIAN)
+            position += 2
+            return v
+        }
+
+        fun readIntBEOrNull(): Int? {
+            if (remaining < 4) return null
+            val v = buffer.readInt(position, ByteOrder.BIG_ENDIAN)
+            position += 4
+            return v
+        }
+
+        fun readLongBEOrNull(): Long? {
+            if (remaining < 8) return null
+            val v = buffer.readLong(position, ByteOrder.BIG_ENDIAN)
+            position += 8
+            return v
+        }
+
+        fun readFloatBEOrNull(): Float? {
+            if (remaining < 4) return null
+            val v = buffer.readFloat(position, ByteOrder.BIG_ENDIAN)
+            position += 4
+            return v
+        }
+
+        fun readDoubleBEOrNull(): Double? {
+            if (remaining < 8) return null
+            val v = buffer.readDouble(position, ByteOrder.BIG_ENDIAN)
+            position += 8
+            return v
+        }
+
+        fun readUtf8StrictOrNull(): String? {
+            val len = readIntBEOrNull() ?: return null
+            if (len < 0 || len > remaining) return null
+            if (len == 0) return ""
+            val str = buffer.toString("utf8", position, position + len)
+            position += len
+            return str
+        }
+    }
+
+    private fun readElementStrictOrNull(cursor: StrictReadCursor, depth: Int): PreferenceElement? {
+        if (depth > MAX_DECODE_DEPTH) return null
+        val tag = cursor.readByteOrNull() ?: return null
+        return when (tag) {
+            TYPE_NULL -> PreferenceElement.Null
+            TYPE_BOOLEAN -> {
+                val b = cursor.readByteOrNull() ?: return null
+                PreferenceElement.ofBoolean(b != 0.toByte())
+            }
+            TYPE_BYTE -> {
+                val b = cursor.readByteOrNull() ?: return null
+                PreferenceElement.ofByte(b)
+            }
+            TYPE_SHORT -> {
+                val v = cursor.readShortBEOrNull() ?: return null
+                PreferenceElement.ofShort(v)
+            }
+            TYPE_INT -> {
+                val v = cursor.readIntBEOrNull() ?: return null
+                PreferenceElement.ofInt(v)
+            }
+            TYPE_LONG -> {
+                val v = cursor.readLongBEOrNull() ?: return null
+                PreferenceElement.ofLong(v)
+            }
+            TYPE_FLOAT -> {
+                val v = cursor.readFloatBEOrNull() ?: return null
+                PreferenceElement.ofFloat(v)
+            }
+            TYPE_DOUBLE -> {
+                val v = cursor.readDoubleBEOrNull() ?: return null
+                PreferenceElement.ofDouble(v)
+            }
+            TYPE_STRING -> {
+                val str = cursor.readUtf8StrictOrNull() ?: return null
+                PreferenceElement.ofString(str)
+            }
+            TYPE_ARRAY -> {
+                val count = cursor.readIntBEOrNull() ?: return null
+                if (count < 0 || count > cursor.remaining) return null
+                val list = ArrayList<PreferenceElement>(count)
+                for (i in 0 until count) {
+                    val elem = readElementStrictOrNull(cursor, depth + 1) ?: return null
+                    list.add(elem)
+                }
+                PreferenceElement.ofArray(list)
+            }
+            TYPE_MAP, TYPE_OBJECT -> {
+                val count = cursor.readIntBEOrNull() ?: return null
+                if (count < 0 || count.toLong() * 5L > cursor.remaining.toLong()) return null
+                val map = LinkedHashMap<String, PreferenceElement>(count)
+                for (i in 0 until count) {
+                    val key = cursor.readUtf8StrictOrNull() ?: return null
+                    val value = readElementStrictOrNull(cursor, depth + 1) ?: return null
+                    map[key] = value
+                }
+                if (tag == TYPE_MAP) PreferenceElement.ofMap(map) else PreferenceElement.ofObject(map)
+            }
+            else -> null
+        }
     }
 
     private fun <T> runNonSuspending(block: suspend () -> T): T {

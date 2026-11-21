@@ -24,7 +24,7 @@ import java.util.zip.ZipFile
  */
 object GenericUiKonanCompilerShim {
 
-    private const val SHIM_FORMAT_VERSION = "v1"
+    private const val SHIM_FORMAT_VERSION = "v2"
     private const val SHIM_JAR_FILE_NAME = "genericui-konan-shim.jar"
     private const val SHIM_STAMP_FILE_NAME = "genericui-konan-shim.stamp"
     private const val PER_FILE_OPT_SHIM_JAR_FILE_NAME = "genericui-konan-perfile-opt-shim.jar"
@@ -33,6 +33,8 @@ object GenericUiKonanCompilerShim {
         "org/jetbrains/kotlin/backend/konan/driver/phases/TopLevelPhasesKt.class"
     private const val CACHED_LIBRARIES_CLASS =
         "org/jetbrains/kotlin/backend/konan/CachedLibraries.class"
+    private const val CACHED_LIBRARIES_COMPANION_CLASS =
+        "org/jetbrains/kotlin/backend/konan/CachedLibraries\$Companion.class"
     private const val PROPERTY_ACCESSOR_INLINE_CLASS =
         "org/jetbrains/kotlin/backend/common/lower/optimizations/PropertyAccessorInlineLowering.class"
     private const val MAX_INLINE_COMMAND_CHARS = 24_000
@@ -55,11 +57,17 @@ object GenericUiKonanCompilerShim {
                 ?: throw GradleException(
                     "Missing $CACHED_LIBRARIES_CLASS in ${zip.name}"
                 )
+            val companionEntry = zip.getEntry(CACHED_LIBRARIES_COMPANION_CLASS)
+                ?: throw GradleException(
+                    "Missing $CACHED_LIBRARIES_COMPANION_CLASS in ${zip.name}"
+                )
             val topLevelBytes = zip.getInputStream(topEntry).use { it.readBytes() }
             val cachedLibsBytes = zip.getInputStream(cachedEntry).use { it.readBytes() }
+            val companionBytes = zip.getInputStream(companionEntry).use { it.readBytes() }
             linkedMapOf(
                 TOP_LEVEL_PHASES_CLASS to patchTopLevelPhasesClass(topLevelBytes),
-                CACHED_LIBRARIES_CLASS to patchCachedLibrariesClass(cachedLibsBytes)
+                CACHED_LIBRARIES_CLASS to patchCachedLibrariesClass(cachedLibsBytes),
+                CACHED_LIBRARIES_COMPANION_CLASS to patchCachedLibrariesCompanionClass(companionBytes)
             )
         }
     }
@@ -395,6 +403,249 @@ object GenericUiKonanCompilerShim {
             "Expected exactly 1 isSafeToInlineInClosedWorld call in PropertyAccessorInlineLowering.isSafeToInline, patched $patchedCount"
         }
         return result
+    }
+
+    internal fun patchCachedLibrariesCompanionClass(classBytes: ByteArray): ByteArray {
+        val parsed = parseConstantPool(classBytes)
+        val cp = parsed.entries
+        val cpGetUniqueName = findMemberRefIndex(
+            cp = cp,
+            tag = 10,
+            ownerInternalName = "org/jetbrains/kotlin/library/KotlinLibraryKt",
+            memberName = "getUniqueName",
+            memberDesc = "(Lorg/jetbrains/kotlin/library/BaseKotlinLibrary;)Ljava/lang/String;"
+        )
+        val cpSbAppend = findMemberRefIndex(
+            cp = cp,
+            tag = 10,
+            ownerInternalName = "java/lang/StringBuilder",
+            memberName = "append",
+            memberDesc = "(Ljava/lang/String;)Ljava/lang/StringBuilder;"
+        )
+        val cpFileChild = findMemberRefIndex(
+            cp = cp,
+            tag = 10,
+            ownerInternalName = "org/jetbrains/kotlin/konan/file/File",
+            memberName = "child",
+            memberDesc = "(Ljava/lang/String;)Lorg/jetbrains/kotlin/konan/file/File;"
+        )
+
+        val baseIdx = cp.size
+        val idxStrClassUtf8 = baseIdx
+        val idxStrClass = baseIdx + 1
+        val idxReplaceNameUtf8 = baseIdx + 2
+        val idxReplaceDescUtf8 = baseIdx + 3
+        val idxReplaceNat = baseIdx + 4
+        val idxStringReplace = baseIdx + 5
+        val newCpCount = baseIdx + 6
+
+        val out = ByteArrayOutputStream(classBytes.size + 128)
+        out.write(classBytes, 0, 8)
+        writeU2(out, newCpCount)
+        out.write(classBytes, 10, parsed.cpEndOffset - 10)
+        writeCpUtf8(out, "java/lang/String")
+        writeCpU2Entry(out, 7, idxStrClassUtf8)
+        writeCpUtf8(out, "replace")
+        writeCpUtf8(out, "(CC)Ljava/lang/String;")
+        writeCpU2PairEntry(out, 12, idxReplaceNameUtf8, idxReplaceDescUtf8)
+        writeCpU2PairEntry(out, 10, idxStrClass, idxReplaceNat)
+
+        val sanitizeInstr = byteArrayOf(
+            0x10.toByte(), ':'.code.toByte(),
+            0x10.toByte(), '_'.code.toByte(),
+            0xB6.toByte(),
+            ((idxStringReplace ushr 8) and 0xFF).toByte(),
+            (idxStringReplace and 0xFF).toByte()
+        )
+
+        var pos = parsed.cpEndOffset
+        val interfacesStart = pos + 6
+        val interfacesCount = readU2(classBytes, interfacesStart)
+        val fieldsStart = interfacesStart + 2 + interfacesCount * 2
+        out.write(classBytes, pos, fieldsStart - pos)
+        pos = fieldsStart
+
+        val fieldsCount = readU2(classBytes, pos)
+        var cursor = pos + 2
+        repeat(fieldsCount) {
+            cursor += 6
+            val attrCount = readU2(classBytes, cursor)
+            cursor += 2
+            repeat(attrCount) {
+                val attrLen = readU4(classBytes, cursor + 2)
+                cursor += 6 + attrLen
+            }
+        }
+        out.write(classBytes, pos, cursor - pos)
+        pos = cursor
+
+        val methodsCount = readU2(classBytes, pos)
+        writeU2(out, methodsCount)
+        pos += 2
+        var patchedMethods = 0
+
+        repeat(methodsCount) {
+            val nameIdx = readU2(classBytes, pos + 2)
+            val descIdx = readU2(classBytes, pos + 4)
+            val methodName = cp[nameIdx]?.utf8
+            val methodDesc = cp[descIdx]?.utf8
+            val attrCount = readU2(classBytes, pos + 6)
+            out.write(classBytes, pos, 8)
+            pos += 8
+
+            val patchMode = when {
+                methodName == "getCachedLibraryName" &&
+                    methodDesc == "(Ljava/lang/String;)Ljava/lang/String;" -> 1
+                methodName == "getPerFileCachedLibraryName" &&
+                    methodDesc == "(Lorg/jetbrains/kotlin/library/KotlinLibrary;)Ljava/lang/String;" -> 2
+                methodName == "computeLibraryCacheDirectory" &&
+                    methodDesc?.startsWith("(Lorg/jetbrains/kotlin/konan/file/File;Lorg/jetbrains/kotlin/library/KotlinLibrary;") == true -> 3
+                else -> 0
+            }
+
+            repeat(attrCount) {
+                val attrNameIdx = readU2(classBytes, pos)
+                val attrLen = readU4(classBytes, pos + 2)
+                val attrStart = pos + 6
+                val attrEnd = attrStart + attrLen
+                if (patchMode != 0 && cp[attrNameIdx]?.utf8 == "Code") {
+                    val maxStack = readU2(classBytes, attrStart)
+                    val maxLocals = readU2(classBytes, attrStart + 2)
+                    val oldCodeLen = readU4(classBytes, attrStart + 4)
+                    val codeStart = attrStart + 8
+                    val exTableCount = readU2(classBytes, codeStart + oldCodeLen)
+                    check(exTableCount == 0) {
+                        "Expected zero exception handlers in CachedLibraries\$Companion.$methodName"
+                    }
+                    val oldCode = classBytes.copyOfRange(codeStart, codeStart + oldCodeLen)
+                    val newCode = insertSanitizeBeforeInvokeVirtual(
+                        code = oldCode,
+                        patchMode = patchMode,
+                        cpGetUniqueName = cpGetUniqueName,
+                        cpSbAppend = cpSbAppend,
+                        cpFileChild = cpFileChild,
+                        sanitizeInstr = sanitizeInstr
+                    )
+                    val newMaxStack = maxOf(maxStack + 2, 4)
+                    writeU2(out, attrNameIdx)
+                    writeU4(out, 12 + newCode.size)
+                    writeU2(out, newMaxStack)
+                    writeU2(out, maxLocals)
+                    writeU4(out, newCode.size)
+                    out.write(newCode)
+                    writeU2(out, 0)
+                    writeU2(out, 0)
+                    patchedMethods++
+                } else {
+                    out.write(classBytes, pos, attrEnd - pos)
+                }
+                pos = attrEnd
+            }
+        }
+        check(patchedMethods == 3) {
+            "Expected 3 patched methods in CachedLibraries\$Companion, patched $patchedMethods"
+        }
+        out.write(classBytes, pos, classBytes.size - pos)
+        return out.toByteArray()
+    }
+
+    private fun insertSanitizeBeforeInvokeVirtual(
+        code: ByteArray,
+        patchMode: Int,
+        cpGetUniqueName: Int,
+        cpSbAppend: Int,
+        cpFileChild: Int,
+        sanitizeInstr: ByteArray
+    ): ByteArray {
+        val getUniqueHi = ((cpGetUniqueName ushr 8) and 0xFF).toByte()
+        val getUniqueLo = (cpGetUniqueName and 0xFF).toByte()
+        val appendHi = ((cpSbAppend ushr 8) and 0xFF).toByte()
+        val appendLo = (cpSbAppend and 0xFF).toByte()
+        val childHi = ((cpFileChild ushr 8) and 0xFF).toByte()
+        val childLo = (cpFileChild and 0xFF).toByte()
+
+        var insertAt = -1
+        var matchCount = 0
+        when (patchMode) {
+            1 -> {
+                for (i in 0..(code.size - 4)) {
+                    if ((code[i].toInt() and 0xFF) == 0x2B &&
+                        (code[i + 1].toInt() and 0xFF) == 0xB6 &&
+                        code[i + 2] == appendHi &&
+                        code[i + 3] == appendLo
+                    ) {
+                        insertAt = i + 1
+                        matchCount++
+                    }
+                }
+            }
+            2 -> {
+                for (i in 0..(code.size - 6)) {
+                    if ((code[i].toInt() and 0xFF) == 0xB8 &&
+                        code[i + 1] == getUniqueHi &&
+                        code[i + 2] == getUniqueLo &&
+                        (code[i + 3].toInt() and 0xFF) == 0xB6 &&
+                        code[i + 4] == appendHi &&
+                        code[i + 5] == appendLo
+                    ) {
+                        insertAt = i + 3
+                        matchCount++
+                    }
+                }
+            }
+            3 -> {
+                for (i in 0..(code.size - 6)) {
+                    if ((code[i].toInt() and 0xFF) == 0xB8 &&
+                        code[i + 1] == getUniqueHi &&
+                        code[i + 2] == getUniqueLo &&
+                        (code[i + 3].toInt() and 0xFF) == 0xB6 &&
+                        code[i + 4] == childHi &&
+                        code[i + 5] == childLo
+                    ) {
+                        insertAt = i + 3
+                        matchCount++
+                    }
+                }
+            }
+        }
+        check(matchCount == 1 && insertAt >= 0) {
+            "Expected exactly 1 insertion site for patchMode=$patchMode in CachedLibraries\$Companion, found $matchCount"
+        }
+        val out = ByteArrayOutputStream(code.size + sanitizeInstr.size)
+        out.write(code, 0, insertAt)
+        out.write(sanitizeInstr)
+        out.write(code, insertAt, code.size - insertAt)
+        return out.toByteArray()
+    }
+
+    private fun writeU2(out: ByteArrayOutputStream, value: Int) {
+        out.write((value ushr 8) and 0xFF)
+        out.write(value and 0xFF)
+    }
+
+    private fun writeU4(out: ByteArrayOutputStream, value: Int) {
+        out.write((value ushr 24) and 0xFF)
+        out.write((value ushr 16) and 0xFF)
+        out.write((value ushr 8) and 0xFF)
+        out.write(value and 0xFF)
+    }
+
+    private fun writeCpUtf8(out: ByteArrayOutputStream, text: String) {
+        val bytes = text.toByteArray(Charsets.UTF_8)
+        out.write(1)
+        writeU2(out, bytes.size)
+        out.write(bytes)
+    }
+
+    private fun writeCpU2Entry(out: ByteArrayOutputStream, tag: Int, index1: Int) {
+        out.write(tag)
+        writeU2(out, index1)
+    }
+
+    private fun writeCpU2PairEntry(out: ByteArrayOutputStream, tag: Int, index1: Int, index2: Int) {
+        out.write(tag)
+        writeU2(out, index1)
+        writeU2(out, index2)
     }
 
     private fun patchMethodCode(

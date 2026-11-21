@@ -1,5 +1,9 @@
+@file:OptIn(kotlin.concurrent.atomics.ExperimentalAtomicApi::class)
+
 package com.nexustools.genericui.threading
 
+import kotlin.concurrent.Volatile
+import kotlin.concurrent.atomics.AtomicBoolean
 import kotlin.coroutines.CoroutineContext
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -24,13 +28,44 @@ open class DefaultUiThreadDispatcherNativeImpl(
 
     private val uiTaskQueue: ArrayDeque<() -> Unit> = ArrayDeque()
     private val logicTaskQueue: ArrayDeque<() -> Unit> = ArrayDeque()
+    private val uiQueueLock: AtomicBoolean = AtomicBoolean(false)
+    private val logicQueueLock: AtomicBoolean = AtomicBoolean(false)
+    private val uiDrainActive: AtomicBoolean = AtomicBoolean(false)
+    private val logicDrainActive: AtomicBoolean = AtomicBoolean(false)
 
+    @Volatile
     protected var logicExecutionDepth: Int = 0
+    @Volatile
     protected var uiExecutionDepth: Int = 0
+    @Volatile
     protected var uiBlockingOverrideDepth: Int = 0
 
+    @Volatile
     private var isDrainingLogicQueue: Boolean = false
+    @Volatile
     private var isDrainingUiQueue: Boolean = false
+
+    private inline fun <T> withUiQueueLock(block: () -> T): T {
+        while (!uiQueueLock.compareAndSet(expectedValue = false, newValue = true)) {
+            // Short spin strictly around queue mutations/reads (never user callbacks).
+        }
+        return try {
+            block()
+        } finally {
+            uiQueueLock.store(false)
+        }
+    }
+
+    private inline fun <T> withLogicQueueLock(block: () -> T): T {
+        while (!logicQueueLock.compareAndSet(expectedValue = false, newValue = true)) {
+            // Short spin strictly around queue mutations/reads (never user callbacks).
+        }
+        return try {
+            block()
+        } finally {
+            logicQueueLock.store(false)
+        }
+    }
 
     override val uiDispatcher: CoroutineDispatcher = object : CoroutineDispatcher() {
         override fun dispatch(context: CoroutineContext, block: Runnable) {
@@ -60,22 +95,36 @@ open class DefaultUiThreadDispatcherNativeImpl(
     }
 
     protected fun enqueueUiTask(block: () -> Unit) {
-        uiTaskQueue.addLast(block)
+        withUiQueueLock {
+            uiTaskQueue.addLast(block)
+        }
     }
 
     protected fun pollUiTask(): (() -> Unit)? =
-        if (uiTaskQueue.isEmpty()) null else uiTaskQueue.removeFirst()
+        withUiQueueLock {
+            if (uiTaskQueue.isEmpty()) null else uiTaskQueue.removeFirst()
+        }
 
-    protected fun hasPendingUiTasks(): Boolean = uiTaskQueue.isNotEmpty()
+    protected fun hasPendingUiTasks(): Boolean =
+        withUiQueueLock {
+            uiTaskQueue.isNotEmpty()
+        }
 
     protected fun enqueueLogicTask(block: () -> Unit) {
-        logicTaskQueue.addLast(block)
+        withLogicQueueLock {
+            logicTaskQueue.addLast(block)
+        }
     }
 
     protected fun pollLogicTask(): (() -> Unit)? =
-        if (logicTaskQueue.isEmpty()) null else logicTaskQueue.removeFirst()
+        withLogicQueueLock {
+            if (logicTaskQueue.isEmpty()) null else logicTaskQueue.removeFirst()
+        }
 
-    protected fun hasPendingLogicTasks(): Boolean = logicTaskQueue.isNotEmpty()
+    protected fun hasPendingLogicTasks(): Boolean =
+        withLogicQueueLock {
+            logicTaskQueue.isNotEmpty()
+        }
 
     override fun dispatchToUi(block: () -> Unit) {
         if (!isSplitThreadingEnabled) {
@@ -145,7 +194,7 @@ open class DefaultUiThreadDispatcherNativeImpl(
             }
             return executed
         }
-        if (isDrainingLogicQueue) return 0
+        if (!logicDrainActive.compareAndSet(expectedValue = false, newValue = true)) return 0
         isDrainingLogicQueue = true
         logicExecutionDepth++
         var executed = 0
@@ -158,6 +207,7 @@ open class DefaultUiThreadDispatcherNativeImpl(
         } finally {
             logicExecutionDepth--
             isDrainingLogicQueue = false
+            logicDrainActive.store(false)
         }
         return executed
     }
@@ -172,7 +222,8 @@ open class DefaultUiThreadDispatcherNativeImpl(
             }
             return executed
         }
-        if (isDrainingUiQueue || isOnLogicThread()) return 0
+        if (isOnLogicThread()) return 0
+        if (!uiDrainActive.compareAndSet(expectedValue = false, newValue = true)) return 0
         isDrainingUiQueue = true
         uiExecutionDepth++
         var executed = 0
@@ -185,12 +236,7 @@ open class DefaultUiThreadDispatcherNativeImpl(
         } finally {
             uiExecutionDepth--
             isDrainingUiQueue = false
-        }
-        if (hasPendingLogicTasks() && !isDrainingLogicQueue && logicExecutionDepth == 0) {
-            drainLogicQueue()
-            if (hasPendingUiTasks() && !isDrainingUiQueue) {
-                executed += drainUiQueue()
-            }
+            uiDrainActive.store(false)
         }
         return executed
     }

@@ -5,7 +5,8 @@ import org.gradle.api.Action
 /**
  * Android-specific variant configuration block (`genericui { android { ... } }`) extending
  * [GenericUiVariantConfig] with support for `manifest { ... }`, `services { ... }`,
- * `launcherIcon { ... }`, and per-variant overrides (`variant("development") { ... }`).
+ * `launcherIcon { ... }`, `jni { ... }`, `cinterops { ... }`, `nativeLibraries { ... }`,
+ * and per-variant overrides (`variant("development") { ... }`).
  */
 open class GenericUiAndroidConfig : GenericUiVariantConfig(GenericUiVariantScope.ANDROID) {
     val manifestConfig: GenericUiAndroidManifestConfig = GenericUiAndroidManifestConfig()

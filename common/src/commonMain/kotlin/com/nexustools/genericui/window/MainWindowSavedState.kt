@@ -80,8 +80,7 @@ data class MainWindowSavedState(
             val parsedState = WindowState.entries.firstOrNull { it.name == stateName } ?: WindowState.NORMAL
             val normalizedState = when (parsedState) {
                 WindowState.FULLSCREEN,
-                WindowState.MINIMIZED,
-                WindowState.PICTURE_IN_PICTURE -> WindowState.NORMAL
+                WindowState.MINIMIZED -> WindowState.NORMAL
                 WindowState.NORMAL,
                 WindowState.MAXIMIZED -> parsedState
             }

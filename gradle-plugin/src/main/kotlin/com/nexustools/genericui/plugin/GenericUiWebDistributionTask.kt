@@ -180,6 +180,26 @@ abstract class GenericUiWebDistributionTask : DefaultTask() {
     @get:Optional
     abstract val includeTestScripts: Property<Boolean>
 
+    @get:Input
+    @get:Optional
+    abstract val serviceWorkerEnabled: Property<Boolean>
+
+    @get:Input
+    @get:Optional
+    abstract val serviceWorkerPluginPaths: ListProperty<String>
+
+    @get:Input
+    @get:Optional
+    abstract val serviceWorkerInlinePlugins: MapProperty<String, String>
+
+    @get:Input
+    @get:Optional
+    abstract val serviceWorkerBinaryBaseNames: ListProperty<String>
+
+    @get:Input
+    @get:Optional
+    abstract val serviceWorkerOfflineUrls: ListProperty<String>
+
     @get:Optional
     @get:InputFiles
     abstract val jsOutputDirs: ConfigurableFileCollection
@@ -193,6 +213,11 @@ abstract class GenericUiWebDistributionTask : DefaultTask() {
 
     init {
         includeTestScripts.convention(false)
+        serviceWorkerEnabled.convention(false)
+        serviceWorkerPluginPaths.convention(emptyList())
+        serviceWorkerInlinePlugins.convention(emptyMap())
+        serviceWorkerBinaryBaseNames.convention(emptyList())
+        serviceWorkerOfflineUrls.convention(emptyList())
     }
 
     @TaskAction
@@ -206,22 +231,47 @@ abstract class GenericUiWebDistributionTask : DefaultTask() {
         val resolvedTitle = appName.get().trim().ifEmpty { resolvedBase }
         val isInstallableWebApp = allowInstallAsWebApp.getOrElse(false)
         val isManifestActive = manifestEnabled.getOrElse(false) || isInstallableWebApp
+        val swPluginSpecs = serviceWorkerPluginPaths.getOrElse(emptyList())
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .distinct()
+        val swInlinePlugins = serviceWorkerInlinePlugins.getOrElse(emptyMap())
+        val swBinaryBases = serviceWorkerBinaryBaseNames.getOrElse(emptyList())
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .distinct()
+        val swOfflineUrls = serviceWorkerOfflineUrls.getOrElse(emptyList())
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .distinct()
+        val hasSwContributions = serviceWorkerEnabled.getOrElse(false) ||
+            swPluginSpecs.isNotEmpty() ||
+            swInlinePlugins.isNotEmpty() ||
+            swBinaryBases.isNotEmpty()
+        val isSwActive = isManifestActive || hasSwContributions
         val resolvedManifestFileName = manifestFileName.orNull?.trim().orEmpty().ifEmpty { "manifest.webmanifest" }
 
-        // Clean any legacy directories/files so root dist/web only contains allowed root files + gui/ and res/
-        cleanLegacyDistributionLayout(outDir, resolvedBase, resolvedManifestFileName, isManifestActive)
+        // Clean any legacy directories/files so root dist/web only contains allowed root files + gui/ and app/
+        cleanLegacyDistributionLayout(
+            outDir = outDir,
+            resolvedBase = resolvedBase,
+            resolvedManifestFileName = resolvedManifestFileName,
+            isManifestActive = isManifestActive,
+            isSwActive = isSwActive,
+            swBinaryBases = swBinaryBases
+        )
 
         val guiDir = File(outDir, "gui").apply { mkdirs() }
-        val resDir = File(outDir, "res").apply { mkdirs() }
+        val appDir = File(outDir, "app").apply { mkdirs() }
 
-        // 1. Copy packaged application resources into res/ preserving the exact folder structure of the app's resources,
-        // and stage compiled GenericUI resource metadata into gui/
-        copyCandidateResourcesToDistribution(rootDir, buildDir, resDir, guiDir)
+        // 1. Copy packaged application resources into app/ preserving the exact folder structure of the app's resources,
+        // and stage compiled GenericUI / extension resources into gui/
+        copyCandidateResourcesToDistribution(rootDir, buildDir, appDir, guiDir)
 
-        // 2. Resolve Web Icon (staging app icons into res/ and fallback GenericUI default icon into gui/)
+        // 2. Resolve Web Icon (staging app icons into app/ and fallback GenericUI default icon into gui/)
         val projectIconFile = resolveProjectWebIconFile(rootDir)
-        val iconTargetDir = if (projectIconFile != null) resDir else guiDir
-        val iconPrefix = if (projectIconFile != null) "res" else "gui"
+        val iconTargetDir = if (projectIconFile != null) appDir else guiDir
+        val iconPrefix = if (projectIconFile != null) "app" else "gui"
         val iconFile = projectIconFile ?: GenericUiDefaultIconProvider.ensureDefaultSvgIcon(rootDir, guiDir)
         val stagedIconFileName = if (iconFile.exists()) {
             val targetIcon = File(iconTargetDir, iconFile.name)
@@ -353,6 +403,34 @@ abstract class GenericUiWebDistributionTask : DefaultTask() {
             targetJsFile.writeText(jsSourceText, Charsets.UTF_8)
         }
 
+        // Stage dedicated <swBase>.sw.wasm + <swBase>.sw.js worker bundles ONLY when a Web
+        // @MainServiceWorker (or contributor with WebWorkerBinarySpec) opted in.
+        for (swBase in swBinaryBases) {
+            val targetSwWasmFile = File(outDir, "$swBase.sw.wasm")
+            val targetSwJsFile = File(outDir, "$swBase.sw.js")
+            val explicitSwWasm = wasmDirs.asSequence()
+                .flatMap { it.listFiles()?.asSequence().orEmpty() }
+                .firstOrNull { it.isFile && it.name == "$swBase.sw.wasm" }
+                ?: foundWasmBin
+            if (explicitSwWasm != null && explicitSwWasm.canonicalFile != targetSwWasmFile.canonicalFile) {
+                explicitSwWasm.copyTo(targetSwWasmFile, overwrite = true)
+            }
+            val explicitSwJs = (wasmDirs + jsDirs).asSequence()
+                .flatMap { it.listFiles()?.asSequence().orEmpty() }
+                .firstOrNull { it.isFile && it.name == "$swBase.sw.js" }
+                ?: foundJsBundle
+            if (explicitSwJs != null) {
+                var swJsSourceText = explicitSwJs.readText(Charsets.UTF_8)
+                if (explicitSwWasm != null && explicitSwWasm.name != "$swBase.sw.wasm") {
+                    swJsSourceText = swJsSourceText.replace(explicitSwWasm.name, "$swBase.sw.wasm")
+                }
+                swJsSourceText = Regex(""""([A-Za-z0-9_.-]+\.wasm)"""").replace(swJsSourceText) {
+                    "\"$swBase.sw.wasm\""
+                }
+                targetSwJsFile.writeText(swJsSourceText, Charsets.UTF_8)
+            }
+        }
+
         val stagedWasmSha1 = if (targetWasmFile.isFile) sha1HexOfFile(targetWasmFile) else sha1HexOfString(stagedWasmRelPath)
         val stagedJsSha1 = if (targetJsFile.isFile) sha1HexOfFile(targetJsFile) else sha1HexOfString(stagedJsRelPath)
 
@@ -399,9 +477,9 @@ abstract class GenericUiWebDistributionTask : DefaultTask() {
             testLoaderScriptTags.add("""    <script type="loader-js" src="web-test-harness.js?$harnessHash"></script>""")
         }
 
-        // 4. Stage compiled SASS/CSS app stylesheet into res/ (autoloaded via <link rel="stylesheet">)
+        // 4. Stage compiled SASS/CSS app stylesheet into app/ (autoloaded via <link rel="stylesheet">)
         // and packaged local Bootstrap 5 + Bootstrap Icons + loading.svg into gui/
-        val appStylesheetRelPath = resolveAndStageAppStylesheet(rootDir, buildDir, resDir)
+        val appStylesheetRelPath = resolveAndStageAppStylesheet(rootDir, buildDir, appDir)
         val extraStylesheetTag = if (appStylesheetRelPath != null) {
             val dstCss = File(outDir, appStylesheetRelPath)
             val cssHash = if (dstCss.isFile) sha1HexOfFile(dstCss) else sha1HexOfString(appStylesheetRelPath)
@@ -431,7 +509,7 @@ abstract class GenericUiWebDistributionTask : DefaultTask() {
         // 5b. Pre-generate gui/genericui-theme.css when custom theme colors/overrides are configured
         val buildThemeStylesheetTag = maybeGenerateBuildThemeCss(guiDir)
 
-        // 6. Scan packaged resources (gui/ and res/) and emit resources.json in root outDir with per-file SHA-1 hashes
+        // 6. Scan packaged resources (gui/ and app/) and emit resources.json in root outDir with per-file SHA-1 hashes
         val resourceDescriptors = scanPackagedResources(outDir, resolvedManifestFileName, resolvedBase)
         val resourcesManifestJson = buildResourcesManifestJson(resourceDescriptors, pretty = true)
         val resourcesJsonFile = File(outDir, "resources.json")
@@ -439,73 +517,92 @@ abstract class GenericUiWebDistributionTask : DefaultTask() {
         val resourcesJsonSha1 = sha1HexOfFile(resourcesJsonFile)
         val inlineResourceManifestJson = buildResourcesManifestJson(resourceDescriptors, pretty = false)
 
-        // 7. Generate W3C / MDN Progressive Web App manifest.webmanifest in root outDir & offline gui/genericui-sw.js if configured
+        // 7. Generate W3C / MDN Progressive Web App manifest.webmanifest & unified root ./serviceworker.js if active
         val resolvedThemeColor = manifestThemeColor.orNull?.trim()?.takeIf { it.isNotEmpty() }
             ?: themeColor.orNull?.trim()?.takeIf { it.isNotEmpty() }
         val resolvedLang = manifestLang.orNull?.trim().orEmpty().ifEmpty { "en" }
+        val buildHash = sha1HexOfString("$resourcesJsonSha1:$stagedWasmSha1:$stagedJsSha1:$loaderSha1:$stagedJsRelPath").take(12)
 
+        val resolvedSwPluginUrls = stageServiceWorkerPluginScripts(outDir, rootDir, buildDir, swPluginSpecs, swInlinePlugins)
         val offlineResourceList = collectOfflineResourcePaths(
             outDir = outDir,
             resolvedBase = resolvedBase,
             manifestFileName = resolvedManifestFileName,
+            isManifestActive = isManifestActive,
             appStylesheetRelPath = appStylesheetRelPath,
             stagedIconName = stagedIconName,
             iconPrefix = iconPrefix,
             stagedWasmRelPath = stagedWasmRelPath,
             stagedJsRelPath = stagedJsRelPath,
+            swPluginUrls = resolvedSwPluginUrls,
+            swOfflineUrls = swOfflineUrls,
+            swBinaryBases = swBinaryBases,
             resourceDescriptors = resourceDescriptors
         )
 
-        val webManifestAndPwaLinks = if (isManifestActive) {
-            val manifestJson = generateWebManifestJson(
-                rootDir = rootDir,
-                outDir = outDir,
-                defaultTitle = resolvedTitle,
-                stagedIconName = stagedIconName,
-                iconPrefix = iconPrefix,
-                resolvedThemeColor = resolvedThemeColor ?: "#0d6efd",
-                offlineResources = offlineResourceList
+        if (isSwActive) {
+            val swFile = File(outDir, "serviceworker.js")
+            swFile.writeText(
+                generateServiceWorkerJs(
+                    offlineResources = offlineResourceList,
+                    buildHash = buildHash,
+                    pluginScriptUrls = resolvedSwPluginUrls,
+                    wasmBaseNames = swBinaryBases
+                ),
+                Charsets.UTF_8
             )
-            val manifestFile = File(outDir, resolvedManifestFileName)
-            manifestFile.writeText(manifestJson, Charsets.UTF_8)
-            val manifestSha1 = sha1HexOfFile(manifestFile)
+        } else {
+            File(outDir, "serviceworker.js").takeIf { it.exists() }?.delete()
+        }
 
-            val swFile = File(guiDir, "genericui-sw.js")
-            swFile.writeText(generateServiceWorkerJs(offlineResourceList), Charsets.UTF_8)
-
-            val resolvedFullName = manifestName.orNull?.trim().orEmpty().ifEmpty { resolvedTitle }
-            val resolvedShort = manifestShortName.orNull?.trim().orEmpty().ifEmpty { resolvedFullName }
-            val effectiveTheme = resolvedThemeColor ?: "#0d6efd"
-            val customIcons = manifestIcons.getOrElse(emptyList())
-            val primaryTouchIcon = customIcons.firstOrNull()?.src?.trim()?.takeIf { it.isNotEmpty() }
-                ?: stagedIconName
-
+        val webManifestAndPwaLinks = run {
             val headTags = mutableListOf<String>()
-            headTags.add("""    <link id="genericui-web-manifest" rel="manifest" href="${escapeHtml(resolvedManifestFileName)}?$manifestSha1" crossorigin="use-credentials">""")
-            headTags.add("""    <meta id="genericui-theme-color" name="theme-color" content="${escapeHtml(effectiveTheme)}">""")
-            if (isInstallableWebApp) {
-                val statusStyle = manifestAppleStatusBarStyle.orNull?.trim().orEmpty().ifEmpty { "black-translucent" }
-                headTags.add("""    <meta id="genericui-mobile-web-app-capable" name="mobile-web-app-capable" content="yes">""")
-                headTags.add("""    <meta id="genericui-apple-mobile-web-app-capable" name="apple-mobile-web-app-capable" content="yes">""")
-                headTags.add("""    <meta id="genericui-apple-mobile-web-app-status-bar-style" name="apple-mobile-web-app-status-bar-style" content="${escapeHtml(statusStyle)}">""")
-                headTags.add("""    <meta id="genericui-application-name" name="application-name" content="${escapeHtml(resolvedShort)}">""")
-                headTags.add("""    <meta id="genericui-apple-mobile-web-app-title" name="apple-mobile-web-app-title" content="${escapeHtml(resolvedShort)}">""")
-                if (!primaryTouchIcon.isNullOrBlank()) {
-                    headTags.add("""    <link id="genericui-apple-touch-icon" rel="apple-touch-icon" href="${escapeHtml(primaryTouchIcon)}">""")
+            headTags.add("""    <meta id="genericui-build-hash" content="${escapeHtml(buildHash)}">""")
+            if (isSwActive) {
+                headTags.add("""    <meta id="genericui-sw-enabled" content="true">""")
+            }
+            if (isManifestActive) {
+                val manifestJson = generateWebManifestJson(
+                    rootDir = rootDir,
+                    outDir = outDir,
+                    defaultTitle = resolvedTitle,
+                    stagedIconName = stagedIconName,
+                    iconPrefix = iconPrefix,
+                    resolvedThemeColor = resolvedThemeColor ?: "#0d6efd",
+                    offlineResources = offlineResourceList
+                )
+                val manifestFile = File(outDir, resolvedManifestFileName)
+                manifestFile.writeText(manifestJson, Charsets.UTF_8)
+                val manifestSha1 = sha1HexOfFile(manifestFile)
+
+                val resolvedFullName = manifestName.orNull?.trim().orEmpty().ifEmpty { resolvedTitle }
+                val resolvedShort = manifestShortName.orNull?.trim().orEmpty().ifEmpty { resolvedFullName }
+                val effectiveTheme = resolvedThemeColor ?: "#0d6efd"
+                val customIcons = manifestIcons.getOrElse(emptyList())
+                val primaryTouchIcon = customIcons.firstOrNull()?.src?.trim()?.takeIf { it.isNotEmpty() }
+                    ?: stagedIconName
+
+                headTags.add("""    <link id="genericui-web-manifest" rel="manifest" href="${escapeHtml(resolvedManifestFileName)}?$manifestSha1" crossorigin="use-credentials">""")
+                headTags.add("""    <meta id="genericui-theme-color" name="theme-color" content="${escapeHtml(effectiveTheme)}">""")
+                if (isInstallableWebApp) {
+                    val statusStyle = manifestAppleStatusBarStyle.orNull?.trim().orEmpty().ifEmpty { "black-translucent" }
+                    headTags.add("""    <meta id="genericui-mobile-web-app-capable" name="mobile-web-app-capable" content="yes">""")
+                    headTags.add("""    <meta id="genericui-apple-mobile-web-app-capable" name="apple-mobile-web-app-capable" content="yes">""")
+                    headTags.add("""    <meta id="genericui-apple-mobile-web-app-status-bar-style" name="apple-mobile-web-app-status-bar-style" content="${escapeHtml(statusStyle)}">""")
+                    headTags.add("""    <meta id="genericui-application-name" name="application-name" content="${escapeHtml(resolvedShort)}">""")
+                    headTags.add("""    <meta id="genericui-apple-mobile-web-app-title" name="apple-mobile-web-app-title" content="${escapeHtml(resolvedShort)}">""")
+                    if (!primaryTouchIcon.isNullOrBlank()) {
+                        headTags.add("""    <link id="genericui-apple-touch-icon" rel="apple-touch-icon" href="${escapeHtml(primaryTouchIcon)}">""")
+                    }
                 }
+            } else if (resolvedThemeColor != null) {
+                headTags.add("""    <meta id="genericui-theme-color" name="theme-color" content="${escapeHtml(resolvedThemeColor)}">""")
             }
             headTags.joinToString("\n")
-        } else if (resolvedThemeColor != null) {
-            """    <meta id="genericui-theme-color" name="theme-color" content="${escapeHtml(resolvedThemeColor)}">"""
-        } else {
-            ""
         }
 
-        val serviceWorkerRegistrationScript = if (isManifestActive) {
-            """    <script id="genericui-sw-register">if (typeof navigator !== "undefined" && "serviceWorker" in navigator) { navigator.serviceWorker.register('./gui/genericui-sw.js').catch(function () {}); }</script>"""
-        } else {
-            ""
-        }
+        // ServiceWorker registration happens once inside loader.js after preloadAllResources() succeeds
+        val serviceWorkerRegistrationScript = ""
 
         // 8. Generate index.html from template
         val faviconLink = if (stagedIconName.isNotBlank()) {
@@ -782,7 +879,9 @@ abstract class GenericUiWebDistributionTask : DefaultTask() {
         outDir: File,
         resolvedBase: String,
         resolvedManifestFileName: String,
-        isManifestActive: Boolean
+        isManifestActive: Boolean,
+        isSwActive: Boolean,
+        swBinaryBases: List<String> = emptyList()
     ) {
         val allowedRootEntries = buildSet {
             add("index.html")
@@ -792,10 +891,17 @@ abstract class GenericUiWebDistributionTask : DefaultTask() {
             add("$resolvedBase.js")
             add("$resolvedBase.wasm")
             add("gui")
-            add("res")
+            add("app")
             if (isManifestActive) {
                 add("manifest.webmanifest")
                 add(resolvedManifestFileName)
+            }
+            if (isSwActive) {
+                add("serviceworker.js")
+                swBinaryBases.forEach { swBase ->
+                    add("$swBase.sw.js")
+                    add("$swBase.sw.wasm")
+                }
             }
         }
         outDir.listFiles()?.forEach { child ->
@@ -803,6 +909,9 @@ abstract class GenericUiWebDistributionTask : DefaultTask() {
                 child.deleteRecursively()
             }
         }
+        File(outDir, "res").takeIf { it.exists() }?.deleteRecursively()
+        File(outDir, "gui/genericui-sw.js").takeIf { it.exists() }?.delete()
+        File(outDir, "genericui-sw.js").takeIf { it.exists() }?.delete()
     }
 
     private fun discoverAppSassRelativePaths(rootDir: File): Map<String, String> {
@@ -834,7 +943,7 @@ abstract class GenericUiWebDistributionTask : DefaultTask() {
     private fun copyCandidateResourcesToDistribution(
         rootDir: File,
         buildDir: File,
-        resDir: File,
+        appDir: File,
         guiDir: File
     ) {
         val reservedFileNames = setOf(
@@ -843,6 +952,7 @@ abstract class GenericUiWebDistributionTask : DefaultTask() {
             "loader.js",
             "genericui-loader.js",
             "genericui-sw.js",
+            "serviceworker.js",
             "manifest.webmanifest",
             "resources-manifest.json",
             "resources.json",
@@ -859,6 +969,40 @@ abstract class GenericUiWebDistributionTask : DefaultTask() {
             "genericui-resource-vars.css"
         )
         val sassStemToRelCss = discoverAppSassRelativePaths(rootDir)
+
+        val generatedWebResDir = File(buildDir, "generated/genericui/resources/backends/web")
+        val hasGeneratedWebRes = generatedWebResDir.exists() && generatedWebResDir.isDirectory
+        if (hasGeneratedWebRes) {
+            generatedWebResDir.walkTopDown().filter { it.isFile }.forEach { srcFile ->
+                val fileName = srcFile.name
+                val relPath = srcFile.relativeTo(generatedWebResDir).invariantSeparatorsPath
+                if (relPath.startsWith("META-INF/", ignoreCase = true) ||
+                    relPath.startsWith("templates/", ignoreCase = true)
+                ) {
+                    return@forEach
+                }
+                if (fileName in guiMetadataFileNames) {
+                    val dstGuiFile = File(guiDir, fileName)
+                    if (srcFile.canonicalFile != dstGuiFile.canonicalFile) {
+                        dstGuiFile.parentFile?.mkdirs()
+                        srcFile.copyTo(dstGuiFile, overwrite = true)
+                    }
+                    return@forEach
+                }
+                if (fileName in reservedFileNames || fileName in setOf("icon.png", "icon.ico", "icon.svg")) {
+                    return@forEach
+                }
+                val dstFile = when {
+                    relPath.startsWith("gui/") -> File(guiDir, relPath.removePrefix("gui/"))
+                    relPath.startsWith("app/") -> File(appDir, relPath.removePrefix("app/"))
+                    else -> File(appDir, relPath)
+                }
+                if (srcFile.canonicalFile != dstFile.canonicalFile) {
+                    dstFile.parentFile?.mkdirs()
+                    srcFile.copyTo(dstFile, overwrite = true)
+                }
+            }
+        }
 
         val sourceCandidateDirs = listOf(
             File(rootDir, "src/commonMain/resources"),
@@ -883,6 +1027,11 @@ abstract class GenericUiWebDistributionTask : DefaultTask() {
                 if (fileName in reservedFileNames) return@forEach
                 if (ext in setOf("scss", "sass", "php", "map")) return@forEach
                 val relPath = srcFile.relativeTo(candidateDir).invariantSeparatorsPath
+                if (relPath.startsWith("META-INF/", ignoreCase = true) ||
+                    relPath.startsWith("templates/", ignoreCase = true)
+                ) {
+                    return@forEach
+                }
                 if (fileName in guiMetadataFileNames) {
                     val dstGuiFile = File(guiDir, fileName)
                     if (srcFile.canonicalFile != dstGuiFile.canonicalFile) {
@@ -896,37 +1045,20 @@ abstract class GenericUiWebDistributionTask : DefaultTask() {
                 } else {
                     relPath
                 }
-                val dstFile = File(resDir, mappedRelPath)
-                if (srcFile.canonicalFile != dstFile.canonicalFile) {
+                val dstFile = when {
+                    mappedRelPath.startsWith("gui/") -> File(guiDir, mappedRelPath.removePrefix("gui/"))
+                    mappedRelPath.startsWith("app/") -> File(appDir, mappedRelPath.removePrefix("app/"))
+                    else -> File(appDir, mappedRelPath)
+                }
+                if (!dstFile.exists() && srcFile.canonicalFile != dstFile.canonicalFile) {
                     dstFile.parentFile?.mkdirs()
                     srcFile.copyTo(dstFile, overwrite = true)
                 }
             }
         }
-
-        val generatedWebResDir = File(buildDir, "generated/genericui/resources/backends/web")
-        if (generatedWebResDir.exists() && generatedWebResDir.isDirectory) {
-            generatedWebResDir.walkTopDown().filter { it.isFile }.forEach { srcFile ->
-                val fileName = srcFile.name
-                val relPath = srcFile.relativeTo(generatedWebResDir).invariantSeparatorsPath
-                if (fileName in guiMetadataFileNames) {
-                    val dstGuiFile = File(guiDir, fileName)
-                    if (srcFile.canonicalFile != dstGuiFile.canonicalFile) {
-                        dstGuiFile.parentFile?.mkdirs()
-                        srcFile.copyTo(dstGuiFile, overwrite = true)
-                    }
-                } else if (fileName !in reservedFileNames && fileName !in setOf("icon.png", "icon.ico", "icon.svg")) {
-                    val dstResFile = File(resDir, relPath)
-                    if (!dstResFile.exists() && srcFile.canonicalFile != dstResFile.canonicalFile) {
-                        dstResFile.parentFile?.mkdirs()
-                        srcFile.copyTo(dstResFile, overwrite = true)
-                    }
-                }
-            }
-        }
     }
 
-    private fun resolveAndStageAppStylesheet(rootDir: File, buildDir: File, resDir: File): String? {
+    private fun resolveAndStageAppStylesheet(rootDir: File, buildDir: File, appDir: File): String? {
         val sassStemToRelCss = discoverAppSassRelativePaths(rootDir)
         val compiledCssDirs = listOf(
             File(buildDir, "generated/genericui/web-css"),
@@ -938,19 +1070,19 @@ abstract class GenericUiWebDistributionTask : DefaultTask() {
                 if (cssFile.name in setOf("genericui.css", "genericui-styles.css", "bootstrap.min.css", "bootstrap-icons.min.css", "genericui-resource-vars.css")) {
                     return@forEach
                 }
-                val relInCssDir = cssFile.relativeTo(cssDir).invariantSeparatorsPath
-                val targetRelInRes = if (!relInCssDir.contains('/')) {
-                    sassStemToRelCss[cssFile.nameWithoutExtension] ?: relInCssDir
+                val relInCssDir = cssFile.relativeTo(cssDir).invariantSeparatorsPath.removePrefix("app/")
+                val targetRelInApp = if (!relInCssDir.contains('/')) {
+                    sassStemToRelCss[cssFile.nameWithoutExtension]?.removePrefix("app/") ?: relInCssDir
                 } else {
                     relInCssDir
                 }
-                val dstFile = File(resDir, targetRelInRes)
+                val dstFile = File(appDir, targetRelInApp)
                 if (cssFile.canonicalFile != dstFile.canonicalFile) {
                     dstFile.parentFile?.mkdirs()
                     cssFile.copyTo(dstFile, overwrite = true)
                 }
-                if (targetRelInRes.contains('/')) {
-                    val duplicateRootCss = File(resDir, cssFile.name)
+                if (targetRelInApp.contains('/')) {
+                    val duplicateRootCss = File(appDir, cssFile.name)
                     if (duplicateRootCss.isFile && duplicateRootCss.canonicalFile != dstFile.canonicalFile) {
                         duplicateRootCss.delete()
                     }
@@ -964,52 +1096,53 @@ abstract class GenericUiWebDistributionTask : DefaultTask() {
             val cleanConfigured = configuredGlobal
                 .removePrefix("./")
                 .removePrefix("/")
+                .removePrefix("app/")
                 .removePrefix("res/")
                 .replace('\\', '/')
                 .replace(Regex("\\.(scss|sass)$", RegexOption.IGNORE_CASE), ".css")
-            val candidateInRes = File(resDir, cleanConfigured)
-            if (candidateInRes.isFile) {
-                return "res/$cleanConfigured"
+            val candidateInApp = File(appDir, cleanConfigured)
+            if (candidateInApp.isFile) {
+                return "app/$cleanConfigured"
             }
             val stem = File(cleanConfigured).nameWithoutExtension
-            val mappedRel = sassStemToRelCss[stem]
-            if (mappedRel != null && File(resDir, mappedRel).isFile) {
-                return "res/$mappedRel"
+            val mappedRel = sassStemToRelCss[stem]?.removePrefix("app/")
+            if (mappedRel != null && File(appDir, mappedRel).isFile) {
+                return "app/$mappedRel"
             }
-            val matchingFileInRes = resDir.walkTopDown().firstOrNull {
+            val matchingFileInApp = appDir.walkTopDown().firstOrNull {
                 it.isFile && it.name.equals(File(cleanConfigured).name, ignoreCase = true)
             }
-            if (matchingFileInRes != null) {
-                return "res/${matchingFileInRes.relativeTo(resDir).invariantSeparatorsPath}"
+            if (matchingFileInApp != null) {
+                return "app/${matchingFileInApp.relativeTo(appDir).invariantSeparatorsPath}"
             }
-            // Search compiled CSS directories if not yet in resDir
+            // Search compiled CSS directories if not yet in appDir
             for (cssDir in compiledCssDirs) {
                 val srcCss = File(cssDir, cleanConfigured).takeIf { it.isFile }
                     ?: File(cssDir, File(cleanConfigured).name).takeIf { it.isFile }
                 if (srcCss != null) {
-                    val dstInRes = File(resDir, cleanConfigured)
-                    dstInRes.parentFile?.mkdirs()
-                    srcCss.copyTo(dstInRes, overwrite = true)
-                    return "res/$cleanConfigured"
+                    val dstInApp = File(appDir, cleanConfigured)
+                    dstInApp.parentFile?.mkdirs()
+                    srcCss.copyTo(dstInApp, overwrite = true)
+                    return "app/$cleanConfigured"
                 }
             }
         }
 
-        // Fallback: if compiledCssDirs produced a single primary stylesheet in resDir, autoload it
+        // Fallback: if compiledCssDirs produced a single primary stylesheet in appDir, autoload it
         for (cssDir in compiledCssDirs) {
             val firstCompiled = cssDir.walkTopDown().firstOrNull {
                 it.isFile && it.extension.equals("css", ignoreCase = true) &&
                     it.name !in setOf("genericui.css", "genericui-styles.css", "bootstrap.min.css", "bootstrap-icons.min.css", "genericui-resource-vars.css")
             }
             if (firstCompiled != null) {
-                val relInCssDir = firstCompiled.relativeTo(cssDir).invariantSeparatorsPath
-                val targetRelInRes = if (!relInCssDir.contains('/')) {
-                    sassStemToRelCss[firstCompiled.nameWithoutExtension] ?: relInCssDir
+                val relInCssDir = firstCompiled.relativeTo(cssDir).invariantSeparatorsPath.removePrefix("app/")
+                val targetRelInApp = if (!relInCssDir.contains('/')) {
+                    sassStemToRelCss[firstCompiled.nameWithoutExtension]?.removePrefix("app/") ?: relInCssDir
                 } else {
                     relInCssDir
                 }
-                if (File(resDir, targetRelInRes).isFile) {
-                    return "res/$targetRelInRes"
+                if (File(appDir, targetRelInApp).isFile) {
+                    return "app/$targetRelInApp"
                 }
             }
         }
@@ -1068,6 +1201,7 @@ abstract class GenericUiWebDistributionTask : DefaultTask() {
             "web-test-harness.js",
             "genericui-sw.js",
             "gui/genericui-sw.js",
+            "serviceworker.js",
             "manifest.webmanifest",
             manifestFileName,
             "resources.json",
@@ -1082,7 +1216,9 @@ abstract class GenericUiWebDistributionTask : DefaultTask() {
                 val relPath = file.relativeTo(outDir).invariantSeparatorsPath
                 if (relPath in excludedPaths) return@mapNotNull null
                 val lowerRel = relPath.lowercase()
-                if (lowerRel.endsWith(".php") || lowerRel.endsWith(".map") ||
+                if (lowerRel.startsWith("meta-inf/") ||
+                    lowerRel.endsWith(".sw.js") || lowerRel.endsWith(".sw.wasm") ||
+                    lowerRel.endsWith(".php") || lowerRel.endsWith(".map") ||
                     lowerRel.endsWith(".scss") || lowerRel.endsWith(".sass") ||
                     lowerRel.endsWith(".wasm")
                 ) return@mapNotNull null
@@ -1164,9 +1300,13 @@ abstract class GenericUiWebDistributionTask : DefaultTask() {
 
         val folderSegments = segments.dropLast(1)
         val primaryFolder = when {
-            folderSegments.size >= 2 && folderSegments[0].lowercase() in setOf("res", "gui", "resources", "assets") ->
+            folderSegments.size >= 5 &&
+                folderSegments[0].equals("gui", ignoreCase = true) &&
+                folderSegments[1].equals("ext", ignoreCase = true) ->
+                folderSegments[4].lowercase()
+            folderSegments.size >= 2 && folderSegments[0].lowercase() in setOf("res", "gui", "app", "resources", "assets") ->
                 folderSegments[1].lowercase()
-            folderSegments.size == 1 && folderSegments[0].lowercase() in setOf("res", "gui", "resources", "assets") ->
+            folderSegments.size == 1 && folderSegments[0].lowercase() in setOf("res", "gui", "app", "resources", "assets") ->
                 ""
             folderSegments.isNotEmpty() ->
                 folderSegments[0].lowercase()
@@ -1183,7 +1323,7 @@ abstract class GenericUiWebDistributionTask : DefaultTask() {
             "xml" -> "xml"
             "layout", "layouts" -> "layout"
             "menu", "menus" -> "menu"
-            "res", "gui", "resources", "assets", "" -> inferResourceTypeFromExtension(ext)
+            "res", "gui", "app", "resources", "assets", "" -> inferResourceTypeFromExtension(ext)
             else -> primaryFolder
         }
         return type to name
@@ -1256,21 +1396,75 @@ abstract class GenericUiWebDistributionTask : DefaultTask() {
         }
     }
 
+    private fun stageServiceWorkerPluginScripts(
+        outDir: File,
+        rootDir: File,
+        buildDir: File,
+        pluginSpecs: List<String>,
+        inlinePlugins: Map<String, String> = emptyMap()
+    ): List<String> {
+        val stagedUrls = linkedSetOf<String>()
+        for ((relPathRaw, content) in inlinePlugins) {
+            val cleanRel = relPathRaw.replace('\\', '/').removePrefix("./").trimStart('/')
+            if (cleanRel.isEmpty()) continue
+            val dst = File(outDir, cleanRel)
+            dst.parentFile?.mkdirs()
+            dst.writeText(content, Charsets.UTF_8)
+            stagedUrls.add("./$cleanRel")
+        }
+        if (pluginSpecs.isEmpty()) return stagedUrls.toList()
+        pluginSpecs.forEach { spec ->
+            val candidateFile = File(spec).let { f ->
+                when {
+                    f.isAbsolute -> f
+                    File(outDir, spec.removePrefix("./").removePrefix("/")).isFile -> File(outDir, spec.removePrefix("./").removePrefix("/"))
+                    File(buildDir, spec).isFile -> File(buildDir, spec)
+                    File(rootDir, spec).isFile -> File(rootDir, spec)
+                    else -> null
+                }
+            }
+            if (candidateFile != null && candidateFile.isFile) {
+                val outCanonical = outDir.canonicalFile
+                val candCanonical = candidateFile.canonicalFile
+                if (candCanonical.path.startsWith(outCanonical.path + File.separator)) {
+                    stagedUrls.add("./${candCanonical.relativeTo(outCanonical).invariantSeparatorsPath}")
+                } else {
+                    val dst = File(File(outDir, "gui/sw-plugins"), candidateFile.name)
+                    dst.parentFile?.mkdirs()
+                    candidateFile.copyTo(dst, overwrite = true)
+                    stagedUrls.add("./gui/sw-plugins/${candidateFile.name}")
+                }
+            } else {
+                val normalized = spec.replace('\\', '/').removePrefix("./").removePrefix("/")
+                if (normalized.isNotEmpty()) {
+                    stagedUrls.add("./$normalized")
+                }
+            }
+        }
+        return stagedUrls.toList()
+    }
+
     private fun collectOfflineResourcePaths(
         outDir: File,
         resolvedBase: String,
         manifestFileName: String,
+        isManifestActive: Boolean,
         appStylesheetRelPath: String?,
         stagedIconName: String?,
         iconPrefix: String,
         stagedWasmRelPath: String,
         stagedJsRelPath: String,
+        swPluginUrls: List<String>,
+        swOfflineUrls: List<String> = emptyList(),
+        swBinaryBases: List<String> = emptyList(),
         resourceDescriptors: List<GenericUiWebResourceDescriptor>
     ): List<String> {
         val paths = linkedSetOf<String>()
         paths.add("./")
         paths.add("index.html")
-        paths.add(manifestFileName)
+        if (isManifestActive) {
+            paths.add(manifestFileName)
+        }
         paths.add("genericui-namespace.xml")
         paths.add("loader.js")
         paths.add("resources.json")
@@ -1284,6 +1478,22 @@ abstract class GenericUiWebDistributionTask : DefaultTask() {
         }
         paths.add(stagedWasmRelPath)
         paths.add(stagedJsRelPath)
+        swBinaryBases.forEach { swBase ->
+            if (File(outDir, "$swBase.sw.wasm").isFile) {
+                paths.add("$swBase.sw.wasm")
+            }
+            if (File(outDir, "$swBase.sw.js").isFile) {
+                paths.add("$swBase.sw.js")
+            }
+        }
+        swPluginUrls.forEach { pluginUrl ->
+            val rel = pluginUrl.removePrefix("./").removePrefix("/")
+            if (rel.isNotEmpty()) paths.add(rel)
+        }
+        swOfflineUrls.forEach { rawUrl ->
+            val rel = rawUrl.removePrefix("./").removePrefix("/")
+            if (rel.isNotEmpty()) paths.add(rel)
+        }
 
         // Include all generated & configured icon files
         if (!stagedIconName.isNullOrBlank()) {
@@ -1310,19 +1520,43 @@ abstract class GenericUiWebDistributionTask : DefaultTask() {
             paths.add(d.path)
         }
 
-        // Include any remaining files in outDir (excluding genericui-sw.js itself)
+        // Include any remaining files in outDir (excluding serviceworker.js itself)
         outDir.walkTopDown().filter { it.isFile }.forEach { f ->
             val rel = f.relativeTo(outDir).invariantSeparatorsPath
-            if (rel != "genericui-sw.js" && rel != "gui/genericui-sw.js") {
+            if (rel != "serviceworker.js" &&
+                rel != "genericui-sw.js" &&
+                rel != "gui/genericui-sw.js" &&
+                !rel.startsWith("META-INF/", ignoreCase = true)
+            ) {
                 paths.add(rel)
             }
         }
 
+        // Include any extension-contributed offline cache URLs
+        val explicitExternalUrls = linkedSetOf<String>()
+        swOfflineUrls.forEach { rawUrl ->
+            val clean = rawUrl.trim()
+            if (clean.isEmpty()) return@forEach
+            if (clean.startsWith("http://", ignoreCase = true) || clean.startsWith("https://", ignoreCase = true)) {
+                paths.add(clean)
+                explicitExternalUrls.add(clean)
+            } else {
+                val rel = clean.removePrefix("./").removePrefix("/")
+                if (rel.isNotEmpty()) paths.add(rel)
+            }
+        }
+
         // Only list files that actually exist in the distribution: a single 404 makes the service worker's
-        // cache.addAll() reject. "./", index.html, and the web manifest are written after this list is built.
-        val writtenLater = setOf("./", "index.html", manifestFileName)
+        // cache.addAll() reject. "./" and index.html (and manifestFileName when enabled) are written after this list.
+        val writtenLater = buildSet {
+            add("./")
+            add("index.html")
+            if (isManifestActive) add(manifestFileName)
+        }
         return paths.filter { p ->
-            p in writtenLater || File(outDir, p.substringBefore('?')).isFile
+            p in writtenLater ||
+                p in explicitExternalUrls ||
+                File(outDir, p.substringBefore('?')).isFile
         }
     }
 
@@ -1388,7 +1622,7 @@ abstract class GenericUiWebDistributionTask : DefaultTask() {
         outDir: File,
         defaultTitle: String,
         stagedIconName: String?,
-        iconPrefix: String = "res",
+        iconPrefix: String = "app",
         resolvedThemeColor: String,
         offlineResources: List<String> = emptyList()
     ): String = generateWebManifestJson(
@@ -1406,7 +1640,7 @@ abstract class GenericUiWebDistributionTask : DefaultTask() {
         outDir: File,
         defaultTitle: String,
         stagedIconName: String?,
-        iconPrefix: String = "res",
+        iconPrefix: String = "app",
         resolvedThemeColor: String,
         offlineResources: List<String> = emptyList()
     ): String {
@@ -1567,23 +1801,108 @@ abstract class GenericUiWebDistributionTask : DefaultTask() {
         return "{\n" + lines.joinToString(",\n") + "\n}\n"
     }
 
-    internal fun generateServiceWorkerJs(offlineResources: List<String>): String {
+    internal fun generateServiceWorkerJs(offlineResources: List<String>): String =
+        generateServiceWorkerJs(
+            offlineResources = offlineResources,
+            buildHash = "v1",
+            pluginScriptUrls = emptyList(),
+            wasmBaseNames = emptyList()
+        )
+
+    internal fun generateServiceWorkerJs(
+        offlineResources: List<String>,
+        buildHash: String,
+        pluginScriptUrls: List<String> = emptyList(),
+        wasmBaseNames: List<String> = emptyList()
+    ): String {
+        val cleanHash = buildHash.trim().ifEmpty { "v1" }
         val resourceItems = offlineResources.joinToString(",\n") { res ->
             """        "${escapeJson(res)}""""
         }
-        return """/* GenericUI Offline Progressive Web App Service Worker (genericui-sw.js) */
+        val importPluginsCode = if (pluginScriptUrls.isNotEmpty()) {
+            val quoted = pluginScriptUrls.joinToString(", ") { "\"${escapeJson(it)}\"" }
+            "    try { if (typeof importScripts === \"function\") { importScripts($quoted); } } catch (e) {}\n"
+        } else {
+            ""
+        }
+        val swWasmBasesLiteral = wasmBaseNames.joinToString(", ") { "\"${escapeJson(it)}\"" }
+        return """/* GenericUI Unified Web & PWA Service Worker (serviceworker.js) */
 (function (self) {
     "use strict";
 
-    const CACHE_NAME = "genericui-offline-v1";
+    const BUILD_HASH = "${escapeJson(cleanHash)}";
+    const CACHE_NAME = "genericui-offline-" + BUILD_HASH;
     const OFFLINE_RESOURCES = [
 $resourceItems
     ];
+    const SW_WASM_BASES = [$swWasmBasesLiteral];
+    const plugins = [];
+
+    function dispatchPluginHook(hookName, arg) {
+        var tasks = [];
+        for (var i = 0; i < plugins.length; i++) {
+            var p = plugins[i];
+            if (p && typeof p[hookName] === "function") {
+                try {
+                    var res = p[hookName](arg);
+                    if (res !== undefined) {
+                        tasks.push(Promise.resolve(res));
+                    }
+                } catch (err) {
+                }
+            }
+        }
+        return Promise.all(tasks);
+    }
+
+    self.GenericUiServiceWorker = {
+        buildHash: BUILD_HASH,
+        cacheName: CACHE_NAME,
+        wasmBases: SW_WASM_BASES,
+        getOfflineResources: function () {
+            return OFFLINE_RESOURCES.slice();
+        },
+        registerPlugin: function (plugin) {
+            if (plugin && typeof plugin === "object") {
+                plugins.push(plugin);
+            }
+        }
+    };
+
+${importPluginsCode}    if (SW_WASM_BASES.length > 0 && typeof importScripts === "function" && !self.__genericuiSwBundlesLoaded) {
+        self.__genericuiSwBundlesLoaded = true;
+        for (var i = 0; i < SW_WASM_BASES.length; i++) {
+            try {
+                importScripts("./" + SW_WASM_BASES[i] + ".sw.js");
+            } catch (err) {
+                try {
+                    if (self.console && typeof self.console.warn === "function") {
+                        self.console.warn("[GenericUI SW] Failed to boot worker bundle " + SW_WASM_BASES[i] + ":", err);
+                    }
+                } catch (ignored) {}
+            }
+        }
+    }
 
     self.addEventListener("install", function (event) {
         event.waitUntil(
             caches.open(CACHE_NAME).then(function (cache) {
-                return cache.addAll(OFFLINE_RESOURCES);
+                return Promise.all(
+                    OFFLINE_RESOURCES.map(function (url) {
+                        return cache.match(url, { ignoreSearch: true }).then(function (existing) {
+                            if (existing) {
+                                return;
+                            }
+                            return fetch(url, { credentials: "same-origin" }).then(function (resp) {
+                                if (resp && resp.ok && resp.type !== "opaque") {
+                                    return cache.put(url, resp);
+                                }
+                            }).catch(function () {});
+                        });
+                    })
+                );
+            }).then(function () {
+                return dispatchPluginHook("onInstall", event);
             }).then(function () {
                 return self.skipWaiting();
             })
@@ -1603,11 +1922,25 @@ $resourceItems
                 );
             }).then(function () {
                 return self.clients.claim();
+            }).then(function () {
+                return dispatchPluginHook("onActivate", event);
             })
         );
     });
 
     self.addEventListener("fetch", function (event) {
+        for (var i = 0; i < plugins.length; i++) {
+            var p = plugins[i];
+            if (p && typeof p.onFetch === "function") {
+                try {
+                    var handled = p.onFetch(event);
+                    if (handled === true) {
+                        return;
+                    }
+                } catch (err) {
+                }
+            }
+        }
         if (!event.request || event.request.method !== "GET") {
             return;
         }
@@ -1633,6 +1966,29 @@ $resourceItems
                 });
             })
         );
+    });
+
+    self.addEventListener("push", function (event) {
+        event.waitUntil(dispatchPluginHook("onPush", event));
+    });
+
+    self.addEventListener("notificationclick", function (event) {
+        event.waitUntil(dispatchPluginHook("onNotificationClick", event));
+    });
+
+    self.addEventListener("notificationclose", function (event) {
+        event.waitUntil(dispatchPluginHook("onNotificationClose", event));
+    });
+
+    self.addEventListener("sync", function (event) {
+        event.waitUntil(dispatchPluginHook("onSync", event));
+    });
+
+    self.addEventListener("message", function (event) {
+        var result = dispatchPluginHook("onMessage", event);
+        if (event && typeof event.waitUntil === "function") {
+            event.waitUntil(result);
+        }
     });
 })(typeof self !== "undefined" ? self : this);
 """
@@ -2887,6 +3243,40 @@ genericui\:toolpalette { display: grid; box-sizing: border-box; }"""
         }
     }
 
+    function resolveOfflineBuildHash() {
+        var doc = global.document;
+        if (doc && typeof doc.getElementById === "function") {
+            var hashMeta = doc.getElementById("genericui-build-hash");
+            if (hashMeta) {
+                var content = hashMeta.getAttribute("content");
+                if (content && String(content).replace(/^\s+|\s+$/g, "")) {
+                    return String(content).replace(/^\s+|\s+$/g, "");
+                }
+            }
+            var manifestLink = doc.getElementById("genericui-resources-manifest");
+            var href = manifestLink ? manifestLink.getAttribute("href") : "";
+            if (href && href.indexOf("?") !== -1) {
+                var queryHash = href.split("?")[1].split("#")[0];
+                if (queryHash) {
+                    return queryHash.slice(0, 12);
+                }
+            }
+        }
+        return "v1";
+    }
+
+    function openOfflineCacheSafe() {
+        if (!global.caches || typeof global.caches.open !== "function") {
+            return Promise.resolve(null);
+        }
+        var cacheName = "genericui-offline-" + resolveOfflineBuildHash();
+        try {
+            return global.caches.open(cacheName).catch(function () { return null; });
+        } catch (e) {
+            return Promise.resolve(null);
+        }
+    }
+
     function downloadWithProgress(url, minPct, maxPct, statusMessage, expectedBytes) {
         var resolvedStatus = normalizeStatusMessage(statusMessage);
         if (state.totalBytes <= 0) {
@@ -2955,25 +3345,8 @@ genericui\:toolpalette { display: grid; box-sizing: border-box; }"""
         }
 
         var absoluteUrl = resolveAbsoluteUrl(url);
-        return global.fetch(url, { credentials: "same-origin" }).then(function (response) {
-            if (!response.ok) {
-                var errContentType = response.headers ? response.headers.get("Content-Type") : "";
-                logDiagnostic("GET " + absoluteUrl + " -> " + response.status + " " + response.statusText + " (" + (errContentType || "no content-type") + ")");
-                throw createLoaderError(
-                    "HTTP " + response.status + " " + (response.statusText || "") + " while downloading " + absoluteUrl,
-                    null,
-                    {
-                        phase: resolvedStatus,
-                        requestedUrl: url,
-                        resolvedUrl: absoluteUrl,
-                        responseUrl: response.url,
-                        redirected: response.redirected,
-                        httpStatus: response.status,
-                        httpStatusText: response.statusText,
-                        contentType: errContentType
-                    }
-                );
-            }
+
+        function readResponseWithProgress(response) {
             var contentLengthHeader = response.headers ? response.headers.get("Content-Length") : null;
             var totalBytes = contentLengthHeader ? parseInt(contentLengthHeader, 10) : 0;
             logDiagnostic("GET " + absoluteUrl + " -> " + response.status + " (" + (response.headers ? response.headers.get("Content-Type") : "?") + ", " + (totalBytes || "unknown") + " bytes)");
@@ -3038,6 +3411,46 @@ genericui\:toolpalette { display: grid; box-sizing: border-box; }"""
             }
 
             return pump();
+        }
+
+        return openOfflineCacheSafe().then(function (offlineCache) {
+            var matchPromise = (offlineCache && typeof offlineCache.match === "function")
+                ? offlineCache.match(url, { ignoreSearch: true }).catch(function () { return null; })
+                : Promise.resolve(null);
+            return matchPromise.then(function (cachedResponse) {
+                if (cachedResponse) {
+                    return readResponseWithProgress(cachedResponse);
+                }
+                return global.fetch(url, { credentials: "same-origin" }).then(function (response) {
+                    if (!response.ok) {
+                        var errContentType = response.headers ? response.headers.get("Content-Type") : "";
+                        logDiagnostic("GET " + absoluteUrl + " -> " + response.status + " " + response.statusText + " (" + (errContentType || "no content-type") + ")");
+                        throw createLoaderError(
+                            "HTTP " + response.status + " " + (response.statusText || "") + " while downloading " + absoluteUrl,
+                            null,
+                            {
+                                phase: resolvedStatus,
+                                requestedUrl: url,
+                                resolvedUrl: absoluteUrl,
+                                responseUrl: response.url,
+                                redirected: response.redirected,
+                                httpStatus: response.status,
+                                httpStatusText: response.statusText,
+                                contentType: errContentType
+                            }
+                        );
+                    }
+                    if (offlineCache && response.type !== "opaque" && typeof response.clone === "function") {
+                        try {
+                            var cacheClone = response.clone();
+                            var cleanUrl = url.split("?")[0].split("#")[0];
+                            offlineCache.put(cleanUrl || url, cacheClone).catch(function () {});
+                        } catch (cacheErr) {
+                        }
+                    }
+                    return readResponseWithProgress(response);
+                });
+            });
         }).catch(function (fetchErr) {
             if (fetchErr && fetchErr.genericUiContext) {
                 throw fetchErr;
@@ -3315,7 +3728,7 @@ genericui\:toolpalette { display: grid; box-sizing: border-box; }"""
                     var item = drawables[resName];
                     if (item && typeof item === "object") {
                         var itemPath = item.path ? String(item.path).replace(/^\.?\//, "") : "";
-                        var rec = (itemPath && (store[itemPath] || store["res/" + itemPath] || store["res://" + itemPath])) ||
+                        var rec = (itemPath && (store[itemPath] || store["app/" + itemPath] || store["res/" + itemPath] || store["res://" + itemPath])) ||
                             store["drawable/" + resName] ||
                             store[resName];
                         if (rec) {
@@ -3325,7 +3738,9 @@ genericui\:toolpalette { display: grid; box-sizing: border-box; }"""
                             }
                             if (itemPath) {
                                 store[itemPath] = rec;
-                                store["res/" + itemPath] = rec;
+                                if (itemPath.indexOf("app/") !== 0 && itemPath.indexOf("gui/") !== 0 && itemPath.indexOf("res/") !== 0) {
+                                    store["app/" + itemPath] = rec;
+                                }
                                 store["res://" + itemPath] = rec;
                             }
                             registerNameKeysInStore(store, "drawable", resName, rec);
@@ -3417,34 +3832,27 @@ genericui\:toolpalette { display: grid; box-sizing: border-box; }"""
             var cleanPath = path.replace(/^\.?\//, "").split("?")[0];
             store[cleanPath] = record;
             store["res://" + cleanPath] = record;
-            store["res/" + cleanPath] = record;
+            if (cleanPath.indexOf("app/") !== 0 && cleanPath.indexOf("gui/") !== 0 && cleanPath.indexOf("res/") !== 0) {
+                store["app/" + cleanPath] = record;
+            }
             var lastSlashIdx = cleanPath.lastIndexOf("/");
             var fileName = lastSlashIdx >= 0 ? cleanPath.substring(lastSlashIdx + 1) : cleanPath;
             if (fileName) {
                 if (!store[fileName]) store[fileName] = record;
-                if (!store["res/" + fileName]) store["res/" + fileName] = record;
-                if (!store["assets/drawable/" + fileName]) store["assets/drawable/" + fileName] = record;
-                if (!store["res/assets/drawable/" + fileName]) store["res/assets/drawable/" + fileName] = record;
-                if (!store["res://assets/drawable/" + fileName]) store["res://assets/drawable/" + fileName] = record;
+                if (!store["app/" + fileName]) store["app/" + fileName] = record;
                 if (!store["drawable/" + fileName]) store["drawable/" + fileName] = record;
                 if (!store["res://drawable/" + fileName]) store["res://drawable/" + fileName] = record;
             }
-            if (cleanPath.indexOf("res/") === 0) {
-                var strippedRes = cleanPath.substring(4);
-                if (strippedRes) {
-                    store[strippedRes] = record;
-                    store["res://" + strippedRes] = record;
-                }
-            } else if (cleanPath.indexOf("gui/") === 0) {
-                var strippedGui = cleanPath.substring(4);
-                if (strippedGui) {
-                    store[strippedGui] = record;
-                    store["res://" + strippedGui] = record;
+            if (cleanPath.indexOf("app/") === 0 || cleanPath.indexOf("gui/") === 0 || cleanPath.indexOf("res/") === 0) {
+                var strippedScoped = cleanPath.substring(4);
+                if (strippedScoped) {
+                    store[strippedScoped] = record;
+                    store["res://" + strippedScoped] = record;
                 }
             }
             var relForIdent = cleanPath
-                .replace(/^(?:res|gui)\//i, "")
-                .replace(/^assets\/drawable\//i, "")
+                .replace(/^(?:app|res|gui)\//i, "")
+                .replace(/^ext\/[^\/]+\/[^\/]+\//i, "")
                 .replace(/^(?:drawable|mipmap|icons|images)\//i, "");
             if (relForIdent && relForIdent.indexOf("/") !== -1) {
                 var relNoExt = relForIdent.replace(/\.[^.\/]+$/, "");
@@ -3554,11 +3962,14 @@ genericui\:toolpalette { display: grid; box-sizing: border-box; }"""
         if (store["res://" + clean]) {
             return store["res://" + clean];
         }
-        if (store["res/" + clean]) {
-            return store["res/" + clean];
+        if (store["app/" + clean]) {
+            return store["app/" + clean];
         }
         if (store["gui/" + clean]) {
             return store["gui/" + clean];
+        }
+        if (store["res/" + clean]) {
+            return store["res/" + clean];
         }
         return null;
     }
@@ -4417,15 +4828,42 @@ genericui\:toolpalette { display: grid; box-sizing: border-box; }"""
         return root;
     }
 
+    function unregisterLegacyServiceWorkers() {
+        if (!global.navigator || !("serviceWorker" in global.navigator)) {
+            return Promise.resolve();
+        }
+        var sw = global.navigator.serviceWorker;
+        if (!sw || typeof sw.getRegistrations !== "function") {
+            return Promise.resolve();
+        }
+        return sw.getRegistrations().then(function (regs) {
+            if (!Array.isArray(regs)) return;
+            var removals = [];
+            for (var i = 0; i < regs.length; i++) {
+                var reg = regs[i];
+                var url = (reg && reg.active && reg.active.scriptURL) ||
+                    (reg && reg.waiting && reg.waiting.scriptURL) ||
+                    (reg && reg.installing && reg.installing.scriptURL) ||
+                    "";
+                if (/\/(?:gui\/)?genericui-sw\.js(?:\?.*)?$/i.test(url) && typeof reg.unregister === "function") {
+                    removals.push(reg.unregister().catch(function () {}));
+                }
+            }
+            return Promise.all(removals);
+        }).catch(function () {});
+    }
+
     function registerServiceWorkerIfEnabled() {
         var doc = global.document;
         if (!doc || !global.navigator || !("serviceWorker" in global.navigator)) {
             return;
         }
         var manifestLink = typeof doc.getElementById === "function" ? doc.getElementById("genericui-web-manifest") : null;
-        if (manifestLink && global.navigator.serviceWorker && typeof global.navigator.serviceWorker.register === "function") {
+        var swMeta = typeof doc.getElementById === "function" ? doc.getElementById("genericui-sw-enabled") : null;
+        var isSwEnabled = Boolean(manifestLink) || Boolean(swMeta && swMeta.getAttribute("content") === "true");
+        if (isSwEnabled && global.navigator.serviceWorker && typeof global.navigator.serviceWorker.register === "function") {
             try {
-                var p = global.navigator.serviceWorker.register('./gui/genericui-sw.js');
+                var p = global.navigator.serviceWorker.register("./serviceworker.js");
                 if (p && typeof p.catch === "function") {
                     p.catch(function () {});
                 }
@@ -4438,7 +4876,7 @@ genericui\:toolpalette { display: grid; box-sizing: border-box; }"""
         applyInitialBrowserTheme();
         installGlobalErrorListeners();
         ensureRootContainer();
-        registerServiceWorkerIfEnabled();
+        unregisterLegacyServiceWorkers();
         var config = resolveLoaderConfig();
 
         updateProgress(0, STATUS_INITIALIZING);
@@ -4458,6 +4896,9 @@ genericui\:toolpalette { display: grid; box-sizing: border-box; }"""
                     .then(function () {
                         return loadAdditionalJsScriptsSequentially(config.additionalJsUrls);
                     });
+            })
+            .then(function () {
+                registerServiceWorkerIfEnabled();
             })
             .catch(function (err) {
                 showError(err, STATUS_ERROR);

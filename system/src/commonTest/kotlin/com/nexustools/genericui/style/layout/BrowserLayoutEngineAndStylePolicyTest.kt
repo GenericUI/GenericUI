@@ -221,15 +221,14 @@ class BrowserLayoutEngineAndStylePolicyTest {
             assertTrue(AestheticStylePolicy.supportsExtendedVisualStyles(comp, LayoutBackendTarget.WINDOWS))
             assertTrue(AestheticStylePolicy.supportsExtendedVisualStyles(comp, LayoutBackendTarget.ANDROID))
             assertTrue(AestheticStylePolicy.supportsExtendedVisualStyles(comp, LayoutBackendTarget.IPADOS))
-            assertTrue(AestheticStylePolicy.supportsBackdropFilterBlur(comp, LayoutBackendTarget.WEB))
-            assertTrue(AestheticStylePolicy.supportsBackdropFilterBlur(comp, LayoutBackendTarget.ANDROID))
-            assertTrue(AestheticStylePolicy.supportsBackdropFilterBlur(comp, LayoutBackendTarget.IOS))
-            assertTrue(AestheticStylePolicy.supportsBackdropFilterBlur(comp, LayoutBackendTarget.IPADOS))
-            assertFalse(AestheticStylePolicy.supportsBackdropFilterBlur(comp, LayoutBackendTarget.WINDOWS))
-            assertFalse(AestheticStylePolicy.supportsBackdropFilterBlur(comp, LayoutBackendTarget.MACOS))
-            assertFalse(AestheticStylePolicy.supportsBackdropFilterBlur(comp, LayoutBackendTarget.GTK))
-            assertFalse(AestheticStylePolicy.supportsBackdropFilterBlur(comp, LayoutBackendTarget.QT))
-            assertFalse(AestheticStylePolicy.supportsBackdropFilterBlur(comp, LayoutBackendTarget.SWING))
+            val supportsBackdrop = comp === styledContainer || comp === styledButton
+            for (target in LayoutBackendTarget.entries) {
+                if (supportsBackdrop) {
+                    assertTrue(AestheticStylePolicy.supportsBackdropFilterBlur(comp, target))
+                } else {
+                    assertFalse(AestheticStylePolicy.supportsBackdropFilterBlur(comp, target))
+                }
+            }
             assertFalse(AestheticStylePolicy.usesSystemThemeControlAppearance(comp, LayoutBackendTarget.WINDOWS))
             assertFalse(AestheticStylePolicy.usesSystemThemeControlAppearance(comp, LayoutBackendTarget.ANDROID))
             assertFalse(AestheticStylePolicy.usesSystemThemeControlAppearance(comp, LayoutBackendTarget.IPADOS))
@@ -242,7 +241,9 @@ class BrowserLayoutEngineAndStylePolicyTest {
             assertFalse(AestheticStylePolicy.supportsExtendedVisualStyles(comp, LayoutBackendTarget.ANDROID))
             assertFalse(AestheticStylePolicy.supportsExtendedVisualStyles(comp, LayoutBackendTarget.IPADOS))
             assertTrue(AestheticStylePolicy.supportsExtendedVisualStyles(comp, LayoutBackendTarget.WEB))
-            assertFalse(AestheticStylePolicy.supportsBackdropFilterBlur(comp, LayoutBackendTarget.IPADOS))
+            for (target in LayoutBackendTarget.entries) {
+                assertFalse(AestheticStylePolicy.supportsBackdropFilterBlur(comp, target))
+            }
             assertTrue(AestheticStylePolicy.usesSystemThemeControlAppearance(comp, LayoutBackendTarget.WINDOWS))
             assertTrue(AestheticStylePolicy.usesSystemThemeControlAppearance(comp, LayoutBackendTarget.ANDROID))
             assertTrue(AestheticStylePolicy.usesSystemThemeControlAppearance(comp, LayoutBackendTarget.IOS))
@@ -250,7 +251,7 @@ class BrowserLayoutEngineAndStylePolicyTest {
             assertFalse(AestheticStylePolicy.usesSystemThemeControlAppearance(comp, LayoutBackendTarget.WEB))
         }
 
-        // StyledVisualSpec backdrop-filter parsing & per-backend filtering
+        // StyledVisualSpec backdrop-filter parsing & StyledContainer-only retention
         val sheet = CssStyleSheet.parse(
             """
             .hud-pill {
@@ -261,31 +262,37 @@ class BrowserLayoutEngineAndStylePolicyTest {
             }
             """.trimIndent()
         )
+        styledContainer.addClass("hud-pill")
+        styledContainer.applyStyleSheet(sheet)
         styledButton.addClass("hud-pill")
         styledButton.applyStyleSheet(sheet)
+        textBubble.addClass("hud-pill")
+        textBubble.applyStyleSheet(sheet)
 
-        val fullSpec = StyledVisualSpec.fromComponentAndComputed(
-            componentStyle = styledButton.getStyle(),
-            computedStyle = styledButton.computedStyle
-        )
-        assertEquals(14f, fullSpec.backdropBlurPx)
-        assertTrue(fullSpec.hasBackdropBlur)
-        assertEquals(16f, fullSpec.boxShadowBlurPx)
-        assertEquals(RgbaColor(15, 23, 42, 0.72f), fullSpec.backgroundColor)
+        val containerSpec = styledContainer.resolveVisualSpec()
+        assertEquals(14f, containerSpec.backdropBlurPx)
+        assertTrue(containerSpec.hasBackdropBlur)
+        assertTrue(containerSpec.hasBackdropFilter)
+        assertEquals(16f, containerSpec.boxShadowBlurPx)
+        assertEquals(RgbaColor(15, 23, 42, 0.72f), containerSpec.backgroundColor)
 
-        val mobileSpec = fullSpec.forBackend(LayoutBackendTarget.ANDROID)
-        assertEquals(14f, mobileSpec.backdropBlurPx)
-        assertNotNull(mobileSpec.backdropFilter)
+        // TextBubble extends StyledContainer so resolveVisualSpec() must strip backdrop-filter
+        val bubbleSpec = textBubble.resolveVisualSpec()
+        assertNull(bubbleSpec.backdropBlurPx)
+        assertNull(bubbleSpec.backdropFilter)
+        assertNotNull(bubbleSpec.backgroundColor)
 
-        val ipadOsSpec = fullSpec.forBackend(LayoutBackendTarget.IPADOS)
-        assertEquals(14f, ipadOsSpec.backdropBlurPx)
-        assertNotNull(ipadOsSpec.backdropFilter)
+        for (target in LayoutBackendTarget.entries) {
+            val targetSpec = containerSpec.forBackend(target)
+            assertEquals(14f, targetSpec.backdropBlurPx)
+            assertNotNull(targetSpec.backdropFilter)
+        }
 
-        val desktopSpec = fullSpec.forBackend(LayoutBackendTarget.WINDOWS)
-        assertNull(desktopSpec.backdropBlurPx)
-        assertNull(desktopSpec.backdropFilter)
-        assertEquals(RgbaColor(15, 23, 42, 0.72f), desktopSpec.backgroundColor)
-        assertEquals(999f, desktopSpec.borderRadiusPx)
+        val strippedSpec = containerSpec.withoutBackdropFilter()
+        assertNull(strippedSpec.backdropBlurPx)
+        assertNull(strippedSpec.backdropFilter)
+        assertEquals(RgbaColor(15, 23, 42, 0.72f), strippedSpec.backgroundColor)
+        assertEquals(999f, strippedSpec.borderRadiusPx)
     }
 
     @Test

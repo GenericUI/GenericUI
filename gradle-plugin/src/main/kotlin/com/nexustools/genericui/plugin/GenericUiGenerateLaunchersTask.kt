@@ -143,6 +143,18 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
     @get:Optional
     abstract val testingEnabled: Property<Boolean>
 
+    @get:Input
+    @get:Optional
+    abstract val baseName: Property<String>
+
+    @get:Input
+    @get:Optional
+    abstract val enabledExtensionModulePaths: ListProperty<String>
+
+    @get:Input
+    @get:Optional
+    abstract val extensionOptions: MapProperty<String, String>
+
     @get:OutputDirectory
     abstract val outputDirectory: DirectoryProperty
 
@@ -152,6 +164,9 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
         resourcesEnabled.convention(true)
         generateVisualWindowsTestHelper.convention(false)
         testingEnabled.convention(true)
+        baseName.convention("")
+        enabledExtensionModulePaths.convention(emptyList())
+        extensionOptions.convention(emptyMap())
     }
 
     @TaskAction
@@ -232,6 +247,39 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
         val styleSheetFqns = precompiledStyleSheetObjectFqns.getOrElse(emptyList())
             .map { it.trim() }
             .filter { it.isNotEmpty() }
+        val enabledExtPathsSet = enabledExtensionModulePaths.getOrElse(emptyList())
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .toSet()
+        val scanSpecs = com.nexustools.genericui.plugin.spi.GenericUiExtensionContributorRegistry
+            .allAnnotationScanSpecs(enabledExtPathsSet, projectDir)
+        val discoveredSymbols = GenericUiFragmentScanner.scanProjectSymbols(
+            projectDir = projectDir,
+            scanSpecs = scanSpecs,
+            extraDirectories = extraDirs
+        )
+        val resolvedBaseName = baseName.orNull?.trim().orEmpty().ifEmpty { projectDir.name }
+        val mergedExtOptions = LinkedHashMap<String, String>(extensionOptions.getOrElse(emptyMap())).apply {
+            putIfAbsent(
+                com.nexustools.genericui.plugin.spi.ServiceWorkerExtensionContributor.OPTION_ENABLED_BACKENDS,
+                allEnabledScopes.joinToString(",") { it.id }
+            )
+        }
+        val validationContext = com.nexustools.genericui.plugin.spi.ExtensionBuildContext(
+            projectRootDir = projectDir,
+            projectName = projectDir.name,
+            appId = appIdsMap.values.firstOrNull() ?: "com.nexustools.genericui.app",
+            appName = appNamesMap.values.firstOrNull() ?: resolvedBaseName,
+            appVersion = appVersionsMap.values.firstOrNull() ?: "1.0.0",
+            baseName = resolvedBaseName,
+            generatedPackageName = effectiveGenPkg,
+            enabledExtensionModulePaths = enabledExtPathsSet,
+            discoveredFragments = discovered,
+            discoveredSymbols = discoveredSymbols,
+            extensionOptions = mergedExtOptions
+        )
+        com.nexustools.genericui.plugin.spi.GenericUiExtensionContributorRegistry
+            .validateActiveContributors(validationContext, discoveredSymbols)
 
         for (backendScope in enabledScopes) {
             val key = backendScope.id
@@ -263,7 +311,52 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
                 windowSizeExplicitlySet = sizeExplicitMap[key] ?: false,
                 fullscreenExplicitlySet = fullscreenExplicitMap[key] ?: false
             )
-            val providerCalls = providerCallsMap[key].orEmpty()
+            val extContext = com.nexustools.genericui.plugin.spi.ExtensionBuildContext(
+                projectRootDir = projectDir,
+                projectName = projectDir.name,
+                appId = variantConfig.appId,
+                appName = variantConfig.appName,
+                appVersion = variantConfig.appVersion,
+                baseName = resolvedBaseName,
+                generatedPackageName = effectiveGenPkg,
+                enabledExtensionModulePaths = enabledExtPathsSet,
+                discoveredFragments = discovered,
+                discoveredSymbols = discoveredSymbols,
+                extensionOptions = mergedExtOptions
+            )
+            val activeContributors = com.nexustools.genericui.plugin.spi.GenericUiExtensionContributorRegistry
+                .activeContributors(enabledExtPathsSet, projectDir)
+            val spiProviderCalls = activeContributors
+                .flatMap { it.providerInstallerCalls(backendScope, extContext) }
+            val extraSources = mutableListOf<com.nexustools.genericui.plugin.spi.ExtensionGeneratedSource>()
+            for (c in activeContributors) {
+                extraSources.addAll(c.generatedLauncherSources(backendScope, extContext))
+                if (isDesktopBackendScope(backendScope)) {
+                    c.contributeDesktop(extContext)?.let { d ->
+                        extraSources.addAll(d.generatedSources)
+                        d.secondaryExecutables.mapNotNull { it.generatedEntrypointSource }.forEach { extraSources.add(it) }
+                    }
+                } else if (backendScope == GenericUiVariantScope.IOS || backendScope == GenericUiVariantScope.IPADOS) {
+                    c.contributeAppleMobile(extContext)?.let { a ->
+                        extraSources.addAll(a.generatedSources)
+                    }
+                }
+            }
+            val providerCalls = (providerCallsMap[key].orEmpty() + spiProviderCalls)
+                .map { it.trim() }
+                .filter { it.isNotEmpty() }
+                .distinct()
+
+            val swActive = com.nexustools.genericui.plugin.spi.ServiceWorkerExtensionContributor.SERVICE_WORKER_MODULE_PATH in enabledExtPathsSet &&
+                backendScope != GenericUiVariantScope.IOS &&
+                backendScope != GenericUiVariantScope.IPADOS &&
+                com.nexustools.genericui.plugin.spi.ServiceWorkerExtensionContributor.hasResolvedWorkerForBackend(extContext, backendScope)
+            val desktopSwOptionsExpr = if (swActive && isDesktopBackendScope(backendScope)) {
+                com.nexustools.genericui.plugin.spi.ServiceWorkerExtensionContributor.buildOptionsExpressionForBackend(extContext, backendScope)
+            } else {
+                null
+            }
+            val webSwActive = swActive && backendScope == GenericUiVariantScope.WEB
 
             generateBackendLauncherFiles(
                 outputRootDir = outRoot,
@@ -274,7 +367,10 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
                 providerInstallerCalls = providerCalls,
                 resourcesEnabled = resEnabled,
                 resourcePackage = resPkg,
-                precompiledStyleSheetObjectFqns = styleSheetFqns
+                precompiledStyleSheetObjectFqns = styleSheetFqns,
+                extraGeneratedSources = extraSources,
+                desktopServiceWorkerOptionsExpr = desktopSwOptionsExpr,
+                hasWebServiceWorker = webSwActive
             )
         }
 
@@ -397,12 +493,89 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
                     )
                 )
             }
+            extension.extensions.syncServiceWorkerExtensionOptions()
+            val enabledExtPathsSet = extension.extensions.enabledExtensionModulePaths().toSet()
+            val scanSpecs = com.nexustools.genericui.plugin.spi.GenericUiExtensionContributorRegistry
+                .allAnnotationScanSpecs(enabledExtPathsSet, projectDir)
+            val discoveredSymbols = GenericUiFragmentScanner.scanProjectSymbols(
+                projectDir = projectDir,
+                scanSpecs = scanSpecs
+            )
+            val resolvedBaseName = extension.application.baseName.trim().ifEmpty { projectDir.name }
+            val mergedExtOptions = LinkedHashMap<String, String>(extension.extensions.extensionOptions).apply {
+                putIfAbsent(
+                    com.nexustools.genericui.plugin.spi.ServiceWorkerExtensionContributor.OPTION_ENABLED_BACKENDS,
+                    allTargetScopes.joinToString(",") { it.id }
+                )
+            }
+            val firstVariant = targetScopes.firstOrNull()?.let { GenericUiVariantResolver.resolve(extension, it) }
+            val validationContext = com.nexustools.genericui.plugin.spi.ExtensionBuildContext(
+                projectRootDir = projectDir,
+                projectName = projectDir.name,
+                appId = firstVariant?.appId ?: extension.app.id.trim().ifEmpty { extension.application.appId },
+                appName = firstVariant?.appName ?: resolvedBaseName,
+                appVersion = firstVariant?.appVersion ?: extension.app.version.trim().ifEmpty { extension.application.appVersion },
+                baseName = resolvedBaseName,
+                generatedPackageName = generatedPkg,
+                enabledExtensionModulePaths = enabledExtPathsSet,
+                discoveredFragments = discovered,
+                discoveredSymbols = discoveredSymbols,
+                extensionOptions = mergedExtOptions
+            )
+            val activeContributors = com.nexustools.genericui.plugin.spi.GenericUiExtensionContributorRegistry
+                .activeContributors(enabledExtPathsSet, projectDir)
+            com.nexustools.genericui.plugin.spi.GenericUiExtensionContributorRegistry
+                .validateActiveContributors(validationContext, discoveredSymbols)
+
             for (scope in targetScopes) {
                 val variantConfig = GenericUiVariantResolver.resolve(extension, scope)
-                val providerCalls = extension.extensions.providerInstallerCallsForBackend(
-                    backendScope = scope,
-                    extensionOverrides = variantConfig.extensionOverrides
+                val extContext = com.nexustools.genericui.plugin.spi.ExtensionBuildContext(
+                    projectRootDir = projectDir,
+                    projectName = projectDir.name,
+                    appId = variantConfig.appId,
+                    appName = variantConfig.appName,
+                    appVersion = variantConfig.appVersion,
+                    baseName = resolvedBaseName,
+                    generatedPackageName = generatedPkg,
+                    enabledExtensionModulePaths = enabledExtPathsSet,
+                    discoveredFragments = discovered,
+                    discoveredSymbols = discoveredSymbols,
+                    extensionOptions = mergedExtOptions
                 )
+                val spiProviderCalls = activeContributors.flatMap { it.providerInstallerCalls(scope, extContext) }
+                val extraSources = mutableListOf<com.nexustools.genericui.plugin.spi.ExtensionGeneratedSource>()
+                for (c in activeContributors) {
+                    extraSources.addAll(c.generatedLauncherSources(scope, extContext))
+                    if (isDesktopBackendScope(scope)) {
+                        c.contributeDesktop(extContext)?.let { d ->
+                            extraSources.addAll(d.generatedSources)
+                            d.secondaryExecutables.mapNotNull { it.generatedEntrypointSource }.forEach { extraSources.add(it) }
+                        }
+                    } else if (scope == GenericUiVariantScope.IOS || scope == GenericUiVariantScope.IPADOS) {
+                        c.contributeAppleMobile(extContext)?.let { a ->
+                            extraSources.addAll(a.generatedSources)
+                        }
+                    }
+                }
+                val baseProviderCalls = extension.extensions.providerInstallerCallsForBackend(
+                    backendScope = scope,
+                    extensionOverrides = variantConfig.extensionOverrides,
+                    generatedPackageName = generatedPkg
+                )
+                val providerCalls = (baseProviderCalls + spiProviderCalls)
+                    .map { it.trim() }
+                    .filter { it.isNotEmpty() }
+                    .distinct()
+                val swActive = com.nexustools.genericui.plugin.spi.ServiceWorkerExtensionContributor.SERVICE_WORKER_MODULE_PATH in enabledExtPathsSet &&
+                    scope != GenericUiVariantScope.IOS &&
+                    scope != GenericUiVariantScope.IPADOS &&
+                    com.nexustools.genericui.plugin.spi.ServiceWorkerExtensionContributor.hasResolvedWorkerForBackend(extContext, scope)
+                val desktopSwOptionsExpr = if (swActive && isDesktopBackendScope(scope)) {
+                    com.nexustools.genericui.plugin.spi.ServiceWorkerExtensionContributor.buildOptionsExpressionForBackend(extContext, scope)
+                } else {
+                    null
+                }
+                val webSwActive = swActive && scope == GenericUiVariantScope.WEB
                 generatedFiles.addAll(
                     generateBackendLauncherFiles(
                         outputRootDir = outputRootDir,
@@ -412,7 +585,10 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
                         variantConfig = variantConfig,
                         providerInstallerCalls = providerCalls,
                         resourcesEnabled = resEnabled,
-                        resourcePackage = resPkg
+                        resourcePackage = resPkg,
+                        extraGeneratedSources = extraSources,
+                        desktopServiceWorkerOptionsExpr = desktopSwOptionsExpr,
+                        hasWebServiceWorker = webSwActive
                     )
                 )
             }
@@ -444,7 +620,10 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
             providerInstallerCalls: List<String>,
             resourcesEnabled: Boolean,
             resourcePackage: String,
-            precompiledStyleSheetObjectFqns: List<String> = emptyList()
+            precompiledStyleSheetObjectFqns: List<String> = emptyList(),
+            extraGeneratedSources: List<com.nexustools.genericui.plugin.spi.ExtensionGeneratedSource> = emptyList(),
+            desktopServiceWorkerOptionsExpr: String? = null,
+            hasWebServiceWorker: Boolean = false
         ): List<File> {
             val winningMain = GenericUiMainFragmentResolver.resolveMainFragmentForBackend(
                 discoveredFragments = discoveredFragments,
@@ -465,9 +644,11 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
 
             val targetCap = targetPascalCase(backendScope)
             val pkgRelPath = generatedPackage.replace('.', '/')
-            val targetOutDir = File(outputRootDir, "${backendScope.id}/kotlin/$pkgRelPath")
+            val targetKotlinRoot = File(outputRootDir, "${backendScope.id}/kotlin")
+            val targetOutDir = File(targetKotlinRoot, pkgRelPath)
             targetOutDir.mkdirs()
 
+            val generatedList = mutableListOf<File>()
             val descriptorObjectName = "Generated${targetCap}AppDescriptor"
             val descriptorFile = File(targetOutDir, "$descriptorObjectName.kt")
             descriptorFile.writeText(
@@ -485,6 +666,7 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
                     precompiledStyleSheetObjectFqns = precompiledStyleSheetObjectFqns
                 )
             )
+            generatedList.add(descriptorFile)
 
             val launcherMainFile = File(targetOutDir, "Generated${targetCap}LauncherMain.kt")
             launcherMainFile.writeText(
@@ -492,11 +674,24 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
                     generatedPackage = generatedPackage,
                     descriptorObjectName = descriptorObjectName,
                     backendScope = backendScope,
-                    globalStyleSheet = variantConfig.globalStyleSheet
+                    globalStyleSheet = variantConfig.globalStyleSheet,
+                    desktopServiceWorkerOptionsExpr = desktopServiceWorkerOptionsExpr,
+                    hasWebServiceWorker = hasWebServiceWorker
                 )
             )
+            generatedList.add(launcherMainFile)
 
-            return listOf(descriptorFile, launcherMainFile)
+            for (extra in extraGeneratedSources) {
+                if (extra.targetScope != null && extra.targetScope != backendScope) continue
+                val rel = extra.relativeFilePath.replace('\\', '/').trimStart('/')
+                if (rel.isEmpty()) continue
+                val dst = File(targetKotlinRoot, rel)
+                dst.parentFile?.mkdirs()
+                dst.writeText(extra.sourceCode, Charsets.UTF_8)
+                generatedList.add(dst)
+            }
+
+            return generatedList
         }
 
         private fun isDesktopBackendScope(scope: GenericUiVariantScope): Boolean = when (scope) {
@@ -707,7 +902,9 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
             generatedPackage: String,
             descriptorObjectName: String,
             backendScope: GenericUiVariantScope,
-            globalStyleSheet: String? = null
+            globalStyleSheet: String? = null,
+            desktopServiceWorkerOptionsExpr: String? = null,
+            hasWebServiceWorker: Boolean = false
         ): String = buildString {
             if (backendScope == GenericUiVariantScope.SWING) {
                 appendLine("@file:JvmName(\"GeneratedSwingMain\")")
@@ -730,37 +927,28 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
                 appendLine("}")
                 appendLine()
             }
+            fun appendDesktopMain(launcherFqn: String) {
+                appendLine("fun main(args: Array<String>) {")
+                if (desktopServiceWorkerOptionsExpr != null) {
+                    appendLine("    val descriptor = $descriptorObjectName.create()")
+                    appendLine("    GenericUI.defaultThemeConfig = descriptor.themeConfig")
+                    appendLine("    com.nexustools.genericui.ext.serviceworker.ServiceWorkerExtension.configure($desktopServiceWorkerOptionsExpr)")
+                    appendLine("    if (!com.nexustools.genericui.ext.serviceworker.ServiceWorkerExtension.prepareDesktopMainLaunch(args)) {")
+                    appendLine("        return")
+                    appendLine("    }")
+                    appendLine("    $launcherFqn(args, descriptor)")
+                } else {
+                    appendLine("    GenericUI.defaultThemeConfig = $descriptorObjectName.create().themeConfig")
+                    appendLine("    $launcherFqn(args, $descriptorObjectName.create())")
+                }
+                appendLine("}")
+            }
             when (backendScope) {
-                GenericUiVariantScope.WINDOWS -> {
-                    appendLine("fun main(args: Array<String>) {")
-                    appendLine("    GenericUI.defaultThemeConfig = $descriptorObjectName.create().themeConfig")
-                    appendLine("    com.nexustools.genericui.windows.WindowsLauncher.launch(args, $descriptorObjectName.create())")
-                    appendLine("}")
-                }
-                GenericUiVariantScope.MACOS -> {
-                    appendLine("fun main(args: Array<String>) {")
-                    appendLine("    GenericUI.defaultThemeConfig = $descriptorObjectName.create().themeConfig")
-                    appendLine("    com.nexustools.genericui.macos.MacosLauncher.launch(args, $descriptorObjectName.create())")
-                    appendLine("}")
-                }
-                GenericUiVariantScope.GTK -> {
-                    appendLine("fun main(args: Array<String>) {")
-                    appendLine("    GenericUI.defaultThemeConfig = $descriptorObjectName.create().themeConfig")
-                    appendLine("    com.nexustools.genericui.gtk.GtkLauncher.launch(args, $descriptorObjectName.create())")
-                    appendLine("}")
-                }
-                GenericUiVariantScope.QT -> {
-                    appendLine("fun main(args: Array<String>) {")
-                    appendLine("    GenericUI.defaultThemeConfig = $descriptorObjectName.create().themeConfig")
-                    appendLine("    com.nexustools.genericui.qt.QtLauncher.launch(args, $descriptorObjectName.create())")
-                    appendLine("}")
-                }
-                GenericUiVariantScope.SWING -> {
-                    appendLine("fun main(args: Array<String>) {")
-                    appendLine("    GenericUI.defaultThemeConfig = $descriptorObjectName.create().themeConfig")
-                    appendLine("    com.nexustools.genericui.swing.SwingLauncher.launch(args, $descriptorObjectName.create())")
-                    appendLine("}")
-                }
+                GenericUiVariantScope.WINDOWS -> appendDesktopMain("com.nexustools.genericui.windows.WindowsLauncher.launch")
+                GenericUiVariantScope.MACOS -> appendDesktopMain("com.nexustools.genericui.macos.MacosLauncher.launch")
+                GenericUiVariantScope.GTK -> appendDesktopMain("com.nexustools.genericui.gtk.GtkLauncher.launch")
+                GenericUiVariantScope.QT -> appendDesktopMain("com.nexustools.genericui.qt.QtLauncher.launch")
+                GenericUiVariantScope.SWING -> appendDesktopMain("com.nexustools.genericui.swing.SwingLauncher.launch")
                 GenericUiVariantScope.IOS -> {
                     appendLine("fun MainViewController() = com.nexustools.genericui.ios.IosLauncher.createRootViewController($descriptorObjectName.create())")
                     appendLine()
@@ -779,8 +967,20 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
                 }
                 GenericUiVariantScope.WEB -> {
                     appendLine("fun main() {")
-                    appendLine("    GenericUI.defaultThemeConfig = $descriptorObjectName.create().themeConfig")
-                    appendLine("    com.nexustools.genericui.web.WebLauncher.launch($descriptorObjectName.create())")
+                    if (hasWebServiceWorker) {
+                        appendLine("    val descriptor = $descriptorObjectName.create()")
+                        appendLine("    GenericUI.defaultThemeConfig = descriptor.themeConfig")
+                        appendLine("    if (com.nexustools.genericui.web.WebWorkerGlobalBridge.isWorkerGlobalScope) {")
+                        appendLine("        descriptor.resourceRegistryInstaller?.invoke()")
+                        appendLine("        descriptor.providerInstallers.forEach { it.invoke() }")
+                        appendLine("        com.nexustools.genericui.ext.serviceworker.ServiceWorkerExtension.ensureStarted()")
+                        appendLine("        return")
+                        appendLine("    }")
+                        appendLine("    com.nexustools.genericui.web.WebLauncher.launch(descriptor)")
+                    } else {
+                        appendLine("    GenericUI.defaultThemeConfig = $descriptorObjectName.create().themeConfig")
+                        appendLine("    com.nexustools.genericui.web.WebLauncher.launch($descriptorObjectName.create())")
+                    }
                     appendLine("}")
                 }
                 else -> Unit

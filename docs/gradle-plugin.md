@@ -10,13 +10,15 @@ The `:gradle-plugin` module provides `id("com.nexustools.genericui")` (`GenericU
 ## 1. What the Plugin Automates
 
 When `id("com.nexustools.genericui")` is applied:
-1. **Annotation-Driven Fragment & Application Discovery**: Scans Kotlin sources (`GenericUiFragmentScanner`) for `@MainAppFragment`, `@AppFragment`, and `@AppApplication`.
-2. **Target Specificity Resolution (`genericuiValidateApp`)**: Resolves the most specific `@MainAppFragment` for each enabled backend across all 7 [`AppTarget`](../common/src/commonMain/kotlin/com/nexustools/genericui/enums/system/AppTarget.kt) ranks (`6 → 5 → 4 → 3 → 2 → 1 → 0`), failing immediately on ties or missing targets.
-3. **Generated Per-Backend Launchers & Descriptors (`generateGenericUiLaunchers`)**: Generates `GenericUiAppDescriptor` and launcher entry points (`WindowsLauncher`, `MacosLauncher`, `GtkLauncher`, `QtLauncher`, `SwingLauncher`, `AndroidLauncher`, `IosLauncher`, `IpadosLauncher`, `WebLauncher`), wiring window geometry (`alwaysOnTop`, windowed `aspectRatio`), Apple icon wrapping flags (`appleIconExplicitlyProvided`), `ThemeConfig`, `addStyleSheet(...)`, extension providers, and system CLI `FragmentBundle` arguments.
-4. **Android 1:1 Activities, Material XML, & Xcode iOS/iPadOS App Generation**:
-   - **Android (`generateGenericUiAndroidActivities`, `generateGenericUiAndroidManifest`)**: Synthesizes `<FragmentName>Activity : GenericUiFragmentActivity()`, `AndroidActivityRegistry`, `@style/Theme.GenericUI.App` XMLs, and `AndroidManifest.xml`.
+1. **Annotation-Driven Fragment, Application, Schema, & Worker Discovery**: Scans Kotlin sources (`GenericUiFragmentScanner`) for `@MainAppFragment`, `@AppFragment`, and `@AppApplication`, plus extension-registered annotations (`@SchemaData`, `@MainServiceWorker`, `@ServiceWorkerMessage`) via `GenericUiExtensionContributor.annotationScanSpecs`.
+2. **Target Specificity Resolution (`genericuiValidateApp`)**: Resolves the most specific `@MainAppFragment` for each enabled backend across all 7 [`AppTarget`](../common/src/commonMain/kotlin/com/nexustools/genericui/enums/system/AppTarget.kt) ranks (`6 → 5 → 4 → 3 → 2 → 1 → 0`), failing immediately on ties or missing targets, and invokes active `GenericUiExtensionContributor.validate(...)` checks.
+3. **Extension Codegen (`generateGenericUiSchemas`, `generateGenericUiServiceWorkerCodecs`)**: Emits reflection-free `<ClassName>SchemaDescriptor.kt` + `GeneratedSchemaRegistrar.kt` for `@SchemaData` classes (`extensions { schema() }`), validates `@MainServiceWorker` constraints (<= 1 per enabled backend, `ServiceWorker` inheritance, zero-arg/all-default constructor), and generates `<Msg>ServiceWorkerCodec.kt` + `GeneratedServiceWorkerCodecRegistrar.kt` for `@ServiceWorkerMessage` classes (`extensions { serviceWorker { ... } }`).
+4. **Generated Per-Backend Launchers & Descriptors (`generateGenericUiLaunchers`)**: Generates `GenericUiAppDescriptor` and launcher entry points (`WindowsLauncher`, `MacosLauncher`, `GtkLauncher`, `QtLauncher`, `SwingLauncher`, `AndroidLauncher`, `IosLauncher`, `IpadosLauncher`, `WebLauncher`) plus `SecondaryDesktopExecutableContribution` targets (e.g., `serviceworker` binaries & `-gtk`/`-qt` variants staged via `GenericUiMultiplatformConfigurator.registerBuildTargetTasks`), wiring window geometry (`alwaysOnTop`, windowed `aspectRatio`), Apple icon wrapping flags (`appleIconExplicitlyProvided`), `ThemeConfig`, `addStyleSheet(...)`, contributor `providerInstallerCalls`, and system CLI `FragmentBundle` arguments.
+5. **Android 1:1 Activities, Material XML, ServiceWorker Components, & Xcode iOS/iPadOS App Generation**:
+   - **Android (`generateGenericUiAndroidActivities`, `generateGenericUiAndroidManifest`)**: Synthesizes `<FragmentName>Activity : GenericUiFragmentActivity()`, `AndroidActivityRegistry`, `@style/Theme.GenericUI.App` XMLs, SPI-contributed `<service>`/`<receiver>`/`BOOT_COMPLETED` components & Activity hooks (`AndroidExtensionContribution`), and `AndroidManifest.xml`.
    - **iOS & iPadOS (`generateGenericUiIosApp`, `generateGenericUiIpadosApp`)**: Generates dedicated Swift/UIKit Xcode projects (`build/genericui/iosApp` with `UIDeviceFamily = 1`, `build/genericui/ipadosApp` with `UIDeviceFamily = 2`) and composes `AppIcon` assets. When both `ios()` and `ipados()` are enabled, compiles disambiguated frameworks (`iosDebugFramework` / `ipadosDebugFramework`).
-5. **Resource & Stylesheet Compilation (`compileGenericUiResources`, `compileGenericUiSass`)**: Generates `Resource` (`ResourceID`, `R`, `RC`) and translates resources + `.scss` stylesheets across all 9 targets.
+6. **Three-Tier Resource & Stylesheet Compilation (`compileGenericUiResources`, `compileGenericUiSass`)**: Generates isolated scoped `R.kt` / `RC.kt` / `Resource.kt` / `GeneratedResourceRegistry.kt` declarations (`0x7f` consumer app IDs registered in `ResourceTable`), precompiles `.scss` stylesheets (`Resource.style.<name>`), and packages Tier 1 hierarchical blobs (`Web` + web-root `./serviceworker.js`, `Swing` JAR, Apple `.app`), Tier 2 flat blobs (`Android` `res/`, Apple `Assets.xcassets`), and Tier 3 prefix-free native binary/shared-library embeddings (`GenericUiNativeResourceEmbedder` on Windows `RT_RCDATA`, macOS Mach-O `__TEXT,__const` incl. unwrapped tray icons, and Linux GTK4/Qt6 ELF `.rodata`).
+7. **Consumer Native / JNI / CInterop Build (`nativebuild/`)**: Fetches source archives (`fetchGenericUiNativeSources`), compiles C/C++/CMake JNI shared libraries (`compileGenericUiJniLibraries`) for 16KB-aligned Android ABIs (with zero-NDK Konan LLVM + `target-sysroot-1-android_ndk` fallback) and JVM host test/Swing JAR `META-INF/native/` bundling, and configures Kotlin/Native `cinterops` and `nativeLibraries` links.
 
 ---
 
@@ -95,7 +97,7 @@ genericui {
         }
     }
 
-    // 5. First-Party Extension Modules (19 Extensions + Companion :dsl Modules)
+    // 5. First-Party Extension Modules (22 Extensions + 19 Companion :dsl Modules)
     extensions {
         gpu()              // :extensions:graphics:gpu
         imageProcessing()  // :extensions:graphics:imageprocessing -> gpu
@@ -109,12 +111,21 @@ genericui {
         engine()           // :extensions:game:engine -> gamepad (+ :dsl)
         engine2d()         // :extensions:game:engine2d -> engine + canvas2d + box2d (+ :dsl)
         engine3d()         // :extensions:game:engine3d -> engine + canvas3d + threejs + box3d (+ :dsl)
-        media()            // :extensions:media:media -> overlay (+ :dsl)
+        media()            // :extensions:media:media -> overlay + schema (+ :dsl)
         mediaControls()    // :extensions:media:mediacontrols (+ :dsl)
+        schema()           // :extensions:data:schema (+ :dsl) — @SchemaData descriptor codegen
+        serviceWorker {    // :extensions:system:serviceworker (+ :dsl) — @MainServiceWorker + @ServiceWorkerMessage
+            autostart = false
+            trayIcon = null // Optional drawable path/name (unwrapped in Mach-O on macOS)
+            openWindowOnLaunch = true
+            androidForegroundServiceType = "specialUse"
+            androidSpecialUseFgsSubtype = "GenericUI background ServiceWorker execution"
+        }
         webView()          // :extensions:ui:webview (+ :dsl)
         alien()            // :extensions:ui:alien -> canvas2d (+ :dsl)
         codeEditor()       // :extensions:ui:codeeditor -> canvas2d (+ :dsl)
         aiChat()           // :extensions:ui:aichat -> codeeditor -> canvas2d (+ :dsl)
+        pip()              // :extensions:ui:pip -> overlay (+ :dsl)
         dsl()              // :extensions:ui:dsl + companion :dsl modules for enabled extensions
     }
 
@@ -185,6 +196,56 @@ genericui {
         enabled = true
         visualOnWindows = true
     }
+
+    // 9. Consumer C / C++ / CMake JNI & Kotlin/Native CInterop Build Configuration
+    jni {
+        jniLibsDirs("src/androidMain/jniLibs")
+        library("my_native") {
+            sourceArchive("https://example.org/native-src.tar.gz", sha256 = "...")
+            archiveSources("src/*.c")
+            sources("src/native/cpp")
+            archiveIncludeDirs("include")
+            includeDirs("src/native/include")
+            defines("FEATURE_FAST=1")
+            cFlags("-O3")
+            cppFlags("-O3")
+            linkerFlags("-lm")
+            androidLinkLibraries("log", "android")
+            hostLinkLibraries()
+            abis("arm64-v8a", "armeabi-v7a", "x86_64", "x86")
+            minApiLevel = 24
+            pageSize16Kb = true
+            generateJniHeaders = true
+            buildHostLibraryForTests = true
+            bundleInSwingJar = true
+            buildAndroidLibraries = true
+        }
+        cmake("external_codec") {
+            listsFile("src/native/CMakeLists.txt")
+            arguments("-DBUILD_SHARED_LIBS=ON")
+            targets("external_codec")
+            pageSize16Kb = true
+            buildType = "Release"
+        }
+    }
+
+    cinterops {
+        create("my_c_api") {
+            defFile("src/native/my_c_api.def")
+            packageName("com.example.studio.native")
+            headers("my_c_api.h")
+            includeDirs("src/native/include")
+            compilerOpts("-DFOO=1")
+            linkerOpts("-lmy_c_api")
+            extraOpts()
+        }
+    }
+
+    nativeLibraries {
+        link("my_c_api", "-lz")
+        libraryDirs("src/native/prebuilt")
+        linkerOpts()
+    }
 }
 ```
 
@@ -225,7 +286,8 @@ When **`appleIconExplicitlyProvided == false`**, GenericUI automatically wraps t
   - **macOS (`fullBleedSquare = false`)**: Renders the artwork (`DEFAULT_ARTWORK_SCALE = 0.74f` inside the tile) onto a centered white continuous macOS superellipse squircle (exponent `4.6`, corner ratio `0.2237`, tile fraction `0.808` canvas, vertical offset `0.492`) with soft downward drop shadow and hairline rim inside `.icns` / app resources (`GenericUiDesktopResourceTask`).
   - **iOS & iPadOS (`fullBleedSquare = true`)**: Renders the artwork centered onto an opaque solid white `1024×1024` full-bleed square canvas (`Assets.xcassets/AppIcon.appiconset` in `GenericUiGenerateIosAppTask`) ready for Apple's App Store mask.
 - **Runtime macOS Dock Icon ([`AppleIconTileComposer`](../common/src/commonMain/kotlin/com/nexustools/genericui/image/AppleIconTileComposer.kt) + [`MacosNativeWindowHost`](../desktop/src/macosMain/kotlin/com/nexustools/genericui/macos/MacosNativeWindowHost.kt))**:
-  - When macOS sets the `NSApplication` Dock icon at runtime via `window.setIcon(...)` or descriptor metadata and `!GenericUI.appleIconExplicitlyProvided`, `MacosNativeWindowHost.composeRuntimeDockIconBuffer` calls `AppleIconTileComposer.composeRgba` / `composeImageBuffer` to wrap the live icon in the matching Chrome-style white squircle automatically!
+  - When macOS sets the `NSApplication` Dock icon at runtime via `window.setIcon(...)` or descriptor metadata and `!GenericUI.appleIconExplicitlyProvided`, `MacosNativeWindowHost.composeRuntimeDockIconBuffer` checks `!MacosNativeWindowHost.isAlreadyWrappedAppleSquircleIcon(...)` before calling `AppleIconTileComposer.composeRgba` / `composeImageBuffer` to wrap the live icon in the matching Chrome-style white squircle automatically!
+  - Conversely, macOS menu-bar tray icons (`tray_icon_png` / `tray_icon_svg`) are staged unwrapped (`wrapInAppleTile = false`) directly inside the signed Mach-O binary (`MacosSystemTrayNativeImpl`).
   - Setting any explicit Apple icon (`appleIcon(...)`, `macIcon(...)`, `iosIcon(...)`, `ipadosIcon(...)`, `apple { icon = ... }`, `mac { icon = ... }`, etc.) marks `appleIconExplicitlyProvided = true` and bypasses auto-wrapping so custom Apple-designed icons render verbatim.
 
 ---
@@ -234,18 +296,20 @@ When **`appleIconExplicitlyProvided == false`**, GenericUI automatically wraps t
 
 | Task Name | Implementation Class | Description |
 | :--- | :--- | :--- |
-| `genericuiValidateApp` | `GenericUiValidateAppTask` | Validates `@MainAppFragment` and `@AppFragment` classes across all enabled targets and verifies `AppTarget` specificity. |
-| `generateGenericUiLaunchers` | `GenericUiGenerateLaunchersTask` | Generates `GenericUiAppDescriptor` (`alwaysOnTop`, `aspectRatio`, `appleIconExplicitlyProvided`, `ThemeConfig`, `addStyleSheet`), backend launchers, extension wiring, and visual test runners. |
-| `compileGenericUiResources` | `GenericUiResourceCompilerTask` | Generates `Resource`, `R`, `RC` (`Resource.style.<name>`, etc.), translates drawables/values/raw/font/xml, compiles Android theme XMLs, and synthesizes Windows `.cur` cursors. |
+| `genericuiValidateApp` | `GenericUiValidateAppTask` | Validates `@MainAppFragment` and `@AppFragment` classes across all enabled targets, verifies `AppTarget` specificity, and runs `GenericUiExtensionContributor.validate(...)`. |
+| `generateGenericUiSchemas`<br/>`generateGenericUiServiceWorkerCodecs` | `GenericUiGenerateSchemaSourcesTask`<br/>`GenericUiGenerateServiceWorkerCodecsTask` | Generates `<ClassName>SchemaDescriptor.kt` + `GeneratedSchemaRegistrar.kt` (`@SchemaData`) and validates `@MainServiceWorker` + emits `<Msg>ServiceWorkerCodec.kt` + `GeneratedServiceWorkerCodecRegistrar.kt` (`@ServiceWorkerMessage`). |
+| `generateGenericUiLaunchers` | `GenericUiGenerateLaunchersTask` | Generates `GenericUiAppDescriptor`, backend launchers, SPI `generatedLauncherSources`, extension wiring, and visual test runners. |
+| `compileGenericUiResources` | `GenericUiResourceCompilerTask` | Generates isolated `R.kt`/`RC.kt`/`Resource.kt`/`GeneratedResourceRegistry.kt`, embeds prefix-free `nativeResourceKey` tables (`GenericUiNativeResourceEmbedder`), translates Tier 1/2/3 assets, compiles Android theme XMLs, and synthesizes Windows `.cur` cursors. |
 | `compileGenericUiSass` | `GenericUiSassCompileTask` | Compiles `.scss`/`.sass` stylesheets into `.css` (Web) and zero-parse Kotlin `PrecompiledStyleSheet` objects (all 8 system targets). |
-| `prepareGenericUiDesktopResources` | `GenericUiDesktopResourceTask` | Stages desktop icons/manifests and wraps non-explicit macOS icons using `GenericUiAppleIconTileComposer`. |
+| `prepareGenericUiDesktopResources` | `GenericUiDesktopResourceTask` | Stages desktop icons/manifests and wraps non-explicit macOS app/Dock icons using `GenericUiAppleIconTileComposer` while preserving unwrapped Mach-O tray icons. |
 | `compileGenericUiWindowsResources` | `GenericUiCompileWindowsResourcesTask` | Generates Win32 `.rc`/headers, compiles `.res` via `windres`, and links into the Windows `.exe`. |
-| `generateGenericUiAndroidActivities`<br/>`generateGenericUiAndroidManifest` | `GenericUiGenerateAndroidActivitiesTask`<br/>`GenericUiGenerateAndroidManifestTask` | Generates 1:1 `<FragmentName>Activity` classes and `AndroidManifest.xml` (`@style/Theme.GenericUI.App`, activities, services, permissions). |
-| `generateGenericUiIosApp`<br/>`generateGenericUiIpadosApp` | `GenericUiGenerateIosAppTask` | Generates iPhone (`UIDeviceFamily = 1`) and iPad (`UIDeviceFamily = 2`) Xcode wrapper projects, `Info.plist`, SwiftUI host, and `AppIcon.appiconset`. |
+| `generateGenericUiAndroidActivities`<br/>`generateGenericUiAndroidManifest` | `GenericUiGenerateAndroidActivitiesTask`<br/>`GenericUiGenerateAndroidManifestTask` | Generates 1:1 `<FragmentName>Activity` classes and `AndroidManifest.xml` (merging SPI `<service>`/`<receiver>`/`<provider>`/`<uses-permission>`/`Activity` hooks). |
+| `generateGenericUiIosApp`<br/>`generateGenericUiIpadosApp` | `GenericUiGenerateIosAppTask` | Generates iPhone (`UIDeviceFamily = 1`) and iPad (`UIDeviceFamily = 2`) Xcode wrapper projects, `Info.plist` (merging SPI entries), SwiftUI host, and `AppIcon.appiconset`. |
+| `fetchGenericUiNativeSources`<br/>`compileGenericUiJniLibraries` | `GenericUiFetchNativeSourceArchiveTask`<br/>`GenericUiCompileJniTask` | Downloads verified native source archives and compiles consumer C/C++/CMake JNI shared libraries (`-Wl,-z,max-page-size=16384`, zero-NDK Konan LLVM + `target-sysroot-1-android_ndk` fallback, host test `.so`/`.dylib`/`.dll`, Swing JAR manifest). |
 | `bundleGenericUiAngle`<br/>`bundleGenericUiVulkan`<br/>`bundleGenericUiVlc`<br/>`bundleGenericUiWebViewProcess` | `AngleNativeBundleTask`<br/>`VulkanNativeBundleTask`<br/>`VlcNativeBundleTask`<br/>`WebViewNativeProcessBundleTask` | Stages opt-in ANGLE, Vulkan/MoltenVK/Shaderc, Desktop VLC, and out-of-process Desktop WebView helper artifacts when the corresponding extension is enabled. |
-| `buildGenericUiSharedLibsFor*` | `GenericUiBuildNativeSharedLibsTask` + `GenericUiKonanCompilerShim` | Compiles GenericUI core (`genericui`), the active native desktop backend (`genericui-{macos,windows,gtk,qt}`), `njs` (when enabled), enabled extensions/DSL modules (`genericui-ext-*`), and tests (`genericui-tests`) as native shared libraries for `macosArm64`, `linuxX64`, `linuxArm64`, and `mingwX64` (`PROGRAM` links only). |
-| `packageGenericUiWebDistribution`<br/>`packageGenericUiSwingDevelopmentJar` / `ProductionJar`<br/>`packageGenericUiAndroid*Apk` | `GenericUiWebDistributionTask`<br/>`GenericUiPackageSwingJarTask`<br/>`GenericUiPackageAndroidApkTask` | Packages Web Wasm/JS/theme/PWA distributions, Swing executable JARs, and Android APKs. |
-| `development*` / `production*`<br/>(`Windows`, `Mac`/`Macos`, `LinuxGtk`, `LinuxQt`, `Swing`, `Android`, `Ios`, `Ipados`, `Web`) | `GenericUiMultiplatformConfigurator` | Per-target lifecycle development & production tasks across all 9 enabled backends. |
+| `buildGenericUiSharedLibsFor*` | `GenericUiBuildNativeSharedLibsTask`, `GenericUiKonanCompilerShim`, & `WindowsCoffObjectPartitioner` | Compiles core (`genericui`), native desktop backends (`genericui-{macos,windows,gtk,qt}`), `njs`, enabled extensions/DSL modules (`genericui-ext-*`), and `genericui-tests` as dynamic shared libraries (`PROGRAM` links only), partitioning MinGW COFF objects when exports exceed 65,535. |
+| `packageGenericUiWebDistribution`<br/>`packageGenericUiSwingDevelopmentJar` / `ProductionJar`<br/>`packageGenericUiAndroid*Apk` | `GenericUiWebDistributionTask`<br/>`GenericUiPackageSwingJarTask`<br/>`GenericUiPackageAndroidApkTask` | Packages Web Wasm/JS/theme/`loader.js`/web-root `./serviceworker.js` (+ SPI `WebSwPluginScript` / `${resolvedBase}.sw.js\|wasm`), Swing fat JARs (`META-INF/native/<os>-<arch>/`), and 16KB-aligned Android APKs (`zipalign -f -P 16 4` + `src/androidMain/jniLibs`). |
+| `development*` / `production*`<br/>(`Windows`, `Mac`/`Macos`, `LinuxGtk`, `LinuxQt`, `Swing`, `Android`, `Ios`, `Ipados`, `Web`) | `GenericUiMultiplatformConfigurator` | Per-target lifecycle development & production tasks (including `SecondaryDesktopExecutableContribution` binaries and `-gtk`/`-qt` compilation variants via `registerBuildTargetTasks`). |
 | `printGenericUiConfig` | `GenericUiGradlePlugin` | Prints resolved backends, extensions, Maven coordinates, and pipeline config. |
 
 ---
@@ -261,4 +325,29 @@ On native desktop targets (`macosArm64`, `linuxX64`, `linuxArm64`, `mingwX64`), 
 | **Linux Qt6 (`linuxX64`, `linuxArm64`)** | `libgenericui.so`, `libgenericui-qt.so`, `libgenericui-ext-<ext>.so` (+ `-dsl`), `libnjs.so`, `libgenericui-tests.so` | Flat alongside the executable in `dist/linux-qt/<arch>/<mode>/` (`-Wl,-rpath,$ORIGIN`); per-file object partitioning guarantees `0` GTK symbols in `libgenericui-qt.so`. |
 | **Windows (`mingwX64`)** | `genericui.dll`, `genericui-windows.dll`, `genericui-ext-<ext>.dll` (+ `-dsl`), `njs.dll`, `genericui-tests.dll` *(no `lib` prefix)* | Flat alongside `<app>.exe` in `dist/windows/x64/<mode>/` (zero `*.dll.a` import libraries staged). |
 
-> **Linux `TEST` binaries:** Linux application distributions always link strictly `libgenericui-gtk.so` or `libgenericui-qt.so`. When a Linux project enables both GTK and Qt backends simultaneously, its single Linux `TEST` binary (`build/bin/<target>/debugTest/`) links `libgenericui-linux.so` alongside `libgenericui-tests.so` so both generated test bootstraps (`gtkTest` and `qtTest`) can run in the same test suite; single-backend Linux test binaries link `libgenericui-gtk.so` or `libgenericui-qt.so` with matching per-file partitioned `libgenericui-tests.so`.
+> **Linux `TEST` binaries:** Linux application distributions always link strictly `libgenericui-gtk.so` or `libgenericui-qt.so`. When a Linux project enables both GTK and Qt backends simultaneously, its single Linux `TEST` binary (`build/bin/<target>/debugTest/`) links `libgenericui-linux.so` alongside `libgenericui-tests.so` so both generated test bootstraps (`gtkTest` and `qtTest`) can run in the same test suite; single-backend Linux test binaries link `libgenericui-gtk.so` or `libgenericui-qt.so` with matching per-file partitioned `libgenericui-tests.so`. On Windows MinGW (`mingwX64`), `WindowsCoffObjectPartitioner` splits COFF object sets into linked partition DLLs automatically when exported symbols exceed the 65,535 PE export table limit (`GenericUiKonanCompilerShim` hooks `CachedLibraries$Companion`).
+
+---
+
+## 7. Extension Contributor SPI (`gradle-plugin/.../spi/`)
+
+First-party (`PipExtensionContributor`, `SchemaExtensionContributor`, `ServiceWorkerExtensionContributor`) and third-party Gradle extensions extend codegen, manifests, and packaging cleanly without modifying core `:gradle-plugin` tasks:
+
+- **Discovery (`GenericUiExtensionContributorRegistry`)**: Loads built-in contributors, `java.util.ServiceLoader<GenericUiExtensionContributor>`, and JSON descriptors under `META-INF/genericui/extensions/*.json` (`custom(...)` / `option(...)`).
+- **Lifecycle & Hooks (`GenericUiExtensionContributor`)**:
+  - `annotationScanSpecs` (`ExtensionAnnotationScanSpec`) & `validate(ExtensionBuildContext, List<GenericUiDiscoveredSymbol>)`: Declares annotations to scan (`@SchemaData`, `@MainServiceWorker`, `@ServiceWorkerMessage`) and validates consumer code cleanly with `GradleException`.
+  - `providerInstallerCalls(...)` & `generatedLauncherSources(...)`: Registers extension hooks (`ApplicationLifecycleExtensionHook` on `GenericUiExtensionRegistry`) in generated launchers (on iOS/iPadOS, `ServiceWorkerExtensionContributor` emits only codec registration and does not instantiate `@MainServiceWorker`, keeping `ServiceWorkerExtension.isSupported == false` honestly without simulation).
+  - `contributeAndroid(...)` $\rightarrow$ `AndroidExtensionContribution`: Contributes Android `<service>`, `<receiver>` (`BOOT_COMPLETED`), `<provider>`, `<uses-permission>`, `<meta-data>`, and `GenericUiFragmentActivity` lifecycle hooks.
+  - `contributeDesktop(...)` $\rightarrow$ `DesktopExtensionContribution`: Contributes `SecondaryDesktopExecutableContribution` executables (staged as `serviceworker.exe`, macOS `Contents/MacOS/serviceworker`, Linux `serviceworker` with `-gtk`/`-qt` compilation variants via `GenericUiMultiplatformConfigurator.registerBuildTargetTasks`, and Swing `GeneratedSwingServiceWorkerMain`), `DesktopAutostartContribution`, and `macosInfoPlistEntries`.
+  - `contributeAppleMobile(...)` $\rightarrow$ `AppleMobileExtensionContribution`: Contributes iOS/iPadOS `Info.plist` entries such as `UIBackgroundModes` (`audio` for `:extensions:ui:pip`).
+  - `contributeWebServiceWorker(...)` $\rightarrow$ `WebServiceWorkerContribution`: Contributes `WebSwPluginScript` (`importScripts(...)` inside web-root `./serviceworker.js`), `WebWorkerBinarySpec` (`${resolvedBase}.sw.wasm` + `${resolvedBase}.sw.js`), and offline cache URLs staged by `GenericUiWebDistributionTask`.
+
+---
+
+## 8. Consumer Native / JNI / CInterop Build System (`gradle-plugin/.../nativebuild/`)
+
+`genericui { jni { ... }; cinterops { ... }; nativeLibraries { ... } }` (available globally on `GenericUiExtension` and per variant scope on `GenericUiVariantConfig` / `GenericUiAndroidConfig`) automates cross-platform native C/C++/CMake/JNI and K/N CInterop builds:
+- **`GenericUiFetchNativeSourceArchiveTask` (`fetchGenericUiNativeSources`)**: Downloads and caches remote `.tar.gz`/`.tgz`/`.zip` native sources with optional SHA-256 verification and leading path component stripping.
+- **`GenericUiJniToolchainResolver` & `GenericUiCompileJniTask` (`compileGenericUiJniLibraries`)**: Compiles C/C++ `library(...)` and `cmake(...)` targets for Android ABIs (using configured NDK or zero-NDK Kotlin/Native Konan LLVM + `target-sysroot-1-android_ndk` fallback with `-Wl,-z,max-page-size=16384`) and host JVM/Swing shared libraries (`buildHostLibraryForTests` / `bundleInSwingJar`), injecting `-Djava.library.path` and `PATH`/`DYLD_LIBRARY_PATH`/`LD_LIBRARY_PATH` into `jvmTest` and `testAndroidHostTest`.
+- **Android 16KB Alignment & Swing Bundling**: `GenericUiPackageAndroidApkTask` stages `src/androidMain/jniLibs`, `jniLibsDirs`, and compiled JNI `.so` files uncompressed on `16384`-byte (`16KB`) boundaries alongside `zipalign -f -P 16 4`; `GenericUiPackageSwingJarTask` bundles host `.dll`/`.dylib`/`.so` binaries into `META-INF/native/<os>-<arch>/` loaded via `:jvm`'s [`JniLibraryLoader`](../jvm/src/jvmSharedMain/kotlin/com/nexustools/genericui/jvm/JniLibraryLoader.kt).
+- **`cinterops` & `nativeLibraries`**: Automatically attaches Kotlin/Native `cinterop` `.def` bindings (`defFile`, `packageName`, `headers`, `includeDirs`, `compilerOpts`, `linkerOpts`, `extraOpts`) and native linker flags/library directories to matching desktop and Apple targets.

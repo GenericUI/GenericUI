@@ -8,6 +8,7 @@ import com.nexustools.genericui.component.shell.FragmentApplication
 import com.nexustools.genericui.component.shell.IApplication
 import com.nexustools.genericui.enums.ui.ThemeMode
 import com.nexustools.genericui.geometry.Size
+import com.nexustools.genericui.resources.ResourceResolver
 import kotlin.reflect.KClass
 
 /**
@@ -40,10 +41,12 @@ object GenericUiLaunchSequence {
             GenericUI.initialize(factory, descriptor.appName)
         }
 
+        ResourceResolver.ensureAllModulesInitialized()
         descriptor.resourceRegistryInstaller?.invoke()
         for (installer in descriptor.providerInstallers) {
             installer.invoke()
         }
+        GenericUiExtensionRegistry.dispatchBeforeAppPrepare(descriptor)
 
         for ((fragClass, fragFactory) in descriptor.fragmentRegistrations) {
             registerFragment(fragClass, fragFactory)
@@ -130,7 +133,9 @@ object GenericUiLaunchSequence {
                     }
                 }
             }
-            return createdApp
+            return createdApp.also {
+                GenericUiExtensionRegistry.dispatchAppPrepared(it, descriptor)
+            }
         }
 
         val mainFragment = descriptor.mainFragmentFactory?.invoke(launchBundle)
@@ -180,6 +185,7 @@ object GenericUiLaunchSequence {
         descriptor.globalStyleSheetResourceId?.let { app.addStyleSheet(it) }
         descriptor.globalStyleSheetPath?.takeIf { it.isNotBlank() }?.let { app.addStyleSheet(it) }
         descriptor.precompiledStyleSheetInstaller?.invoke(app)
+        GenericUiExtensionRegistry.dispatchAppPrepared(app, descriptor)
         return app
     }
 
@@ -193,6 +199,7 @@ object GenericUiLaunchSequence {
         isSystemTarget: Boolean = factory.backendTarget.isSystem
     ): IApplication {
         val app = prepareApplication(factory, args, descriptor, isSystemTarget)
+        GenericUiExtensionRegistry.dispatchBeforeAppRun(app, factory)
         app.run(factory)
         return app
     }

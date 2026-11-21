@@ -1,5 +1,8 @@
 package com.nexustools.genericui.plugin
 
+import com.nexustools.genericui.plugin.nativebuild.GenericUiCompileJniTask
+import com.nexustools.genericui.plugin.nativebuild.GenericUiFetchNativeSourceArchiveTask
+import com.nexustools.genericui.plugin.nativebuild.GenericUiNativeBuildResolver
 import org.gradle.api.Plugin
 import org.gradle.api.Project
 import java.io.File
@@ -22,6 +25,9 @@ class GenericUiGradlePlugin : Plugin<Project> {
         project.tasks.withType(org.gradle.api.tasks.testing.AbstractTestTask::class.java).configureEach {
             val secs = extension.testing.testTimeoutSeconds.coerceAtLeast(10L)
             timeout.set(java.time.Duration.ofSeconds(secs))
+            if (this is org.gradle.api.tasks.testing.Test && maxHeapSize.isNullOrBlank()) {
+                maxHeapSize = "2560m"
+            }
         }
 
         val angleTask = project.tasks.register("bundleGenericUiAngle", AngleNativeBundleTask::class.java) {
@@ -75,6 +81,44 @@ class GenericUiGradlePlugin : Plugin<Project> {
             }
         }
 
+        val fetchNativeSourcesTask = project.tasks.register(
+            "fetchGenericUiNativeSources",
+            GenericUiFetchNativeSourceArchiveTask::class.java
+        ) {
+            group = TASK_GROUP
+            description = "Downloads, SHA-256 verifies, and caches remote C/C++ native source archives."
+            libraries.set(project.provider { GenericUiNativeBuildResolver.resolveJniLibraries(project, extension) })
+            gradleUserHomePath.set(project.gradle.gradleUserHomeDir.absolutePath)
+            offlineMode.set(project.gradle.startParameter.isOffline)
+            sourcesManifestFile.set(project.layout.buildDirectory.file("intermediates/genericui_jni/sources-manifest.txt"))
+        }
+
+        val compileJniTask = project.tasks.register(
+            "compileGenericUiJniLibraries",
+            GenericUiCompileJniTask::class.java
+        ) {
+            group = TASK_GROUP
+            description = "Compiles consumer C/C++ JNI and CMake libraries for Android ABIs and host JVM/Swing targets."
+            dependsOn(fetchNativeSourcesTask)
+            projectRootPath.set(project.projectDir.absolutePath)
+            gradleUserHomePath.set(project.gradle.gradleUserHomeDir.absolutePath)
+            konanHomePath.set(project.providers.gradleProperty("kotlin.native.home").orElse(""))
+            konanDataDirPath.set(
+                project.providers.gradleProperty("konan.data.dir")
+                    .orElse(System.getenv("KONAN_DATA_DIR").orEmpty())
+            )
+            androidEnabled.set(project.provider { extension.backends.androidEnabled })
+            swingEnabled.set(project.provider { extension.backends.swingConfig.enabled })
+            offlineMode.set(project.gradle.startParameter.isOffline)
+            libraries.set(project.provider { GenericUiNativeBuildResolver.resolveJniLibraries(project, extension) })
+            cmakes.set(project.provider { GenericUiNativeBuildResolver.resolveJniCmakes(project, extension) })
+            sourcesManifestFile.set(fetchNativeSourcesTask.flatMap { it.sourcesManifestFile })
+            inputSourceFiles.from(project.provider { GenericUiNativeBuildResolver.collectLocalInputFiles(project, extension) })
+            androidOutputDirectory.set(project.layout.buildDirectory.dir("intermediates/genericui_jni/android"))
+            hostOutputDirectory.set(project.layout.buildDirectory.dir("intermediates/genericui_jni/host"))
+            hostBundleManifestFile.set(project.layout.buildDirectory.file("intermediates/genericui_jni/host-bundle-manifest.txt"))
+        }
+
         val sassTask = project.tasks.register("compileGenericUiSass", GenericUiSassCompileTask::class.java) {
             group = TASK_GROUP
             description = "Compiles GenericUI .scss and .sass stylesheets into normalized .css bundles for the Web target and precompiled .kt PrecompiledStyleSheet objects."
@@ -117,6 +161,9 @@ class GenericUiGradlePlugin : Plugin<Project> {
             upstreamResourceManifestPaths.set(project.provider {
                 resolveUpstreamResourceManifestPaths(project)
             })
+            upstreamResourceClasspath.from(project.provider {
+                resolveUpstreamResourceClasspathFiles(project)
+            })
             translateForAllBackends.set(project.provider { extension.resources.translateForAllBackends })
             themeColor.set(project.provider {
                 resolveAndroidVariant(project, extension).themeColor
@@ -148,6 +195,9 @@ class GenericUiGradlePlugin : Plugin<Project> {
                 extension.application.desktop.appleIcon.trim().ifEmpty {
                     extension.resources.appleIcon.trim()
                 }
+            })
+            trayIconPath.set(project.provider {
+                extension.extensions.serviceWorkerConfig.trayIcon?.trim().orEmpty()
             })
             macIconPath.set(project.provider {
                 val resolved = GenericUiVariantResolver.resolve(extension, GenericUiVariantScope.MACOS)
@@ -221,6 +271,8 @@ class GenericUiGradlePlugin : Plugin<Project> {
                 )
             })
             requireMainAppFragment.set(project.provider { extension.application.createExecutableBinaries })
+            enabledExtensionModulePaths.set(project.provider { extension.extensions.enabledExtensionModulePaths() })
+            extensionOptions.set(project.provider { buildPluginExtensionOptions(extension) })
             validationReportFile.set(project.layout.buildDirectory.file("generated/genericui/validation/app-validation.txt"))
         }
 
@@ -331,8 +383,13 @@ class GenericUiGradlePlugin : Plugin<Project> {
                 resolveBackendVariantMap(project, extension) { it.globalStyleSheet ?: "" }
             })
             backendProviderInstallerCalls.set(project.provider {
+                val schemaPkg = resolveSchemaRegistrarPackage(project, extension)
                 resolveBackendVariantMap(project, extension) { resolved ->
-                    extension.extensions.providerInstallerCallsForBackend(resolved.targetScope, resolved.extensionOverrides)
+                    extension.extensions.providerInstallerCallsForBackend(
+                        backendScope = resolved.targetScope,
+                        extensionOverrides = resolved.extensionOverrides,
+                        generatedPackageName = schemaPkg
+                    )
                 }
             })
             precompiledStyleSheetObjectFqns.set(project.provider {
@@ -361,7 +418,72 @@ class GenericUiGradlePlugin : Plugin<Project> {
             })
             generateVisualWindowsTestHelper.set(project.provider { extension.testing.visualOnWindows })
             testingEnabled.set(project.provider { extension.testing.enabled })
+            baseName.set(project.provider { extension.application.baseName.trim().ifEmpty { project.name } })
+            enabledExtensionModulePaths.set(project.provider { extension.extensions.enabledExtensionModulePaths() })
+            extensionOptions.set(project.provider { buildPluginExtensionOptionsStatic(extension) })
             outputDirectory.set(project.layout.buildDirectory.dir("generated/genericui/launchers"))
+        }
+
+        val generateSchemaSourcesTask = project.tasks.register(
+            "generateGenericUiSchemas",
+            GenericUiGenerateSchemaSourcesTask::class.java
+        ) {
+            group = TASK_GROUP
+            description = "Scans @SchemaData data classes and generates KMP SchemaDescriptor implementations and GeneratedSchemaRegistrar."
+            schemaEnabled.set(project.provider {
+                extension.extensions.schemaEnabled || extension.extensions.mediaEnabled
+            })
+            sourceDirectories.set(project.provider {
+                collectSchemaSourceDirectories(project, extension).map { it.absolutePath }
+            })
+            sourceFiles.from(project.provider {
+                collectSchemaSourceDirectories(project, extension)
+                    .filter { it.exists() && it.isDirectory }
+                    .map { dir -> project.fileTree(dir).matching { include("**/*.kt") } }
+            })
+            basePackageName.set(project.provider {
+                resolveGeneratedPackageForProject(project, extension)
+            })
+            configuredRegistrarPackage.set(project.provider {
+                extension.extensions.extensionOptions[
+                    com.nexustools.genericui.plugin.spi.SchemaExtensionContributor.OPTION_REGISTRAR_PACKAGE
+                ]?.trim().orEmpty()
+            })
+            outputDirectory.set(project.layout.buildDirectory.dir("generated/genericui/schema/commonMain/kotlin"))
+        }
+
+        val generateServiceWorkerCodecsTask = project.tasks.register(
+            "generateGenericUiServiceWorkerCodecs",
+            GenericUiGenerateServiceWorkerCodecsTask::class.java
+        ) {
+            group = TASK_GROUP
+            description = "Validates @MainServiceWorker declarations and generates reflection-free @ServiceWorkerMessage codecs and registrar."
+            serviceWorkerEnabled.set(project.provider { extension.extensions.serviceWorkerEnabled })
+            projectRootPath.set(project.projectDir.absolutePath)
+            projectNameValue.set(project.name)
+            sourceDirectories.set(project.provider {
+                collectSchemaSourceDirectories(project, extension).map { it.absolutePath }
+            })
+            sourceFiles.from(project.provider {
+                collectSchemaSourceDirectories(project, extension)
+                    .filter { it.exists() && it.isDirectory }
+                    .map { dir -> project.fileTree(dir).matching { include("**/*.kt") } }
+            })
+            basePackageName.set(project.provider {
+                resolveGeneratedPackageForProject(project, extension)
+            })
+            configuredRegistrarPackage.set(project.provider {
+                extension.extensions.extensionOptions[
+                    com.nexustools.genericui.plugin.spi.ServiceWorkerExtensionContributor.OPTION_REGISTRAR_PACKAGE
+                ]?.trim().orEmpty()
+            })
+            appId.set(project.provider { resolveVariantWithProjectFallbacks(project, extension, GenericUiVariantScope.COMMON).appId })
+            appName.set(project.provider { resolveVariantWithProjectFallbacks(project, extension, GenericUiVariantScope.COMMON).appName })
+            appVersion.set(project.provider { resolveVariantWithProjectFallbacks(project, extension, GenericUiVariantScope.COMMON).appVersion })
+            baseName.set(project.provider { extension.application.baseName.trim().ifEmpty { project.name } })
+            enabledExtensionModulePaths.set(project.provider { extension.extensions.enabledExtensionModulePaths() })
+            extensionOptions.set(project.provider { buildPluginExtensionOptionsStatic(extension) })
+            outputDirectory.set(project.layout.buildDirectory.dir("generated/genericui/serviceworker/commonMain/kotlin"))
         }
 
         val generateAndroidActivitiesTask = project.tasks.register(
@@ -376,6 +498,14 @@ class GenericUiGradlePlugin : Plugin<Project> {
                 extension.sourceSets.allSpecs().flatMap { spec ->
                     spec.kotlinSrcDirs.mapNotNull { dir -> (dir as? File)?.absolutePath ?: (dir as? String) }
                 }
+            })
+            sourceFiles.from(project.provider {
+                val extraDirs = collectConfiguredExtraKotlinDirs(project, extension)
+                GenericUiFragmentScanner.collectCandidateSourceDirectories(project.projectDir, extraDirs)
+                    .map { dir -> project.fileTree(dir).matching { include("**/*.kt") } }
+            })
+            generatedRegistrarPackageName.set(project.provider {
+                resolveGeneratedPackageForProject(project, extension)
             })
             appId.set(project.provider { resolveAndroidVariant(project, extension).appId })
             appName.set(project.provider { resolveAndroidVariant(project, extension).appName })
@@ -412,7 +542,12 @@ class GenericUiGradlePlugin : Plugin<Project> {
             })
             providerInstallers.set(project.provider {
                 val resolved = resolveAndroidVariant(project, extension)
-                extension.extensions.providerInstallerCallsForBackend(GenericUiVariantScope.ANDROID, resolved.extensionOverrides)
+                val schemaPkg = resolveSchemaRegistrarPackage(project, extension)
+                extension.extensions.providerInstallerCallsForBackend(
+                    backendScope = GenericUiVariantScope.ANDROID,
+                    extensionOverrides = resolved.extensionOverrides,
+                    generatedPackageName = schemaPkg
+                )
             })
             resourceRegistryInstallerExpression.set(project.provider {
                 if (!extension.resources.enabled) {
@@ -428,6 +563,8 @@ class GenericUiGradlePlugin : Plugin<Project> {
                     "$resPkg.GeneratedResourceRegistry.ensureInitialized()"
                 }
             })
+            enabledExtensionModulePaths.set(project.provider { extension.extensions.enabledExtensionModulePaths() })
+            extensionOptions.set(project.provider { buildPluginExtensionOptionsStatic(extension) })
             outputDirectory.set(project.layout.buildDirectory.dir("generated/genericui/android/kotlin"))
         }
 
@@ -444,6 +581,11 @@ class GenericUiGradlePlugin : Plugin<Project> {
                     spec.kotlinSrcDirs.mapNotNull { dir -> (dir as? File)?.absolutePath ?: (dir as? String) }
                 }
             })
+            sourceFiles.from(project.provider {
+                val extraDirs = collectConfiguredExtraKotlinDirs(project, extension)
+                GenericUiFragmentScanner.collectCandidateSourceDirectories(project.projectDir, extraDirs)
+                    .map { dir -> project.fileTree(dir).matching { include("**/*.kt") } }
+            })
             appId.set(project.provider { resolveAndroidVariant(project, extension).appId })
             appName.set(project.provider { resolveAndroidVariant(project, extension).appName })
             appVersion.set(project.provider { resolveAndroidVariant(project, extension).appVersion })
@@ -457,6 +599,8 @@ class GenericUiGradlePlugin : Plugin<Project> {
                 )
             })
             manifestMergerVersion.set(project.provider { extension.android.manifestMergerVersion })
+            enabledExtensionModulePaths.set(project.provider { extension.extensions.enabledExtensionModulePaths() })
+            extensionOptions.set(project.provider { buildPluginExtensionOptionsStatic(extension) })
             outputDirectory.set(project.layout.buildDirectory.dir("generated/genericui/android-manifest"))
             outputManifestFile.set(project.layout.buildDirectory.file("generated/genericui/android-manifest/AndroidManifest.xml"))
             outputResDirectory.set(project.layout.buildDirectory.dir("generated/genericui/android-manifest/res"))
@@ -468,8 +612,10 @@ class GenericUiGradlePlugin : Plugin<Project> {
         ) {
             group = TASK_GROUP
             description = "Generates the minimal Swift/Xcode iOS host application project (build/genericui/iosApp/)."
+            dependsOn(resourcesTask)
             iosEnabled.set(project.provider { extension.backends.iosEnabled })
             projectRootPath.set(project.projectDir.absolutePath)
+            projectBuildPath.set(project.layout.buildDirectory.asFile.map { it.absolutePath })
             baseName.set(project.provider {
                 extension.application.baseName.trim().ifEmpty { project.name }
             })
@@ -491,6 +637,8 @@ class GenericUiGradlePlugin : Plugin<Project> {
             appleIconExplicitlyProvided.set(project.provider {
                 resolveIosVariant(project, extension).appleIconExplicitlyProvided
             })
+            enabledExtensionModulePaths.set(project.provider { extension.extensions.enabledExtensionModulePaths() })
+            extensionOptions.set(project.provider { buildPluginExtensionOptionsStatic(extension) })
             outputDirectory.set(project.layout.buildDirectory.dir("genericui/iosApp"))
         }
 
@@ -500,8 +648,10 @@ class GenericUiGradlePlugin : Plugin<Project> {
         ) {
             group = TASK_GROUP
             description = "Generates the minimal Swift/Xcode iPadOS host application project (build/genericui/ipadosApp/)."
+            dependsOn(resourcesTask)
             iosEnabled.set(project.provider { extension.backends.ipadosEnabled })
             projectRootPath.set(project.projectDir.absolutePath)
+            projectBuildPath.set(project.layout.buildDirectory.asFile.map { it.absolutePath })
             baseName.set(project.provider {
                 extension.application.baseName.trim().ifEmpty { project.name }
             })
@@ -527,6 +677,8 @@ class GenericUiGradlePlugin : Plugin<Project> {
             appleIconExplicitlyProvided.set(project.provider {
                 resolveIpadosVariant(project, extension).appleIconExplicitlyProvided
             })
+            enabledExtensionModulePaths.set(project.provider { extension.extensions.enabledExtensionModulePaths() })
+            extensionOptions.set(project.provider { buildPluginExtensionOptionsStatic(extension) })
             outputDirectory.set(project.layout.buildDirectory.dir("genericui/ipadosApp"))
         }
 
@@ -604,6 +756,8 @@ class GenericUiGradlePlugin : Plugin<Project> {
             linuxTerminal.set(project.provider { extension.application.desktop.linuxTerminal })
             customResourceEntries.set(project.provider { extension.application.desktop.customResourceEntries })
             bundledResourcePaths.set(project.provider { extension.application.desktop.bundledResourcePaths })
+            enabledExtensionModulePaths.set(project.provider { extension.extensions.enabledExtensionModulePaths() })
+            extensionOptions.set(project.provider { buildPluginExtensionOptionsStatic(extension) })
             outputDirectory.set(project.layout.buildDirectory.dir("generated/genericui/desktop-resources"))
         }
 
@@ -677,20 +831,24 @@ class GenericUiGradlePlugin : Plugin<Project> {
                 val variantMin = extension.android.variants[variant]?.manifestConfig?.takeIf {
                     "minSdk" in it.explicitFields
                 }?.minSdk
-                variantMin ?: extension.android.manifestConfig.minSdk.takeIf { it > 0 } ?: extension.application.androidMinSdk
+                variantMin
+                    ?: extension.android.manifestConfig.takeIf { "minSdk" in it.explicitFields && it.minSdk > 0 }?.minSdk
+                    ?: extension.application.androidMinSdk
             })
             task.compileSdk.set(project.provider {
                 val variantCompile = extension.android.variants[variant]?.manifestConfig?.takeIf {
                     "compileSdk" in it.explicitFields
                 }?.compileSdk
-                variantCompile ?: extension.android.manifestConfig.compileSdk.takeIf { it > 0 } ?: extension.application.androidCompileSdk
+                variantCompile
+                    ?: extension.android.manifestConfig.takeIf { "compileSdk" in it.explicitFields && it.compileSdk > 0 }?.compileSdk
+                    ?: extension.application.androidCompileSdk
             })
             task.targetSdk.set(project.provider {
                 val variantCfg = extension.android.variants[variant]?.manifestConfig
                 val variantTarget = variantCfg?.takeIf { "targetSdk" in it.explicitFields }?.targetSdk
                 variantTarget
-                    ?: extension.android.manifestConfig.targetSdk.takeIf { it > 0 }
-                    ?: extension.android.manifestConfig.compileSdk.takeIf { it > 0 }
+                    ?: extension.android.manifestConfig.takeIf { "targetSdk" in it.explicitFields && it.targetSdk > 0 }?.targetSdk
+                    ?: extension.android.manifestConfig.takeIf { "compileSdk" in it.explicitFields && it.compileSdk > 0 }?.compileSdk
                     ?: extension.application.androidCompileSdk
             })
             task.buildVariant.set(variant)
@@ -738,6 +896,13 @@ class GenericUiGradlePlugin : Plugin<Project> {
                 )
             )
             task.generatedAndroidResDir.set(project.layout.buildDirectory.dir("generated/genericui/resources/backends/android/res"))
+            task.jniLibsDirectories.set(project.provider { GenericUiNativeBuildResolver.resolveJniLibsDirPaths(project, extension) })
+            task.pageSize16Kb.set(project.provider {
+                val libs = GenericUiNativeBuildResolver.resolveJniLibraries(project, extension)
+                val cmakes = GenericUiNativeBuildResolver.resolveJniCmakes(project, extension)
+                (libs.isEmpty() && cmakes.isEmpty()) ||
+                    (libs.all { it.pageSize16Kb } && cmakes.all { it.pageSize16Kb })
+            })
             task.outputDirectory.set(project.layout.buildDirectory.dir(outputRelPath))
             if (secondaryOutputRelPath != null) {
                 task.secondaryOutputDirectory.set(project.layout.buildDirectory.dir(secondaryOutputRelPath))
@@ -895,6 +1060,7 @@ class GenericUiGradlePlugin : Plugin<Project> {
                 }
                 roots.toList()
             })
+            task.jniLibsDirectories.set(project.provider { GenericUiNativeBuildResolver.resolveJniLibsDirPaths(project, extension) })
             task.outputDirectory.set(project.layout.buildDirectory.dir(outputRelPath))
             task.outputs.upToDateWhen { false }
         }
@@ -950,6 +1116,22 @@ class GenericUiGradlePlugin : Plugin<Project> {
             GenericUiMultiplatformConfigurator.configureMultiplatform(project, extension)
             GenericUiMultiplatformConfigurator.registerBuildTargetTasks(project, extension)
             GenericUiMultiplatformConfigurator.applySourceSetDependencies(project, extension)
+            GenericUiNativeBuildResolver.configureKotlinNativeInteropsAndLinks(project, extension)
+            GenericUiNativeBuildResolver.configureJniTaskWiring(
+                project = project,
+                extension = extension,
+                fetchTaskName = fetchNativeSourcesTask.name,
+                compileTaskName = compileJniTask.name,
+                androidApkTaskNames = androidApkTaskProviders.map { it.name },
+                swingJarTaskNames = swingJarTaskProviders.map { it.name }
+            )
+            if (GenericUiNativeBuildResolver.hasAnyCompilableJniConfiguration(extension)) {
+                for (jarTaskProvider in swingJarTaskProviders) {
+                    jarTaskProvider.configure {
+                        bundledNativeLibrariesManifest.set(compileJniTask.flatMap { it.hostBundleManifestFile })
+                    }
+                }
+            }
             sassTask.configure {
                 val resolvedAfterEval = resolveStylesSourceDir(project, extension.styles.sourceDir)
                 if (resolvedAfterEval != null) {
@@ -960,6 +1142,15 @@ class GenericUiGradlePlugin : Plugin<Project> {
             wireTestingModules(project, extension)
             wireOptionalSwingGraphicsDependencies(project, extension)
             wireGeneratedResourceKotlinSources(project, extension, resourcesTask.name)
+            wireGeneratedSchemaKotlinSources(project, extension, generateSchemaSourcesTask.name)
+            wireGeneratedServiceWorkerCodecSources(project, extension, generateServiceWorkerCodecsTask.name)
+            resourcesTask.configure {
+                for (otherProj in collectTransitiveProjectDependencies(project)) {
+                    dependsOn(otherProj.tasks.matching {
+                        it.name == "generateModuleResources" || it.name == "compileGenericUiResources"
+                    })
+                }
+            }
             wireGeneratedLauncherAndAndroidSources(
                 project = project,
                 extension = extension,
@@ -1323,24 +1514,232 @@ class GenericUiGradlePlugin : Plugin<Project> {
         )
     }
 
+    private fun findGenericUiIncludeDir(project: Project): File? {
+        runCatching {
+            for (ib in project.gradle.includedBuilds) {
+                val candidate = ib.projectDir
+                if (File(candidate, "common/src/commonMain/kotlin").isDirectory) {
+                    return candidate
+                }
+            }
+        }
+        val candidates = listOfNotNull(
+            File(project.rootProject.projectDir, "lib/GenericUI"),
+            File(project.projectDir, "lib/GenericUI"),
+            project.rootProject.projectDir.parentFile?.let { File(it, "GenericUI") }
+        )
+        return candidates.firstOrNull {
+            it.isDirectory && File(it, "common/src/commonMain/kotlin").isDirectory
+        }
+    }
+
+    private fun collectTransitiveProjectDependencies(project: Project): List<Project> {
+        val visited = linkedSetOf<Project>()
+        val queue = ArrayDeque<Project>()
+        fun enqueueFrom(src: Project) {
+            for (cfg in src.configurations.toList()) {
+                for (dep in cfg.dependencies.withType(org.gradle.api.artifacts.ProjectDependency::class.java)) {
+                    val other = project.rootProject.findProject(dep.path)
+                    if (other != null && other != project && visited.add(other)) {
+                        queue.add(other)
+                    }
+                }
+            }
+        }
+        enqueueFrom(project)
+        while (queue.isNotEmpty()) {
+            enqueueFrom(queue.removeFirst())
+        }
+        return visited.toList()
+    }
+
     private fun resolveUpstreamResourceManifestPaths(project: Project): List<String> {
         val paths = linkedSetOf<String>()
-        for (cfg in project.configurations) {
-            for (dep in cfg.dependencies) {
-                if (dep is org.gradle.api.artifacts.ProjectDependency) {
-                    val depPath = dep.path
-                    val otherProj = project.rootProject.findProject(depPath)
-                    if (otherProj != null && otherProj != project) {
-                        val manifestFile = File(
-                            otherProj.layout.buildDirectory.asFile.get(),
-                            "generated/genericui/resources/backends/manifest/genericui-module-resources.json"
+        for (otherProj in collectTransitiveProjectDependencies(project)) {
+            val buildDir = otherProj.layout.buildDirectory.asFile.get()
+            paths.add(
+                File(buildDir, "generated/genericui/module-resources/resources/META-INF/genericui/module-resources")
+                    .absolutePath
+            )
+            paths.add(
+                File(buildDir, "generated/genericui/resources/backends/manifest/genericui-module-resources.json")
+                    .absolutePath
+            )
+        }
+        val includeDir = findGenericUiIncludeDir(project)
+        if (includeDir != null) {
+            val commonModRes = File(
+                includeDir,
+                "common/build/generated/genericui/module-resources/resources/META-INF/genericui/module-resources"
+            )
+            if (commonModRes.exists()) paths.add(commonModRes.absolutePath)
+            val extRoot = File(includeDir, "extensions")
+            if (extRoot.isDirectory) {
+                extRoot.listFiles()?.filter { it.isDirectory }?.forEach { catDir ->
+                    catDir.listFiles()?.filter { it.isDirectory }?.forEach { extDir ->
+                        val extModRes = File(
+                            extDir,
+                            "build/generated/genericui/module-resources/resources/META-INF/genericui/module-resources"
                         )
-                        paths.add(manifestFile.absolutePath)
+                        if (extModRes.exists()) paths.add(extModRes.absolutePath)
                     }
                 }
             }
         }
         return paths.toList()
+    }
+
+    private fun resolveUpstreamResourceClasspathFiles(project: Project): List<File> {
+        val files = linkedSetOf<File>()
+        val ownBuildDir = runCatching { project.layout.buildDirectory.asFile.get().canonicalPath }.getOrNull()
+        val candidateConfigNames = setOf(
+            "commonMainCompileKlibClasspath",
+            "commonMainCompileDependenciesMetadata",
+            "metadataCommonMainCompileClasspath",
+            "jvmCompileClasspath",
+            "jvmRuntimeClasspath",
+            "compileClasspath",
+            "runtimeClasspath",
+            "androidCompileClasspath",
+            "jsCompileClasspath",
+            "wasmJsCompileClasspath"
+        )
+        for (cfg in project.configurations.toList()) {
+            if (!cfg.isCanBeResolved) continue
+            val matches = cfg.name in candidateConfigNames ||
+                cfg.name.endsWith("CompileKlibClasspath") ||
+                cfg.name.endsWith("CompileClasspath")
+            if (!matches) continue
+            runCatching {
+                cfg.incoming.artifactView { lenient(true) }.files.forEach { file ->
+                    if (file.exists()) {
+                        val canon = runCatching { file.canonicalPath }.getOrNull()
+                        if (ownBuildDir == null || canon == null || !canon.startsWith(ownBuildDir)) {
+                            files.add(file)
+                        }
+                    }
+                }
+            }
+        }
+        return files.toList()
+    }
+
+    private fun wireGeneratedSchemaKotlinSources(
+        project: Project,
+        extension: GenericUiExtension,
+        schemaTaskName: String
+    ) {
+        val resolvedSchema = extension.extensions.schemaEnabled || extension.extensions.mediaEnabled
+        wireGeneratedCommonKotlinSources(
+            project = project,
+            enabled = resolvedSchema,
+            generatedDirRelativePath = "generated/genericui/schema/commonMain/kotlin",
+            generatorTaskName = schemaTaskName
+        )
+    }
+
+    private fun wireGeneratedServiceWorkerCodecSources(
+        project: Project,
+        extension: GenericUiExtension,
+        serviceWorkerCodecTaskName: String
+    ) {
+        wireGeneratedCommonKotlinSources(
+            project = project,
+            enabled = extension.extensions.serviceWorkerEnabled,
+            generatedDirRelativePath = "generated/genericui/serviceworker/commonMain/kotlin",
+            generatorTaskName = serviceWorkerCodecTaskName
+        )
+    }
+
+    private fun wireGeneratedCommonKotlinSources(
+        project: Project,
+        enabled: Boolean,
+        generatedDirRelativePath: String,
+        generatorTaskName: String
+    ) {
+        if (!enabled) return
+        val ktGeneratedDir = project.layout.buildDirectory.dir(generatedDirRelativePath)
+        val kotlinExt = project.extensions.findByName("kotlin")
+        if (kotlinExt != null) {
+            runCatching {
+                val getSourceSets = kotlinExt.javaClass.methods.firstOrNull {
+                    it.name == "getSourceSets" && it.parameterCount == 0
+                }
+                val sourceSetsContainer = getSourceSets?.invoke(kotlinExt) as? org.gradle.api.NamedDomainObjectContainer<*>
+                val targetSourceSet = sourceSetsContainer?.findByName("commonMain")
+                    ?: sourceSetsContainer?.findByName("common")
+                    ?: sourceSetsContainer?.findByName("main")
+                if (targetSourceSet != null) {
+                    val getKotlin = targetSourceSet.javaClass.methods.firstOrNull {
+                        it.name == "getKotlin" && it.parameterCount == 0
+                    }
+                    val kotlinSourceDirSet = getKotlin?.invoke(targetSourceSet) as? org.gradle.api.file.SourceDirectorySet
+                    kotlinSourceDirSet?.srcDir(ktGeneratedDir)
+                }
+            }
+        }
+        project.tasks.matching {
+            it.name.startsWith("compile") &&
+                !it.name.startsWith("compileGenericUi") &&
+                (it.name.contains("Kotlin") || it.name.contains("Android"))
+        }.configureEach {
+            dependsOn(generatorTaskName)
+        }
+    }
+
+    private fun buildPluginExtensionOptions(extension: GenericUiExtension): Map<String, String> =
+        buildPluginExtensionOptionsStatic(extension)
+
+    private fun collectConfiguredExtraKotlinDirs(
+        project: Project,
+        extension: GenericUiExtension
+    ): List<File> {
+        val dirs = linkedSetOf<File>()
+        for (spec in extension.sourceSets.allSpecs()) {
+            for (rawDir in spec.kotlinSrcDirs) {
+                val f = (rawDir as? File) ?: (rawDir as? String)?.let { File(it) } ?: continue
+                dirs.add(if (f.isAbsolute) f else File(project.projectDir, f.path))
+            }
+        }
+        return dirs.toList()
+    }
+
+    private fun collectSchemaSourceDirectories(
+        project: Project,
+        extension: GenericUiExtension
+    ): List<File> {
+        val dirs = linkedSetOf<File>()
+        dirs.add(File(project.projectDir, "src/commonMain/kotlin"))
+        dirs.add(File(project.projectDir, "src/common/kotlin"))
+        dirs.addAll(collectConfiguredExtraKotlinDirs(project, extension))
+        return dirs.toList()
+    }
+
+    private fun resolveGeneratedPackageForProject(
+        project: Project,
+        extension: GenericUiExtension
+    ): String {
+        val extraDirs = collectSchemaSourceDirectories(project, extension)
+        val discovered = (
+            GenericUiFragmentScanner.scanProject(project.projectDir) +
+                GenericUiFragmentScanner.scanSourceDirectories(extraDirs)
+            ).distinctBy { "${it.qualifiedName}:${it.isMainFragment}:${it.isApplicationClass}" }
+        return GenericUiGenerateLaunchersTask.resolveGeneratedLauncherPackage(
+            extension = extension,
+            projectGroup = project.group.toString(),
+            discoveredFragments = discovered
+        )
+    }
+
+    private fun resolveSchemaRegistrarPackage(
+        project: Project,
+        extension: GenericUiExtension
+    ): String {
+        val explicit = extension.extensions.extensionOptions[
+            com.nexustools.genericui.plugin.spi.SchemaExtensionContributor.OPTION_REGISTRAR_PACKAGE
+        ]?.trim()?.takeIf { it.isNotEmpty() }
+        if (explicit != null) return explicit
+        return resolveGeneratedPackageForProject(project, extension)
     }
 
     private fun wireGeneratedResourceKotlinSources(
@@ -1375,6 +1774,40 @@ class GenericUiGradlePlugin : Plugin<Project> {
                 (it.name.contains("Kotlin") || it.name.contains("Android"))
         }.configureEach {
             dependsOn(resourcesTaskName)
+        }
+        if (project.plugins.hasPlugin("com.android.kotlin.multiplatform.library") &&
+            extension.backends.androidEnabled
+        ) {
+            val hostTestRJarTaskName = "packageGenericUiAndroidHostTestRJar"
+            val hostTestRJarTask = if (hostTestRJarTaskName in project.tasks.names) {
+                project.tasks.named(hostTestRJarTaskName, org.gradle.api.tasks.bundling.Jar::class.java)
+            } else {
+                project.tasks.register(
+                    hostTestRJarTaskName,
+                    org.gradle.api.tasks.bundling.Jar::class.java
+                ) {
+                    group = TASK_GROUP
+                    description = "Packages compiled GenericUI R*.class files stripped by AGP library bundling for Android host tests."
+                    dependsOn(resourcesTaskName)
+                    dependsOn(project.tasks.matching { it.name == "compileAndroidMain" })
+                    archiveBaseName.set("${project.name}-genericui-host-test-r")
+                    destinationDirectory.set(project.layout.buildDirectory.dir("intermediates/genericui_host_test_r"))
+                    from(project.layout.buildDirectory.dir("classes/kotlin/android/main")) {
+                        include("**/R.class", "**/R\$*.class")
+                    }
+                    duplicatesStrategy = org.gradle.api.file.DuplicatesStrategy.EXCLUDE
+                }
+            }
+            for (configName in listOf("androidHostTestImplementation", "androidUnitTestImplementation")) {
+                if (project.configurations.findByName(configName) != null) {
+                    project.dependencies.add(
+                        configName,
+                        project.files(hostTestRJarTask.flatMap { it.archiveFile }) {
+                            builtBy(hostTestRJarTask)
+                        }
+                    )
+                }
+            }
         }
     }
 
@@ -1964,6 +2397,15 @@ class GenericUiGradlePlugin : Plugin<Project> {
         const val BASE_GROUP: String = "com.nexustools.genericui"
         const val DEFAULT_VERSION: String = "0.1.0-SNAPSHOT"
 
+        internal fun buildPluginExtensionOptionsStatic(extension: GenericUiExtension): Map<String, String> {
+            extension.extensions.syncServiceWorkerExtensionOptions()
+            val merged = LinkedHashMap<String, String>(extension.extensions.extensionOptions)
+            val enabledBackends = GenericUiGenerateLaunchersTask.enabledAllBackendScopes(extension.backends)
+                .joinToString(",") { it.id }
+            merged[com.nexustools.genericui.plugin.spi.ServiceWorkerExtensionContributor.OPTION_ENABLED_BACKENDS] = enabledBackends
+            return merged
+        }
+
         internal fun configureWebDistributionTaskInstance(
             project: Project,
             extension: GenericUiExtension,
@@ -2031,6 +2473,63 @@ class GenericUiGradlePlugin : Plugin<Project> {
             task.manifestAppleStatusBarStyle.set(project.provider { extension.application.desktop.webManifest.appleStatusBarStyle })
             task.manifestIcons.set(project.provider { extension.application.desktop.webManifest.icons.toList() })
             task.manifestShortcuts.set(project.provider { extension.application.desktop.webManifest.shortcuts.toList() })
+            val swContributorsProvider = project.provider {
+                extension.extensions.syncServiceWorkerExtensionOptions()
+                val enabledExtSet = extension.extensions.enabledExtensionModulePaths().toSet()
+                val discoveredFrags = GenericUiFragmentScanner.scanProject(project.projectDir)
+                val scanSpecs = com.nexustools.genericui.plugin.spi.GenericUiExtensionContributorRegistry
+                    .allAnnotationScanSpecs(enabledExtSet, project.projectDir)
+                val discoveredSyms = GenericUiFragmentScanner.scanProjectSymbols(project.projectDir, scanSpecs)
+                val genPkg = GenericUiGenerateLaunchersTask.resolveGeneratedLauncherPackage(
+                    extension = extension,
+                    projectGroup = project.group.toString(),
+                    discoveredFragments = discoveredFrags
+                )
+                val webVariant = resolveVariantWithProjectFallbacksStatic(project, extension, GenericUiVariantScope.WEB)
+                val baseCtx = com.nexustools.genericui.plugin.spi.ExtensionBuildContext(
+                    projectRootDir = project.projectDir,
+                    projectName = project.name,
+                    appId = webVariant.appId,
+                    appName = webVariant.appName,
+                    appVersion = webVariant.appVersion,
+                    baseName = extension.application.baseName.trim().ifEmpty { project.name },
+                    generatedPackageName = genPkg,
+                    enabledExtensionModulePaths = enabledExtSet,
+                    customExtensionModulePaths = extension.extensions.customModulePaths.toSet(),
+                    discoveredFragments = discoveredFrags,
+                    discoveredSymbols = discoveredSyms,
+                    extensionOptions = buildPluginExtensionOptionsStatic(extension)
+                )
+                com.nexustools.genericui.plugin.spi.GenericUiExtensionContributorRegistry
+                    .collectWebServiceWorkerContributions(baseCtx)
+            }
+            task.serviceWorkerEnabled.set(swContributorsProvider.map { list -> list.any { it.enableServiceWorker } })
+            task.serviceWorkerPluginPaths.set(swContributorsProvider.map { list ->
+                list.flatMap { c ->
+                    c.pluginScripts.filter { it.scriptContent == null }.map { s -> s.sourceFile?.absolutePath ?: s.relativeUrlPath }
+                }.distinct()
+            })
+            task.serviceWorkerInlinePlugins.set(swContributorsProvider.map { list ->
+                val map = linkedMapOf<String, String>()
+                list.flatMap { it.pluginScripts }.forEach { script ->
+                    val content = script.scriptContent
+                    if (content != null && script.relativeUrlPath.isNotBlank()) {
+                        map[script.relativeUrlPath] = content
+                    }
+                }
+                map
+            })
+            task.serviceWorkerBinaryBaseNames.set(swContributorsProvider.map { list ->
+                list.flatMap { c ->
+                    c.workerBinaries.filter { it.serviceWorker }.map { it.binaryBaseName }
+                }.distinct()
+            })
+            task.serviceWorkerOfflineUrls.set(swContributorsProvider.map { list ->
+                list.flatMap { c -> c.offlineCacheUrls }
+                    .map { it.trim() }
+                    .filter { it.isNotEmpty() }
+                    .distinct()
+            })
             task.buildVariant.set(variant)
             task.outputDirectory.set(project.layout.buildDirectory.dir(outputRelPath))
             task.outputs.upToDateWhen { false }
@@ -2125,6 +2624,10 @@ class GenericUiGradlePlugin : Plugin<Project> {
             ":extensions:media:media:dsl",
             ":extensions:media:mediacontrols",
             ":extensions:media:mediacontrols:dsl",
+            ":extensions:data:schema",
+            ":extensions:data:schema:dsl",
+            ":extensions:system:serviceworker",
+            ":extensions:system:serviceworker:dsl",
             ":extensions:ui:dsl",
             ":extensions:ui:overlay",
             ":extensions:ui:overlay:dsl",
@@ -2136,6 +2639,8 @@ class GenericUiGradlePlugin : Plugin<Project> {
             ":extensions:ui:codeeditor:dsl",
             ":extensions:ui:aichat",
             ":extensions:ui:aichat:dsl",
+            ":extensions:ui:pip",
+            ":extensions:ui:pip:dsl",
             ":tests"
         )
     }

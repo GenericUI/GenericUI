@@ -58,16 +58,27 @@ abstract class VlcNativeBundleTask : DefaultTask() {
                     Files.isSymbolicLink(File(out, "linux/libvlc.so").toPath()) &&
                         Files.isSymbolicLink(File(out, "linux/libvlccore.so").toPath())
                     )
+                val hostWinVlc = if (isWindowsHost) findWindowsVlcDirectory() else null
+                val winPluginsValid = if (hostWinVlc != null && File(hostWinVlc, "plugins/video_output").isDirectory) {
+                    File(out, "windows/plugins/video_output").listFiles()?.any {
+                        it.isFile && it.name.endsWith(".dll", ignoreCase = true)
+                    } == true
+                } else {
+                    true
+                }
                 val macPlugins = File(out, "macos/plugins")
                 val hostMacPlugins = File("/Applications/VLC.app/Contents/MacOS/plugins")
+                val basePropsValid = File(out, "vlc-runtime.properties").isFile
                 if (hostMacPlugins.isDirectory) {
-                    macSymlinksValid &&
+                    basePropsValid &&
+                        macSymlinksValid &&
                         linuxSymlinksValid &&
+                        winPluginsValid &&
                         File(out, "macos/libvlccore.dylib").isFile &&
                         File(out, "macos/libvlc.dylib").isFile &&
                         (macPlugins.listFiles()?.any { it.isFile && it.name.endsWith(".dylib") } == true)
                 } else {
-                    macSymlinksValid && linuxSymlinksValid
+                    basePropsValid && macSymlinksValid && linuxSymlinksValid && winPluginsValid
                 }
             }
         }
@@ -215,8 +226,12 @@ abstract class VlcNativeBundleTask : DefaultTask() {
             createOrUpdateSymlinkOrCopy(dstLibVlcUnversioned, "libvlc.so.5", srcVlc)
             copyFileIfChanged(srcCore, dstLibVlcCore)
             createOrUpdateSymlinkOrCopy(dstLibVlcCoreUnversioned, "libvlccore.so.9", srcCore)
-            val srcPlugins = File(foundLibDir, "vlc/plugins")
-            if (srcPlugins.isDirectory) {
+            val srcPlugins = listOfNotNull(
+                File(foundLibDir, "vlc/plugins"),
+                File(foundLibDir, "plugins"),
+                foundLibDir.parentFile?.let { File(it, "plugins") }
+            ).firstOrNull { it.isDirectory }
+            if (srcPlugins != null) {
                 copyVlcPluginsFiltered(srcPlugins, dstPluginsDir)
             } else {
                 ensureMinimalPluginsDir(dstPluginsDir)
@@ -235,20 +250,67 @@ abstract class VlcNativeBundleTask : DefaultTask() {
             "audio_filter",
             "audio_mixer",
             "audio_output",
+            "chroma",
             "codec",
             "d3d11",
             "d3d9",
             "demux",
+            "direct3d",
+            "direct3d11",
+            "direct3d9",
+            "gl",
+            "hw",
             "logger",
             "misc",
+            "opengl",
             "packetizer",
             "spu",
             "stream_extractor",
             "stream_filter",
             "text_renderer",
+            "vaapi",
+            "vdpau",
             "video_chroma",
             "video_filter",
-            "video_output"
+            "video_output",
+            "video_splitter",
+            "vout",
+            "vulkan",
+            "win32"
+        )
+
+        private val VIDEO_OUTPUT_PLUGIN_SUBDIR_TOKENS: List<String> = listOf(
+            "video_output",
+            "vout",
+            "d3d11",
+            "d3d9",
+            "direct3d",
+            "opengl",
+            "chroma"
+        )
+
+        private val VIDEO_OUTPUT_PLUGIN_FILE_TOKENS: List<String> = listOf(
+            "vout",
+            "d3d11",
+            "d3d9",
+            "direct3d",
+            "opengl",
+            "glwin32",
+            "glinterop",
+            "libgl_",
+            "libgl.",
+            "wgl",
+            "wingdi",
+            "vmem",
+            "drawable",
+            "chroma",
+            "swscale",
+            "yuv",
+            "caopengllayer",
+            "xcb_glx",
+            "xcb_x11",
+            "egl",
+            "vulkan"
         )
 
         private val EXCLUDED_HEAVY_VLC_PLUGIN_STEMS: Set<String> = setOf(
@@ -271,9 +333,29 @@ abstract class VlcNativeBundleTask : DefaultTask() {
             "libskins2_plugin"
         )
 
+        private fun isEssentialVlcPluginSubdir(dirName: String): Boolean {
+            val lower = dirName.lowercase()
+            return lower in ESSENTIAL_VLC_PLUGIN_SUBDIRS ||
+                VIDEO_OUTPUT_PLUGIN_SUBDIR_TOKENS.any { token -> token in lower }
+        }
+
+        private fun isVideoOutputOrChromaPluginFile(file: File): Boolean {
+            val lower = file.name.lowercase()
+            return VIDEO_OUTPUT_PLUGIN_FILE_TOKENS.any { token -> token in lower }
+        }
+
+        private fun isVlcSharedLibraryFileName(fileName: String): Boolean {
+            val lower = fileName.lowercase()
+            return lower.endsWith(".dylib") ||
+                lower.endsWith(".so") ||
+                ".so." in lower ||
+                lower.endsWith(".dll")
+        }
+
         private fun isExcludedVlcPluginFile(file: File): Boolean {
             val lower = file.name.lowercase()
             if (lower.endsWith(".jar")) return true
+            if (isVideoOutputOrChromaPluginFile(file)) return false
             val stem = lower.substringBefore('.')
             return stem in EXCLUDED_HEAVY_VLC_PLUGIN_STEMS
         }
@@ -317,7 +399,7 @@ abstract class VlcNativeBundleTask : DefaultTask() {
             }
         }
 
-        private fun copyVlcPluginsFiltered(srcPluginsDir: File, dstPluginsDir: File) {
+        internal fun copyVlcPluginsFiltered(srcPluginsDir: File, dstPluginsDir: File) {
             dstPluginsDir.mkdirs()
             val pluginsDat = File(srcPluginsDir, "plugins.dat")
             if (Files.exists(pluginsDat.toPath(), LinkOption.NOFOLLOW_LINKS)) {
@@ -334,10 +416,10 @@ abstract class VlcNativeBundleTask : DefaultTask() {
             sortedEntries.forEach { entry ->
                 val entryPath = entry.toPath()
                 val isRealDir = Files.isDirectory(entryPath, LinkOption.NOFOLLOW_LINKS)
-                if (!isRealDir && (Files.isSymbolicLink(entryPath) || entry.isFile)) {
+                val isDirEntry = isRealDir || (Files.isSymbolicLink(entryPath) && entry.isDirectory)
+                if (!isDirEntry && (Files.isSymbolicLink(entryPath) || entry.isFile)) {
                     // macOS VLC.app stores all *_plugin.dylib modules flat inside Contents/MacOS/plugins/
-                    val lower = entry.name.lowercase()
-                    if (!lower.endsWith(".dylib") && !lower.endsWith(".so") && !lower.endsWith(".dll")) return@forEach
+                    if (!isVlcSharedLibraryFileName(entry.name)) return@forEach
                     if (isExcludedVlcPluginFile(entry)) return@forEach
                     if (GenericUiMultiplatformConfigurator.isExcludedStaticCoreLibrary(entry)) return@forEach
                     GenericUiSymlinkPreservingCopy.copyEntryPreservingSymlinks(
@@ -345,26 +427,46 @@ abstract class VlcNativeBundleTask : DefaultTask() {
                         dst = File(dstPluginsDir, entry.name),
                         sourceRoot = srcPluginsDir
                     )
-                } else if (isRealDir && entry.name in ESSENTIAL_VLC_PLUGIN_SUBDIRS) {
-                    val targetSubDir = File(dstPluginsDir, entry.name)
-                    targetSubDir.mkdirs()
-                    val sortedSubEntries = entry.listFiles()?.sortedWith(
-                        compareBy<File> { if (Files.isSymbolicLink(it.toPath())) 1 else 0 }
-                            .thenBy { it.name }
-                    ).orEmpty()
-                    sortedSubEntries.forEach { file ->
-                        val filePath = file.toPath()
-                        if (Files.isDirectory(filePath, LinkOption.NOFOLLOW_LINKS)) return@forEach
-                        if (!Files.isSymbolicLink(filePath) && !file.isFile) return@forEach
-                        if (isExcludedVlcPluginFile(file)) return@forEach
-                        if (GenericUiMultiplatformConfigurator.isExcludedStaticCoreLibrary(file)) return@forEach
-                        GenericUiSymlinkPreservingCopy.copyEntryPreservingSymlinks(
-                            src = file,
-                            dst = File(targetSubDir, file.name),
-                            sourceRoot = srcPluginsDir
-                        )
-                    }
+                } else if (isDirEntry && isEssentialVlcPluginSubdir(entry.name)) {
+                    copyEssentialPluginSubdir(
+                        srcSubDir = entry,
+                        dstSubDir = File(dstPluginsDir, entry.name),
+                        pluginsRoot = srcPluginsDir
+                    )
                 }
+            }
+        }
+
+        private fun copyEssentialPluginSubdir(
+            srcSubDir: File,
+            dstSubDir: File,
+            pluginsRoot: File
+        ) {
+            dstSubDir.mkdirs()
+            val sortedSubEntries = srcSubDir.listFiles()?.sortedWith(
+                compareBy<File> { if (Files.isSymbolicLink(it.toPath())) 1 else 0 }
+                    .thenBy { it.name }
+            ).orEmpty()
+            sortedSubEntries.forEach { file ->
+                val filePath = file.toPath()
+                val isNestedDir = Files.isDirectory(filePath, LinkOption.NOFOLLOW_LINKS) ||
+                    (Files.isSymbolicLink(filePath) && file.isDirectory)
+                if (isNestedDir) {
+                    copyEssentialPluginSubdir(
+                        srcSubDir = file,
+                        dstSubDir = File(dstSubDir, file.name),
+                        pluginsRoot = pluginsRoot
+                    )
+                    return@forEach
+                }
+                if (!Files.isSymbolicLink(filePath) && !file.isFile) return@forEach
+                if (isExcludedVlcPluginFile(file)) return@forEach
+                if (GenericUiMultiplatformConfigurator.isExcludedStaticCoreLibrary(file)) return@forEach
+                GenericUiSymlinkPreservingCopy.copyEntryPreservingSymlinks(
+                    src = file,
+                    dst = File(dstSubDir, file.name),
+                    sourceRoot = pluginsRoot
+                )
             }
         }
 

@@ -1,6 +1,11 @@
 package com.nexustools.genericui.plugin
 
+import com.nexustools.genericui.plugin.spi.AndroidExtensionContribution
+import com.nexustools.genericui.plugin.spi.ExtensionBuildContext
+import com.nexustools.genericui.plugin.spi.GenericUiDiscoveredSymbol
+import com.nexustools.genericui.plugin.spi.GenericUiExtensionContributorRegistry
 import org.gradle.api.GradleException
+import java.io.File
 
 /**
  * Validates [GenericUiAndroidManifestModel] configurations, resolves placeholders and version codes,
@@ -154,7 +159,11 @@ object GenericUiAndroidManifestXmlGenerator {
         model: GenericUiAndroidManifestModel,
         fragments: List<GenericUiDiscoveredFragment>,
         winningMainFragment: GenericUiDiscoveredFragment? = fragments.firstOrNull { it.isMainFragment },
-        defaultPackageName: String = appId
+        defaultPackageName: String = appId,
+        enabledExtensionModulePaths: List<String> = emptyList(),
+        projectRootDir: File? = null,
+        discoveredSymbols: List<GenericUiDiscoveredSymbol> = emptyList(),
+        extensionOptions: Map<String, String> = emptyMap()
     ): GenericUiAndroidManifestOutput {
         val resolvedAppId = appId.trim().ifEmpty { "com.nexustools.genericui.app" }
         val resolvedAppName = appName.trim().ifEmpty { "GenericUI" }
@@ -220,6 +229,25 @@ object GenericUiAndroidManifestXmlGenerator {
             generatedResFiles["xml/$xmlName.xml"] = renderWidgetInfoXml(widget, basePlaceholders)
         }
 
+        val normalizedExtPaths = enabledExtensionModulePaths
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .toSet()
+        val extContext = ExtensionBuildContext(
+            projectRootDir = projectRootDir ?: File("."),
+            projectName = resolvedAppName,
+            appId = resolvedAppId,
+            appName = resolvedAppName,
+            appVersion = expandedVersionName,
+            baseName = resolvedAppName,
+            generatedPackageName = resolvedPkg,
+            enabledExtensionModulePaths = normalizedExtPaths,
+            discoveredFragments = fragments,
+            discoveredSymbols = discoveredSymbols,
+            extensionOptions = extensionOptions
+        )
+        GenericUiExtensionContributorRegistry.validateActiveContributors(extContext, discoveredSymbols)
+
         val manifestXml = renderManifestXml(
             resolvedAppId = resolvedAppId,
             resolvedAppName = resolvedAppName,
@@ -231,7 +259,9 @@ object GenericUiAndroidManifestXmlGenerator {
             winningMainFragment = winningMainFragment,
             hasShortcuts = model.shortcuts.enabled && resolvedShortcuts.isNotEmpty(),
             widgetXmlNames = widgetXmlNames,
-            placeholders = basePlaceholders
+            placeholders = basePlaceholders,
+            enabledExtensionPaths = normalizedExtPaths,
+            extensionContext = extContext
         )
 
         return GenericUiAndroidManifestOutput(
@@ -267,9 +297,17 @@ object GenericUiAndroidManifestXmlGenerator {
         winningMainFragment: GenericUiDiscoveredFragment?,
         hasShortcuts: Boolean,
         widgetXmlNames: Map<String, String>,
-        placeholders: Map<String, String>
+        placeholders: Map<String, String>,
+        enabledExtensionPaths: Set<String>,
+        extensionContext: ExtensionBuildContext
     ): String = buildString {
         val usesToolsNamespace = usesToolsPrefix(model)
+        val appContributions = GenericUiExtensionContributorRegistry.collectAndroidContributions(extensionContext, null)
+        val perFragContributions = fragments.associateWith { frag ->
+            GenericUiExtensionContributorRegistry.collectAndroidContributions(extensionContext, frag)
+        }
+        val allManifestContributions = (appContributions + perFragContributions.values.flatten())
+            .map { it.manifestContribution }
 
         val manifestAttrs = linkedMapOf<String, String>()
         manifestAttrs["xmlns:android"] = "http://schemas.android.com/apk/res/android"
@@ -286,9 +324,10 @@ object GenericUiAndroidManifestXmlGenerator {
         appendLine("""<?xml version="1.0" encoding="utf-8"?>""")
         appendOpenTag(this, indent = "", tag = "manifest", attrs = manifestAttrs, selfClosing = false)
 
+        val seenPermissions = linkedSetOf<String>()
         for (perm in model.permissions) {
             val trimmed = expandPlaceholders(perm.name.trim(), placeholders)
-            if (trimmed.isEmpty()) continue
+            if (trimmed.isEmpty() || !seenPermissions.add(trimmed)) continue
             val permAttrs = linkedMapOf<String, String>()
             permAttrs["android:name"] = trimmed
             perm.maxSdkVersion?.let { permAttrs["android:maxSdkVersion"] = it.toString() }
@@ -296,6 +335,14 @@ object GenericUiAndroidManifestXmlGenerator {
                 permAttrs["android:usesPermissionFlags"] = expandPlaceholders(it, placeholders)
             }
             appendInlineTag(this, indent = "    ", tag = "uses-permission", attrs = permAttrs)
+        }
+        for (contrib in allManifestContributions) {
+            for (rawPerm in contrib.permissions) {
+                val trimmed = expandPlaceholders(rawPerm.trim(), placeholders)
+                if (trimmed.isEmpty() || !seenPermissions.add(trimmed)) continue
+                val permAttrs = linkedMapOf("android:name" to trimmed)
+                appendInlineTag(this, indent = "    ", tag = "uses-permission", attrs = permAttrs)
+            }
         }
 
         val effectiveFeatures = model.usesFeatures.toMutableList()
@@ -409,6 +456,13 @@ object GenericUiAndroidManifestXmlGenerator {
                 )
             )
         }
+        for (contrib in allManifestContributions) {
+            for (meta in contrib.applicationMetaData) {
+                if (effectiveAppMeta.none { it.name == meta.name }) {
+                    effectiveAppMeta.add(meta)
+                }
+            }
+        }
         for (meta in effectiveAppMeta) {
             renderMetaData(this, indent = "        ", spec = meta, placeholders = placeholders)
         }
@@ -421,16 +475,25 @@ object GenericUiAndroidManifestXmlGenerator {
                 resolvedAppName = resolvedAppName,
                 model = model,
                 hasShortcuts = hasShortcuts,
-                placeholders = placeholders
+                placeholders = placeholders,
+                enabledExtensionPaths = enabledExtensionPaths,
+                spiContributions = perFragContributions[frag].orEmpty()
             )
         }
 
-        val effectiveServices = resolveEffectiveServices(model)
+        val effectiveServices = resolveEffectiveServices(
+            model = model,
+            contributedServices = allManifestContributions.flatMap { it.services }
+        )
         for (svc in effectiveServices) {
             renderServiceElement(this, svc, placeholders)
         }
 
-        for (receiver in model.receivers) {
+        val effectiveReceivers = mergeContributedReceivers(
+            configuredReceivers = model.receivers,
+            contributedReceivers = allManifestContributions.flatMap { it.receivers }
+        )
+        for (receiver in effectiveReceivers) {
             renderReceiverElement(this, receiver, placeholders)
         }
 
@@ -444,7 +507,11 @@ object GenericUiAndroidManifestXmlGenerator {
             renderReceiverElement(this, widgetReceiver, placeholders)
         }
 
-        for (provider in model.providers) {
+        val effectiveProviders = mergeContributedProviders(
+            configuredProviders = model.providers,
+            contributedProviders = allManifestContributions.flatMap { it.providers }
+        )
+        for (provider in effectiveProviders) {
             renderProviderElement(this, provider, placeholders)
         }
 
@@ -471,7 +538,9 @@ object GenericUiAndroidManifestXmlGenerator {
         resolvedAppName: String,
         model: GenericUiAndroidManifestModel,
         hasShortcuts: Boolean,
-        placeholders: Map<String, String>
+        placeholders: Map<String, String>,
+        enabledExtensionPaths: Set<String>,
+        spiContributions: List<AndroidExtensionContribution> = emptyList()
     ) {
         val merged = model.activityDefaults.copyDefaults()
         if (isMain) {
@@ -488,6 +557,14 @@ object GenericUiAndroidManifestXmlGenerator {
             model.activityOverrides[key]?.let { merged.overlayWith(it) }
         }
 
+        val activityContributions = AndroidActivityExtensionRegistry.resolveContributions(frag, enabledExtensionPaths)
+        val contributionEnablesPip = activityContributions.any { it.supportsPictureInPictureManifest } ||
+            spiContributions.any { it.manifestContribution.supportsPictureInPicture }
+        val contributionConfigChanges = (
+            activityContributions.flatMap { it.requiredConfigChanges } +
+                spiContributions.flatMap { it.manifestContribution.activityConfigChanges }
+            ).distinct()
+
         val customActivityClass = merged.activityClass?.trim()?.takeIf { it.isNotEmpty() }
             ?.let { expandPlaceholders(it, placeholders) }
         val resolvedActivityName = customActivityClass ?: frag.generatedActivityQualifiedName
@@ -502,13 +579,19 @@ object GenericUiAndroidManifestXmlGenerator {
         } else {
             merged.exported ?: false
         }
-        val configChanges = merged.configChanges?.trim()?.takeIf { it.isNotEmpty() }
+        val baseConfigChanges = merged.configChanges?.trim()?.takeIf { it.isNotEmpty() }
             ?: model.configChanges.trim().ifEmpty { "orientation|screenSize|screenLayout|keyboardHidden|uiMode|density" }
+        val configChanges = mergePipeSeparatedTokens(baseConfigChanges, contributionConfigChanges)
         val orientation = frag.screenOrientation.trim()
             .ifEmpty { merged.screenOrientation?.trim().orEmpty() }
             .ifEmpty { model.screenOrientation.trim() }
             .ifEmpty { "unspecified" }
-        val pip = merged.supportsPictureInPicture ?: model.supportsPictureInPicture
+        val pip = when {
+            merged.supportsPictureInPicture == false -> false
+            merged.supportsPictureInPicture == true -> true
+            contributionEnablesPip -> true
+            else -> model.supportsPictureInPicture
+        }
 
         val attrs = linkedMapOf<String, String>()
         attrs["android:name"] = resolvedActivityName
@@ -606,8 +689,63 @@ object GenericUiAndroidManifestXmlGenerator {
         }
     }
 
-    private fun resolveEffectiveServices(model: GenericUiAndroidManifestModel): List<GenericUiAndroidServiceSpec> {
-        val list = model.services.map { it.copySpec() }.toMutableList()
+    private fun resolveEffectiveServices(
+        model: GenericUiAndroidManifestModel,
+        contributedServices: List<com.nexustools.genericui.plugin.spi.AndroidServiceContribution> = emptyList()
+    ): List<GenericUiAndroidServiceSpec> {
+        val mergedByName = LinkedHashMap<String, GenericUiAndroidServiceSpec>()
+        for (svc in model.services) {
+            mergedByName[svc.className] = svc.copySpec()
+        }
+        for (contrib in contributedServices) {
+            val className = contrib.className.trim()
+            if (className.isEmpty()) continue
+            val existing = mergedByName[className]
+            if (existing == null) {
+                mergedByName[className] = GenericUiAndroidServiceSpec(className).apply {
+                    exported = contrib.exported
+                    enabled = contrib.enabled
+                    foregroundServiceType = contrib.foregroundServiceType?.trim().orEmpty()
+                    permission = contrib.permission?.trim().orEmpty()
+                    process = contrib.process?.trim().orEmpty()
+                    stopWithTask = contrib.stopWithTask
+                    isolatedProcess = contrib.isolatedProcess
+                    contrib.intentFilters.mapTo(intentFilters) { it.copySpec() }
+                    contrib.metaData.forEach { m -> metaData(m.name, m.value, m.resource) }
+                    contrib.properties.forEach { (k, v) -> property(k, v) }
+                }
+            } else {
+                if (contrib.exported) existing.exported = true
+                if (!existing.enabled && contrib.enabled) existing.enabled = true
+                if (existing.foregroundServiceType.isBlank() && !contrib.foregroundServiceType.isNullOrBlank()) {
+                    existing.foregroundServiceType = contrib.foregroundServiceType.trim()
+                }
+                if (existing.permission.isBlank() && !contrib.permission.isNullOrBlank()) {
+                    existing.permission = contrib.permission.trim()
+                }
+                if (existing.process.isBlank() && !contrib.process.isNullOrBlank()) {
+                    existing.process = contrib.process.trim()
+                }
+                if (existing.stopWithTask == null && contrib.stopWithTask != null) {
+                    existing.stopWithTask = contrib.stopWithTask
+                }
+                if (existing.isolatedProcess == null && contrib.isolatedProcess != null) {
+                    existing.isolatedProcess = contrib.isolatedProcess
+                }
+                contrib.intentFilters.mapTo(existing.intentFilters) { it.copySpec() }
+                contrib.metaData.forEach { m ->
+                    if (existing.metaDataList.none { it.name == m.name }) {
+                        existing.metaData(m.name, m.value, m.resource)
+                    }
+                }
+                contrib.properties.forEach { (k, v) ->
+                    if (k !in existing.properties) {
+                        existing.property(k, v)
+                    }
+                }
+            }
+        }
+        val list = mergedByName.values.toMutableList()
         val mediaServiceName = model.androidAuto.mediaBrowserService?.trim()?.takeIf { it.isNotEmpty() }
         if (model.androidAuto.enabled && mediaServiceName != null) {
             val existing = list.firstOrNull { it.className == mediaServiceName }
@@ -630,6 +768,52 @@ object GenericUiAndroidManifestXmlGenerator {
         return list
     }
 
+    private fun mergeContributedReceivers(
+        configuredReceivers: List<GenericUiAndroidReceiverSpec>,
+        contributedReceivers: List<com.nexustools.genericui.plugin.spi.AndroidReceiverContribution>
+    ): List<GenericUiAndroidReceiverSpec> {
+        val merged = LinkedHashMap<String, GenericUiAndroidReceiverSpec>()
+        for (r in configuredReceivers) {
+            merged[r.className] = r.copySpec()
+        }
+        for (contrib in contributedReceivers) {
+            val className = contrib.className.trim()
+            if (className.isEmpty() || className in merged) continue
+            merged[className] = GenericUiAndroidReceiverSpec(className).apply {
+                exported = contrib.exported
+                enabled = contrib.enabled
+                permission = contrib.permission?.trim()
+                process = contrib.process?.trim()
+                contrib.intentFilters.mapTo(intentFilters) { it.copySpec() }
+                contrib.metaData.forEach { m -> metaData(m.name, m.value, m.resource) }
+            }
+        }
+        return merged.values.toList()
+    }
+
+    private fun mergeContributedProviders(
+        configuredProviders: List<GenericUiAndroidProviderSpec>,
+        contributedProviders: List<com.nexustools.genericui.plugin.spi.AndroidProviderContribution>
+    ): List<GenericUiAndroidProviderSpec> {
+        val merged = LinkedHashMap<String, GenericUiAndroidProviderSpec>()
+        for (p in configuredProviders) {
+            merged[p.className] = p.copySpec()
+        }
+        for (contrib in contributedProviders) {
+            val className = contrib.className.trim()
+            if (className.isEmpty() || className in merged) continue
+            merged[className] = GenericUiAndroidProviderSpec(className).apply {
+                authorities = contrib.authorities.trim()
+                exported = contrib.exported
+                enabled = contrib.enabled
+                grantUriPermissions = contrib.grantUriPermissions
+                initOrder = contrib.initOrder
+                contrib.metaData.forEach { m -> metaData(m.name, m.value, m.resource) }
+            }
+        }
+        return merged.values.toList()
+    }
+
     private fun renderServiceElement(
         sb: StringBuilder,
         service: GenericUiAndroidServiceSpec,
@@ -648,6 +832,8 @@ object GenericUiAndroidManifestXmlGenerator {
         if (service.process.isNotBlank()) {
             attrs["android:process"] = expandPlaceholders(service.process.trim(), placeholders)
         }
+        service.stopWithTask?.let { attrs["android:stopWithTask"] = it.toString() }
+        service.isolatedProcess?.let { attrs["android:isolatedProcess"] = it.toString() }
 
         val filters = mutableListOf<GenericUiAndroidIntentFilterSpec>()
         if (service.intentActions.isNotEmpty()) {
@@ -659,7 +845,7 @@ object GenericUiAndroidManifestXmlGenerator {
         }
         filters.addAll(service.intentFilters)
 
-        val hasChildren = filters.isNotEmpty() || service.metaDataList.isNotEmpty()
+        val hasChildren = filters.isNotEmpty() || service.metaDataList.isNotEmpty() || service.properties.isNotEmpty()
         appendOpenTag(sb, indent = "        ", tag = "service", attrs = attrs, selfClosing = !hasChildren)
         if (!hasChildren) return
 
@@ -668,6 +854,13 @@ object GenericUiAndroidManifestXmlGenerator {
         }
         for (meta in service.metaDataList) {
             renderMetaData(sb, indent = "            ", spec = meta, placeholders = placeholders)
+        }
+        for ((propName, propVal) in service.properties.entries.sortedBy { it.key }) {
+            val pAttrs = linkedMapOf(
+                "android:name" to expandPlaceholders(propName, placeholders),
+                "android:value" to expandPlaceholders(propVal, placeholders)
+            )
+            appendInlineTag(sb, indent = "            ", tag = "property", attrs = pAttrs)
         }
         sb.appendLine("""        </service>""")
     }
@@ -1151,6 +1344,26 @@ object GenericUiAndroidManifestXmlGenerator {
         return model.activityOverrides.values.any { ov ->
             ov.rawAttributes.keys.any { it.startsWith("tools:") }
         }
+    }
+
+    private fun mergePipeSeparatedTokens(base: String, additions: List<String>): String {
+        if (additions.isEmpty()) return base
+        val tokens = LinkedHashSet<String>()
+        for (part in base.split('|')) {
+            val trimmed = part.trim()
+            if (trimmed.isNotEmpty()) {
+                tokens.add(trimmed)
+            }
+        }
+        for (addition in additions) {
+            for (part in addition.split('|')) {
+                val trimmed = part.trim()
+                if (trimmed.isNotEmpty()) {
+                    tokens.add(trimmed)
+                }
+            }
+        }
+        return tokens.joinToString("|")
     }
 
     private fun normalizeAttrName(raw: String): String {

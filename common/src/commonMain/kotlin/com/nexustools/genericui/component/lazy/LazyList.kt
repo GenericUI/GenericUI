@@ -256,7 +256,10 @@ open class LazyList(
         val currentAdapter = adapter
         val cached = if (currentAdapter == null && itemUnloader == null) cachedItemHolders.remove(index) else null
         if (cached != null) {
-            val insertPos = runCatching { activeHolders.keys.toList() }.getOrElse { emptyList() }.count { it < index }
+            val insertPos = runCatching {
+                @Suppress("UNCHECKED_CAST")
+                (activeHolders.keys.toTypedArray() as Array<Int?>).count { it != null && it < index }
+            }.getOrElse { 0 }
             activeHolders[index] = cached
             addChild(cached.itemView, insertPos)
             return cached
@@ -276,7 +279,10 @@ open class LazyList(
             }
         }
         holder.itemView.setAttribute("data-lazy-index", index.toString())
-        val insertPos = runCatching { activeHolders.keys.toList() }.getOrElse { emptyList() }.count { it < index }
+        val insertPos = runCatching {
+            @Suppress("UNCHECKED_CAST")
+            (activeHolders.keys.toTypedArray() as Array<Int?>).count { it != null && it < index }
+        }.getOrElse { 0 }
         activeHolders[index] = holder
         holder.itemView.parent = this
         if ((resolveActiveFactory() ?: com.nexustools.genericui.core.GenericUI.activeFactory)?.isStyleSheetEngineEnabled != false) {
@@ -310,7 +316,7 @@ open class LazyList(
 
     fun unloadAllVisibleItems() {
         viewportTracker.unloadAll { idx -> unloadItemAtIndex(idx) }
-        val remaining = runCatching { ArrayList(activeHolders.keys) }.getOrElse { emptyList() }
+        val remaining = runCatching { ArrayList<Int?>(activeHolders.keys).filterNotNull() }.getOrElse { emptyList() }
         for (idx in remaining) {
             unloadItemAtIndex(idx)
         }

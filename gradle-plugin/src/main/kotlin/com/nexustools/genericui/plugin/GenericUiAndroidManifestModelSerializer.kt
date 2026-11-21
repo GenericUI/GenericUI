@@ -150,10 +150,19 @@ object GenericUiAndroidManifestModelSerializer {
                 if (svc.process.isNotBlank()) {
                     existing.process = svc.process
                 }
+                if (svc.stopWithTask != null) {
+                    existing.stopWithTask = svc.stopWithTask
+                }
+                if (svc.isolatedProcess != null) {
+                    existing.isolatedProcess = svc.isolatedProcess
+                }
                 svc.intentActions.forEach { existing.intentAction(it) }
                 svc.intentFilters.forEach { existing.intentFilters.add(it.copySpec()) }
                 svc.metaDataList.forEach { m ->
                     existing.metaData(m.name, m.value, m.resource)
+                }
+                svc.properties.forEach { (k, v) ->
+                    existing.property(k, v)
                 }
             }
         }
@@ -383,9 +392,12 @@ object GenericUiAndroidManifestModelSerializer {
         "foregroundServiceType" to spec.foregroundServiceType,
         "intentActions" to spec.intentActions,
         "intentFilters" to spec.intentFilters.map(::intentFilterToMap),
+        "isolatedProcess" to spec.isolatedProcess,
         "metaDataList" to spec.metaDataList.map(::metaDataToMap),
         "permission" to spec.permission,
-        "process" to spec.process
+        "process" to spec.process,
+        "properties" to spec.properties,
+        "stopWithTask" to spec.stopWithTask
     )
 
     private fun receiverToMap(spec: GenericUiAndroidReceiverSpec): Map<String, Any?> = mapOf(
@@ -756,9 +768,12 @@ object GenericUiAndroidManifestModelSerializer {
             foregroundServiceType = map.str("foregroundServiceType").orEmpty()
             permission = map.str("permission").orEmpty()
             process = map.str("process").orEmpty()
+            stopWithTask = map.bool("stopWithTask")
+            isolatedProcess = map.bool("isolatedProcess")
             map.stringList("intentActions").forEach { intentAction(it) }
             map.objList("intentFilters").mapTo(intentFilters, ::mapToIntentFilter)
             map.objList("metaDataList").mapNotNullTo(metaDataList, ::mapToMetaData)
+            map.stringMap("properties").forEach { (k, v) -> property(k, v) }
             autoAddForegroundServicePermission = map.bool("autoAddForegroundServicePermission") ?: false
         }
     }

@@ -139,15 +139,15 @@ class AndroidSvgAndLauncherIconTest {
         resTask.compileResources()
 
         val androidResDir = File(resTask.backendOutputDirectory.get().asFile, "android/res")
-        assertTrue(File(androidResDir, "drawable/ic_play.xml").isFile, "Default drawable/ic_play.xml should be emitted")
-        assertTrue(File(androidResDir, "drawable-night/ic_play.xml").isFile, "Qualified drawable-night/ic_play.xml should be preserved")
-        assertTrue(File(androidResDir, "mipmap-anydpi/badge_logo.xml").isFile, "Qualified mipmap-anydpi/badge_logo.xml should be preserved")
+        assertTrue(File(androidResDir, "drawable/app_drawable_ic_play.xml").isFile, "Default drawable/app_drawable_ic_play.xml should be emitted")
+        assertTrue(File(androidResDir, "drawable-night/app_drawable_ic_play.xml").isFile, "Qualified drawable-night/app_drawable_ic_play.xml should preserve base flatName")
+        assertTrue(File(androidResDir, "mipmap-anydpi/app_mipmap_anydpi_badge_logo.xml").isFile, "Qualified mipmap-anydpi/app_mipmap_anydpi_badge_logo.xml should be preserved")
 
         for (density in listOf("mdpi", "hdpi", "xhdpi", "xxhdpi", "xxxhdpi")) {
-            val png = File(androidResDir, "drawable-night-$density/hero_text_badge.png")
-            assertTrue(png.isFile && png.length() > 100L, "Expected multi-density raster fallback at drawable-night-$density/hero_text_badge.png")
+            val png = File(androidResDir, "drawable-night-$density/app_drawable_night_hero_text_badge.png")
+            assertTrue(png.isFile && png.length() > 100L, "Expected multi-density raster fallback at drawable-night-$density/app_drawable_night_hero_text_badge.png")
         }
-        assertFalse(File(androidResDir, "drawable-night/hero_text_badge.xml").exists())
+        assertFalse(File(androidResDir, "drawable-night/app_drawable_night_hero_text_badge.xml").exists())
 
         // Strict mode must fail with GradleException on warnings
         resTask.failOnSvgConversionWarnings.set(true)
@@ -341,14 +341,14 @@ class AndroidSvgAndLauncherIconTest {
         resTask.compileResources()
 
         val androidRes = File(resTask.backendOutputDirectory.get().asFile, "android/res")
-        val icCastXml = File(androidRes, "drawable/ic_cast.xml").readText()
+        val icCastXml = File(androidRes, "drawable/app_drawable_ic_cast.xml").readText()
         assertFalse(icCastXml.contains("android:fillColor="), "ic_cast.xml must preserve fill=\"none\" and omit fillColor:\n$icCastXml")
         assertTrue(icCastXml.contains("android:strokeColor=\"#FF000000\""), "ic_cast.xml must resolve currentColor stroke:\n$icCastXml")
         assertTrue(icCastXml.contains("android:strokeWidth=\"2\""), "ic_cast.xml must preserve stroke-width=2:\n$icCastXml")
         assertTrue(icCastXml.contains("android:strokeLineCap=\"round\""), "ic_cast.xml must preserve lineCap=round:\n$icCastXml")
         assertTrue(icCastXml.contains("android:strokeLineJoin=\"round\""), "ic_cast.xml must preserve lineJoin=round:\n$icCastXml")
 
-        val appIconXml = File(androidRes, "drawable/icon.xml").readText()
+        val appIconXml = File(androidRes, "drawable/app_icon.xml").readText()
         assertTrue(appIconXml.contains("android:viewportWidth=\"512\""), "icon.xml must keep 512 viewport")
         assertTrue(appIconXml.contains("#FFFF7E96") || appIconXml.contains("#ff7e96", ignoreCase = true), "icon.xml must preserve TV pink fill:\n$appIconXml")
         assertTrue(appIconXml.contains("#FFBEDAFF") || appIconXml.contains("#bedaff", ignoreCase = true), "icon.xml must preserve screen blue fill:\n$appIconXml")

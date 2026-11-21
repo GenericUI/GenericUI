@@ -131,6 +131,27 @@ class AppleUserDirectoryNativeImpl(
         }
     }
 
+    fun renameFile(fromFileName: String, toFileName: String): Boolean {
+        if (isDisposed || !ensureDirectoryExists()) return false
+        val fromPath = resolveFilePath(fromFileName)
+        val toPath = resolveFilePath(toFileName)
+        if (fromPath == toPath) return NSFileManager.defaultManager.fileExistsAtPath(fromPath)
+        return lock.withLock {
+            val fm = NSFileManager.defaultManager
+            if (!fm.fileExistsAtPath(fromPath)) return@withLock false
+            if (fm.fileExistsAtPath(toPath)) {
+                memScoped {
+                    val rmErr = alloc<ObjCObjectVar<NSError?>>()
+                    fm.removeItemAtPath(toPath, error = rmErr.ptr)
+                }
+            }
+            memScoped {
+                val mvErr = alloc<ObjCObjectVar<NSError?>>()
+                fm.moveItemAtPath(fromPath, toPath = toPath, error = mvErr.ptr)
+            }
+        }
+    }
+
     override fun listFiles(): List<String> {
         if (isDisposed) return emptyList()
         val fm = NSFileManager.defaultManager

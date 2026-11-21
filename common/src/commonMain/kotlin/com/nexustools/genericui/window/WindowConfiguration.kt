@@ -15,8 +15,7 @@ data class WindowConfiguration(
     val densityScale: Float = 1.0f,
     val themeMode: ThemeMode = ThemeMode.AUTO,
     val windowState: WindowState = WindowState.NORMAL,
-    val isFullscreen: Boolean = windowState == WindowState.FULLSCREEN,
-    val isInPictureInPicture: Boolean = windowState == WindowState.PICTURE_IN_PICTURE
+    val isFullscreen: Boolean = windowState == WindowState.FULLSCREEN
 ) {
     val isLandscape: Boolean
         get() = widthPx > heightPx

@@ -236,11 +236,25 @@ class WindowAndApplicationCapabilitiesTest {
         assertEquals(LayoutBackendTarget.IPADOS, LayoutBackendTarget.fromId("ipados"))
 
         val styled = StyledContainer()
+        val styledButton = com.nexustools.genericui.component.action.StyledButton("Go")
+        val textBubble = com.nexustools.genericui.component.surface.TextBubble("Hi")
         val regularButton = Button("Ok")
-        assertTrue(AestheticStylePolicy.supportsBackdropFilterBlur(styled, LayoutBackendTarget.IPADOS))
+        for (target in LayoutBackendTarget.entries) {
+            assertTrue(AestheticStylePolicy.supportsBackdropFilterBlur(styled, target))
+            assertTrue(AestheticStylePolicy.supportsBackdropFilterBlur(styledButton, target))
+            assertFalse(AestheticStylePolicy.supportsBackdropFilterBlur(textBubble, target))
+            assertFalse(AestheticStylePolicy.supportsBackdropFilterBlur(regularButton, target))
+        }
         assertTrue(AestheticStylePolicy.supportsBackdropFilterBlur(styled, BackendTarget.IPadOS))
-        assertFalse(AestheticStylePolicy.supportsBackdropFilterBlur(regularButton, LayoutBackendTarget.IPADOS))
-        assertFalse(AestheticStylePolicy.supportsBackdropFilterBlur(styled, LayoutBackendTarget.WINDOWS))
+        assertTrue(AestheticStylePolicy.supportsBackdropFilterBlur(styled, BackendTarget.Windows))
+        assertTrue(AestheticStylePolicy.supportsBackdropFilterBlur(styledButton, BackendTarget.IPadOS))
+        assertTrue(AestheticStylePolicy.supportsBackdropFilterBlur(styledButton, BackendTarget.Windows))
+
+        styledButton.backdropFilter = CssFilter(blur = CssLength.px(10f))
+        assertEquals(10f, styledButton.backdropFilter?.blur?.resolvePx())
+        assertEquals(10f, styledButton.resolveCurrentVisualSpec().backdropBlurPx)
+        styledButton.setBackdropBlur(0)
+        assertNull(styledButton.backdropFilter)
 
         val spec = StyledVisualSpec(
             backgroundColor = RgbaColor(20, 30, 40, 0.8f),
@@ -252,8 +266,16 @@ class WindowAndApplicationCapabilitiesTest {
         assertNotNull(ipadSpec.backdropFilter)
 
         val macSpec = spec.forBackend(LayoutBackendTarget.MACOS)
-        assertNull(macSpec.backdropBlurPx)
-        assertNull(macSpec.backdropFilter)
+        assertEquals(12f, macSpec.backdropBlurPx)
+        assertNotNull(macSpec.backdropFilter)
+
+        val winSpec = spec.forBackend(LayoutBackendTarget.WINDOWS)
+        assertEquals(12f, winSpec.backdropBlurPx)
+        assertNotNull(winSpec.backdropFilter)
+
+        val stripped = spec.withoutBackdropFilter()
+        assertNull(stripped.backdropBlurPx)
+        assertNull(stripped.backdropFilter)
     }
 
     @Test

@@ -10,7 +10,7 @@ package com.nexustools.genericui.plugin
  *   `:extensions:game:engine2d`, `:extensions:game:engine3d`
  * - **Media**: `:extensions:media:media`, `:extensions:media:mediacontrols`
  * - **UI**: `:extensions:ui:dsl`, `:extensions:ui:overlay`, `:extensions:ui:alien`,
- *   `:extensions:ui:webview`, `:extensions:ui:codeeditor`, `:extensions:ui:aichat`
+ *   `:extensions:ui:webview`, `:extensions:ui:codeeditor`, `:extensions:ui:aichat`, `:extensions:ui:pip`
  */
 open class GenericUiExtensionsConfig {
     var gpuEnabled: Boolean = false
@@ -20,6 +20,10 @@ open class GenericUiExtensionsConfig {
     var canvas3dEnabled: Boolean = false
     var mediaEnabled: Boolean = false
     var mediaControlsEnabled: Boolean = false
+    var schemaEnabled: Boolean = false
+    var serviceWorkerEnabled: Boolean = false
+
+    val serviceWorkerConfig: GenericUiServiceWorkerExtensionSpec = GenericUiServiceWorkerExtensionSpec()
     var webViewEnabled: Boolean = false
     var codeEditorEnabled: Boolean = false
     var aiChatEnabled: Boolean = false
@@ -31,7 +35,33 @@ open class GenericUiExtensionsConfig {
     var engine2dEnabled: Boolean = false
     var engine3dEnabled: Boolean = false
     var alienEnabled: Boolean = false
+    var pipEnabled: Boolean = false
     var dslEnabled: Boolean = false
+    val customModulePaths: LinkedHashSet<String> = linkedSetOf()
+    val customDslModulePaths: LinkedHashSet<String> = linkedSetOf()
+    val extensionOptions: LinkedHashMap<String, String> = linkedMapOf()
+
+    /**
+     * Registers a custom or third-party extension Gradle module path (for example
+     * `":extensions:system:serviceworker"`), optionally enabling its companion `:dsl` module.
+     */
+    @JvmOverloads
+    fun custom(modulePath: String, enableDsl: Boolean = false) {
+        val trimmed = modulePath.trim()
+        if (trimmed.isEmpty()) return
+        customModulePaths.add(trimmed)
+        if (enableDsl) {
+            customDslModulePaths.add(if (trimmed.endsWith(":dsl")) trimmed else "$trimmed:dsl")
+        }
+    }
+
+    /** Sets a build-time key/value option forwarded to active [com.nexustools.genericui.plugin.spi.GenericUiExtensionContributor]s. */
+    fun option(key: String, value: String) {
+        val trimmed = key.trim()
+        if (trimmed.isNotEmpty()) {
+            extensionOptions[trimmed] = value
+        }
+    }
 
     /** Alias property for [codeEditorEnabled] (`:extensions:ui:codeeditor`). */
     var useCodeEditor: Boolean
@@ -94,12 +124,62 @@ open class GenericUiExtensionsConfig {
 
     /**
      * Includes `:extensions:media:media` (`VideoPlayer`, `AudioPlayer`, `AudioAnalyzer`, `WebVttSrtParser`).
-     * Automatically enables `overlay`.
+     * Automatically enables `overlay` and `schema`.
      */
     fun media(enabled: Boolean = true) {
         mediaEnabled = enabled
         if (enabled) {
             overlay(true)
+            schema(true)
+        }
+    }
+
+    /**
+     * Includes `:extensions:data:schema` (meta-schema engine, `SchemaForm`, `SchemaModal`,
+     * and compile-time `@SchemaData` descriptor code generation).
+     * Automatically adds `:extensions:data:schema:dsl` when `dsl(true)` is enabled.
+     */
+    fun schema(enabled: Boolean = true) {
+        schemaEnabled = enabled
+    }
+
+    /**
+     * Includes `:extensions:system:serviceworker` (`@MainServiceWorker`, `@ServiceWorkerMessage`,
+     * foreground/tray background service lifecycle, and typed channel IPC).
+     */
+    fun serviceWorker(enabled: Boolean = true) {
+        serviceWorkerEnabled = enabled
+        syncServiceWorkerExtensionOptions()
+    }
+
+    /**
+     * Includes and configures `:extensions:system:serviceworker` via
+     * [GenericUiServiceWorkerExtensionSpec].
+     */
+    fun serviceWorker(configure: org.gradle.api.Action<GenericUiServiceWorkerExtensionSpec>) {
+        serviceWorkerEnabled = true
+        configure.execute(serviceWorkerConfig)
+        syncServiceWorkerExtensionOptions()
+    }
+
+    fun serviceWorker(configure: GenericUiServiceWorkerExtensionSpec.() -> Unit) {
+        serviceWorkerEnabled = true
+        serviceWorkerConfig.configure()
+        syncServiceWorkerExtensionOptions()
+    }
+
+    internal fun syncServiceWorkerExtensionOptions() {
+        extensionOptions["serviceWorker.autostart"] = serviceWorkerConfig.autostart.toString()
+        extensionOptions["serviceWorker.openWindowOnLaunch"] = serviceWorkerConfig.openWindowOnLaunch.toString()
+        extensionOptions["serviceWorker.androidForegroundServiceType"] =
+            serviceWorkerConfig.androidForegroundServiceType.trim().ifEmpty { "specialUse" }
+        extensionOptions["serviceWorker.androidSpecialUseFgsSubtype"] =
+            serviceWorkerConfig.androidSpecialUseFgsSubtype.trim()
+        val trayIcon = serviceWorkerConfig.trayIcon?.trim().orEmpty()
+        if (trayIcon.isNotEmpty()) {
+            extensionOptions["serviceWorker.trayIcon"] = trayIcon
+        } else {
+            extensionOptions.remove("serviceWorker.trayIcon")
         }
     }
 
@@ -245,6 +325,17 @@ open class GenericUiExtensionsConfig {
     }
 
     /**
+     * Includes `:extensions:ui:pip` (cross-platform Picture-in-Picture & overlay transport controls).
+     * Automatically enables `overlay`.
+     */
+    fun pip(enabled: Boolean = true) {
+        pipEnabled = enabled
+        if (enabled) {
+            overlay(true)
+        }
+    }
+
+    /**
      * Includes `:extensions:ui:dsl` (`kotlinx.html`-style in-place component builders and MVC helpers)
      * plus `:dsl` companion modules for every enabled extension.
      */
@@ -272,6 +363,9 @@ open class GenericUiExtensionsConfig {
         engine2d(true)
         engine3d(true)
         alien(true)
+        pip(true)
+        schema(true)
+        serviceWorker(true)
         dsl(true)
     }
 
@@ -291,12 +385,16 @@ open class GenericUiExtensionsConfig {
         val resolvedAiChat = aiChatEnabled
         val resolvedCodeEditor = codeEditorEnabled || resolvedAiChat
         val resolvedAlien = alienEnabled
+        val resolvedPip = pipEnabled
         val resolvedWebView = webViewEnabled
         val resolvedMedia = mediaEnabled
         val resolvedMediaControls = mediaControlsEnabled
+        val resolvedSchema = schemaEnabled || resolvedMedia
+        val resolvedServiceWorker = serviceWorkerEnabled
+        syncServiceWorkerExtensionOptions()
         val resolvedCanvas3d = canvas3dEnabled || resolvedThreeJs || resolvedBox2d || resolvedBox3d || resolvedEngine3d
         val resolvedCanvas2d = canvas2dEnabled || resolvedCanvas3d || resolvedCodeEditor || resolvedBox2d || resolvedAlien || resolvedEngine2d
-        val resolvedOverlay = overlayEnabled || resolvedMedia || resolvedCanvas2d || resolvedCanvas3d
+        val resolvedOverlay = overlayEnabled || resolvedMedia || resolvedCanvas2d || resolvedCanvas3d || resolvedPip
         val resolvedImageProcessing = imageProcessingEnabled || resolvedCanvas2d || resolvedEngine2d
         val resolvedGpu = gpuEnabled || resolvedImageProcessing || resolvedCanvas3d || resolvedThreeJs
         val resolvedDsl = dslEnabled
@@ -305,6 +403,7 @@ open class GenericUiExtensionsConfig {
             if (resolvedGpu) add(":extensions:graphics:gpu")
             if (resolvedImageProcessing) add(":extensions:graphics:imageprocessing")
             if (resolvedOverlay) add(":extensions:ui:overlay")
+            if (resolvedSchema) add(":extensions:data:schema")
             if (resolvedCanvas2d) add(":extensions:graphics:canvas2d")
             if (resolvedCanvas3d) add(":extensions:graphics:canvas3d")
             if (resolvedMedia) add(":extensions:media:media")
@@ -320,9 +419,15 @@ open class GenericUiExtensionsConfig {
             if (resolvedEngine2d) add(":extensions:game:engine2d")
             if (resolvedEngine3d) add(":extensions:game:engine3d")
             if (resolvedAlien) add(":extensions:ui:alien")
+            if (resolvedPip) add(":extensions:ui:pip")
+            if (resolvedServiceWorker) add(":extensions:system:serviceworker")
+            for (customMod in customModulePaths) {
+                add(customMod)
+            }
             if (resolvedDsl) {
                 add(":extensions:ui:dsl")
                 if (resolvedOverlay) add(":extensions:ui:overlay:dsl")
+                if (resolvedSchema) add(":extensions:data:schema:dsl")
                 if (resolvedCanvas2d) add(":extensions:graphics:canvas2d:dsl")
                 if (resolvedCanvas3d) add(":extensions:graphics:canvas3d:dsl")
                 if (resolvedMedia) add(":extensions:media:media:dsl")
@@ -338,6 +443,15 @@ open class GenericUiExtensionsConfig {
                 if (resolvedEngine2d) add(":extensions:game:engine2d:dsl")
                 if (resolvedEngine3d) add(":extensions:game:engine3d:dsl")
                 if (resolvedAlien) add(":extensions:ui:alien:dsl")
+                if (resolvedPip) add(":extensions:ui:pip:dsl")
+                if (resolvedServiceWorker) add(":extensions:system:serviceworker:dsl")
+                for (customMod in customModulePaths) {
+                    val dslMod = if (customMod.endsWith(":dsl")) customMod else "$customMod:dsl"
+                    if (dslMod !in this) add(dslMod)
+                }
+            }
+            for (customDsl in customDslModulePaths) {
+                if (customDsl !in this) add(customDsl)
             }
         }
     }
@@ -350,7 +464,8 @@ open class GenericUiExtensionsConfig {
     @JvmOverloads
     fun providerInstallerCallsForBackend(
         backendScope: GenericUiVariantScope,
-        extensionOverrides: Map<String, Boolean> = emptyMap()
+        extensionOverrides: Map<String, Boolean> = emptyMap(),
+        generatedPackageName: String = ""
     ): List<String> {
         fun overrideOrDefault(defaultVal: Boolean, vararg keys: String): Boolean {
             for (k in keys) {
@@ -367,9 +482,11 @@ open class GenericUiExtensionsConfig {
         val rawAiChat = overrideOrDefault(aiChatEnabled, "aiChat", "aichat")
         val rawCodeEditor = overrideOrDefault(codeEditorEnabled, "codeEditor", "codeeditor")
         val rawAlien = overrideOrDefault(alienEnabled, "alien")
+        val rawPip = overrideOrDefault(pipEnabled, "pip", "PiP")
         val rawWebView = overrideOrDefault(webViewEnabled, "webView", "webview")
         val rawMedia = overrideOrDefault(mediaEnabled, "media")
         val rawMediaControls = overrideOrDefault(mediaControlsEnabled, "mediaControls", "mediacontrols")
+        val rawSchema = overrideOrDefault(schemaEnabled, "schema")
         val rawCanvas3d = overrideOrDefault(canvas3dEnabled, "canvas3d")
         val rawCanvas2d = overrideOrDefault(canvas2dEnabled, "canvas2d")
         val rawImageProcessing = overrideOrDefault(imageProcessingEnabled, "imageProcessing", "imageprocessing")
@@ -380,9 +497,11 @@ open class GenericUiExtensionsConfig {
         val resolvedThreeJs = rawThreeJs || resolvedBox3d || rawEngine3d
         val resolvedCodeEditor = rawCodeEditor || rawAiChat
         val resolvedAlien = rawAlien
+        val resolvedPip = rawPip
         val resolvedWebView = rawWebView
         val resolvedMedia = rawMedia
         val resolvedMediaControls = rawMediaControls
+        val resolvedSchema = rawSchema || resolvedMedia
         val resolvedCanvas3d = rawCanvas3d || resolvedThreeJs || resolvedBox2d || resolvedBox3d || rawEngine3d
         val resolvedCanvas2d = rawCanvas2d || resolvedCanvas3d || resolvedCodeEditor || resolvedBox2d || resolvedAlien || rawEngine2d
         val resolvedImageProcessing = rawImageProcessing || resolvedCanvas2d || rawEngine2d
@@ -584,6 +703,62 @@ open class GenericUiExtensionsConfig {
                     GenericUiVariantScope.SYSTEM_COMMON ->
                         add("com.nexustools.genericui.ext.alien.system.SystemAlienBootstrap.install()")
                     else -> Unit
+                }
+            }
+
+            if (resolvedPip) {
+                when (backendScope) {
+                    GenericUiVariantScope.WINDOWS ->
+                        add("com.nexustools.genericui.ext.pip.windows.WindowsPipProvider.register()")
+                    GenericUiVariantScope.MACOS ->
+                        add("com.nexustools.genericui.ext.pip.macos.MacosPipProvider.register()")
+                    GenericUiVariantScope.GTK ->
+                        add("com.nexustools.genericui.ext.pip.gtk.GtkPipProvider.register()")
+                    GenericUiVariantScope.QT ->
+                        add("com.nexustools.genericui.ext.pip.qt.QtPipProvider.register()")
+                    GenericUiVariantScope.LINUX_COMMON,
+                    GenericUiVariantScope.NATIVE_DESKTOP_COMMON,
+                    GenericUiVariantScope.DESKTOP_COMMON ->
+                        add("com.nexustools.genericui.ext.pip.desktop.DesktopPipProvider.register()")
+                    GenericUiVariantScope.SWING ->
+                        add("com.nexustools.genericui.ext.pip.swing.SwingPipProvider.register()")
+                    GenericUiVariantScope.ANDROID ->
+                        add("com.nexustools.genericui.ext.pip.android.AndroidPipProvider.register()")
+                    GenericUiVariantScope.IOS,
+                    GenericUiVariantScope.IPADOS,
+                    GenericUiVariantScope.IOS_COMMON ->
+                        add("com.nexustools.genericui.ext.pip.ios.IosPipProvider.register()")
+                    GenericUiVariantScope.WEB ->
+                        add("com.nexustools.genericui.ext.pip.web.WebPipProvider.register()")
+                    else -> Unit
+                }
+            }
+
+            val spiEnabledPaths = enabledExtensionModulePaths().toMutableSet().apply {
+                if (resolvedSchema) {
+                    add(":extensions:data:schema")
+                } else {
+                    remove(":extensions:data:schema")
+                }
+            }
+            val spiPaths = customModulePaths + spiEnabledPaths
+            if (spiPaths.isNotEmpty()) {
+                val stubCtx = com.nexustools.genericui.plugin.spi.ExtensionBuildContext(
+                    projectRootDir = java.io.File("."),
+                    projectName = "",
+                    appId = "",
+                    appName = "",
+                    appVersion = "",
+                    baseName = "",
+                    generatedPackageName = generatedPackageName,
+                    enabledExtensionModulePaths = spiEnabledPaths,
+                    customExtensionModulePaths = customModulePaths.toSet(),
+                    extensionOptions = extensionOptions.toMap()
+                )
+                for (call in com.nexustools.genericui.plugin.spi.GenericUiExtensionContributorRegistry.collectProviderInstallerCalls(backendScope, stubCtx)) {
+                    if (call !in this) {
+                        add(call)
+                    }
                 }
             }
         }

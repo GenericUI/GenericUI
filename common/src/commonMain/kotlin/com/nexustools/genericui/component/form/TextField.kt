@@ -48,10 +48,26 @@ open class TextField(
         }
 
     var onValueChanged: ((String) -> Unit)? = null
+        set(newVal) {
+            field = newVal
+            typedNative<TextInputNativeImpl<*>>()?.let { bindOnValueChangedListener(it) }
+        }
+
     var onSubmit: ((String) -> Unit)? = null
+        set(newVal) {
+            field = newVal
+            typedNative<TextInputNativeImpl<*>>()?.setOnSubmit(field)
+        }
 
     protected override fun createNativeImpl(factory: NativeFactory): TextInputNativeImpl<*> =
         factory.createTextInput(multilineMode)
+
+    private fun bindOnValueChangedListener(impl: TextInputNativeImpl<*>) {
+        impl.setOnValueChanged { updated ->
+            value = updated
+            onValueChanged?.invoke(updated)
+        }
+    }
 
     override fun syncStateToNative() {
         super.syncStateToNative()
@@ -62,10 +78,7 @@ open class TextField(
         impl.setLabel(label?.takeIf { it.isNotEmpty() })
         impl.setPlaceholder(placeholder)
         impl.setReadOnly(isReadOnly)
-        impl.setOnValueChanged { updated ->
-            value = updated
-            onValueChanged?.invoke(updated)
-        }
+        bindOnValueChangedListener(impl)
         impl.setOnSubmit(onSubmit)
     }
 }

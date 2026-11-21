@@ -2,10 +2,9 @@ package com.nexustools.genericui.style.css
 
 import com.nexustools.genericui.image.ImageBuffer
 import com.nexustools.genericui.image.PixelFormat
-import kotlin.math.PI
-import kotlin.math.cos
+import kotlin.math.floor
 import kotlin.math.roundToInt
-import kotlin.math.sin
+import kotlin.math.sqrt
 
 /**
  * Strongly-typed CSS `filter` and `backdrop-filter` pipeline (`blur()`, `brightness()`, `contrast()`,
@@ -35,12 +34,14 @@ data class CssFilter(
      * `brightness == 0f && (invert ?: 0f) > 0f` so the common CSS `brightness(0) invert(1)` idiom
      * produces pure white (`#FFFFFF`) on opaque pixels.
      */
-    fun applyToRgbaBytes(rgbaBytes: ByteArray, width: Int, height: Int): ByteArray {
-        if (isNone) return rgbaBytes
-        val totalBytes = width * height * 4
-        if (width <= 0 || height <= 0 || rgbaBytes.size < totalBytes) return rgbaBytes
+    fun applyToRgbaBytes(rgbaBytes: ByteArray, width: Int, height: Int): ByteArray =
+        FastBackdropBlurKernel.applyColorOpsToRgbaBytes(this, rgbaBytes, width, height)
 
-        val hasPixelOps =
+    val hasBlur: Boolean
+        get() = !isNone && (blur?.resolvePx()?.let { it > 0f } == true)
+
+    val hasPixelOps: Boolean
+        get() = !isNone && (
             (grayscale != null && grayscale != 0f) ||
                 (sepia != null && sepia != 0f) ||
                 (saturate != null && saturate != 1f) ||
@@ -49,107 +50,10 @@ data class CssFilter(
                 (brightness != null && brightness != 1f) ||
                 (contrast != null && contrast != 1f) ||
                 (opacity != null && opacity != 1f)
-        if (!hasPixelOps) return rgbaBytes
+            )
 
-        val out = rgbaBytes.copyOf()
-        val brightnessBeforeInvert = brightness != null && brightness == 0f && (invert ?: 0f) > 0f
-        val hueRad = (hueRotateDeg ?: 0f) * (PI.toFloat() / 180f)
-        val cosH = if (hueRotateDeg != null && hueRotateDeg != 0f) cos(hueRad) else 1f
-        val sinH = if (hueRotateDeg != null && hueRotateDeg != 0f) sin(hueRad) else 0f
-
-        var i = 0
-        while (i < totalBytes) {
-            val rawA = out[i + 3].toInt() and 0xFF
-            if (rawA == 0 && (opacity == null || opacity == 1f)) {
-                i += 4
-                continue
-            }
-            var r = (out[i].toInt() and 0xFF) / 255f
-            var g = (out[i + 1].toInt() and 0xFF) / 255f
-            var b = (out[i + 2].toInt() and 0xFF) / 255f
-            var a = rawA / 255f
-
-            if (grayscale != null && grayscale != 0f) {
-                val gAmt = grayscale.coerceIn(0f, 1f)
-                val lum = 0.2126f * r + 0.7152f * g + 0.0722f * b
-                r += (lum - r) * gAmt
-                g += (lum - g) * gAmt
-                b += (lum - b) * gAmt
-            }
-
-            if (sepia != null && sepia != 0f) {
-                val sAmt = sepia.coerceIn(0f, 1f)
-                val sr = (r * 0.393f + g * 0.769f + b * 0.189f).coerceIn(0f, 1f)
-                val sg = (r * 0.349f + g * 0.686f + b * 0.168f).coerceIn(0f, 1f)
-                val sb = (r * 0.272f + g * 0.534f + b * 0.131f).coerceIn(0f, 1f)
-                r += (sr - r) * sAmt
-                g += (sg - g) * sAmt
-                b += (sb - b) * sAmt
-            }
-
-            if (saturate != null && saturate != 1f) {
-                val sat = saturate.coerceAtLeast(0f)
-                val lum = 0.2126f * r + 0.7152f * g + 0.0722f * b
-                r = (lum + (r - lum) * sat).coerceIn(0f, 1f)
-                g = (lum + (g - lum) * sat).coerceIn(0f, 1f)
-                b = (lum + (b - lum) * sat).coerceIn(0f, 1f)
-            }
-
-            if (hueRotateDeg != null && hueRotateDeg != 0f) {
-                val nr = (0.213f + cosH * 0.787f - sinH * 0.213f) * r +
-                    (0.715f - cosH * 0.715f - sinH * 0.715f) * g +
-                    (0.072f - cosH * 0.072f + sinH * 0.928f) * b
-                val ng = (0.213f - cosH * 0.213f + sinH * 0.143f) * r +
-                    (0.715f + cosH * 0.285f + sinH * 0.140f) * g +
-                    (0.072f - cosH * 0.072f - sinH * 0.283f) * b
-                val nb = (0.213f - cosH * 0.213f - sinH * 0.787f) * r +
-                    (0.715f - cosH * 0.715f + sinH * 0.715f) * g +
-                    (0.072f + cosH * 0.928f + sinH * 0.072f) * b
-                r = nr.coerceIn(0f, 1f)
-                g = ng.coerceIn(0f, 1f)
-                b = nb.coerceIn(0f, 1f)
-            }
-
-            if (brightnessBeforeInvert) {
-                val br = brightness!!.coerceAtLeast(0f)
-                r = (r * br).coerceIn(0f, 1f)
-                g = (g * br).coerceIn(0f, 1f)
-                b = (b * br).coerceIn(0f, 1f)
-            }
-
-            if (invert != null && invert != 0f) {
-                val inv = invert.coerceIn(0f, 1f)
-                r += ((1f - r) - r) * inv
-                g += ((1f - g) - g) * inv
-                b += ((1f - b) - b) * inv
-            }
-
-            if (!brightnessBeforeInvert && brightness != null && brightness != 1f) {
-                val br = brightness.coerceAtLeast(0f)
-                r = (r * br).coerceIn(0f, 1f)
-                g = (g * br).coerceIn(0f, 1f)
-                b = (b * br).coerceIn(0f, 1f)
-            }
-
-            if (contrast != null && contrast != 1f) {
-                val ct = contrast.coerceAtLeast(0f)
-                r = ((r - 0.5f) * ct + 0.5f).coerceIn(0f, 1f)
-                g = ((g - 0.5f) * ct + 0.5f).coerceIn(0f, 1f)
-                b = ((b - 0.5f) * ct + 0.5f).coerceIn(0f, 1f)
-            }
-
-            if (opacity != null && opacity != 1f) {
-                a = (a * opacity.coerceIn(0f, 1f)).coerceIn(0f, 1f)
-            }
-
-            out[i] = (r * 255f).roundToInt().coerceIn(0, 255).toByte()
-            out[i + 1] = (g * 255f).roundToInt().coerceIn(0, 255).toByte()
-            out[i + 2] = (b * 255f).roundToInt().coerceIn(0, 255).toByte()
-            out[i + 3] = (a * 255f).roundToInt().coerceIn(0, 255).toByte()
-            i += 4
-        }
-        return out
-    }
+    val hasActiveEffects: Boolean
+        get() = !isNone && (hasBlur || hasPixelOps)
 
     /**
      * Applies this [CssFilter] to an [ImageBuffer], returning a new `RGBA_8888` [ImageBuffer]
@@ -166,6 +70,98 @@ data class CssFilter(
             pixelFormat = PixelFormat.RGBA_8888,
             colorSpace = rgba.colorSpace,
             bytes = filtered
+        )
+    }
+
+    /**
+     * Applies a fast 3-pass separable box blur approximating a CSS Gaussian `blur(radiusPx)`
+     * to an `RGBA_8888` byte array, using clamp-to-edge sampling and alpha-weighted RGB mixing.
+     */
+    fun applyBlurToRgbaBytes(
+        rgbaBytes: ByteArray,
+        width: Int,
+        height: Int,
+        radiusPx: Float = blur?.resolvePx() ?: 0f
+    ): ByteArray = FastBackdropBlurKernel.applyBlurToRgbaBytes(this, rgbaBytes, width, height, radiusPx)
+
+    /**
+     * Applies full `backdrop-filter` processing (Gaussian-approximated blur followed by pixel color/opacity
+     * adjustments) to an `RGBA_8888` byte array.
+     */
+    fun applyBackdropToRgbaBytes(rgbaBytes: ByteArray, width: Int, height: Int): ByteArray =
+        FastBackdropBlurKernel.applyBackdropToRgbaBytes(this, rgbaBytes, width, height)
+
+    /**
+     * Applies this [CssFilter] in-place as a `backdrop-filter` on a rectangular (optionally rounded)
+     * region of an `0xAARRGGBB` `IntArray` framebuffer, capturing padded neighbor context around the
+     * region so blurred edges sample real surrounding pixels without edge darkening.
+     */
+    fun applyBackdropToArgbRegion(
+        argbPixels: IntArray,
+        bufferWidth: Int,
+        bufferHeight: Int,
+        regionX: Int,
+        regionY: Int,
+        regionWidth: Int,
+        regionHeight: Int,
+        cornerRadiusPx: Float = 0f
+    ): Boolean = FastBackdropBlurKernel.applyBackdropToArgbRegion(
+        filter = this,
+        argbPixels = argbPixels,
+        bufferWidth = bufferWidth,
+        bufferHeight = bufferHeight,
+        regionX = regionX,
+        regionY = regionY,
+        regionWidth = regionWidth,
+        regionHeight = regionHeight,
+        cornerRadiusPx = cornerRadiusPx
+    )
+
+    /**
+     * Applies this [CssFilter] as a `backdrop-filter` on a rectangular (optionally rounded) region
+     * of an [ImageBuffer], returning a new `RGBA_8888` [ImageBuffer] (or [buffer] if inactive/empty).
+     */
+    fun applyBackdropToImageBufferRegion(
+        buffer: ImageBuffer,
+        regionX: Int,
+        regionY: Int,
+        regionWidth: Int,
+        regionHeight: Int,
+        cornerRadiusPx: Float = 0f
+    ): ImageBuffer {
+        if (!hasActiveEffects) return buffer
+        val rgba = buffer.asRgba8888()
+        val w = rgba.width
+        val h = rgba.height
+        if (w <= 0 || h <= 0) return buffer
+        val argb = IntArray(w * h)
+        var sIdx = 0
+        for (p in argb.indices) {
+            val r = rgba.bytes[sIdx].toInt() and 0xFF
+            val g = rgba.bytes[sIdx + 1].toInt() and 0xFF
+            val b = rgba.bytes[sIdx + 2].toInt() and 0xFF
+            val a = rgba.bytes[sIdx + 3].toInt() and 0xFF
+            argb[p] = (a shl 24) or (r shl 16) or (g shl 8) or b
+            sIdx += 4
+        }
+        if (!applyBackdropToArgbRegion(argb, w, h, regionX, regionY, regionWidth, regionHeight, cornerRadiusPx)) {
+            return buffer
+        }
+        val outBytes = ByteArray(w * h * 4)
+        var dIdx = 0
+        for (px in argb) {
+            outBytes[dIdx] = ((px ushr 16) and 0xFF).toByte()
+            outBytes[dIdx + 1] = ((px ushr 8) and 0xFF).toByte()
+            outBytes[dIdx + 2] = (px and 0xFF).toByte()
+            outBytes[dIdx + 3] = ((px ushr 24) and 0xFF).toByte()
+            dIdx += 4
+        }
+        return ImageBuffer(
+            width = w,
+            height = h,
+            pixelFormat = PixelFormat.RGBA_8888,
+            colorSpace = rgba.colorSpace,
+            bytes = outBytes
         )
     }
 
@@ -248,6 +244,46 @@ data class CssFilter(
          * icon/image pixels to pure black (`#000000`) while preserving alpha.
          */
         fun monocolorBlack(): CssFilter = CssFilter(brightness = 0f)
+
+        /**
+         * Resolves an effective [CssFilter] from legacy `backdropBlurPx` and `backdropFilter`.
+         */
+        fun backdropBlurOrFilter(backdropBlurPx: Float?, backdropFilter: CssFilter?): CssFilter? {
+            if (backdropFilter?.isNone == true) return null
+            val blurPx = backdropBlurPx?.takeIf { it > 0f }
+            val resolved = when {
+                backdropFilter != null && backdropFilter.blur == null && blurPx != null ->
+                    backdropFilter.copy(blur = CssLength.px(blurPx))
+                backdropFilter != null -> backdropFilter
+                blurPx != null -> blur(CssLength.px(blurPx))
+                else -> null
+            }
+            return resolved?.takeIf { it.hasActiveEffects }
+        }
+
+        /**
+         * Computes 3 box-blur half-radii approximating a Gaussian kernel with standard deviation [sigmaPx].
+         */
+        fun boxBlurRadiiForGaussianSigma(sigmaPx: Float, passes: Int = 3): IntArray {
+            val sigma = sigmaPx.coerceIn(0f, 48f)
+            if (sigma <= 0f || passes <= 0) return IntArray(0)
+            val n = passes
+            val wIdeal = sqrt((12f * sigma * sigma / n.toFloat()) + 1f)
+            var wl = floor(wIdeal).toInt()
+            if (wl % 2 == 0) wl--
+            if (wl < 1) wl = 1
+            val wu = wl + 2
+            val mIdeal = (12f * sigma * sigma - n * wl * wl - 4f * n * wl - 3f * n) / (-4f * wl - 4f)
+            val m = mIdeal.roundToInt().coerceIn(0, n)
+            val result = IntArray(n) { idx ->
+                val width = if (idx < m) wl else wu
+                ((width - 1) / 2).coerceAtLeast(0)
+            }
+            if (result.all { it == 0 }) {
+                result[result.lastIndex] = 1
+            }
+            return result
+        }
 
         fun parse(raw: String?): CssFilter? {
             val cleaned = raw

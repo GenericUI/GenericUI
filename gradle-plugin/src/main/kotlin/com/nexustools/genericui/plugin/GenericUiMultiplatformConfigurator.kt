@@ -664,6 +664,10 @@ object GenericUiMultiplatformConfigurator {
             )
         }
 
+        // 3b. Wire consumer Kotlin/Native cinterops and nativeLibraries linker flags
+        com.nexustools.genericui.plugin.nativebuild.GenericUiNativeBuildResolver
+            .configureKotlinNativeInteropsAndLinks(project, extension)
+
         // 4. Register Development/Production build target tasks
         registerBuildTargetTasks(project, extension)
 
@@ -912,18 +916,29 @@ object GenericUiMultiplatformConfigurator {
             return
         }
         val resolvedBaseName = app.baseName.trim().ifEmpty { project.name }
+        val buildDirFile = project.layout.buildDirectory.asFile.get()
 
         if (mingwTarget != null) {
             val winLinkerOpts = baseWinLibs.toMutableList()
+            val winLinkDeps = mutableListOf<String>()
             if (!app.consoleApplication) {
                 winLinkerOpts.add("-Wl,--subsystem,windows")
             }
-            if (app.desktop.embedWindowsResources && GenericUiDesktopResourceTask.findWindresExecutable() != null) {
-                val resFile = File(
-                    project.layout.buildDirectory.asFile.get(),
-                    "generated/genericui/desktop-resources/windows/app_resources.res"
+            if (GenericUiDesktopResourceTask.findWindresExecutable() != null) {
+                if (app.desktop.embedWindowsResources) {
+                    val resFile = File(
+                        buildDirFile,
+                        "generated/genericui/desktop-resources/windows/app_resources.res"
+                    )
+                    winLinkerOpts.add(resFile.absolutePath)
+                    winLinkDeps.add("prepareGenericUiDesktopResources")
+                }
+                val appResourcesObj = File(
+                    buildDirFile,
+                    "generated/genericui/resources/backends/windows/compiled/genericui_resources.o"
                 )
-                winLinkerOpts.add(resFile.absolutePath)
+                winLinkerOpts.add(appResourcesObj.absolutePath)
+                winLinkDeps.add("compileGenericUiWindowsResources")
             }
             winLinkerOpts.addAll(app.extraWindowsLinkerOpts)
             configureTargetExecutable(
@@ -932,32 +947,120 @@ object GenericUiMultiplatformConfigurator {
                 compilationObj = null,
                 entryPointStr = entryPointStr,
                 baseNameStr = resolvedBaseName,
-                linkerOptsList = winLinkerOpts
+                linkerOptsList = winLinkerOpts,
+                linkDependsOnTasks = winLinkDeps
             )
         }
 
-        val macLinkerOpts = (baseMacLinkerOpts + app.extraPosixLinkerOpts).distinct()
+        val (desktopCtx, secondaryDesktopExes) = collectDesktopContextAndSecondaryExecutables(project, extension)
+
+        if (mingwTarget != null && secondaryDesktopExes.isNotEmpty()) {
+            for (sec in secondaryDesktopExes) {
+                val secWinOpts = baseWinLibs.toMutableList()
+                val secWinDeps = mutableListOf<String>()
+                if (!sec.windowsSubsystem.equals("console", ignoreCase = true)) {
+                    secWinOpts.add("-Wl,--subsystem,${sec.windowsSubsystem}")
+                }
+                if (GenericUiDesktopResourceTask.findWindresExecutable() != null) {
+                    if (app.desktop.embedWindowsResources) {
+                        val resFile = File(
+                            buildDirFile,
+                            "generated/genericui/desktop-resources/windows/app_resources.res"
+                        )
+                        secWinOpts.add(resFile.absolutePath)
+                        secWinDeps.add("prepareGenericUiDesktopResources")
+                    }
+                    val appResourcesObj = File(
+                        buildDirFile,
+                        "generated/genericui/resources/backends/windows/compiled/genericui_resources.o"
+                    )
+                    secWinOpts.add(appResourcesObj.absolutePath)
+                    secWinDeps.add("compileGenericUiWindowsResources")
+                }
+                secWinOpts.addAll(sec.windowsExtraLibs)
+                val safePrefix = sanitizeBinaryNamePrefix(sec.binaryBaseName)
+                configureTargetExecutable(
+                    nativeTarget = mingwTarget,
+                    namePrefix = safePrefix,
+                    compilationObj = null,
+                    entryPointStr = sec.entryPointFqn,
+                    baseNameStr = sec.binaryBaseName,
+                    linkerOptsList = secWinOpts,
+                    linkDependsOnTasks = secWinDeps
+                )
+            }
+        }
+
+        val macLinkerOpts = (baseMacLinkerOpts + listOf("-Wl,-export_dynamic") + app.extraPosixLinkerOpts).distinct()
         for (macTarget in macTargets) {
+            val konanName = resolveKonanTargetName(macTarget)
+            val (appResObj, compileTaskName) = ensurePosixAppResourcesObjectTask(
+                project = project,
+                platformDirName = "macos",
+                konanTargetName = konanName
+            )
             configureTargetExecutable(
                 nativeTarget = macTarget,
                 namePrefix = null,
                 compilationObj = null,
                 entryPointStr = entryPointStr,
                 baseNameStr = resolvedBaseName,
-                linkerOptsList = macLinkerOpts
+                linkerOptsList = macLinkerOpts + appResObj.absolutePath,
+                linkDependsOnTasks = listOf(compileTaskName)
             )
+            for (sec in secondaryDesktopExes) {
+                val safePrefix = sanitizeBinaryNamePrefix(sec.binaryBaseName)
+                configureTargetExecutable(
+                    nativeTarget = macTarget,
+                    namePrefix = safePrefix,
+                    compilationObj = null,
+                    entryPointStr = sec.entryPointFqn,
+                    baseNameStr = sec.binaryBaseName,
+                    linkerOptsList = macLinkerOpts + sec.macosExtraLinkerOpts + appResObj.absolutePath,
+                    linkDependsOnTasks = listOf(compileTaskName)
+                )
+            }
         }
 
-        val linuxLinkerOpts = (baseLinuxLinkerOpts + app.extraPosixLinkerOpts).distinct()
+        val linuxLinkerOpts = (
+            baseLinuxLinkerOpts +
+                listOf("-Wl,--export-dynamic-symbol=genericui_res_lookup_app") +
+                app.extraPosixLinkerOpts
+            ).distinct()
+        val bothGtkAndQtDirsExist = File(project.projectDir, "src/gtkMain").exists() &&
+            File(project.projectDir, "src/qtMain").exists()
         for (linuxTarget in linuxTargets) {
+            val konanName = resolveKonanTargetName(linuxTarget)
+            val (appResObj, compileTaskName) = ensurePosixAppResourcesObjectTask(
+                project = project,
+                platformDirName = "linux",
+                konanTargetName = konanName
+            )
+            val targetLinuxLinkerOpts = linuxLinkerOpts + appResObj.absolutePath
+            val targetLinuxDeps = listOf(compileTaskName)
             configureTargetExecutable(
                 nativeTarget = linuxTarget,
                 namePrefix = null,
                 compilationObj = null,
                 entryPointStr = entryPointStr,
                 baseNameStr = resolvedBaseName,
-                linkerOptsList = linuxLinkerOpts
+                linkerOptsList = targetLinuxLinkerOpts,
+                linkDependsOnTasks = targetLinuxDeps
             )
+            if (!bothGtkAndQtDirsExist) {
+                for (sec in secondaryDesktopExes) {
+                    val safePrefix = sanitizeBinaryNamePrefix(sec.binaryBaseName)
+                    configureTargetExecutable(
+                        nativeTarget = linuxTarget,
+                        namePrefix = safePrefix,
+                        compilationObj = null,
+                        entryPointStr = sec.entryPointFqn,
+                        baseNameStr = sec.binaryBaseName,
+                        linkerOptsList = targetLinuxLinkerOpts + sec.linuxExtraLinkerOpts,
+                        linkDependsOnTasks = targetLinuxDeps
+                    )
+                }
+            }
             val comps = invokeNoArg(linuxTarget, "getCompilations") as? NamedDomainObjectContainer<*>
             if (extension.backends.gtkEnabled) {
                 val gtkComp = comps?.findByName("gtk")
@@ -968,8 +1071,22 @@ object GenericUiMultiplatformConfigurator {
                         compilationObj = gtkComp,
                         entryPointStr = entryPointStr,
                         baseNameStr = "$resolvedBaseName-gtk",
-                        linkerOptsList = linuxLinkerOpts
+                        linkerOptsList = targetLinuxLinkerOpts,
+                        linkDependsOnTasks = targetLinuxDeps
                     )
+                    for (sec in secondaryDesktopExes) {
+                        val safeCap = sanitizeBinaryNamePrefix(sec.binaryBaseName)
+                            .replaceFirstChar { it.uppercaseChar() }
+                        configureTargetExecutable(
+                            nativeTarget = linuxTarget,
+                            namePrefix = "gtk$safeCap",
+                            compilationObj = gtkComp,
+                            entryPointStr = sec.entryPointFqn,
+                            baseNameStr = sec.binaryBaseName,
+                            linkerOptsList = targetLinuxLinkerOpts + sec.linuxExtraLinkerOpts,
+                            linkDependsOnTasks = targetLinuxDeps
+                        )
+                    }
                 }
             }
             if (extension.backends.qtEnabled) {
@@ -981,11 +1098,157 @@ object GenericUiMultiplatformConfigurator {
                         compilationObj = qtComp,
                         entryPointStr = entryPointStr,
                         baseNameStr = "$resolvedBaseName-qt",
-                        linkerOptsList = linuxLinkerOpts
+                        linkerOptsList = targetLinuxLinkerOpts,
+                        linkDependsOnTasks = targetLinuxDeps
+                    )
+                    for (sec in secondaryDesktopExes) {
+                        val safeCap = sanitizeBinaryNamePrefix(sec.binaryBaseName)
+                            .replaceFirstChar { it.uppercaseChar() }
+                        configureTargetExecutable(
+                            nativeTarget = linuxTarget,
+                            namePrefix = "qt$safeCap",
+                            compilationObj = qtComp,
+                            entryPointStr = sec.entryPointFqn,
+                            baseNameStr = sec.binaryBaseName,
+                            linkerOptsList = targetLinuxLinkerOpts + sec.linuxExtraLinkerOpts,
+                            linkDependsOnTasks = targetLinuxDeps
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    private fun sanitizeBinaryNamePrefix(binaryBaseName: String): String =
+        binaryBaseName.replace(Regex("[^A-Za-z0-9]"), "")
+            .replaceFirstChar { it.lowercaseChar() }
+
+    private fun collectDesktopContextAndSecondaryExecutables(
+        project: Project,
+        extension: GenericUiExtension
+    ): Pair<
+        com.nexustools.genericui.plugin.spi.ExtensionBuildContext,
+        List<com.nexustools.genericui.plugin.spi.SecondaryDesktopExecutableContribution>
+    > {
+        val app = extension.application
+        val resolvedBaseName = app.baseName.trim().ifEmpty { project.name }
+        val enabledExtPathsSet = extension.extensions.enabledExtensionModulePaths().toSet()
+        val extraSourceDirs = extension.sourceSets.allSpecs().flatMap { spec ->
+            spec.kotlinSrcDirs.mapNotNull { dir ->
+                when (dir) {
+                    is File -> dir
+                    is String -> File(dir).let { if (it.isAbsolute) it else File(project.projectDir, it.path) }
+                    else -> null
+                }
+            }
+        }
+        val discoveredFrags = if (extraSourceDirs.isNotEmpty()) {
+            (GenericUiFragmentScanner.scanProject(project.projectDir) +
+                GenericUiFragmentScanner.scanSourceDirectories(extraSourceDirs))
+                .distinctBy { "${it.qualifiedName}:${it.isMainFragment}:${it.isApplicationClass}" }
+        } else {
+            GenericUiFragmentScanner.scanProject(project.projectDir)
+        }
+        val scanSpecs = com.nexustools.genericui.plugin.spi.GenericUiExtensionContributorRegistry
+            .allAnnotationScanSpecs(enabledExtPathsSet, project.projectDir)
+        val discoveredSyms = GenericUiFragmentScanner.scanProjectSymbols(
+            projectDir = project.projectDir,
+            scanSpecs = scanSpecs,
+            extraDirectories = extraSourceDirs
+        )
+        val resolvedLauncherPkg = GenericUiGenerateLaunchersTask.resolveGeneratedLauncherPackage(
+            extension = extension,
+            projectGroup = project.group.toString(),
+            discoveredFragments = discoveredFrags
+        )
+        val desktopOptions = LinkedHashMap<String, String>(extension.extensions.extensionOptions).apply {
+            put(
+                com.nexustools.genericui.plugin.spi.ServiceWorkerExtensionContributor.OPTION_ENABLED_BACKENDS,
+                GenericUiGenerateLaunchersTask.enabledAllBackendScopes(extension.backends).joinToString(",") { it.id }
+            )
+        }
+        val desktopCtx = com.nexustools.genericui.plugin.spi.ExtensionBuildContext(
+            projectRootDir = project.projectDir,
+            projectName = project.name,
+            appId = app.desktop.appId.trim().ifEmpty { resolvedBaseName },
+            appName = app.desktop.appName.trim().ifEmpty { resolvedBaseName },
+            appVersion = app.desktop.appVersion.trim().ifEmpty { "1.0.0" },
+            baseName = resolvedBaseName,
+            generatedPackageName = resolvedLauncherPkg,
+            enabledExtensionModulePaths = enabledExtPathsSet,
+            customExtensionModulePaths = extension.extensions.customModulePaths.toSet(),
+            discoveredFragments = discoveredFrags,
+            discoveredSymbols = discoveredSyms,
+            extensionOptions = desktopOptions
+        )
+        val secondaryDesktopExes = com.nexustools.genericui.plugin.spi.GenericUiExtensionContributorRegistry
+            .collectDesktopContributions(desktopCtx)
+            .flatMap { it.secondaryExecutables }
+            .filter { it.binaryBaseName.isNotBlank() && it.entryPointFqn.isNotBlank() }
+        return desktopCtx to secondaryDesktopExes
+    }
+
+    private fun resolveKonanTargetName(nativeTarget: Any): String {
+        val gradleTargetName = (invokeNoArg(nativeTarget, "getName") as? String).orEmpty()
+        return when (gradleTargetName) {
+            "macosArm64" -> "macos_arm64"
+            "macosX64" -> "macos_x64"
+            "linuxX64" -> "linux_x64"
+            "linuxArm64" -> "linux_arm64"
+            "mingwX64" -> "mingw_x64"
+            "iosArm64" -> "ios_arm64"
+            "iosSimulatorArm64" -> "ios_simulator_arm64"
+            else -> gradleTargetName.replace(Regex("([a-z0-9])([A-Z])"), "$1_$2").lowercase()
+        }
+    }
+
+    private fun ensurePosixAppResourcesObjectTask(
+        project: Project,
+        platformDirName: String,
+        konanTargetName: String
+    ): Pair<File, String> {
+        val buildDir = project.layout.buildDirectory.asFile.get()
+        val objOut = File(
+            buildDir,
+            "generated/genericui/resources/backends/$platformDirName/compiled/genericui_app_resources_$konanTargetName.o"
+        )
+        val suffix = konanTargetName.split('_', '-')
+            .filter { it.isNotEmpty() }
+            .joinToString("") { part -> part.replaceFirstChar { it.uppercaseChar() } }
+        val taskName = "compileGenericUiAppResources$suffix"
+        if (project.tasks.findByName(taskName) == null) {
+            val cSourceFile = File(
+                buildDir,
+                "generated/genericui/resources/backends/$platformDirName/genericui_app_resources.c"
+            )
+            project.tasks.register(taskName) {
+                group = GenericUiGradlePlugin.TASK_GROUP
+                description = "Compiles embedded $platformDirName application resources C table for $konanTargetName."
+                project.tasks.findByName("compileGenericUiResources")?.let { dependsOn(it) }
+                doLast {
+                    val effectiveC = if (cSourceFile.isFile) {
+                        cSourceFile
+                    } else {
+                        cSourceFile.parentFile?.mkdirs()
+                        cSourceFile.writeText(
+                            GenericUiNativeResourceEmbedder.generatePosixResourceTableCSource(
+                                lookupSymbol = "genericui_res_lookup_app",
+                                resources = emptyMap(),
+                                includeMachOConstSection = platformDirName == "macos"
+                            ),
+                            Charsets.UTF_8
+                        )
+                        cSourceFile
+                    }
+                    GenericUiNativeResourceEmbedder.compileCSourceToObject(
+                        cFile = effectiveC,
+                        objOut = objOut,
+                        konanTargetName = konanTargetName
                     )
                 }
             }
         }
+        return objOut to taskName
     }
 
     private fun configureIosFrameworks(
@@ -1076,7 +1339,8 @@ object GenericUiMultiplatformConfigurator {
         compilationObj: Any?,
         entryPointStr: String,
         baseNameStr: String,
-        linkerOptsList: List<String>
+        linkerOptsList: List<String>,
+        linkDependsOnTasks: List<String> = emptyList()
     ) {
         val binaries = invokeNoArg(nativeTarget, "getBinaries") ?: return
         val configureAction = Action<Any> {
@@ -1104,6 +1368,14 @@ object GenericUiMultiplatformConfigurator {
                         it.name == "linkerOpts" && it.parameterCount == 1 &&
                             Iterable::class.java.isAssignableFrom(it.parameterTypes[0])
                     }?.invoke(exe, missingOpts)
+                }
+            }
+            if (linkDependsOnTasks.isNotEmpty()) {
+                val linkTaskProvider = invokeNoArg(exe, "getLinkTaskProvider") as? TaskProvider<*>
+                linkTaskProvider?.configure {
+                    for (depName in linkDependsOnTasks) {
+                        project.tasks.findByName(depName)?.let { dependsOn(it) } ?: dependsOn(depName)
+                    }
                 }
             }
         }
@@ -1260,6 +1532,9 @@ object GenericUiMultiplatformConfigurator {
 
         for (dest in destinations) {
             purgeExcludedStaticCoreLibraries(dest)
+            listOf("gui", "app", "res").forEach { staleDir ->
+                File(dest, staleDir).takeIf { it.exists() }?.deleteRecursively()
+            }
             dest.listFiles()?.forEach { f ->
                 if (f.isFile && f.name.lowercase().endsWith(".dll.a")) {
                     runCatching { f.delete() }
@@ -1333,6 +1608,18 @@ object GenericUiMultiplatformConfigurator {
                 if (existing.isFile && existing.name.endsWith(".kexe", ignoreCase = true) && existing != targetExeFile) {
                     runCatching { existing.delete() }
                 }
+            }
+            for (secondaryExe in exeCandidates.drop(1)) {
+                if (!secondaryExe.isFile) continue
+                val secName = if (secondaryExe.extension.equals("kexe", ignoreCase = true)) {
+                    secondaryExe.nameWithoutExtension
+                } else {
+                    secondaryExe.name
+                }
+                if (secName.isBlank() || secName == bundleExecutableName) continue
+                val targetSecondary = File(macOsDir, secName)
+                secondaryExe.copyTo(targetSecondary, overwrite = true)
+                targetSecondary.setExecutable(true, false)
             }
         } else {
             // Ensure Contents/MacOS/<baseName> placeholder exists when cross-building on non-macOS host
@@ -1458,25 +1745,13 @@ object GenericUiMultiplatformConfigurator {
             }
         }
 
-        // 6. Resources (icon.icns + MoltenVK_icd.json + translated backend resources)
+        // 6. Resources (icon.icns + optional vulkan/icd.d/MoltenVK_icd.json ONLY; runtime resources live in Mach-O sections)
         val desktopIcns = File(buildDir, "generated/genericui/desktop-resources/macos/icon.icns")
-        val resourceCompilerMacDir = File(buildDir, "generated/genericui/resources/backends/macos")
         if (desktopIcns.isFile) {
             desktopIcns.copyTo(File(resourcesDir, "icon.icns"), overwrite = true)
         }
-        if (resourceCompilerMacDir.isDirectory) {
-            val resourceCompilerRootNorm = resourceCompilerMacDir.toPath().toAbsolutePath().normalize()
-            GenericUiSymlinkPreservingCopy.copyDirectoryContentsPreservingSymlinks(
-                sourceDir = resourceCompilerMacDir,
-                targetDir = resourcesDir,
-                sourceRoot = resourceCompilerMacDir,
-                setExecutableOnBinaries = false,
-                entryFilter = { candidate ->
-                    val isRootInfoPlist = candidate.parentFile?.toPath()?.toAbsolutePath()?.normalize() == resourceCompilerRootNorm &&
-                        candidate.name.equals("Info.plist", ignoreCase = true)
-                    !isRootInfoPlist && !isExcludedStaticCoreLibrary(candidate)
-                }
-            )
+        listOf("gui", "app", "res", "Assets.xcassets", "genericui_app_resources.c", "genericui_app_resources.o").forEach { staleName ->
+            File(resourcesDir, staleName).takeIf { it.exists() }?.deleteRecursively()
         }
         if (gpuEnabled) {
             val moltenVkIcd = File(buildDir, "generated/genericui/nativeBundle/gpu/macos/MoltenVK_icd.json")
@@ -1506,12 +1781,10 @@ object GenericUiMultiplatformConfigurator {
                 for (frameworkBundle in frameworkBundles) {
                     GenericUiBuildNativeSharedLibsTask.signMacBinary(frameworkBundle)
                 }
-                val webViewHelper = File(macOsDir, "genericui-webview-process")
-                if (webViewHelper.isFile && !Files.isSymbolicLink(webViewHelper.toPath())) {
-                    GenericUiBuildNativeSharedLibsTask.signMacBinary(webViewHelper)
-                }
-                if (targetExeFile.isFile && !Files.isSymbolicLink(targetExeFile.toPath())) {
-                    GenericUiBuildNativeSharedLibsTask.signMacBinary(targetExeFile)
+                macOsDir.listFiles()?.sortedBy { it.name }?.forEach { macExe ->
+                    if (macExe.isFile && !Files.isSymbolicLink(macExe.toPath())) {
+                        GenericUiBuildNativeSharedLibsTask.signMacBinary(macExe)
+                    }
                 }
                 GenericUiBuildNativeSharedLibsTask.signMacBinary(appBundleDir)
             }
@@ -1580,12 +1853,84 @@ object GenericUiMultiplatformConfigurator {
 
         for (dest in destinations) {
             purgeExcludedStaticCoreLibraries(dest)
+            listOf("gui", "app", "res").forEach { staleDir ->
+                File(dest, staleDir).takeIf { it.exists() }?.deleteRecursively()
+            }
             dest.listFiles()?.forEach { f ->
                 if (f.isFile && f.name.lowercase().endsWith(".dll.a")) {
                     runCatching { f.delete() }
                 }
             }
         }
+    }
+
+    private fun expandDesktopCandidateTasks(
+        project: Project,
+        candidateTaskNames: List<String>,
+        secondaryExecutables: List<com.nexustools.genericui.plugin.spi.SecondaryDesktopExecutableContribution>
+    ): List<String> {
+        if (secondaryExecutables.isEmpty()) return candidateTaskNames
+        val linkPattern = Regex("^link(Gtk|Qt)?(Debug|Release)Executable(.+)$")
+        val hasToolkitSpecificPrimary = candidateTaskNames.any {
+            it.startsWith("linkGtk") || it.startsWith("linkQt")
+        }
+        val expanded = mutableListOf<String>()
+        for (taskName in candidateTaskNames) {
+            expanded.add(taskName)
+            val match = linkPattern.matchEntire(taskName) ?: continue
+            val toolkitPrefix = match.groupValues[1]
+            val mode = match.groupValues[2]
+            val targetSuffix = match.groupValues[3]
+            for (sec in secondaryExecutables) {
+                val safeCap = sanitizeBinaryNamePrefix(sec.binaryBaseName)
+                    .replaceFirstChar { it.uppercaseChar() }
+                if (toolkitPrefix.isNotEmpty()) {
+                    val toolkitTask = "link$toolkitPrefix$safeCap${mode}Executable$targetSuffix"
+                    val fallbackTask = "link$safeCap${mode}Executable$targetSuffix"
+                    if (project.tasks.findByName(toolkitTask) != null) {
+                        expanded.add(toolkitTask)
+                    } else if (project.tasks.findByName(fallbackTask) != null) {
+                        expanded.add(fallbackTask)
+                    }
+                } else {
+                    val fallbackTask = "link$safeCap${mode}Executable$targetSuffix"
+                    val gtkTask = "linkGtk$safeCap${mode}Executable$targetSuffix"
+                    val qtTask = "linkQt$safeCap${mode}Executable$targetSuffix"
+                    if (!hasToolkitSpecificPrimary ||
+                        (project.tasks.findByName(gtkTask) == null && project.tasks.findByName(qtTask) == null)
+                    ) {
+                        expanded.add(fallbackTask)
+                    }
+                }
+            }
+        }
+        return expanded.distinct()
+    }
+
+    private fun expandDesktopCandidateSourceDirs(
+        candidateSourceDirs: List<String>,
+        secondaryExecutables: List<com.nexustools.genericui.plugin.spi.SecondaryDesktopExecutableContribution>
+    ): List<String> {
+        if (secondaryExecutables.isEmpty()) return candidateSourceDirs
+        val dirPattern = Regex("^bin/([^/]+)/(gtk|qt)?(Debug|Release|debug|release)Executable$")
+        val extraDirs = mutableListOf<String>()
+        for (relDir in candidateSourceDirs) {
+            val match = dirPattern.matchEntire(relDir) ?: continue
+            val targetName = match.groupValues[1]
+            val toolkit = match.groupValues[2]
+            val modeCap = match.groupValues[3].replaceFirstChar { it.uppercaseChar() }
+            for (sec in secondaryExecutables) {
+                val safePrefix = sanitizeBinaryNamePrefix(sec.binaryBaseName)
+                val secDir = if (toolkit.isEmpty()) {
+                    "bin/$targetName/$safePrefix${modeCap}Executable"
+                } else {
+                    val safeCap = safePrefix.replaceFirstChar { it.uppercaseChar() }
+                    "bin/$targetName/$toolkit$safeCap${modeCap}Executable"
+                }
+                extraDirs.add(secDir)
+            }
+        }
+        return (candidateSourceDirs + extraDirs).distinct()
     }
 
     fun registerBuildTargetTasks(project: Project, extension: GenericUiExtension) {
@@ -1611,6 +1956,16 @@ object GenericUiMultiplatformConfigurator {
                     val isDesktopDist = distRelativePath.startsWith("dist/windows/") ||
                         distRelativePath.startsWith("dist/mac/") ||
                         distRelativePath.startsWith("dist/linux-")
+                    val secondaryExes = if (isDesktopDist && extension.application.createExecutableBinaries) {
+                        collectDesktopContextAndSecondaryExecutables(project, extension).second
+                    } else {
+                        emptyList()
+                    }
+                    val effectiveCandidateTasks = if (isDesktopDist) {
+                        expandDesktopCandidateTasks(project, candidateTaskNames, secondaryExes)
+                    } else {
+                        candidateTaskNames
+                    }
                     val dynamicExtensionTasks = buildList {
                         if (isDesktopDist) {
                             add("prepareGenericUiDesktopResources")
@@ -1631,7 +1986,7 @@ object GenericUiMultiplatformConfigurator {
                             "genericuiValidateApp",
                             "generateGenericUiLaunchers",
                             "compileGenericUiResources"
-                        ) + dynamicExtensionTasks + candidateTaskNames
+                        ) + dynamicExtensionTasks + effectiveCandidateTasks
                     ).distinct().mapNotNull { taskName -> project.tasks.findByName(taskName) }
                     val depBuildTasks = resolveCompanionDependencyBuildTasks(project, extension)
                     baseTasks + depBuildTasks
@@ -1640,6 +1995,19 @@ object GenericUiMultiplatformConfigurator {
                     val buildDir = buildDirProvider.get()
                     val distDir = File(buildDir, distRelativePath)
                     distDir.mkdirs()
+                    val isDesktopDist = distRelativePath.startsWith("dist/windows/") ||
+                        distRelativePath.startsWith("dist/mac/") ||
+                        distRelativePath.startsWith("dist/linux-")
+                    val secondaryExes = if (isDesktopDist && extension.application.createExecutableBinaries) {
+                        collectDesktopContextAndSecondaryExecutables(project, extension).second
+                    } else {
+                        emptyList()
+                    }
+                    val expandedSourceDirs = if (isDesktopDist) {
+                        expandDesktopCandidateSourceDirs(candidateSourceDirs, secondaryExes)
+                    } else {
+                        candidateSourceDirs
+                    }
                     val isMacDist = distRelativePath.startsWith("dist/mac/")
                     val isLinuxGtkDist = distRelativePath.startsWith("dist/linux-gtk/")
                     val isLinuxQtDist = distRelativePath.startsWith("dist/linux-qt/")
@@ -1671,22 +2039,22 @@ object GenericUiMultiplatformConfigurator {
                     }
                     val resolvedSourceDirs = when {
                         isLinuxQtDist -> {
-                            val qtOnly = candidateSourceDirs.filter { it.contains("/qt") }
+                            val qtOnly = expandedSourceDirs.filter { it.contains("/qt") }
                             if (qtOnly.any { File(buildDir, it).let { d -> d.isDirectory && !d.list().isNullOrEmpty() } }) {
                                 qtOnly
                             } else {
-                                candidateSourceDirs
+                                expandedSourceDirs
                             }
                         }
                         isLinuxGtkDist -> {
-                            val gtkOnly = candidateSourceDirs.filter { it.contains("/gtk") }
+                            val gtkOnly = expandedSourceDirs.filter { it.contains("/gtk") }
                             if (gtkOnly.any { File(buildDir, it).let { d -> d.isDirectory && !d.list().isNullOrEmpty() } }) {
                                 gtkOnly
                             } else {
-                                candidateSourceDirs
+                                expandedSourceDirs
                             }
                         }
-                        else -> candidateSourceDirs
+                        else -> expandedSourceDirs
                     }
                     if (!isMacDist) {
                         val activeManagedNames = buildSet {
@@ -1730,6 +2098,16 @@ object GenericUiMultiplatformConfigurator {
                                         setExecutableOnBinaries = isLinuxGtkDist || isLinuxQtDist,
                                         entryFilter = { !isExcludedNonWebDistFile(it) }
                                     )
+                                }
+                            }
+                        }
+                        if (isLinuxGtkDist || isLinuxQtDist) {
+                            for (sec in secondaryExes) {
+                                val kexeFile = File(distDir, "${sec.binaryBaseName}.kexe")
+                                val aliasFile = File(distDir, sec.binaryBaseName)
+                                if (kexeFile.isFile) {
+                                    kexeFile.copyTo(aliasFile, overwrite = true)
+                                    aliasFile.setExecutable(true, false)
                                 }
                             }
                         }
@@ -1938,13 +2316,12 @@ object GenericUiMultiplatformConfigurator {
             val isWindowsHost = System.getProperty("os.name").orEmpty().lowercase().contains("win")
             val buildDirProvider = project.layout.buildDirectory.asFile
             project.tasks.matching {
-                it.name in setOf(
-                    "linkDebugExecutableMingwX64",
-                    "linkReleaseExecutableMingwX64",
-                    "linkDebugTestMingwX64",
-                    "mingwX64Test",
-                    "windowsVisualTest"
-                )
+                (it.name.startsWith("link") && it.name.endsWith("ExecutableMingwX64")) ||
+                    it.name in setOf(
+                        "linkDebugTestMingwX64",
+                        "mingwX64Test",
+                        "windowsVisualTest"
+                    )
             }.configureEach {
                 dependsOn(project.provider {
                     buildList {
@@ -1978,7 +2355,8 @@ object GenericUiMultiplatformConfigurator {
                         val bDir = buildDirProvider.get()
                         val isRelease = name.contains("Release")
                         val modeStr = if (isRelease) "production" else "development"
-                        val targetBinDir = when {
+                        val destProp = invokeNoArg(this, "getDestinationDirectory") as? org.gradle.api.file.DirectoryProperty
+                        val targetBinDir = destProp?.orNull?.asFile ?: when {
                             name.contains("Test") -> File(bDir, "bin/mingwX64/debugTest")
                             isRelease -> File(bDir, "bin/mingwX64/releaseExecutable")
                             else -> File(bDir, "bin/mingwX64/debugExecutable")
@@ -3235,20 +3613,66 @@ object GenericUiMultiplatformConfigurator {
                 it.name == "setNamespace" && it.parameterCount == 1
             }?.invoke(androidExt, ns)
 
-            val compileSdk = extension.android.manifestConfig.compileSdk.takeIf { it > 0 }
+            val compileSdk = extension.android.manifestConfig.takeIf {
+                "compileSdk" in it.explicitFields && it.compileSdk > 0
+            }?.compileSdk
                 ?: extension.application.androidCompileSdk
             androidExt.javaClass.methods.firstOrNull {
                 it.name == "setCompileSdk" && it.parameterCount == 1 && it.parameterTypes[0] == Int::class.javaObjectType
             }?.invoke(androidExt, compileSdk)
 
-            val minSdk = extension.android.manifestConfig.minSdk.takeIf { it > 0 }
+            val minSdk = extension.android.manifestConfig.takeIf {
+                "minSdk" in it.explicitFields && it.minSdk > 0
+            }?.minSdk
                 ?: extension.application.androidMinSdk
             androidExt.javaClass.methods.firstOrNull {
                 it.name == "setMinSdk" && it.parameterCount == 1 && it.parameterTypes[0] == Int::class.javaObjectType
             }?.invoke(androidExt, minSdk)
 
-            invokeNoArg(androidExt, "withHostTest")
+            configureHostTest(androidExt)
         }
+    }
+
+    private fun applyHostTestOptions(builder: Any?) {
+        if (builder == null) return
+        val cls = builder::class.java
+        cls.methods.firstOrNull {
+            it.name == "setIncludeAndroidResources" && it.parameterCount == 1
+        }?.invoke(builder, true)
+        cls.methods.firstOrNull {
+            it.name == "setReturnDefaultValues" && it.parameterCount == 1
+        }?.invoke(builder, true)
+    }
+
+    private fun configureHostTest(androidExt: Any) {
+        val actionMethod = androidExt::class.java.methods.firstOrNull {
+            it.name == "withHostTest" &&
+                it.parameterCount == 1 &&
+                org.gradle.api.Action::class.java.isAssignableFrom(it.parameterTypes[0])
+        }
+        if (actionMethod != null) {
+            runCatching {
+                actionMethod.invoke(androidExt, object : org.gradle.api.Action<Any> {
+                    override fun execute(builder: Any) {
+                        applyHostTestOptions(builder)
+                    }
+                })
+                return
+            }
+        }
+        val fn1Method = androidExt::class.java.methods.firstOrNull {
+            it.name == "withHostTest" &&
+                it.parameterCount == 1 &&
+                Function1::class.java.isAssignableFrom(it.parameterTypes[0])
+        }
+        if (fn1Method != null) {
+            runCatching {
+                val cfg: (Any?) -> Unit = { builder -> applyHostTestOptions(builder) }
+                fn1Method.invoke(androidExt, cfg)
+                return
+            }
+        }
+        invokeNoArg(androidExt, "withHostTest")
     }
 
     private fun invokeNoArg(target: Any?, methodName: String): Any? {

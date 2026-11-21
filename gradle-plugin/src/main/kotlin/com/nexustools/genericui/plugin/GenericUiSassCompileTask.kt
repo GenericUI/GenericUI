@@ -456,7 +456,13 @@ abstract class GenericUiSassCompileTask : DefaultTask() {
                     (parentName.startsWith("drawable") || parentName in setOf("icons", "images", "cursors", "cursor")) &&
                         ext in setOf("svg", "png", "cur", "ico", "webp", "jpg", "jpeg") -> {
                         if (ident.isNotEmpty()) {
-                            drawables.putIfAbsent(ident, file.name)
+                            val relInRoot = file.relativeTo(root).invariantSeparatorsPath.trimStart('/')
+                            val canonicalPath = if (relInRoot.startsWith("gui/") || relInRoot.startsWith("app/")) {
+                                relInRoot
+                            } else {
+                                "app/$relInRoot"
+                            }
+                            drawables.putIfAbsent(ident, canonicalPath)
                         }
                     }
                     (parentName == "font" || parentName == "fonts") && ext in setOf("ttf", "otf", "woff", "woff2") -> {
@@ -483,8 +489,8 @@ abstract class GenericUiSassCompileTask : DefaultTask() {
             val rawName = m.groupValues[2]
             val id = sanitizeResId(rawName.substringBeforeLast('.', rawName))
             if (forWeb) {
-                val fileName = resources.drawables[id] ?: if ('.' in rawName) rawName else "$id.svg"
-                "url(\"assets/drawable/$fileName\")"
+                val resolvedPath = resources.drawables[id] ?: ("app/drawable/" + if ('.' in rawName) rawName else "$id.svg")
+                "url(\"$resolvedPath\")"
             } else {
                 "url(\"res://drawable/$id\")"
             }
@@ -495,8 +501,8 @@ abstract class GenericUiSassCompileTask : DefaultTask() {
         resolved = bareDrawableRegex.replace(resolved) { m ->
             val id = sanitizeResId(m.groupValues[1])
             if (forWeb) {
-                val fileName = resources.drawables[id] ?: "$id.svg"
-                "url(\"assets/drawable/$fileName\")"
+                val resolvedPath = resources.drawables[id] ?: "app/drawable/$id.svg"
+                "url(\"$resolvedPath\")"
             } else {
                 "res://drawable/$id"
             }

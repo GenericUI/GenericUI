@@ -90,8 +90,11 @@ class GenericUiBuildFileInspector(
         }
 
         for (ext in GenericUiExtensionModule.entries) {
-            val callPattern = Regex("""\b${ext.dslMethodName}\s*\(\s*(true|false)?\s*\)""", RegexOption.IGNORE_CASE)
-            for (match in callPattern.findAll(extensionsBlock)) {
+            val callOrBlockPattern = Regex(
+                """\b${Regex.escape(ext.dslMethodName)}\s*(?:\(\s*(true|false)?\s*\)|\{)""",
+                RegexOption.IGNORE_CASE
+            )
+            for (match in callOrBlockPattern.findAll(extensionsBlock)) {
                 val arg = match.groupValues.getOrNull(1)?.trim()
                 if (arg.equals("false", ignoreCase = true)) {
                     result.remove(ext)

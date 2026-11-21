@@ -112,6 +112,11 @@ interface IWindow : Disposable {
     val isAlwaysOnTop: Boolean
     fun setAlwaysOnTop(alwaysOnTop: Boolean) {}
 
+    val isUndecorated: Boolean
+        get() = false
+    fun setUndecorated(undecorated: Boolean) {}
+    fun startSystemMove() {}
+
     fun isFullscreen(): Boolean
     fun setFullscreen(fullscreen: Boolean, cutoutMode: DisplayCutoutMode = DisplayCutoutMode.SHORT_EDGES)
 
@@ -191,6 +196,7 @@ interface IWindow : Disposable {
 
     // Window Lifecycle Listeners
     fun setOnWindowResize(listener: ((WindowConfiguration) -> Unit)?)
+    fun setOnWindowStateChanged(listener: ((WindowState) -> Unit)?) {}
     fun setOnWindowFocusChanged(listener: ((Boolean) -> Unit)?)
     fun setOnWindowCloseRequested(listener: (() -> Boolean)?)
 }

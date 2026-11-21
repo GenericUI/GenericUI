@@ -2,13 +2,17 @@ package com.nexustools.genericui.plugin
 
 import org.gradle.api.DefaultTask
 import org.gradle.api.GradleException
+import org.gradle.api.file.ConfigurableFileCollection
 import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.provider.ListProperty
 import org.gradle.api.provider.MapProperty
 import org.gradle.api.provider.Property
 import org.gradle.api.tasks.Input
+import org.gradle.api.tasks.InputFiles
 import org.gradle.api.tasks.Optional
 import org.gradle.api.tasks.OutputDirectory
+import org.gradle.api.tasks.PathSensitive
+import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.TaskAction
 import org.gradle.work.DisableCachingByDefault
 import java.io.File
@@ -132,6 +136,23 @@ abstract class GenericUiGenerateAndroidActivitiesTask : DefaultTask() {
     @get:Optional
     abstract val resourceRegistryInstallerExpression: Property<String>
 
+    @get:Input
+    @get:Optional
+    abstract val enabledExtensionModulePaths: ListProperty<String>
+
+    @get:Input
+    @get:Optional
+    abstract val extensionOptions: org.gradle.api.provider.MapProperty<String, String>
+
+    @get:InputFiles
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    @get:Optional
+    abstract val sourceFiles: ConfigurableFileCollection
+
+    @get:Input
+    @get:Optional
+    abstract val generatedRegistrarPackageName: Property<String>
+
     @get:OutputDirectory
     abstract val outputDirectory: DirectoryProperty
 
@@ -188,7 +209,12 @@ abstract class GenericUiGenerateAndroidActivitiesTask : DefaultTask() {
             resolvedConfig = resolvedConfig,
             providerInstallerExpressions = providerInstallers.orNull.orEmpty(),
             resourceRegistryInstallerExpr = resourceRegistryInstallerExpression.orNull?.takeIf { it.isNotBlank() },
-            precompiledStyleSheetObjectFqn = precompiledStyleSheetObjectFqn.orNull?.takeIf { it.isNotBlank() }
+            precompiledStyleSheetObjectFqn = precompiledStyleSheetObjectFqn.orNull?.takeIf { it.isNotBlank() },
+            enabledExtensionModulePaths = enabledExtensionModulePaths.orNull.orEmpty(),
+            projectRootDir = rootDir,
+            extraSourceDirs = customDirs,
+            extensionOptions = extensionOptions.orNull.orEmpty(),
+            generatedRegistrarPackageName = generatedRegistrarPackageName.orNull.orEmpty()
         )
     }
 
@@ -260,7 +286,12 @@ abstract class GenericUiGenerateAndroidActivitiesTask : DefaultTask() {
             resolvedConfig: GenericUiResolvedVariantConfig,
             providerInstallerExpressions: List<String> = emptyList(),
             resourceRegistryInstallerExpr: String? = null,
-            precompiledStyleSheetObjectFqn: String? = null
+            precompiledStyleSheetObjectFqn: String? = null,
+            enabledExtensionModulePaths: List<String> = emptyList(),
+            projectRootDir: File? = null,
+            extraSourceDirs: List<File> = emptyList(),
+            extensionOptions: Map<String, String> = emptyMap(),
+            generatedRegistrarPackageName: String = ""
         ): List<File> {
             if (outputDir.exists()) {
                 outputDir.deleteRecursively()
@@ -269,6 +300,38 @@ abstract class GenericUiGenerateAndroidActivitiesTask : DefaultTask() {
 
             val (winningMain, androidFragments) = resolveAndroidFragments(discoveredFragments)
             val generatedFiles = mutableListOf<File>()
+            val enabledExtensionsSet = enabledExtensionModulePaths.map { it.trim() }.filter { it.isNotEmpty() }.toSet()
+            val appPackage = resolvedConfig.packageName.trim()
+                .ifEmpty { resolvedConfig.appId.trim() }
+                .ifEmpty { winningMain?.packageName.orEmpty() }
+                .ifEmpty { "com.nexustools.genericui.generated" }
+            val effectiveGeneratedPackage = generatedRegistrarPackageName.trim().ifEmpty {
+                if (appPackage.endsWith(".generated")) appPackage else "$appPackage.generated"
+            }
+            val scanSpecs = com.nexustools.genericui.plugin.spi.GenericUiExtensionContributorRegistry
+                .allAnnotationScanSpecs(enabledExtensionsSet, projectRootDir)
+            val discoveredSymbols = if (projectRootDir != null) {
+                GenericUiFragmentScanner.scanProjectSymbols(projectRootDir, scanSpecs, extraSourceDirs)
+            } else {
+                emptyList()
+            }
+            val extContext = com.nexustools.genericui.plugin.spi.ExtensionBuildContext(
+                projectRootDir = projectRootDir ?: File("."),
+                projectName = resolvedConfig.appName,
+                appId = resolvedConfig.appId.trim().ifEmpty { appPackage },
+                appName = resolvedConfig.appName,
+                appVersion = resolvedConfig.appVersion,
+                baseName = resolvedConfig.appName,
+                generatedPackageName = effectiveGeneratedPackage,
+                enabledExtensionModulePaths = enabledExtensionsSet,
+                discoveredFragments = discoveredFragments,
+                discoveredSymbols = discoveredSymbols,
+                extensionOptions = extensionOptions
+            )
+            com.nexustools.genericui.plugin.spi.GenericUiExtensionContributorRegistry
+                .validateActiveContributors(extContext, discoveredSymbols)
+            val globalSpiContributions = com.nexustools.genericui.plugin.spi.GenericUiExtensionContributorRegistry
+                .collectAndroidContributions(extContext, null)
 
             for (fragment in androidFragments) {
                 val pkgDir = if (fragment.packageName.isEmpty()) {
@@ -278,14 +341,53 @@ abstract class GenericUiGenerateAndroidActivitiesTask : DefaultTask() {
                 }
                 pkgDir.mkdirs()
                 val activityFile = File(pkgDir, "${fragment.generatedActivitySimpleName}.kt")
-                activityFile.writeText(renderActivitySource(fragment))
+                val fragSpiContributions = com.nexustools.genericui.plugin.spi.GenericUiExtensionContributorRegistry
+                    .collectAndroidContributions(extContext, fragment)
+                activityFile.writeText(
+                    renderActivitySource(
+                        fragment = fragment,
+                        enabledExtensionModulePaths = enabledExtensionModulePaths,
+                        spiContributions = fragSpiContributions
+                    )
+                )
                 generatedFiles.add(activityFile)
+                for (contrib in fragSpiContributions) {
+                    for (src in contrib.generatedSources) {
+                        val rel = src.relativeFilePath.replace('\\', '/').trimStart('/')
+                        if (rel.isNotEmpty()) {
+                            val dst = File(outputDir, rel)
+                            dst.parentFile?.mkdirs()
+                            dst.writeText(src.sourceCode, Charsets.UTF_8)
+                            generatedFiles.add(dst)
+                        }
+                    }
+                }
             }
 
-            val appPackage = resolvedConfig.packageName.trim()
-                .ifEmpty { resolvedConfig.appId.trim() }
-                .ifEmpty { winningMain?.packageName.orEmpty() }
-                .ifEmpty { "com.nexustools.genericui.generated" }
+            for (contrib in globalSpiContributions) {
+                for (src in contrib.generatedSources) {
+                    val rel = src.relativeFilePath.replace('\\', '/').trimStart('/')
+                    if (rel.isNotEmpty()) {
+                        val dst = File(outputDir, rel)
+                        dst.parentFile?.mkdirs()
+                        dst.writeText(src.sourceCode, Charsets.UTF_8)
+                        generatedFiles.add(dst)
+                    }
+                }
+            }
+
+            val mergedInstallers = (
+                providerInstallerExpressions +
+                    globalSpiContributions.flatMap { it.providerInstallerCalls }
+                ).map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+            val extraAppImports = globalSpiContributions.flatMap { it.applicationImports }
+                .map { it.trim().removePrefix("import ").trim() }
+                .filter { it.isNotEmpty() }
+                .distinct()
+            val extraOnCreateStatements = globalSpiContributions.flatMap { it.applicationOnCreateStatements }
+                .map { it.trim() }
+                .filter { it.isNotEmpty() }
+                .distinct()
 
             val appDir = File(outputDir, appPackage.replace('.', '/'))
             appDir.mkdirs()
@@ -296,10 +398,12 @@ abstract class GenericUiGenerateAndroidActivitiesTask : DefaultTask() {
                     mainFragment = winningMain,
                     fragments = androidFragments,
                     resolvedConfig = resolvedConfig,
-                    providerInstallerExpressions = providerInstallerExpressions,
+                    providerInstallerExpressions = mergedInstallers,
                     resourceRegistryInstallerExpr = resourceRegistryInstallerExpr,
                     applicationClassName = GENERATED_APPLICATION_SIMPLE_NAME,
-                    precompiledStyleSheetObjectFqn = precompiledStyleSheetObjectFqn
+                    precompiledStyleSheetObjectFqn = precompiledStyleSheetObjectFqn,
+                    extraApplicationImports = extraAppImports,
+                    extraApplicationOnCreateStatements = extraOnCreateStatements
                 )
             )
             generatedFiles.add(appFile)
@@ -310,17 +414,119 @@ abstract class GenericUiGenerateAndroidActivitiesTask : DefaultTask() {
         /**
          * Renders the Kotlin source for a single concrete `<FragmentName>Activity.kt` file (1 class per file).
          */
-        fun renderActivitySource(fragment: GenericUiDiscoveredFragment): String = buildString {
+        fun renderActivitySource(
+            fragment: GenericUiDiscoveredFragment,
+            enabledExtensionModulePaths: List<String> = emptyList(),
+            spiContributions: List<com.nexustools.genericui.plugin.spi.AndroidExtensionContribution> = emptyList()
+        ): String = buildString {
+            val enabledExtensionsSet = enabledExtensionModulePaths
+                .map { it.trim() }
+                .filter { it.isNotEmpty() }
+                .toSet()
+            val contributions = AndroidActivityExtensionRegistry.resolveContributions(fragment, enabledExtensionsSet)
+
+            val properties = (
+                contributions.flatMap { it.properties } +
+                    spiContributions.flatMap { it.activityProperties }
+                )
+                .map { it.trim() }
+                .filter { it.isNotEmpty() }
+                .distinct()
+            val onCreateStatements = (
+                contributions.flatMap { it.onCreateAfterSuperStatements } +
+                    spiContributions.flatMap { it.activityOnCreateAfterSuperStatements }
+                )
+                .map { it.trim() }
+                .filter { it.isNotEmpty() }
+                .distinct()
+            val onDestroyStatements = (
+                contributions.flatMap { it.onDestroyBeforeSuperStatements } +
+                    spiContributions.flatMap { it.activityOnDestroyBeforeSuperStatements }
+                )
+                .map { it.trim() }
+                .filter { it.isNotEmpty() }
+                .distinct()
+            val methods = (
+                contributions.flatMap { it.methods } +
+                    spiContributions.flatMap { it.activityMethods }
+                )
+                .map { it.trim() }
+                .filter { it.isNotEmpty() }
+                .distinct()
+
+            val imports = linkedSetOf(
+                "com.nexustools.genericui.android.GenericUiFragmentActivity",
+                "com.nexustools.genericui.component.fragment.Fragment"
+            )
+            if (onCreateStatements.isNotEmpty()) {
+                imports.add("android.os.Bundle")
+            }
+            for (contribution in contributions) {
+                for (imp in contribution.imports) {
+                    val normalized = imp.trim().removePrefix("import ").trim()
+                    if (normalized.isNotEmpty()) {
+                        imports.add(normalized)
+                    }
+                }
+            }
+            for (contribution in spiContributions) {
+                for (imp in contribution.activityImports) {
+                    val normalized = imp.trim().removePrefix("import ").trim()
+                    if (normalized.isNotEmpty()) {
+                        imports.add(normalized)
+                    }
+                }
+            }
+
             if (fragment.packageName.isNotEmpty()) {
                 appendLine("package ${fragment.packageName}")
                 appendLine()
             }
-            appendLine("import com.nexustools.genericui.android.GenericUiFragmentActivity")
-            appendLine("import com.nexustools.genericui.component.fragment.Fragment")
+            for (imp in imports.sorted()) {
+                appendLine("import $imp")
+            }
             appendLine()
-            appendLine("class ${fragment.generatedActivitySimpleName} : GenericUiFragmentActivity() {")
+            appendLine("open class ${fragment.generatedActivitySimpleName} : GenericUiFragmentActivity() {")
+            if (properties.isNotEmpty()) {
+                for (prop in properties) {
+                    appendIndentedBlock(this, prop, "    ")
+                }
+                appendLine()
+            }
             appendLine("    override fun createFragment(): Fragment = ${fragment.qualifiedName}()")
+            if (onCreateStatements.isNotEmpty()) {
+                appendLine()
+                appendLine("    override fun onCreate(savedInstanceState: Bundle?) {")
+                appendLine("        super.onCreate(savedInstanceState)")
+                for (stmt in onCreateStatements) {
+                    appendIndentedBlock(this, stmt, "        ")
+                }
+                appendLine("    }")
+            }
+            if (onDestroyStatements.isNotEmpty()) {
+                appendLine()
+                appendLine("    override fun onDestroy() {")
+                for (stmt in onDestroyStatements) {
+                    appendIndentedBlock(this, stmt, "        ")
+                }
+                appendLine("        super.onDestroy()")
+                appendLine("    }")
+            }
+            for (method in methods) {
+                appendLine()
+                appendIndentedBlock(this, method, "    ")
+            }
             appendLine("}")
+        }
+
+        private fun appendIndentedBlock(sb: StringBuilder, source: String, indent: String) {
+            for (line in source.lines()) {
+                if (line.isBlank()) {
+                    sb.appendLine()
+                } else {
+                    sb.appendLine("$indent$line")
+                }
+            }
         }
 
         /**
@@ -334,7 +540,9 @@ abstract class GenericUiGenerateAndroidActivitiesTask : DefaultTask() {
             providerInstallerExpressions: List<String> = emptyList(),
             resourceRegistryInstallerExpr: String? = null,
             applicationClassName: String = GENERATED_APPLICATION_SIMPLE_NAME,
-            precompiledStyleSheetObjectFqn: String? = null
+            precompiledStyleSheetObjectFqn: String? = null,
+            extraApplicationImports: List<String> = emptyList(),
+            extraApplicationOnCreateStatements: List<String> = emptyList()
         ): String = buildString {
             val lightMap = GenericUiThemeConfig.defaultLightColors(resolvedConfig.themeColor).toMutableMap().apply {
                 putAll(resolvedConfig.lightThemeColors.filterValues { it.isNotBlank() })
@@ -346,14 +554,18 @@ abstract class GenericUiGenerateAndroidActivitiesTask : DefaultTask() {
                 appendLine("package $appPackage")
                 appendLine()
             }
-            appendLine("import com.nexustools.genericui.android.AndroidActivityRegistry")
-            appendLine("import com.nexustools.genericui.android.GenericUiAndroidApplication")
-            appendLine("import com.nexustools.genericui.core.GenericUI")
-            appendLine("import com.nexustools.genericui.core.GenericUiAppDescriptor")
-            appendLine("import com.nexustools.genericui.enums.ui.ThemeMode")
-            appendLine("import com.nexustools.genericui.style.color.RgbaColor")
-            appendLine("import com.nexustools.genericui.style.theme.ThemeColorSet")
-            appendLine("import com.nexustools.genericui.style.theme.ThemeConfig")
+            val appImports = linkedSetOf(
+                "com.nexustools.genericui.android.AndroidActivityRegistry",
+                "com.nexustools.genericui.android.GenericUiAndroidApplication",
+                "com.nexustools.genericui.core.GenericUI",
+                "com.nexustools.genericui.core.GenericUiAppDescriptor",
+                "com.nexustools.genericui.enums.ui.ThemeMode",
+                "com.nexustools.genericui.style.color.RgbaColor",
+                "com.nexustools.genericui.style.theme.ThemeColorSet",
+                "com.nexustools.genericui.style.theme.ThemeConfig"
+            )
+            extraApplicationImports.forEach { appImports.add(it) }
+            appImports.sorted().forEach { appendLine("import $it") }
             appendLine()
             appendLine("open class $applicationClassName : GenericUiAndroidApplication() {")
             appendLine("    @Suppress(\"EXTENSION_SHADOWED_BY_MEMBER\", \"UnusedPrivateMember\")")
@@ -531,6 +743,15 @@ abstract class GenericUiGenerateAndroidActivitiesTask : DefaultTask() {
                 )
             }
             appendLine("    }")
+            if (extraApplicationOnCreateStatements.isNotEmpty()) {
+                appendLine()
+                appendLine("    override fun onCreate() {")
+                appendLine("        super.onCreate()")
+                for (stmt in extraApplicationOnCreateStatements) {
+                    appendIndentedBlock(this, stmt, "        ")
+                }
+                appendLine("    }")
+            }
             appendLine("}")
         }
 

@@ -77,6 +77,14 @@ include(":extensions:media:media:dsl")
 include(":extensions:media:mediacontrols")
 include(":extensions:media:mediacontrols:dsl")
 
+// Data
+include(":extensions:data:schema")
+include(":extensions:data:schema:dsl")
+
+// System
+include(":extensions:system:serviceworker")
+include(":extensions:system:serviceworker:dsl")
+
 // UI
 include(":extensions:ui:dsl")
 include(":extensions:ui:overlay")
@@ -89,6 +97,8 @@ include(":extensions:ui:codeeditor")
 include(":extensions:ui:codeeditor:dsl")
 include(":extensions:ui:aichat")
 include(":extensions:ui:aichat:dsl")
+include(":extensions:ui:pip")
+include(":extensions:ui:pip:dsl")
 
 // JestElectricRunner Multi-Backend UI Testing Suite
 include(":tests")

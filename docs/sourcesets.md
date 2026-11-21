@@ -85,7 +85,7 @@ flowchart TD
 ## 2. SourceSet Tier, `AppTarget`, & GenericUI Consolidated Module Mapping
 
 > [!NOTE]
-> **Framework Modules vs. Consumer SourceSets**: Inside the 45-project GenericUI repository, core implementations are organized into consolidated KMP modules (`:common`, `:system`, `:jvm`, `:apple`, `:desktop`, `:mobile`, `:web`) with multi-target source sets (`nativeDesktopMain`, `linuxMain`, `mingwMain`, `macosMain`, `jvmMain`, `androidMain`, `iosMain`). Consumer applications use **source sets inside their own single Gradle project** (`src/commonMain`, and optionally `src/appleMain`, `src/androidMain`, `src/ipadosMain`, etc.).
+> **Framework Modules vs. Consumer SourceSets**: Inside the **51-project** GenericUI repository (`49` `GenericUiGradlePlugin.KNOWN_GENERICUI_MODULES` plus `:gradle-plugin` & `:idea-plugin`, alongside `lib/NJS`), core implementations are organized into consolidated KMP modules (`:common`, `:system`, `:jvm`, `:apple`, `:desktop`, `:mobile`, `:web`) with multi-target source sets (`nativeDesktopMain`, `linuxMain`, `mingwMain`, `macosMain`, `jvmMain`, `androidMain`, `iosMain`). Consumer applications use **source sets inside their own single Gradle project** (`src/commonMain`, and optionally `src/appleMain`, `src/androidMain`, `src/ipadosMain`, etc.).
 
 | Variant Scope (`GenericUiSourceSetsConfig`) | `AppTarget` Enum (`specificityRank`) | Backing GenericUI Module / SourceSet | Consumer Source Directories (Optional except `commonMain`) | Target Scope & Purpose |
 | :--- | :--- | :--- | :--- | :--- |
@@ -161,7 +161,21 @@ genericui {
             implementation("androidx.media:media:1.7.0")
         }
     }
+
+    // Per-variant native C/C++/JNI & CInterop scopes mirror the exact same 0..6 hierarchy (`GenericUiVariantConfig`):
+    // jni { jniLibsDirs("src/androidMain/jniLibs"); library("native_dsp") { sources("src/native/cpp"); buildHostLibraryForTests = true } }
+    // cinterops { create("native_dsp") { defFile("src/native/native_dsp.def"); packageName("com.example.studio.native") } }
+    // nativeLibraries { link("native_dsp"); libraryDirs("libs") }
 }
+```
+
+### 3.1 Plugin-Generated `commonMain` & Native Source Sets
+
+When enabled in `genericui { ... }`, `:gradle-plugin` automatically wires generated source directories into the consumer project's compilations (and stages compiled native libraries per target):
+- **Scoped `R` / `RC` / `Resource` & Precompiled Stylesheets**: Emits typed `<appPkg>.res` classes and `.scss` `PrecompiledStyleSheet` objects into `build/generated/genericui/commonMain/kotlin`.
+- **Schema Codegen (`extensions { schema() }`)**: Emits `<ClassName>SchemaDescriptor.kt` and `GeneratedSchemaRegistrar.kt` from `@SchemaData` classes into `build/generated/genericui/schema/commonMain/kotlin`.
+- **ServiceWorker Codegen (`extensions { serviceWorker { ... } }`)**: Validates `@MainServiceWorker` and emits `<Msg>ServiceWorkerCodec.kt` and `GeneratedServiceWorkerCodecRegistrar.kt` from `@ServiceWorkerMessage` classes into `build/generated/genericui/serviceworker/commonMain/kotlin`.
+- **Variant-Scoped Native Libraries (`jni`, `cinterops`, `nativeLibraries`)**: Can be configured globally on `genericui { ... }` or inside any target/variant block (`windows { ... }`, `macos { ... }`, `android { ... }`, `linuxCommon { ... }`, etc.), staging `.so` libraries into Android APKs (`16KB` page-aligned) and host binaries into JVM Swing `META-INF/native/<os>-<arch>/` + `jvmTest` runtime paths.
 ```
 
 ---
