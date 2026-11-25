@@ -16,7 +16,7 @@ import com.nexustools.genericui.nativeimpl.system.UserDirectoryNativeImpl
  * to cache downloaded URL images and decoded assets on disk in the OS cache location:
  * - **Windows (`:desktop:windows`)**: `%LOCALAPPDATA%\<appName>\Cache`
  * - **macOS (`:desktop:macos`)**: `~/Library/Caches/<appName>`
- * - **Linux (`:desktop:gtk`, `:desktop:qt`)**: `$XDG_CACHE_HOME/<appName>` (or `~/.cache/<appName>`)
+ * - **Linux (`:desktop:gtk`, `:desktop:kde`)**: `$XDG_CACHE_HOME/<appName>` (or `~/.cache/<appName>`)
  * - **Swing (`:desktop:swing`)**: Host OS user cache directory (`%LOCALAPPDATA%\<appName>\Cache`, `~/Library/Caches/<appName>`, or `~/.cache/<appName>`)
  * - **Android (`:mobile:android`)**: `<context.cacheDir>/<appName>`
  * - **iOS (`:mobile:ios`)**: `<Home>/Library/Caches/<appName>`

@@ -82,18 +82,11 @@ open class BookContainer(
 
     init {
         this.htmlTag = "iframe"
+        addClass("book-container")
         setAttribute("data-page-size", pageSize.cssSize)
         setAttribute("data-page-orientation", orientation.cssOrientation)
         setAttribute("data-margin-mm", marginMm.toString())
         setAttribute("title", documentTitle)
-        getStyle().apply {
-            setWidth(com.nexustools.genericui.style.css.CssLength.PERCENT_100)
-            setHeight(com.nexustools.genericui.style.css.CssLength.PERCENT_100)
-            setBorderStyle(com.nexustools.genericui.enums.css.CssBorderStyle.NONE)
-            setBackgroundColor(com.nexustools.genericui.style.color.RgbaColor.WHITE)
-            setDisplay(com.nexustools.genericui.enums.css.CssDisplay.BLOCK)
-            setOverflowY(com.nexustools.genericui.enums.bootstrap.OverflowBehavior.AUTO)
-        }
     }
 
     fun addStyleSheet(styleSheetPath: String) {

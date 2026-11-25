@@ -46,7 +46,7 @@ class GenericUiIdeaPluginTest {
                 GenericUiTargetBackend.WINDOWS,
                 GenericUiTargetBackend.MACOS,
                 GenericUiTargetBackend.GTK,
-                GenericUiTargetBackend.QT
+                GenericUiTargetBackend.KDE
             ),
             panel.getSelectedBackends()
         )
@@ -362,7 +362,7 @@ class GenericUiIdeaPluginTest {
         assertTrue(buildCustom.contains("alien()"))
         assertTrue(buildCustom.contains("testing {"))
         assertTrue(buildCustom.contains("enabled = true"))
-        assertFalse(buildCustom.contains("qt()"))
+        assertFalse(buildCustom.contains("kde()"))
     }
 
     @Test
@@ -483,11 +483,20 @@ class GenericUiIdeaPluginTest {
             )
         )
 
-        // Update to custom subset (Windows + Qt + Android + IPadOS) and add BOX_3D + GAMEPAD
+        // Verify KDE backend properties
+        assertEquals(GenericUiTargetBackend.KDE, GenericUiTargetBackend.fromId("kde"))
+        assertEquals("kde", GenericUiTargetBackend.KDE.id)
+        assertEquals("kde", GenericUiTargetBackend.KDE.dslMethodName)
+        assertTrue(GenericUiTargetBackend.KDE.displayName.contains("Linux KDE"))
+        assertTrue(GenericUiTargetBackend.KDE.isDesktop)
+        assertTrue(GenericUiTargetBackend.KDE.isNativeDesktop)
+        assertTrue(GenericUiTargetBackend.KDE.isSystem)
+
+        // Update to custom subset (Windows + KDE + Android + IPadOS) and add BOX_3D + GAMEPAD
         val updatedConfig = parsed.copy(
             selectedBackends = linkedSetOf(
                 GenericUiTargetBackend.WINDOWS,
-                GenericUiTargetBackend.QT,
+                GenericUiTargetBackend.KDE,
                 GenericUiTargetBackend.ANDROID,
                 GenericUiTargetBackend.IPADOS
             ),
@@ -501,7 +510,7 @@ class GenericUiIdeaPluginTest {
         assertEquals(
             setOf(
                 GenericUiTargetBackend.WINDOWS,
-                GenericUiTargetBackend.QT,
+                GenericUiTargetBackend.KDE,
                 GenericUiTargetBackend.ANDROID,
                 GenericUiTargetBackend.IPADOS
             ),

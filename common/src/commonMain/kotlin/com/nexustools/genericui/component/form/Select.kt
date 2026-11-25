@@ -11,6 +11,9 @@ open class Select(
     options: List<SelectOption> = emptyList(),
     selectedValue: String? = options.firstOrNull()?.value
 ) : AbstractComponent(htmlTag = "select") {
+    override val supportsFocus: Boolean
+        get() = true
+
     private val _options = options.toMutableList()
     val options: List<SelectOption> get() = _options
 

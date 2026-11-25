@@ -60,11 +60,6 @@ object BootstrapColorPalette {
         }
         themeConfig.resolveBootstrapForeground(type, darkMode)?.let { return it }
         val bg = resolveColor(type, darkMode, themeConfig)
-        val luminance = (bg.r * 299 + bg.g * 587 + bg.b * 114) / 1000
-        return if (luminance >= 150) {
-            RgbaColor(33, 37, 41)
-        } else {
-            RgbaColor(255, 255, 255)
-        }
+        return ThemeConfig.autoContrastForeground(bg, darkBackdrop = darkMode)
     }
 }

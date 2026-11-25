@@ -6,6 +6,9 @@ open class Summary(
     text: String = "",
     classPrefix: String = ""
 ) : Label(text = text, tagName = "summary", classPrefix = classPrefix) {
+    override val supportsFocus: Boolean
+        get() = true
+
     init {
         htmlTag = "summary"
     }

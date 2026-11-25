@@ -98,7 +98,7 @@ data class CssTransitionSpec(
             return null
         }
 
-        private fun splitTopLevelCommas(input: String): List<String> {
+        internal fun splitTopLevelCommas(input: String): List<String> {
             val result = mutableListOf<String>()
             var depth = 0
             var start = 0
@@ -118,7 +118,7 @@ data class CssTransitionSpec(
             return result
         }
 
-        private fun tokenizeTransitionSegment(segment: String): List<String> {
+        internal fun tokenizeTransitionSegment(segment: String): List<String> {
             val tokens = mutableListOf<String>()
             var depth = 0
             val current = StringBuilder()

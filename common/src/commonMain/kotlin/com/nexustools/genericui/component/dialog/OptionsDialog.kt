@@ -8,8 +8,6 @@ import com.nexustools.genericui.core.AbstractComponent
 import com.nexustools.genericui.enums.bootstrap.BootstrapSize
 import com.nexustools.genericui.enums.bootstrap.BootstrapType
 import com.nexustools.genericui.enums.bootstrap.BootstrapWidth
-import com.nexustools.genericui.enums.bootstrap.SpacingScale
-import com.nexustools.genericui.style.css.CssLength
 
 /**
  * Modal options dialog (`OptionsDialog`) displaying a [Spacer]-separated stack of full-width
@@ -27,19 +25,20 @@ open class OptionsDialog(
 ) : Modal(title = title) {
 
     val bodyStack: VStack = VStack().apply {
-        setPaddingAll(SpacingScale.S3)
+        addClass("options-dialog-body")
         getBootstrap().width = BootstrapWidth.W_100
     }
 
     val optionsStack: VStack = VStack().apply {
+        addClass("options-dialog-list")
         getBootstrap().width = BootstrapWidth.W_100
-        getStyle().setMinWidth(CssLength.percent(100))
     }
 
     var defaultBottomButton: Button? = null
         private set
 
     init {
+        addClass("options-dialog")
         bodyStack.addChild(optionsStack)
         addChild(bodyStack)
         for (item in options) {
@@ -64,8 +63,8 @@ open class OptionsDialog(
             size = item.size,
             outline = item.outline
         ).apply {
+            addClass("options-dialog-btn")
             getBootstrap().width = BootstrapWidth.W_100
-            getStyle().setWhiteSpace(com.nexustools.genericui.enums.css.CssWhiteSpace.NOWRAP)
             onClick = {
                 item.onClick()
                 if (item.closeOnClick) {

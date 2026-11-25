@@ -19,4 +19,10 @@ data class ComputedLayoutBox(
     val effectiveZIndex: Int = 0,
     val isVisibleInLayout: Boolean = true,
     val children: List<ComputedLayoutBox> = emptyList()
-)
+) {
+    /**
+     * Returns direct child layout boxes ordered deterministically by CSS `z-index` (preserving DOM order on ties).
+     */
+    fun childrenSortedByZIndex(): List<ComputedLayoutBox> =
+        children.sortedBy { it.effectiveZIndex }
+}

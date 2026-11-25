@@ -62,11 +62,11 @@ data class GenericUiProjectConfig(
     fun requiresAppleModule(): Boolean =
         selectedBackends.any { it.isApple }
 
-    /** True if any desktop backend (`windows`, `macos`, `gtk`, `qt`, `swing`) is selected (requiring `:desktop`). */
+    /** True if any desktop backend (`windows`, `macos`, `gtk`, `kde`, `swing`) is selected (requiring `:desktop`). */
     fun requiresDesktopModule(): Boolean =
         selectedBackends.any { it.isDesktop }
 
-    /** True if any native desktop backend (`windows`, `macos`, `gtk`, `qt`) is selected. */
+    /** True if any native desktop backend (`windows`, `macos`, `gtk`, `kde`) is selected. */
     fun requiresSharedDesktop(): Boolean =
         selectedBackends.any { it.isNativeDesktop }
 
@@ -82,11 +82,11 @@ data class GenericUiProjectConfig(
     fun requiredCoreModules(): Set<String> =
         GenericUiTargetBackend.requiredCoreModulesFor(selectedBackends, includeTests = enableTesting)
 
-    /** True if the selected backend set matches `allExceptSwing()` (`windows`, `macos`, `gtk`, `qt`, `android`, `ios`, `ipados`, `web`). */
+    /** True if the selected backend set matches `allExceptSwing()` (`windows`, `macos`, `gtk`, `kde`, `android`, `ios`, `ipados`, `web`). */
     fun isAllExceptSwingSelected(): Boolean =
         selectedBackends == GenericUiTargetBackend.allExceptSwingSet()
 
-    /** True if the selected backend set matches `allDesktopExceptSwing()` / `allNativeDesktop()` (`windows`, `macos`, `gtk`, `qt`). */
+    /** True if the selected backend set matches `allDesktopExceptSwing()` / `allNativeDesktop()` (`windows`, `macos`, `gtk`, `kde`). */
     fun isDesktopExceptSwingSelected(): Boolean =
         selectedBackends == GenericUiTargetBackend.desktopExceptSwingSet()
 

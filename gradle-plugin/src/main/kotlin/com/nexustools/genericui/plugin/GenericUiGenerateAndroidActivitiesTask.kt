@@ -130,6 +130,10 @@ abstract class GenericUiGenerateAndroidActivitiesTask : DefaultTask() {
 
     @get:Input
     @get:Optional
+    abstract val themeStyleSheetObjectFqn: Property<String>
+
+    @get:Input
+    @get:Optional
     abstract val providerInstallers: ListProperty<String>
 
     @get:Input
@@ -210,6 +214,7 @@ abstract class GenericUiGenerateAndroidActivitiesTask : DefaultTask() {
             providerInstallerExpressions = providerInstallers.orNull.orEmpty(),
             resourceRegistryInstallerExpr = resourceRegistryInstallerExpression.orNull?.takeIf { it.isNotBlank() },
             precompiledStyleSheetObjectFqn = precompiledStyleSheetObjectFqn.orNull?.takeIf { it.isNotBlank() },
+            themeStyleSheetObjectFqn = themeStyleSheetObjectFqn.orNull?.takeIf { it.isNotBlank() },
             enabledExtensionModulePaths = enabledExtensionModulePaths.orNull.orEmpty(),
             projectRootDir = rootDir,
             extraSourceDirs = customDirs,
@@ -234,6 +239,12 @@ abstract class GenericUiGenerateAndroidActivitiesTask : DefaultTask() {
             }
 
             for (frag in androidCandidates) {
+                if (frag.hasIllegalMainDialogFlag) {
+                    throw GradleException(
+                        "@MainAppFragment class '${frag.qualifiedName}' must not declare 'dialog': " +
+                            "the 'dialog' flag is only supported on @AppFragment, not @MainAppFragment."
+                    )
+                }
                 if (!frag.hasNoArgConstructor) {
                     throw GradleException(
                         "Fragment '${frag.qualifiedName}' targeted at Android must declare a zero-argument constructor " +
@@ -287,6 +298,7 @@ abstract class GenericUiGenerateAndroidActivitiesTask : DefaultTask() {
             providerInstallerExpressions: List<String> = emptyList(),
             resourceRegistryInstallerExpr: String? = null,
             precompiledStyleSheetObjectFqn: String? = null,
+            themeStyleSheetObjectFqn: String? = null,
             enabledExtensionModulePaths: List<String> = emptyList(),
             projectRootDir: File? = null,
             extraSourceDirs: List<File> = emptyList(),
@@ -402,6 +414,7 @@ abstract class GenericUiGenerateAndroidActivitiesTask : DefaultTask() {
                     resourceRegistryInstallerExpr = resourceRegistryInstallerExpr,
                     applicationClassName = GENERATED_APPLICATION_SIMPLE_NAME,
                     precompiledStyleSheetObjectFqn = precompiledStyleSheetObjectFqn,
+                    themeStyleSheetObjectFqn = themeStyleSheetObjectFqn,
                     extraApplicationImports = extraAppImports,
                     extraApplicationOnCreateStatements = extraOnCreateStatements
                 )
@@ -541,6 +554,7 @@ abstract class GenericUiGenerateAndroidActivitiesTask : DefaultTask() {
             resourceRegistryInstallerExpr: String? = null,
             applicationClassName: String = GENERATED_APPLICATION_SIMPLE_NAME,
             precompiledStyleSheetObjectFqn: String? = null,
+            themeStyleSheetObjectFqn: String? = null,
             extraApplicationImports: List<String> = emptyList(),
             extraApplicationOnCreateStatements: List<String> = emptyList()
         ): String = buildString {
@@ -662,16 +676,24 @@ abstract class GenericUiGenerateAndroidActivitiesTask : DefaultTask() {
             appendLine("        iconPath = ${resolvedConfig.iconPath?.let { quoteKotlin(it) } ?: "null"},")
             val styleSheetPath = resolvedConfig.globalStyleSheet?.trim()?.takeIf { it.isNotEmpty() }
             val resolvedStyleSheetObjectFqn = precompiledStyleSheetObjectFqn?.trim()?.takeIf { it.isNotEmpty() }
+            val resolvedThemeStyleSheetFqn = themeStyleSheetObjectFqn?.trim()?.takeIf { it.isNotEmpty() }
             if (styleSheetPath != null) {
                 appendLine("        globalStyleSheetPath = ${quoteKotlin(styleSheetPath)},")
-                if (resolvedStyleSheetObjectFqn != null) {
+                if (resolvedStyleSheetObjectFqn != null || resolvedThemeStyleSheetFqn != null) {
                     appendLine("        precompiledStyleSheetInstaller = { app ->")
-                    appendLine("            $resolvedStyleSheetObjectFqn.install(app)")
+                    if (resolvedStyleSheetObjectFqn != null) {
+                        appendLine("            $resolvedStyleSheetObjectFqn.install(app)")
+                    }
+                    if (resolvedThemeStyleSheetFqn != null && resolvedThemeStyleSheetFqn != resolvedStyleSheetObjectFqn) {
+                        appendLine("            $resolvedThemeStyleSheetFqn.install(app)")
+                    }
                     appendLine("            app.addStyleSheet(${quoteKotlin(styleSheetPath)})")
                     appendLine("        },")
                 } else {
                     appendLine("        precompiledStyleSheetInstaller = { app -> app.addStyleSheet(${quoteKotlin(styleSheetPath)}) },")
                 }
+            } else if (resolvedThemeStyleSheetFqn != null) {
+                appendLine("        precompiledStyleSheetInstaller = { app -> $resolvedThemeStyleSheetFqn.install(app) },")
             }
             if (mainFragment != null) {
                 appendLine("        mainFragmentClass = ${mainFragment.qualifiedName}::class,")
@@ -688,6 +710,49 @@ abstract class GenericUiGenerateAndroidActivitiesTask : DefaultTask() {
                 fragments.forEachIndexed { index, frag ->
                     val comma = if (index < fragments.lastIndex) "," else ""
                     appendLine("            ${frag.qualifiedName}::class to { _: com.nexustools.genericui.component.fragment.FragmentBundle? -> ${frag.qualifiedName}() }$comma")
+                }
+                appendLine("        ),")
+            }
+            val metadataFragments = (listOfNotNull(mainFragment) + fragments)
+                .distinctBy { it.qualifiedName }
+            if (metadataFragments.isEmpty()) {
+                appendLine("        fragmentIds = emptyMap(),")
+            } else {
+                appendLine("        fragmentIds = mapOf(")
+                metadataFragments.forEachIndexed { index, frag ->
+                    val comma = if (index < metadataFragments.lastIndex) "," else ""
+                    appendLine("            ${frag.qualifiedName}::class to ${quoteKotlin(frag.qualifiedName)}$comma")
+                }
+                appendLine("        ),")
+            }
+            val routedFragments = metadataFragments.filter { it.route.trim().isNotEmpty() }
+            if (routedFragments.isEmpty()) {
+                appendLine("        fragmentRoutes = emptyMap(),")
+            } else {
+                appendLine("        fragmentRoutes = mapOf(")
+                routedFragments.forEachIndexed { index, frag ->
+                    val comma = if (index < routedFragments.lastIndex) "," else ""
+                    appendLine("            ${frag.qualifiedName}::class to ${quoteKotlin(frag.route.trim())}$comma")
+                }
+                appendLine("        ),")
+            }
+            if (metadataFragments.isEmpty()) {
+                appendLine("        fragmentMetadata = emptyMap(),")
+            } else {
+                appendLine("        fragmentMetadata = mapOf(")
+                metadataFragments.forEachIndexed { index, frag ->
+                    val comma = if (index < metadataFragments.lastIndex) "," else ""
+                    val isMain = mainFragment != null && frag.qualifiedName == mainFragment.qualifiedName
+                    val effectiveDialog = if (isMain || frag.isMainFragment) false else frag.dialog
+                    appendLine(
+                        "            ${frag.qualifiedName}::class to com.nexustools.genericui.component.fragment.FragmentMetadata(" +
+                            "fragmentId = ${quoteKotlin(frag.qualifiedName)}, " +
+                            "route = ${quoteKotlin(frag.route.trim())}, " +
+                            "label = ${quoteKotlin(frag.label.trim())}, " +
+                            "isMainFragment = $isMain, " +
+                            "multipleWindows = ${frag.multipleWindows}, " +
+                            "dialog = $effectiveDialog)$comma"
+                    )
                 }
                 appendLine("        ),")
             }
@@ -721,25 +786,42 @@ abstract class GenericUiGenerateAndroidActivitiesTask : DefaultTask() {
             appendLine("        val descriptor = createAppDescriptor()")
             appendLine("        GenericUI.defaultThemeConfig = descriptor.themeConfig")
             appendLine("        app.setThemeConfig(descriptor.themeConfig)")
+            if (resolvedThemeStyleSheetFqn != null) {
+                appendLine("        com.nexustools.genericui.style.theme.ThemeStyleSheetRegistry.registerCompiledThemeStyleSheet(")
+                appendLine("            $resolvedThemeStyleSheetFqn.name,")
+                appendLine("            $resolvedThemeStyleSheetFqn.toCssStyleSheet()")
+                appendLine("        )")
+                appendLine("        $resolvedThemeStyleSheetFqn.install(app)")
+            }
             appendLine("    }")
-            if (styleSheetPath != null) {
+            if (styleSheetPath != null || resolvedThemeStyleSheetFqn != null) {
                 appendLine()
                 appendLine("    fun configureGlobalStyleSheet(app: com.nexustools.genericui.component.shell.IApplication) {")
                 if (resolvedStyleSheetObjectFqn != null) {
                     appendLine("        $resolvedStyleSheetObjectFqn.install(app)")
                 }
-                appendLine("        app.addStyleSheet(${quoteKotlin(styleSheetPath)})")
+                if (resolvedThemeStyleSheetFqn != null && resolvedThemeStyleSheetFqn != resolvedStyleSheetObjectFqn) {
+                    appendLine("        $resolvedThemeStyleSheetFqn.install(app)")
+                }
+                if (styleSheetPath != null) {
+                    appendLine("        app.addStyleSheet(${quoteKotlin(styleSheetPath)})")
+                }
                 appendLine("    }")
             }
             appendLine()
             appendLine("    override fun registerActivities() {")
-            for (frag in fragments) {
+            for (frag in metadataFragments) {
                 val isMain = mainFragment != null && frag.qualifiedName == mainFragment.qualifiedName
                 appendLine(
                     "        AndroidActivityRegistry.register(" +
                         "fragmentClass = ${frag.qualifiedName}::class, " +
                         "activityClass = ${frag.generatedActivityQualifiedName}::class.java, " +
                         "isMain = $isMain)"
+                )
+                appendLine(
+                    "        AndroidActivityRegistry.registerFragmentId(" +
+                        "fragmentId = ${quoteKotlin(frag.qualifiedName)}, " +
+                        "activityClass = ${frag.generatedActivityQualifiedName}::class.java)"
                 )
             }
             appendLine("    }")

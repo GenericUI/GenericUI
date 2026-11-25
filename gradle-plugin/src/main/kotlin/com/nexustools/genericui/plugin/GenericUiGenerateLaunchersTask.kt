@@ -137,6 +137,10 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
     abstract val precompiledStyleSheetObjectFqns: ListProperty<String>
 
     @get:Input
+    @get:Optional
+    abstract val themeStyleSheetObjectFqn: Property<String>
+
+    @get:Input
     abstract val generateVisualWindowsTestHelper: Property<Boolean>
 
     @get:Input
@@ -247,6 +251,7 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
         val styleSheetFqns = precompiledStyleSheetObjectFqns.getOrElse(emptyList())
             .map { it.trim() }
             .filter { it.isNotEmpty() }
+        val resolvedThemeStyleSheetFqn = themeStyleSheetObjectFqn.orNull?.trim()?.takeIf { it.isNotEmpty() }
         val enabledExtPathsSet = enabledExtensionModulePaths.getOrElse(emptyList())
             .map { it.trim() }
             .filter { it.isNotEmpty() }
@@ -263,6 +268,20 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
             putIfAbsent(
                 com.nexustools.genericui.plugin.spi.ServiceWorkerExtensionContributor.OPTION_ENABLED_BACKENDS,
                 allEnabledScopes.joinToString(",") { it.id }
+            )
+            putIfAbsent(
+                com.nexustools.genericui.plugin.spi.ServiceWorkerExtensionContributor.OPTION_RESOURCES_ENABLED,
+                resEnabled.toString()
+            )
+            if (resPkg.isNotEmpty()) {
+                putIfAbsent(
+                    com.nexustools.genericui.plugin.spi.ServiceWorkerExtensionContributor.OPTION_RESOURCE_PACKAGE,
+                    resPkg
+                )
+            }
+            putIfAbsent(
+                com.nexustools.genericui.plugin.spi.ServiceWorkerExtensionContributor.OPTION_SCHEMA_ENABLED,
+                (com.nexustools.genericui.plugin.spi.SchemaExtensionContributor.SCHEMA_MODULE_PATH in enabledExtPathsSet).toString()
             )
         }
         val validationContext = com.nexustools.genericui.plugin.spi.ExtensionBuildContext(
@@ -368,6 +387,7 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
                 resourcesEnabled = resEnabled,
                 resourcePackage = resPkg,
                 precompiledStyleSheetObjectFqns = styleSheetFqns,
+                themeStyleSheetObjectFqn = resolvedThemeStyleSheetFqn,
                 extraGeneratedSources = extraSources,
                 desktopServiceWorkerOptionsExpr = desktopSwOptionsExpr,
                 hasWebServiceWorker = webSwActive
@@ -392,7 +412,7 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
             GenericUiVariantScope.WINDOWS,
             GenericUiVariantScope.MACOS,
             GenericUiVariantScope.GTK,
-            GenericUiVariantScope.QT,
+            GenericUiVariantScope.KDE,
             GenericUiVariantScope.SWING,
             GenericUiVariantScope.IOS,
             GenericUiVariantScope.IPADOS,
@@ -433,7 +453,7 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
             if (backends.windowsEnabled) add(GenericUiVariantScope.WINDOWS)
             if (backends.macosEnabled) add(GenericUiVariantScope.MACOS)
             if (backends.gtkEnabled) add(GenericUiVariantScope.GTK)
-            if (backends.qtEnabled) add(GenericUiVariantScope.QT)
+            if (backends.kdeEnabled) add(GenericUiVariantScope.KDE)
             if (backends.swingConfig.enabled) add(GenericUiVariantScope.SWING)
             if (backends.iosEnabled) add(GenericUiVariantScope.IOS)
             if (backends.ipadosEnabled) add(GenericUiVariantScope.IPADOS)
@@ -447,7 +467,7 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
             if (backends.windowsEnabled) add(GenericUiVariantScope.WINDOWS)
             if (backends.macosEnabled) add(GenericUiVariantScope.MACOS)
             if (backends.gtkEnabled) add(GenericUiVariantScope.GTK)
-            if (backends.qtEnabled) add(GenericUiVariantScope.QT)
+            if (backends.kdeEnabled) add(GenericUiVariantScope.KDE)
             if (backends.swingConfig.enabled) add(GenericUiVariantScope.SWING)
             if (backends.androidEnabled) add(GenericUiVariantScope.ANDROID)
             if (backends.iosEnabled) add(GenericUiVariantScope.IOS)
@@ -502,10 +522,26 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
                 scanSpecs = scanSpecs
             )
             val resolvedBaseName = extension.application.baseName.trim().ifEmpty { projectDir.name }
-            val mergedExtOptions = LinkedHashMap<String, String>(extension.extensions.extensionOptions).apply {
-                putIfAbsent(
+            val mergedExtOptions = LinkedHashMap<String, String>(
+                GenericUiGradlePlugin.buildPluginExtensionOptionsStatic(extension)
+            ).apply {
+                put(
                     com.nexustools.genericui.plugin.spi.ServiceWorkerExtensionContributor.OPTION_ENABLED_BACKENDS,
                     allTargetScopes.joinToString(",") { it.id }
+                )
+                put(
+                    com.nexustools.genericui.plugin.spi.ServiceWorkerExtensionContributor.OPTION_RESOURCES_ENABLED,
+                    resEnabled.toString()
+                )
+                if (resPkg.isNotEmpty()) {
+                    put(
+                        com.nexustools.genericui.plugin.spi.ServiceWorkerExtensionContributor.OPTION_RESOURCE_PACKAGE,
+                        resPkg
+                    )
+                }
+                put(
+                    com.nexustools.genericui.plugin.spi.ServiceWorkerExtensionContributor.OPTION_SCHEMA_ENABLED,
+                    (com.nexustools.genericui.plugin.spi.SchemaExtensionContributor.SCHEMA_MODULE_PATH in enabledExtPathsSet).toString()
                 )
             }
             val firstVariant = targetScopes.firstOrNull()?.let { GenericUiVariantResolver.resolve(extension, it) }
@@ -621,6 +657,7 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
             resourcesEnabled: Boolean,
             resourcePackage: String,
             precompiledStyleSheetObjectFqns: List<String> = emptyList(),
+            themeStyleSheetObjectFqn: String? = null,
             extraGeneratedSources: List<com.nexustools.genericui.plugin.spi.ExtensionGeneratedSource> = emptyList(),
             desktopServiceWorkerOptionsExpr: String? = null,
             hasWebServiceWorker: Boolean = false
@@ -663,7 +700,8 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
                     providerInstallerCalls = providerInstallerCalls,
                     resourcesEnabled = resourcesEnabled,
                     resourcePackage = resourcePackage,
-                    precompiledStyleSheetObjectFqns = precompiledStyleSheetObjectFqns
+                    precompiledStyleSheetObjectFqns = precompiledStyleSheetObjectFqns,
+                    themeStyleSheetObjectFqn = themeStyleSheetObjectFqn
                 )
             )
             generatedList.add(descriptorFile)
@@ -674,7 +712,10 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
                     generatedPackage = generatedPackage,
                     descriptorObjectName = descriptorObjectName,
                     backendScope = backendScope,
+                    winningMain = winningMain,
+                    applicableFragments = applicableFragments,
                     globalStyleSheet = variantConfig.globalStyleSheet,
+                    themeStyleSheetObjectFqn = themeStyleSheetObjectFqn,
                     desktopServiceWorkerOptionsExpr = desktopServiceWorkerOptionsExpr,
                     hasWebServiceWorker = hasWebServiceWorker
                 )
@@ -698,7 +739,7 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
             GenericUiVariantScope.WINDOWS,
             GenericUiVariantScope.MACOS,
             GenericUiVariantScope.GTK,
-            GenericUiVariantScope.QT,
+            GenericUiVariantScope.KDE,
             GenericUiVariantScope.SWING -> true
             else -> false
         }
@@ -707,7 +748,7 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
             GenericUiVariantScope.WINDOWS -> "Windows"
             GenericUiVariantScope.MACOS -> "Macos"
             GenericUiVariantScope.GTK -> "Gtk"
-            GenericUiVariantScope.QT -> "Qt"
+            GenericUiVariantScope.KDE -> "Kde"
             GenericUiVariantScope.SWING -> "Swing"
             GenericUiVariantScope.ANDROID -> "Android"
             GenericUiVariantScope.IOS -> "Ios"
@@ -727,7 +768,8 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
             providerInstallerCalls: List<String>,
             resourcesEnabled: Boolean,
             resourcePackage: String,
-            precompiledStyleSheetObjectFqns: List<String> = emptyList()
+            precompiledStyleSheetObjectFqns: List<String> = emptyList(),
+            themeStyleSheetObjectFqn: String? = null
         ): String = buildString {
             val lightMap = GenericUiThemeConfig.defaultLightColors(variantConfig.themeColor).toMutableMap().apply {
                 putAll(variantConfig.lightThemeColors.filterValues { it.isNotBlank() })
@@ -791,13 +833,24 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
             appendLine("        darkColors = dark")
             appendLine("    )")
             appendLine()
+            val resolvedThemeStyleSheetFqn = themeStyleSheetObjectFqn?.trim()?.takeIf { it.isNotEmpty() }
+            val allRegistryFqns = (precompiledStyleSheetObjectFqns + listOfNotNull(resolvedThemeStyleSheetFqn))
+                .map { it.trim() }
+                .filter { it.isNotEmpty() }
+                .distinct()
             if (resourcesEnabled && resourcePackage.isNotBlank()) {
                 appendLine("    @Suppress(\"UnusedPrivateMember\")")
                 appendLine("    private fun $resourcePackage.GeneratedResourceRegistry.registerAll() {")
                 appendLine("        ensureInitialized()")
                 if (backendScope != GenericUiVariantScope.WEB) {
-                    for (fqn in precompiledStyleSheetObjectFqns) {
+                    for (fqn in allRegistryFqns) {
                         appendLine("        $fqn.hashCode()")
+                    }
+                    if (resolvedThemeStyleSheetFqn != null) {
+                        appendLine("        com.nexustools.genericui.style.theme.ThemeStyleSheetRegistry.registerCompiledThemeStyleSheet(")
+                        appendLine("            $resolvedThemeStyleSheetFqn.name,")
+                        appendLine("            $resolvedThemeStyleSheetFqn.toCssStyleSheet()")
+                        appendLine("        )")
                     }
                 }
                 appendLine("    }")
@@ -856,8 +909,17 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
             if (styleSheetPath != null) {
                 appendLine("        globalStyleSheetPath = ${escapeKotlinString(styleSheetPath)},")
                 if (backendScope != GenericUiVariantScope.WEB) {
-                    appendLine("        precompiledStyleSheetInstaller = { app -> app.addStyleSheet(${escapeKotlinString(styleSheetPath)}) },")
+                    if (resolvedThemeStyleSheetFqn != null) {
+                        appendLine("        precompiledStyleSheetInstaller = { app ->")
+                        appendLine("            $resolvedThemeStyleSheetFqn.install(app)")
+                        appendLine("            app.addStyleSheet(${escapeKotlinString(styleSheetPath)})")
+                        appendLine("        },")
+                    } else {
+                        appendLine("        precompiledStyleSheetInstaller = { app -> app.addStyleSheet(${escapeKotlinString(styleSheetPath)}) },")
+                    }
                 }
+            } else if (backendScope != GenericUiVariantScope.WEB && resolvedThemeStyleSheetFqn != null) {
+                appendLine("        precompiledStyleSheetInstaller = { app -> $resolvedThemeStyleSheetFqn.install(app) },")
             }
             appendLine("        mainFragmentClass = ${winningMain.qualifiedName}::class,")
             appendLine("        mainFragmentFactory = { _: com.nexustools.genericui.component.fragment.FragmentBundle? -> ${winningMain.qualifiedName}() },")
@@ -871,6 +933,49 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
                 applicableFragments.forEachIndexed { idx, frag ->
                     val comma = if (idx < applicableFragments.lastIndex) "," else ""
                     appendLine("            ${frag.qualifiedName}::class to { _: com.nexustools.genericui.component.fragment.FragmentBundle? -> ${frag.qualifiedName}() }$comma")
+                }
+                appendLine("        ),")
+            }
+            val metadataFragments = (listOf(winningMain) + applicableFragments)
+                .distinctBy { it.qualifiedName }
+            if (metadataFragments.isEmpty()) {
+                appendLine("        fragmentIds = emptyMap(),")
+            } else {
+                appendLine("        fragmentIds = mapOf(")
+                metadataFragments.forEachIndexed { idx, frag ->
+                    val comma = if (idx < metadataFragments.lastIndex) "," else ""
+                    appendLine("            ${frag.qualifiedName}::class to ${escapeKotlinString(frag.qualifiedName)}$comma")
+                }
+                appendLine("        ),")
+            }
+            val routedFragments = metadataFragments.filter { it.route.trim().isNotEmpty() }
+            if (routedFragments.isEmpty()) {
+                appendLine("        fragmentRoutes = emptyMap(),")
+            } else {
+                appendLine("        fragmentRoutes = mapOf(")
+                routedFragments.forEachIndexed { idx, frag ->
+                    val comma = if (idx < routedFragments.lastIndex) "," else ""
+                    appendLine("            ${frag.qualifiedName}::class to ${escapeKotlinString(frag.route.trim())}$comma")
+                }
+                appendLine("        ),")
+            }
+            if (metadataFragments.isEmpty()) {
+                appendLine("        fragmentMetadata = emptyMap(),")
+            } else {
+                appendLine("        fragmentMetadata = mapOf(")
+                metadataFragments.forEachIndexed { idx, frag ->
+                    val comma = if (idx < metadataFragments.lastIndex) "," else ""
+                    val isMain = frag.qualifiedName == winningMain.qualifiedName
+                    val effectiveDialog = if (isMain || frag.isMainFragment) false else frag.dialog
+                    appendLine(
+                        "            ${frag.qualifiedName}::class to com.nexustools.genericui.component.fragment.FragmentMetadata(" +
+                            "fragmentId = ${escapeKotlinString(frag.qualifiedName)}, " +
+                            "route = ${escapeKotlinString(frag.route.trim())}, " +
+                            "label = ${escapeKotlinString(frag.label.trim())}, " +
+                            "isMainFragment = $isMain, " +
+                            "multipleWindows = ${frag.multipleWindows}, " +
+                            "dialog = $effectiveDialog)$comma"
+                    )
                 }
                 appendLine("        ),")
             }
@@ -902,7 +1007,10 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
             generatedPackage: String,
             descriptorObjectName: String,
             backendScope: GenericUiVariantScope,
+            winningMain: GenericUiDiscoveredFragment,
+            applicableFragments: List<GenericUiDiscoveredFragment>,
             globalStyleSheet: String? = null,
+            themeStyleSheetObjectFqn: String? = null,
             desktopServiceWorkerOptionsExpr: String? = null,
             hasWebServiceWorker: Boolean = false
         ): String = buildString {
@@ -914,16 +1022,33 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
             appendLine()
             appendLine("import com.nexustools.genericui.core.GenericUI")
             appendLine()
+            val resolvedThemeStyleSheetFqn = if (backendScope != GenericUiVariantScope.WEB) {
+                themeStyleSheetObjectFqn?.trim()?.takeIf { it.isNotEmpty() }
+            } else {
+                null
+            }
             appendLine("fun configureTheme(app: com.nexustools.genericui.component.shell.IApplication) {")
             appendLine("    val descriptor = $descriptorObjectName.create()")
             appendLine("    GenericUI.defaultThemeConfig = descriptor.themeConfig")
             appendLine("    app.setThemeConfig(descriptor.themeConfig)")
+            if (resolvedThemeStyleSheetFqn != null) {
+                appendLine("    com.nexustools.genericui.style.theme.ThemeStyleSheetRegistry.registerCompiledThemeStyleSheet(")
+                appendLine("        $resolvedThemeStyleSheetFqn.name,")
+                appendLine("        $resolvedThemeStyleSheetFqn.toCssStyleSheet()")
+                appendLine("    )")
+                appendLine("    $resolvedThemeStyleSheetFqn.install(app)")
+            }
             appendLine("}")
             appendLine()
             val cleanStyleSheet = globalStyleSheet?.trim()?.takeIf { it.isNotEmpty() }
-            if (cleanStyleSheet != null) {
+            if (cleanStyleSheet != null || resolvedThemeStyleSheetFqn != null) {
                 appendLine("fun configureGlobalStyleSheet(app: com.nexustools.genericui.component.shell.IApplication) {")
-                appendLine("    app.addStyleSheet(${escapeKotlinString(cleanStyleSheet)})")
+                if (resolvedThemeStyleSheetFqn != null) {
+                    appendLine("    $resolvedThemeStyleSheetFqn.install(app)")
+                }
+                if (cleanStyleSheet != null) {
+                    appendLine("    app.addStyleSheet(${escapeKotlinString(cleanStyleSheet)})")
+                }
                 appendLine("}")
                 appendLine()
             }
@@ -947,10 +1072,13 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
                 GenericUiVariantScope.WINDOWS -> appendDesktopMain("com.nexustools.genericui.windows.WindowsLauncher.launch")
                 GenericUiVariantScope.MACOS -> appendDesktopMain("com.nexustools.genericui.macos.MacosLauncher.launch")
                 GenericUiVariantScope.GTK -> appendDesktopMain("com.nexustools.genericui.gtk.GtkLauncher.launch")
-                GenericUiVariantScope.QT -> appendDesktopMain("com.nexustools.genericui.qt.QtLauncher.launch")
+                GenericUiVariantScope.KDE -> appendDesktopMain("com.nexustools.genericui.kde.KdeLauncher.launch")
                 GenericUiVariantScope.SWING -> appendDesktopMain("com.nexustools.genericui.swing.SwingLauncher.launch")
                 GenericUiVariantScope.IOS -> {
-                    appendLine("fun MainViewController() = com.nexustools.genericui.ios.IosLauncher.createRootViewController($descriptorObjectName.create())")
+                    appendLine("fun MainViewController() = $descriptorObjectName.create().let { descriptor ->")
+                    appendLine("    GenericUI.defaultThemeConfig = descriptor.themeConfig")
+                    appendLine("    com.nexustools.genericui.ios.IosLauncher.createRootViewController(descriptor)")
+                    appendLine("}")
                     appendLine()
                     appendLine("fun main(args: Array<String>) {")
                     appendLine("    GenericUI.defaultThemeConfig = $descriptorObjectName.create().themeConfig")
@@ -958,7 +1086,10 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
                     appendLine("}")
                 }
                 GenericUiVariantScope.IPADOS -> {
-                    appendLine("fun MainViewController() = com.nexustools.genericui.ipados.IpadosLauncher.createRootViewController($descriptorObjectName.create())")
+                    appendLine("fun MainViewController() = $descriptorObjectName.create().let { descriptor ->")
+                    appendLine("    GenericUI.defaultThemeConfig = descriptor.themeConfig")
+                    appendLine("    com.nexustools.genericui.ipados.IpadosLauncher.createRootViewController(descriptor)")
+                    appendLine("}")
                     appendLine()
                     appendLine("fun main(args: Array<String>) {")
                     appendLine("    GenericUI.defaultThemeConfig = $descriptorObjectName.create().themeConfig")
@@ -966,12 +1097,28 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
                     appendLine("}")
                 }
                 GenericUiVariantScope.WEB -> {
+                    val metadataFragments = (listOf(winningMain) + applicableFragments)
+                        .distinctBy { it.qualifiedName }
                     appendLine("fun main() {")
                     if (hasWebServiceWorker) {
                         appendLine("    val descriptor = $descriptorObjectName.create()")
                         appendLine("    GenericUI.defaultThemeConfig = descriptor.themeConfig")
                         appendLine("    if (com.nexustools.genericui.web.WebWorkerGlobalBridge.isWorkerGlobalScope) {")
                         appendLine("        descriptor.resourceRegistryInstaller?.invoke()")
+                        for (frag in metadataFragments) {
+                            val isMain = frag.qualifiedName == winningMain.qualifiedName
+                            val effectiveDialog = if (isMain || frag.isMainFragment) false else frag.dialog
+                            appendLine(
+                                "        com.nexustools.genericui.component.fragment.FragmentRegistry.registerMetadata(" +
+                                    "fragmentClass = ${frag.qualifiedName}::class, " +
+                                    "fragmentId = ${escapeKotlinString(frag.qualifiedName)}, " +
+                                    "route = ${escapeKotlinString(frag.route.trim())}, " +
+                                    "label = ${escapeKotlinString(frag.label.trim())}, " +
+                                    "isMainFragment = $isMain, " +
+                                    "multipleWindows = ${frag.multipleWindows}, " +
+                                    "dialog = $effectiveDialog)"
+                            )
+                        }
                         appendLine("        descriptor.providerInstallers.forEach { it.invoke() }")
                         appendLine("        com.nexustools.genericui.ext.serviceworker.ServiceWorkerExtension.ensureStarted()")
                         appendLine("        return")
@@ -1075,15 +1222,15 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
                             appendLine("    fun installIfEnabled() = GtkJestElectricBootstrap.installIfEnabled()")
                             appendLine("}")
                         }
-                        GenericUiVariantScope.QT -> {
-                            appendLine("import com.nexustools.genericui.tests.qt.QtJestElectricBootstrap")
+                        GenericUiVariantScope.KDE -> {
+                            appendLine("import com.nexustools.genericui.tests.kde.KdeJestElectricBootstrap")
                             appendLine()
                             appendLine("object $objectName {")
                             appendLine("    init {")
-                            appendLine("        QtJestElectricBootstrap.installIfEnabled()")
+                            appendLine("        KdeJestElectricBootstrap.installIfEnabled()")
                             appendLine("    }")
                             appendLine()
-                            appendLine("    fun installIfEnabled() = QtJestElectricBootstrap.installIfEnabled()")
+                            appendLine("    fun installIfEnabled() = KdeJestElectricBootstrap.installIfEnabled()")
                             appendLine("}")
                         }
                         GenericUiVariantScope.SWING -> {

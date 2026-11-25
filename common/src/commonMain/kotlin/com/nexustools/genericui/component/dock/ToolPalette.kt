@@ -12,6 +12,9 @@ import com.nexustools.genericui.style.color.RgbaColor
 class ToolPalette(
     columns: Int = 2
 ) : AbstractContainer() {
+    override val supportsFocus: Boolean
+        get() = true
+
     init {
         htmlTag = "genericui:toolpalette"
     }

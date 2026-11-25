@@ -3,6 +3,7 @@ package com.nexustools.genericui.component.dialog
 import com.nexustools.genericui.component.shell.Window
 import com.nexustools.genericui.core.GenericUI
 import com.nexustools.genericui.enums.bootstrap.BootstrapType
+import com.nexustools.genericui.exception.NativeUninitializedException
 import com.nexustools.genericui.nativeimpl.shell.WindowNativeImpl
 import com.nexustools.genericui.style.color.RgbaColor
 
@@ -22,17 +23,14 @@ object Dialogs {
         onDismiss: () -> Unit = {}
     ) {
         val factory = ownerWindow?.activeFactory ?: GenericUI.activeFactory
-        if (factory != null) {
-            factory.createStandardDialogs().showAlert(
-                owner = resolveOwnerNative(ownerWindow),
-                title = title,
-                message = message,
-                type = type,
-                onDismissed = onDismiss
-            )
-        } else {
-            onDismiss()
-        }
+            ?: throw NativeUninitializedException("Dialogs", "alert")
+        factory.createStandardDialogs().showAlert(
+            owner = resolveOwnerNative(ownerWindow),
+            title = title,
+            message = message,
+            type = type,
+            onDismissed = onDismiss
+        )
     }
 
     fun confirm(
@@ -44,18 +42,15 @@ object Dialogs {
         onResult: (Boolean) -> Unit
     ) {
         val factory = ownerWindow?.activeFactory ?: GenericUI.activeFactory
-        if (factory != null) {
-            factory.createStandardDialogs().showConfirm(
-                owner = resolveOwnerNative(ownerWindow),
-                title = title,
-                message = message,
-                confirmText = confirmLabel,
-                cancelText = cancelLabel,
-                onResult = onResult
-            )
-        } else {
-            onResult(false)
-        }
+            ?: throw NativeUninitializedException("Dialogs", "confirm")
+        factory.createStandardDialogs().showConfirm(
+            owner = resolveOwnerNative(ownerWindow),
+            title = title,
+            message = message,
+            confirmText = confirmLabel,
+            cancelText = cancelLabel,
+            onResult = onResult
+        )
     }
 
     fun prompt(
@@ -67,18 +62,15 @@ object Dialogs {
         onResult: (String?) -> Unit
     ) {
         val factory = ownerWindow?.activeFactory ?: GenericUI.activeFactory
-        if (factory != null) {
-            factory.createStandardDialogs().showPrompt(
-                owner = resolveOwnerNative(ownerWindow),
-                title = title,
-                message = message,
-                defaultValue = defaultValue,
-                placeholder = placeholder,
-                onResult = onResult
-            )
-        } else {
-            onResult(null)
-        }
+            ?: throw NativeUninitializedException("Dialogs", "prompt")
+        factory.createStandardDialogs().showPrompt(
+            owner = resolveOwnerNative(ownerWindow),
+            title = title,
+            message = message,
+            defaultValue = defaultValue,
+            placeholder = placeholder,
+            onResult = onResult
+        )
     }
 
     fun choice(
@@ -90,18 +82,15 @@ object Dialogs {
         onResult: (Int?) -> Unit
     ) {
         val factory = ownerWindow?.activeFactory ?: GenericUI.activeFactory
-        if (factory != null) {
-            factory.createStandardDialogs().showChoice(
-                owner = resolveOwnerNative(ownerWindow),
-                title = title,
-                message = message,
-                options = choices,
-                selectedIndex = selectedIndex,
-                onResult = onResult
-            )
-        } else {
-            onResult(null)
-        }
+            ?: throw NativeUninitializedException("Dialogs", "choice")
+        factory.createStandardDialogs().showChoice(
+            owner = resolveOwnerNative(ownerWindow),
+            title = title,
+            message = message,
+            options = choices,
+            selectedIndex = selectedIndex,
+            onResult = onResult
+        )
     }
 
     fun chooseColor(
@@ -112,16 +101,13 @@ object Dialogs {
         onResult: (RgbaColor?) -> Unit
     ) {
         val factory = ownerWindow?.activeFactory ?: GenericUI.activeFactory
-        if (factory != null) {
-            factory.createStandardDialogs().showColorChooser(
-                owner = resolveOwnerNative(ownerWindow),
-                title = title,
-                initialColor = initialColor,
-                onResult = onResult
-            )
-        } else {
-            onResult(null)
-        }
+            ?: throw NativeUninitializedException("Dialogs", "chooseColor")
+        factory.createStandardDialogs().showColorChooser(
+            owner = resolveOwnerNative(ownerWindow),
+            title = title,
+            initialColor = initialColor,
+            onResult = onResult
+        )
     }
 
     fun openFile(

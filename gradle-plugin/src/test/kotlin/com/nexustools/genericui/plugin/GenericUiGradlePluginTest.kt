@@ -22,7 +22,7 @@ class GenericUiGradlePluginTest {
         ext.backends {
             windows()
             gtk()
-            qt()
+            kde()
             android()
             ios()
             ipados()
@@ -148,7 +148,7 @@ class GenericUiGradlePluginTest {
         assertTrue(ext.backends.windowsEnabled)
         assertTrue(ext.backends.macosEnabled)
         assertTrue(ext.backends.gtkEnabled)
-        assertTrue(ext.backends.qtEnabled)
+        assertTrue(ext.backends.kdeEnabled)
         assertTrue(ext.backends.androidEnabled)
         assertTrue(ext.backends.iosEnabled)
         assertTrue(ext.backends.ipadosEnabled)
@@ -159,7 +159,7 @@ class GenericUiGradlePluginTest {
         assertTrue(ext.backends.windowsEnabled)
         assertTrue(ext.backends.macosEnabled)
         assertTrue(ext.backends.gtkEnabled)
-        assertTrue(ext.backends.qtEnabled)
+        assertTrue(ext.backends.kdeEnabled)
         assertTrue(!ext.backends.swingConfig.enabled)
         assertTrue(!ext.backends.androidEnabled)
         assertTrue(!ext.backends.iosEnabled)
@@ -334,8 +334,8 @@ class GenericUiGradlePluginTest {
             gtkMain {
                 kotlinSrcDir("src/gtkMain/kotlin")
             }
-            qtMain {
-                kotlinSrcDir("src/qtMain/kotlin")
+            kdeMain {
+                kotlinSrcDir("src/kdeMain/kotlin")
             }
             webMain {
                 kotlinSrcDir("src/webMain/kotlin")
@@ -387,9 +387,9 @@ class GenericUiGradlePluginTest {
             "gtk",
             "gtkMain",
             "gtkTest",
-            "qt",
-            "qtMain",
-            "qtTest",
+            "kde",
+            "kdeMain",
+            "kdeTest",
             "mobileCommon",
             "mobileMain",
             "mobileTest",
@@ -418,7 +418,7 @@ class GenericUiGradlePluginTest {
         // common -> web
         // common -> systemCommon -> (appleCommon, jvmCommon)
         //                        -> desktopCommon -> swing
-        //                        -> desktopCommon -> desktopNativeCommon -> (windows, mac, linuxCommon -> (gtk, qt))
+        //                        -> desktopCommon -> desktopNativeCommon -> (windows, mac, linuxCommon -> (gtk, kde))
         //                        -> mobileCommon -> (android, iosCommon -> (ios, ipados))
         val ss = kotlin.sourceSets
         assertTrue(ss.getByName("common") in ss.getByName("web").dependsOn)
@@ -435,9 +435,9 @@ class GenericUiGradlePluginTest {
         assertTrue(ss.getByName("linuxCommon") in ss.getByName("linuxMain").dependsOn)
         assertTrue(ss.getByName("nativeDesktopTest") in ss.getByName("linuxTest").dependsOn)
         assertTrue(ss.getByName("linuxMain") in ss.getByName("gtk").dependsOn)
-        assertTrue(ss.getByName("linuxMain") in ss.getByName("qt").dependsOn)
+        assertTrue(ss.getByName("linuxMain") in ss.getByName("kde").dependsOn)
         assertTrue(ss.getByName("linuxTest") in ss.getByName("gtkTest").dependsOn)
-        assertTrue(ss.getByName("linuxTest") in ss.getByName("qtTest").dependsOn)
+        assertTrue(ss.getByName("linuxTest") in ss.getByName("kdeTest").dependsOn)
         assertTrue(ss.getByName("nativeDesktopMain") in ss.getByName("windows").dependsOn)
         assertTrue(ss.getByName("nativeDesktopMain") in ss.getByName("mac").dependsOn)
         assertTrue(ss.getByName("appleMain") in ss.getByName("mac").dependsOn)
@@ -484,16 +484,16 @@ class GenericUiGradlePluginTest {
             "productionLinuxGtkArm32",
             "developmentLinuxGtkArm64",
             "productionLinuxGtkArm64",
-            "developmentLinuxQt",
-            "productionLinuxQt",
-            "developmentLinuxQtX32",
-            "productionLinuxQtX32",
-            "developmentLinuxQtX64",
-            "productionLinuxQtX64",
-            "developmentLinuxQtArm32",
-            "productionLinuxQtArm32",
-            "developmentLinuxQtArm64",
-            "productionLinuxQtArm64",
+            "developmentLinuxKde",
+            "productionLinuxKde",
+            "developmentLinuxKdeX32",
+            "productionLinuxKdeX32",
+            "developmentLinuxKdeX64",
+            "productionLinuxKdeX64",
+            "developmentLinuxKdeArm32",
+            "productionLinuxKdeArm32",
+            "developmentLinuxKdeArm64",
+            "productionLinuxKdeArm64",
             "developmentAndroid",
             "productionAndroid",
             "developmentAndroidDex",
@@ -552,12 +552,12 @@ class GenericUiGradlePluginTest {
             "testLinuxGtkArm64",
             "testLinuxGtkX32",
             "testLinuxGtkArm32",
-            "testQt",
-            "testLinuxQt",
-            "testLinuxQtX64",
-            "testLinuxQtArm64",
-            "testLinuxQtX32",
-            "testLinuxQtArm32",
+            "testKde",
+            "testLinuxKde",
+            "testLinuxKdeX64",
+            "testLinuxKdeArm64",
+            "testLinuxKdeX32",
+            "testLinuxKdeArm32",
             "testSwing",
             "testAndroid",
             "testAndroidDex",
@@ -595,8 +595,8 @@ class GenericUiGradlePluginTest {
             "productionMacArm64" to "dist/mac/production",
             "developmentLinuxGtkX64" to "dist/linux-gtk/x64/development",
             "productionLinuxGtkX64" to "dist/linux-gtk/x64/production",
-            "developmentLinuxQtArm64" to "dist/linux-qt/arm64/development",
-            "productionLinuxQtArm64" to "dist/linux-qt/arm64/production",
+            "developmentLinuxKdeArm64" to "dist/linux-kde/arm64/development",
+            "productionLinuxKdeArm64" to "dist/linux-kde/arm64/production",
             "developmentAndroid" to "dist/android/dex/development",
             "productionAndroid" to "dist/android/dex/production",
             "developmentAndroidDex" to "dist/android/dex/development",
@@ -629,8 +629,8 @@ class GenericUiGradlePluginTest {
             "macosProduction",
             "linuxDevelopmentGtk",
             "linuxProductionGtk",
-            "linuxDevelopmentQt",
-            "linuxProductionQt",
+            "linuxDevelopmentKde",
+            "linuxProductionKde",
             "swingDevelopment",
             "swingProduction",
             "androidDevelopment",
@@ -1094,9 +1094,9 @@ class GenericUiGradlePluginTest {
             "testGtk",
             "testLinuxGtk",
             "testLinuxGtkX64",
-            "testQt",
-            "testLinuxQt",
-            "testLinuxQtX64"
+            "testKde",
+            "testLinuxKde",
+            "testLinuxKdeX64"
         )) {
             assertNotNull(
                 desktopOnlyProject.tasks.findByName(enabledTask),
@@ -1140,7 +1140,7 @@ class GenericUiGradlePluginTest {
             "windowsTest/kotlin/com/example/webtest/generated/GeneratedWindowsTestBootstrap.kt" to "WindowsJestElectricBootstrap.installIfEnabled()",
             "macosTest/kotlin/com/example/webtest/generated/GeneratedMacosTestBootstrap.kt" to "MacosJestElectricBootstrap.installIfEnabled()",
             "gtkTest/kotlin/com/example/webtest/generated/GeneratedGtkTestBootstrap.kt" to "GtkJestElectricBootstrap.installIfEnabled()",
-            "qtTest/kotlin/com/example/webtest/generated/GeneratedQtTestBootstrap.kt" to "QtJestElectricBootstrap.installIfEnabled()",
+            "kdeTest/kotlin/com/example/webtest/generated/GeneratedKdeTestBootstrap.kt" to "KdeJestElectricBootstrap.installIfEnabled()",
             "swingTest/kotlin/com/example/webtest/generated/GeneratedSwingTestBootstrap.kt" to "SwingJestElectricBootstrap.installIfEnabled()",
             "androidTest/kotlin/com/example/webtest/generated/GeneratedAndroidTestBootstrap.kt" to "AndroidJestElectricBootstrap.installIfEnabled()",
             "iosTest/kotlin/com/example/webtest/generated/GeneratedIosTestBootstrap.kt" to "IosJestElectricBootstrap.installIfEnabled()",

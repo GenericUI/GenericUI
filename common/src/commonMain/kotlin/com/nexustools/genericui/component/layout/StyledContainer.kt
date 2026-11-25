@@ -20,7 +20,7 @@ import com.nexustools.genericui.style.policy.AestheticStylePolicy
  * Cross-platform styled container (`<genericui:styled-container>`) that renders consistent
  * backgrounds (solid, RGBA alpha-transparent, linear & radial gradients), borders (width, style,
  * color, corner radius), padding, opacity, and box shadows across all 8 backends (`:windows`,
- * `:macos`, `:gtk`, `:qt`, `:swing`, `:android`, `:ios`, `:web`).
+ * `:macos`, `:gtk`, `:kde`, `:swing`, `:android`, `:ios`, `:web`).
  *
  * Unlike [com.nexustools.genericui.component.action.StyledButton], [StyledContainer] does not
  * apply interactive `:hover` or `:focus` state overrides.
@@ -115,7 +115,7 @@ open class StyledContainer(
         val snapshot = getBootstrap().applyToSnapshot(BootstrapStyleSnapshot(componentPrefix = componentClassPrefix))
         val raw = StyledVisualSpec.fromComponentAndComputed(
             componentStyle = getStyle(),
-            computedStyle = computedStyle,
+            computedStyle = resolveEffectiveStyle(),
             snapshot = snapshot,
             darkTheme = isDark
         )
@@ -132,8 +132,24 @@ open class StyledContainer(
         impl.setStyledVisuals(spec)
     }
 
-    override fun applyComputedStyle(style: ComputedStyle) {
-        super.applyComputedStyle(style)
+    internal override fun onComputedStyleChanged(previous: ComputedStyle?, current: ComputedStyle) {
+        syncVisualsToNative()
+    }
+
+    internal override fun onComponentOpacityChanged() {
+        syncVisualsToNative()
+    }
+
+    internal override fun onComponentEnabledChanged(enabled: Boolean) {
+        syncVisualsToNative()
+    }
+
+    internal override fun onAfterBootstrapChanged() {
+        super.onAfterBootstrapChanged()
+        syncVisualsToNative()
+    }
+
+    internal open fun onThemeChanged() {
         syncVisualsToNative()
     }
 

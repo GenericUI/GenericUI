@@ -10,6 +10,8 @@ import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.InputFiles
 import org.gradle.api.tasks.Optional
 import org.gradle.api.tasks.OutputDirectory
+import org.gradle.api.tasks.PathSensitive
+import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.TaskAction
 import java.io.File
 import java.security.MessageDigest
@@ -200,6 +202,19 @@ abstract class GenericUiWebDistributionTask : DefaultTask() {
     @get:Optional
     abstract val serviceWorkerOfflineUrls: ListProperty<String>
 
+    @get:Input
+    @get:Optional
+    abstract val upstreamResourceManifestPaths: ListProperty<String>
+
+    @get:InputFiles
+    @get:Optional
+    @get:PathSensitive(PathSensitivity.NONE)
+    abstract val upstreamResourceClasspath: ConfigurableFileCollection
+
+    @get:Input
+    @get:Optional
+    abstract val spiThemeScssChunks: ListProperty<String>
+
     @get:Optional
     @get:InputFiles
     abstract val jsOutputDirs: ConfigurableFileCollection
@@ -218,6 +233,8 @@ abstract class GenericUiWebDistributionTask : DefaultTask() {
         serviceWorkerInlinePlugins.convention(emptyMap())
         serviceWorkerBinaryBaseNames.convention(emptyList())
         serviceWorkerOfflineUrls.convention(emptyList())
+        upstreamResourceManifestPaths.convention(emptyList())
+        spiThemeScssChunks.convention(emptyList())
     }
 
     @TaskAction
@@ -506,8 +523,8 @@ abstract class GenericUiWebDistributionTask : DefaultTask() {
         genericUiCssFile.writeText(GENERICUI_CSS_SOURCE, Charsets.UTF_8)
         val genericUiCssHash = sha1Hex(genericUiCssFile)
 
-        // 5b. Pre-generate gui/genericui-theme.css when custom theme colors/overrides are configured
-        val buildThemeStylesheetTag = maybeGenerateBuildThemeCss(guiDir)
+        // 5b. Pre-generate gui/genericui-theme.css when custom theme colors/overrides OR upstream/consumer theme.scss exist
+        val buildThemeStylesheetTag = maybeGenerateBuildThemeCss(guiDir, rootDir)
 
         // 6. Scan packaged resources (gui/ and app/) and emit resources.json in root outDir with per-file SHA-1 hashes
         val resourceDescriptors = scanPackagedResources(outDir, resolvedManifestFileName, resolvedBase)
@@ -682,9 +699,10 @@ abstract class GenericUiWebDistributionTask : DefaultTask() {
         File(outDir, "index.html").writeText(indexHtml, Charsets.UTF_8)
     }
 
-    private fun maybeGenerateBuildThemeCss(guiDir: File): String {
+    private fun maybeGenerateBuildThemeCss(guiDir: File, rootDir: File? = null): String {
         val themeCssFile = File(guiDir, "genericui-theme.css")
         val configuredPrimary = themeColor.orNull?.trim()?.takeIf { it.isNotEmpty() }
+        val resolvedMode = themeMode.orNull?.trim()?.lowercase()?.takeIf { it.isNotEmpty() } ?: "auto"
         val defaultLight = GenericUiThemeConfig.defaultLightColors()
         val defaultDark = GenericUiThemeConfig.defaultDarkColors()
         val lightInput = lightThemeColors.orNull.orEmpty().filterValues { it.isNotBlank() }
@@ -702,17 +720,85 @@ abstract class GenericUiWebDistributionTask : DefaultTask() {
             (lightInput.isNotEmpty() && resolvedLight != defaultLight) ||
             (darkInput.isNotEmpty() && resolvedDark != defaultDark)
 
-        if (!hasOverrides) {
+        val upstreamSources = upstreamResourceManifestPaths.getOrElse(emptyList()).map(::File) +
+            upstreamResourceClasspath.files
+        val upstreamThemeChunks = GenericUiModuleResourceManifestParser
+            .readThemeTemplatesFromSources(upstreamSources)
+            .map { "/* Upstream Theme Template: ${it.scopeId} */\n${it.rawScss}" }
+        val spiChunks = spiThemeScssChunks.getOrElse(emptyList())
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+        val consumerThemeChunks = discoverConsumerThemeScss(rootDir)
+        val allThemeSources = upstreamThemeChunks + spiChunks + consumerThemeChunks
+
+        val compiledThemeTemplatesCss = if (allThemeSources.isNotEmpty()) {
+            GenericUiSassCompileTask.compileThemeTemplatesToCss(
+                sources = allThemeSources,
+                lightPalette = resolvedLight,
+                darkPalette = resolvedDark,
+                themeMode = resolvedMode,
+                minifyOutput = false,
+                targetBackendMask = GenericUiBackendStyleMask.WEB
+            ).trim()
+        } else {
+            ""
+        }
+
+        if (!hasOverrides && compiledThemeTemplatesCss.isEmpty()) {
             if (themeCssFile.exists()) {
                 themeCssFile.delete()
             }
             return ""
         }
 
-        val cssText = buildThemeOverrideCss(resolvedLight, resolvedDark)
+        val cssText = buildString {
+            if (hasOverrides) {
+                append(buildThemeOverrideCss(resolvedLight, resolvedDark))
+            }
+            if (compiledThemeTemplatesCss.isNotEmpty()) {
+                if (isNotEmpty()) appendLine()
+                appendLine("/* Compiled Upstream & Consumer theme.scss Rules */")
+                appendLine(compiledThemeTemplatesCss)
+            }
+        }
         themeCssFile.parentFile?.mkdirs()
         themeCssFile.writeText(cssText, Charsets.UTF_8)
         return """    <link id="genericui-build-theme-css" rel="stylesheet" href="gui/genericui-theme.css">"""
+    }
+
+    private fun discoverConsumerThemeScss(rootDir: File?): List<String> {
+        if (rootDir == null || !rootDir.isDirectory) return emptyList()
+        val candidateDirs = listOf(
+            File(rootDir, "src/commonMain/resources"),
+            File(rootDir, "src/common/resources"),
+            File(rootDir, "src/webMain/resources"),
+            File(rootDir, "resources")
+        )
+        val chunks = mutableListOf<String>()
+        val seenRelPaths = linkedSetOf<String>()
+        for (resDir in candidateDirs) {
+            if (!resDir.isDirectory) continue
+            resDir.walkTopDown()
+                .filter {
+                    it.isFile &&
+                        !it.name.startsWith("_") &&
+                        it.nameWithoutExtension.equals("theme", ignoreCase = true) &&
+                        it.extension.lowercase() in setOf("scss", "sass", "css")
+                }
+                .sortedBy { it.relativeTo(resDir).invariantSeparatorsPath }
+                .forEach { file ->
+                    val rel = file.relativeTo(resDir).invariantSeparatorsPath
+                    if (seenRelPaths.add(rel)) {
+                        val content = GenericUiSassCompileTask
+                            .resolveSassImportsStatic(file, mutableSetOf(file.canonicalPath))
+                            .trim()
+                        if (content.isNotEmpty()) {
+                            chunks.add("/* Consumer Theme: $rel */\n$content")
+                        }
+                    }
+                }
+        }
+        return chunks
     }
 
     private fun buildThemeOverrideCss(
@@ -940,6 +1026,24 @@ abstract class GenericUiWebDistributionTask : DefaultTask() {
         return stemToRelCssPath
     }
 
+    private fun copyWebCssOrFile(srcFile: File, dstFile: File, overwrite: Boolean) {
+        if (srcFile.extension.equals("css", ignoreCase = true)) {
+            val rawCss = srcFile.readText(Charsets.UTF_8)
+            if (GenericUiBackendStyleMask.containsGenericUiBackendDirective(rawCss)) {
+                val webCss = GenericUiSassCompileTask.transformSassSourceToCssStatic(
+                    source = rawCss,
+                    minifyOutput = false,
+                    targetBackendMask = GenericUiBackendStyleMask.WEB
+                )
+                dstFile.parentFile?.mkdirs()
+                dstFile.writeText(webCss, Charsets.UTF_8)
+                return
+            }
+        }
+        dstFile.parentFile?.mkdirs()
+        srcFile.copyTo(dstFile, overwrite = overwrite)
+    }
+
     private fun copyCandidateResourcesToDistribution(
         rootDir: File,
         buildDir: File,
@@ -998,8 +1102,7 @@ abstract class GenericUiWebDistributionTask : DefaultTask() {
                     else -> File(appDir, relPath)
                 }
                 if (srcFile.canonicalFile != dstFile.canonicalFile) {
-                    dstFile.parentFile?.mkdirs()
-                    srcFile.copyTo(dstFile, overwrite = true)
+                    copyWebCssOrFile(srcFile, dstFile, overwrite = true)
                 }
             }
         }
@@ -1051,8 +1154,7 @@ abstract class GenericUiWebDistributionTask : DefaultTask() {
                     else -> File(appDir, mappedRelPath)
                 }
                 if (!dstFile.exists() && srcFile.canonicalFile != dstFile.canonicalFile) {
-                    dstFile.parentFile?.mkdirs()
-                    srcFile.copyTo(dstFile, overwrite = true)
+                    copyWebCssOrFile(srcFile, dstFile, overwrite = true)
                 }
             }
         }
@@ -1060,12 +1162,15 @@ abstract class GenericUiWebDistributionTask : DefaultTask() {
 
     private fun resolveAndStageAppStylesheet(rootDir: File, buildDir: File, appDir: File): String? {
         val sassStemToRelCss = discoverAppSassRelativePaths(rootDir)
+        val webCssDir = File(buildDir, "generated/genericui/web-css")
         val compiledCssDirs = listOf(
-            File(buildDir, "generated/genericui/web-css"),
+            webCssDir,
             File(buildDir, "generated/genericui/styles")
         ).filter { it.exists() && it.isDirectory }
+        val stagedFromWebCss = mutableSetOf<File>()
 
         for (cssDir in compiledCssDirs) {
+            val isWebCssDir = cssDir.canonicalFile == webCssDir.canonicalFile
             cssDir.walkTopDown().filter { it.isFile && it.extension.equals("css", ignoreCase = true) }.forEach { cssFile ->
                 if (cssFile.name in setOf("genericui.css", "genericui-styles.css", "bootstrap.min.css", "bootstrap-icons.min.css", "genericui-resource-vars.css")) {
                     return@forEach
@@ -1077,13 +1182,19 @@ abstract class GenericUiWebDistributionTask : DefaultTask() {
                     relInCssDir
                 }
                 val dstFile = File(appDir, targetRelInApp)
-                if (cssFile.canonicalFile != dstFile.canonicalFile) {
-                    dstFile.parentFile?.mkdirs()
-                    cssFile.copyTo(dstFile, overwrite = true)
+                val dstCanonical = dstFile.canonicalFile
+                if (!isWebCssDir && dstCanonical in stagedFromWebCss) {
+                    return@forEach
+                }
+                if (cssFile.canonicalFile != dstCanonical) {
+                    copyWebCssOrFile(cssFile, dstFile, overwrite = true)
+                }
+                if (isWebCssDir) {
+                    stagedFromWebCss.add(dstCanonical)
                 }
                 if (targetRelInApp.contains('/')) {
                     val duplicateRootCss = File(appDir, cssFile.name)
-                    if (duplicateRootCss.isFile && duplicateRootCss.canonicalFile != dstFile.canonicalFile) {
+                    if (duplicateRootCss.isFile && duplicateRootCss.canonicalFile != dstCanonical) {
                         duplicateRootCss.delete()
                     }
                 }
@@ -1121,8 +1232,7 @@ abstract class GenericUiWebDistributionTask : DefaultTask() {
                     ?: File(cssDir, File(cleanConfigured).name).takeIf { it.isFile }
                 if (srcCss != null) {
                     val dstInApp = File(appDir, cleanConfigured)
-                    dstInApp.parentFile?.mkdirs()
-                    srcCss.copyTo(dstInApp, overwrite = true)
+                    copyWebCssOrFile(srcCss, dstInApp, overwrite = true)
                     return "app/$cleanConfigured"
                 }
             }
@@ -2248,7 +2358,12 @@ genericui\:contextmenu.dropdown-menu {
 
 /* Block GenericUI Custom Elements */
 genericui\:component,
+genericui\:composite,
 genericui\:container,
+genericui\:styled-container,
+genericui\:layered-container,
+genericui\:styled-component,
+genericui\:styled-slider,
 genericui\:box,
 genericui\:col,
 genericui\:aspectratiocontainer,
@@ -2333,6 +2448,7 @@ genericui\:avatar {
 }
 
 /* Inline-Block GenericUI Custom Elements */
+genericui\:spacer,
 genericui\:tab,
 genericui\:closeabletab,
 genericui\:pinnedtab,
@@ -2343,6 +2459,27 @@ genericui\:spinner,
 genericui\:tooltip {
     display: inline-block;
     box-sizing: border-box;
+}
+
+/* LayeredContainer (genericui:layered-container) */
+genericui\:layered-container,
+.gui-layered-container {
+    position: relative;
+    overflow: hidden;
+}
+
+/* Disabled Components & Unified Overlay Hidden State */
+.disabled,
+[disabled],
+[aria-disabled="true"] {
+    pointer-events: none;
+    cursor: default;
+}
+
+.hidden {
+    opacity: 0;
+    pointer-events: none;
+    cursor: none;
 }
 
 /* Grid GenericUI Custom Elements */
@@ -2451,10 +2588,10 @@ genericui\:progressbar.progress.genericui-progress-busy > .progress-bar.genericu
     }
 }"""
 
-        const val NAMESPACE_CSS_SOURCE: String = """genericui\:app, genericui\:component, genericui\:fragment, genericui\:fragment-container, genericui\:container, genericui\:box, genericui\:col, genericui\:scrollview, genericui\:stepscrollview, genericui\:aspectratiocontainer, genericui\:lazylist, genericui\:lazycolumn, genericui\:lazygrid, genericui\:lazygridtree, genericui\:treeview, genericui\:collapsiblepanel, genericui\:accordion, genericui\:accordionitem, genericui\:jumbotron, genericui\:well, genericui\:listgroupitem, genericui\:tabcontainer, genericui\:formgroup, genericui\:radiogroup, genericui\:markdownview, genericui\:alert, genericui\:toast, genericui\:skeletonplaceholder, genericui\:modal, genericui\:popover, genericui\:backdrop, genericui\:dialogwindow, genericui\:dockpanel, genericui\:panelwindow, genericui\:categorizedtreeview, genericui\:menuitem, genericui\:checkmenuitem, genericui\:radiomenuitem, genericui\:menuseparator, genericui\:contextmenu, genericui\:mdidesktop { display: block; box-sizing: border-box; }
+        const val NAMESPACE_CSS_SOURCE: String = """genericui\:app, genericui\:component, genericui\:composite, genericui\:fragment, genericui\:fragment-container, genericui\:container, genericui\:styled-container, genericui\:layered-container, genericui\:styled-component, genericui\:styled-slider, genericui\:box, genericui\:col, genericui\:scrollview, genericui\:stepscrollview, genericui\:aspectratiocontainer, genericui\:lazylist, genericui\:lazycolumn, genericui\:lazygrid, genericui\:lazygridtree, genericui\:treeview, genericui\:collapsiblepanel, genericui\:accordion, genericui\:accordionitem, genericui\:jumbotron, genericui\:well, genericui\:listgroupitem, genericui\:tabcontainer, genericui\:formgroup, genericui\:radiogroup, genericui\:markdownview, genericui\:alert, genericui\:toast, genericui\:skeletonplaceholder, genericui\:modal, genericui\:popover, genericui\:backdrop, genericui\:dialogwindow, genericui\:dockpanel, genericui\:panelwindow, genericui\:categorizedtreeview, genericui\:menuitem, genericui\:checkmenuitem, genericui\:radiomenuitem, genericui\:menuseparator, genericui\:contextmenu, genericui\:mdidesktop { display: block; box-sizing: border-box; }
 genericui\:window, genericui\:menubar, genericui\:splitpane, genericui\:titlebar, genericui\:statusbar, genericui\:mdicontainer, genericui\:mdiwindow, genericui\:dockworkspace, genericui\:dockarea, genericui\:dockgroup, genericui\:row, genericui\:flexbox, genericui\:hstack, genericui\:vstack, genericui\:lazyrow, genericui\:card, genericui\:listgroup, genericui\:navbar, genericui\:nav, genericui\:sidenav, genericui\:bottomnavigationbar, genericui\:breadcrumb, genericui\:pagination, genericui\:stepper, genericui\:toolbar, genericui\:inputgroup, genericui\:compoundunitinput, genericui\:filedropzone, genericui\:masterdetailstepselect, genericui\:horizontalcarouselselector, genericui\:banner, genericui\:toastcontainer, genericui\:progressbar, genericui\:drawer, genericui\:bottomsheet { display: flex; box-sizing: border-box; }
 genericui\:toolpaletteitem, genericui\:colorswatchbox, genericui\:breadcrumbitem, genericui\:buttongroup, genericui\:avatar { display: inline-flex; box-sizing: border-box; }
-genericui\:menu, genericui\:tab, genericui\:closeabletab, genericui\:pinnedtab, genericui\:badgetab, genericui\:editabletab, genericui\:dropdown, genericui\:spinner, genericui\:tooltip { display: inline-block; box-sizing: border-box; }
+genericui\:spacer, genericui\:menu, genericui\:tab, genericui\:closeabletab, genericui\:pinnedtab, genericui\:badgetab, genericui\:editabletab, genericui\:dropdown, genericui\:spinner, genericui\:tooltip { display: inline-block; box-sizing: border-box; }
 genericui\:toolpalette { display: grid; box-sizing: border-box; }"""
 
         const val NAMESPACE_XML_SOURCE: String = """<?xml version="1.0" encoding="UTF-8"?>
@@ -2470,6 +2607,7 @@ genericui\:toolpalette { display: grid; box-sizing: border-box; }"""
     <elements>
         <element name="app" tag="genericui:app" componentClass="GenericUiApplication" category="core" display="block" role="application" description="Root GenericUI application viewport container."/>
         <element name="component" tag="genericui:component" componentClass="AbstractComponent" category="core" display="block" role="generic" description="Base GenericUI component element."/>
+        <element name="composite" tag="genericui:composite" componentClass="Composite" category="core" display="block" role="group" description="Self-contained multi-part UI component encapsulating internal styled primitives."/>
         <element name="fragment" tag="genericui:fragment" componentClass="Fragment" category="core" display="block" role="region" description="Modular lifecycle-aware UI fragment container."/>
         <element name="fragment-container" tag="genericui:fragment-container" componentClass="FragmentContainer" category="core" display="block" role="region" description="Host container mounting and transitioning Fragment instances."/>
         <element name="window" tag="genericui:window" componentClass="Window" category="shell" display="flex" role="region" description="Top-level GenericUI window container inside genericui:app."/>
@@ -2496,6 +2634,9 @@ genericui\:toolpalette { display: grid; box-sizing: border-box; }"""
         <element name="categorizedtreeview" tag="genericui:categorizedtreeview" componentClass="CategorizedTreeView" category="dock" display="block" role="tree" description="Categorized hierarchy tree view for studio presets and assets."/>
         <element name="colorswatchbox" tag="genericui:colorswatchbox" componentClass="ColorSwatchBox" category="dock" display="inline-flex" role="group" description="Foreground and background color swatch selector box."/>
         <element name="container" tag="genericui:container" componentClass="Container" category="layout" display="block" role="region" description="Responsive layout container."/>
+        <element name="styled-container" tag="genericui:styled-container" componentClass="StyledContainer" category="layout" display="block" role="group" description="Custom-styled surface and layout container."/>
+        <element name="spacer" tag="genericui:spacer" componentClass="Spacer" category="layout" display="inline-block" role="presentation" description="Flexible or fixed-size layout spacing element."/>
+        <element name="layered-container" tag="genericui:layered-container" componentClass="LayeredContainer" category="layout" display="block" role="group" description="Multi-layer Z-ordered stacking container supporting full-bleed and floating corner/edge overlays."/>
         <element name="box" tag="genericui:box" componentClass="Box" category="layout" display="block" role="group" description="Single-purpose positioning and alignment box container."/>
         <element name="row" tag="genericui:row" componentClass="Row" category="layout" display="flex" role="group" description="12-column responsive Bootstrap grid row."/>
         <element name="col" tag="genericui:col" componentClass="Col" category="layout" display="block" role="group" description="Responsive grid column within a genericui:row."/>
@@ -2519,6 +2660,7 @@ genericui\:toolpalette { display: grid; box-sizing: border-box; }"""
         <element name="well" tag="genericui:well" componentClass="Well" category="surface" display="block" role="region" description="Inset bordered surface container."/>
         <element name="listgroup" tag="genericui:listgroup" componentClass="ListGroup" category="surface" display="flex" role="list" description="Bordered vertical list group of interactive or static items."/>
         <element name="listgroupitem" tag="genericui:listgroupitem" componentClass="ListGroupItem" category="surface" display="block" role="listitem" description="Individual item within a genericui:listgroup."/>
+        <element name="styled-component" tag="genericui:styled-component" componentClass="StyledComponent" category="surface" display="block" role="img" description="Stylesheet-driven non-container visual leaf component supporting full CSS styling."/>
         <element name="tabcontainer" tag="genericui:tabcontainer" componentClass="TabContainer" category="tabs" display="block" role="region" description="Multi-tab container with a navigation tab strip and tab content panes."/>
         <element name="tab" tag="genericui:tab" componentClass="Tab" category="tabs" display="inline-block" role="presentation" description="Standard tab header item within a genericui:tabcontainer."/>
         <element name="closeabletab" tag="genericui:closeabletab" componentClass="CloseableTab" category="tabs" display="inline-block" role="presentation" description="Tab header item with an interactive close button."/>
@@ -2541,6 +2683,7 @@ genericui\:toolpalette { display: grid; box-sizing: border-box; }"""
         <element name="radiogroup" tag="genericui:radiogroup" componentClass="RadioGroup" category="form" display="block" role="radiogroup" description="Mutually exclusive group of radio button options."/>
         <element name="compoundunitinput" tag="genericui:compoundunitinput" componentClass="CompoundUnitInput" category="form" display="flex" role="group" description="Numeric input paired with a unit selector (e.g., px, %, em, deg)."/>
         <element name="filedropzone" tag="genericui:filedropzone" componentClass="FileDropZone" category="form" display="flex" role="region" description="Drag-and-drop file upload target zone."/>
+        <element name="styled-slider" tag="genericui:styled-slider" componentClass="StyledSlider" category="form" display="block" role="slider" description="Stylesheet-driven composite range slider composing track, progress fill, and draggable knob."/>
         <element name="markdownview" tag="genericui:markdownview" componentClass="MarkdownView" category="typography" display="block" role="document" description="Formatted Markdown document viewer."/>
         <element name="avatar" tag="genericui:avatar" componentClass="Avatar" category="content" display="inline-flex" role="img" description="Circular or rounded user/entity avatar with image or initials fallback."/>
         <element name="masterdetailstepselect" tag="genericui:masterdetailstepselect" componentClass="MasterDetailStepSelect" category="content" display="flex" role="region" description="Two-pane master category and detail item selector."/>

@@ -14,7 +14,7 @@ import kotlin.math.roundToInt
 
 /**
  * Curated cross-platform visual style specification supported consistently across all 9 GenericUI
- * backends (`:windows`, `:macos`, `:gtk`, `:qt`, `:swing`, `:android`, `:ios`, `:ipados`, `:web`) by
+ * backends (`:windows`, `:macos`, `:gtk`, `:kde`, `:swing`, `:android`, `:ios`, `:ipados`, `:web`) by
  * [com.nexustools.genericui.component.layout.StyledContainer] and
  * [com.nexustools.genericui.component.action.StyledButton].
  *
@@ -97,13 +97,13 @@ data class StyledVisualSpec(
     /**
      * Filters this [StyledVisualSpec] for the given [backendTarget]:
      * - On `WEB`, `ANDROID`, `IOS`, and `IPADOS`, retains all properties including [backdropBlurPx] and [backdropFilter].
-     * - On Desktop targets (`WINDOWS`, `MACOS`, `GTK`, `QT`, `SWING`), strips [backdropBlurPx] and [backdropFilter]
+     * - On Desktop targets (`WINDOWS`, `MACOS`, `GTK`, `KDE`, `SWING`), strips [backdropBlurPx] and [backdropFilter]
      *   while preserving alpha-translucent [backgroundColor], [backgroundGradient], borders, shadows, and geometry.
      */
     /**
      * Resolves this visual spec for the target backend.
      *
-     * All 9 backends (`WEB`, `ANDROID`, `IOS`, `IPADOS`, `WINDOWS`, `MACOS`, `GTK`, `QT`, `SWING`) retain
+     * All 9 backends (`WEB`, `ANDROID`, `IOS`, `IPADOS`, `WINDOWS`, `MACOS`, `GTK`, `KDE`, `SWING`) retain
      * all styling properties including [backdropBlurPx] and [backdropFilter]; component-level gating to
      * [com.nexustools.genericui.component.layout.StyledContainer] is enforced by component policy and
      * native implementations.
@@ -116,7 +116,7 @@ data class StyledVisualSpec(
         LayoutBackendTarget.WINDOWS,
         LayoutBackendTarget.MACOS,
         LayoutBackendTarget.GTK,
-        LayoutBackendTarget.QT,
+        LayoutBackendTarget.KDE,
         LayoutBackendTarget.SWING -> this
     }
 

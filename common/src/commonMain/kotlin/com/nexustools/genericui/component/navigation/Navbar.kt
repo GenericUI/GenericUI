@@ -10,7 +10,7 @@ import com.nexustools.genericui.resources.ResourceID
 /**
  * Top application/fragment navigation bar (`<nav class="navbar">`, `MaterialToolbar`, `UINavigationBar`).
  *
- * By default (`showBrand == null`), desktop backends (`Windows`, `MacOS`, `Gtk`, `Qt`, `Swing`) suppress
+ * By default (`showBrand == null`), desktop backends (`Windows`, `MacOS`, `Gtk`, `Kde`, `Swing`) suppress
  * [brandTitle] and [brandIcon] because the OS window titlebar directly above already renders them, whereas
  * `Web`, `Android`, and `IOS` display them unless [showBrand] is explicitly set to `false`.
  */
@@ -57,7 +57,7 @@ class Navbar(
 
     /**
      * Explicit override controlling whether [brandTitle] and [brandIcon] are rendered inside the navbar.
-     * When `null` (default), desktop platforms (`Windows`, `MacOS`, `Gtk`, `Qt`, `Swing`) hide them
+     * When `null` (default), desktop platforms (`Windows`, `MacOS`, `Gtk`, `Kde`, `Swing`) hide them
      * and non-desktop platforms (`Web`, `Android`, `IOS`) show them.
      */
     var showBrand: Boolean? = showBrand

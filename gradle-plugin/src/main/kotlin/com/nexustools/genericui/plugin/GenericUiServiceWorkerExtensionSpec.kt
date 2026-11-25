@@ -20,6 +20,44 @@ open class GenericUiServiceWorkerExtensionSpec {
     var trayIcon: String? = null
 
     /**
+     * Optional explicit macOS-only system tray / menu bar icon path or resource URI.
+     * When unset (`null`), macOS renders [trayIcon] automatically as a monochrome menu bar
+     * silhouette (`NSImage.isTemplate = true`).
+     */
+    var macosTrayIcon: String? = null
+
+    /**
+     * Optional `NSLocalNetworkUsageDescription` string emitted into both the main macOS `.app`
+     * `Info.plist` and the nested `Service Worker.app` helper bundle `Info.plist`.
+     */
+    var macLocalNetworkUsageDescription: String? = null
+
+    /**
+     * Optional Bonjour service type strings emitted into `NSBonjourServices` on macOS
+     * (for example `"_googlecast._tcp"` or `"_googlecast._tcp."`).
+     */
+    val macBonjourServices: MutableList<String> = mutableListOf()
+
+    /**
+     * Sets an explicit macOS-only system tray / menu bar icon path (`String`, `File`, etc.).
+     */
+    fun macosTrayIcon(path: Any?) {
+        macosTrayIcon = GenericUiAppleIconConfig.normalizeIconValue(path)
+    }
+
+    /**
+     * Registers one or more macOS `NSBonjourServices` service type identifiers.
+     */
+    fun bonjourServices(vararg types: String) {
+        for (raw in types) {
+            val cleaned = raw.trim()
+            if (cleaned.isNotEmpty() && cleaned !in macBonjourServices) {
+                macBonjourServices.add(cleaned)
+            }
+        }
+    }
+
+    /**
      * When `true` (default), launching the desktop main executable opens the main window and ensures
      * the background `serviceworker` process is active. When `false`, launching the main executable
      * without `--open-window` or `--settings-only` ensures the singleton `serviceworker` process is

@@ -40,13 +40,13 @@ enum class GenericUiTargetBackend(
         gradleModulePath = ":desktop",
         dslMethodName = "gtk"
     ),
-    QT(
-        id = "qt",
-        displayName = "Linux (Qt6 / QPainter / QOpenGLWidget / QVulkanWindow)",
+    KDE(
+        id = "kde",
+        displayName = "Linux KDE (KF6 / Kirigami / QPainter / Vulkan)",
         category = "Desktop",
         defaultSelected = true,
         gradleModulePath = ":desktop",
-        dslMethodName = "qt"
+        dslMethodName = "kde"
     ),
     SWING(
         id = "swing",
@@ -97,9 +97,9 @@ enum class GenericUiTargetBackend(
     val isDesktop: Boolean
         get() = isNativeDesktop || this == SWING
 
-    /** True if this backend belongs to the native desktop family (`windows`, `macos`, `gtk`, `qt`). */
+    /** True if this backend belongs to the native desktop family (`windows`, `macos`, `gtk`, `kde`). */
     val isNativeDesktop: Boolean
-        get() = this == WINDOWS || this == MACOS || this == GTK || this == QT
+        get() = this == WINDOWS || this == MACOS || this == GTK || this == KDE
 
     /** True if this backend belongs to the mobile family sharing `:mobile` (`android`, `ios`, `ipados`). */
     val isMobile: Boolean
@@ -133,21 +133,21 @@ enum class GenericUiTargetBackend(
         fun defaultSelectedSet(): Set<GenericUiTargetBackend> =
             entries.filter { it.defaultSelected }.toCollection(LinkedHashSet())
 
-        /** All 8 backends except Swing (`windows`, `macos`, `gtk`, `qt`, `android`, `ios`, `ipados`, `web`). */
+        /** All 8 backends except Swing (`windows`, `macos`, `gtk`, `kde`, `android`, `ios`, `ipados`, `web`). */
         fun allExceptSwingSet(): Set<GenericUiTargetBackend> =
-            linkedSetOf(WINDOWS, MACOS, GTK, QT, ANDROID, IOS, IPADOS, WEB)
+            linkedSetOf(WINDOWS, MACOS, GTK, KDE, ANDROID, IOS, IPADOS, WEB)
 
-        /** All 4 native desktop backends except Swing (`windows`, `macos`, `gtk`, `qt`). */
+        /** All 4 native desktop backends except Swing (`windows`, `macos`, `gtk`, `kde`). */
         fun desktopExceptSwingSet(): Set<GenericUiTargetBackend> =
-            linkedSetOf(WINDOWS, MACOS, GTK, QT)
+            linkedSetOf(WINDOWS, MACOS, GTK, KDE)
 
         /** Alias for [desktopExceptSwingSet] matching `allNativeDesktop()`. */
         fun nativeDesktopSet(): Set<GenericUiTargetBackend> =
             desktopExceptSwingSet()
 
-        /** All 5 desktop backends including Swing (`windows`, `macos`, `gtk`, `qt`, `swing`). */
+        /** All 5 desktop backends including Swing (`windows`, `macos`, `gtk`, `kde`, `swing`). */
         fun desktopAllSet(): Set<GenericUiTargetBackend> =
-            linkedSetOf(WINDOWS, MACOS, GTK, QT, SWING)
+            linkedSetOf(WINDOWS, MACOS, GTK, KDE, SWING)
 
         /** Mobile backends (`android`, `ios`, `ipados`). */
         fun mobileSet(): Set<GenericUiTargetBackend> =

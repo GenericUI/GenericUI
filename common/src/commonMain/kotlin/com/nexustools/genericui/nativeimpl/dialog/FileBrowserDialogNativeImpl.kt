@@ -15,7 +15,7 @@ import com.nexustools.genericui.nativeimpl.shell.WindowNativeImpl
  * - On `:android`, launches the external system file browser app (`Intent.ACTION_OPEN_DOCUMENT`,
  *   `Intent.ACTION_CREATE_DOCUMENT`, or `Intent.ACTION_OPEN_DOCUMENT_TREE`) via Android's Activity result API
  *   and routes the returned `Uri`(s) or `Activity.RESULT_CANCELED` to [callback].
- * - On `:windows`, `:macos`, `:gtk`, `:qt`, `:swing`, `:ios`, opens the genuine native OS file/folder dialog.
+ * - On `:windows`, `:macos`, `:gtk`, `:kde`, `:swing`, `:ios`, opens the genuine native OS file/folder dialog.
  */
 interface FileBrowserDialogNativeImpl : Disposable {
     fun showFileBrowser(

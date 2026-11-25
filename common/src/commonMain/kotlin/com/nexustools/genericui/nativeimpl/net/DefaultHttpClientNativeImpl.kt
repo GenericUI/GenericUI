@@ -2,6 +2,8 @@ package com.nexustools.genericui.nativeimpl.net
 
 import com.nexustools.genericui.net.http.HttpRequest
 import com.nexustools.genericui.net.http.HttpResponse
+import com.nexustools.genericui.threading.PlatformReentrantLock
+import com.nexustools.genericui.threading.withLock
 
 /**
  * Default cross-platform fallback implementation of [HttpClientNativeImpl].
@@ -60,38 +62,50 @@ open class DefaultHttpClientNativeImpl : HttpClientNativeImpl {
 
     protected fun findRouteHandler(url: String): (suspend (HttpRequest) -> HttpResponse)? {
         instanceRoutes[url]?.let { return it }
-        companionRoutes[url]?.let { return it }
+        instanceRoutes[url.substringBefore('?')]?.let { return it }
         for ((pattern, handler) in instanceRoutes) {
             if (matchesPattern(pattern, url)) return handler
         }
-        for ((pattern, handler) in companionRoutes) {
-            if (matchesPattern(pattern, url)) return handler
-        }
-        return null
-    }
-
-    private fun matchesPattern(pattern: String, url: String): Boolean {
-        if (pattern == "*" || pattern == url) return true
-        if (pattern.endsWith("*")) {
-            val prefix = pattern.removeSuffix("*")
-            return url.startsWith(prefix)
-        }
-        return false
+        return findStaticRouteHandler(url)
     }
 
     companion object {
+        private val staticRoutesLock = PlatformReentrantLock()
         private val companionRoutes = LinkedHashMap<String, suspend (HttpRequest) -> HttpResponse>()
 
         fun registerStaticRoute(urlPattern: String, handler: suspend (HttpRequest) -> HttpResponse) {
-            companionRoutes[urlPattern] = handler
+            staticRoutesLock.withLock {
+                companionRoutes[urlPattern] = handler
+            }
         }
 
         fun unregisterStaticRoute(urlPattern: String) {
-            companionRoutes.remove(urlPattern)
+            staticRoutesLock.withLock {
+                companionRoutes.remove(urlPattern)
+            }
         }
 
         fun clearStaticRoutes() {
-            companionRoutes.clear()
+            staticRoutesLock.withLock {
+                companionRoutes.clear()
+            }
+        }
+
+        fun findStaticRouteHandler(url: String): (suspend (HttpRequest) -> HttpResponse)? {
+            return staticRoutesLock.withLock {
+                companionRoutes[url]
+                    ?: companionRoutes[url.substringBefore('?')]
+                    ?: companionRoutes.entries.firstOrNull { (pattern, _) -> matchesPattern(pattern, url) }?.value
+            }
+        }
+
+        private fun matchesPattern(pattern: String, url: String): Boolean {
+            if (pattern == "*" || pattern == url) return true
+            if (pattern.endsWith("*")) {
+                val prefix = pattern.removeSuffix("*")
+                return url.startsWith(prefix)
+            }
+            return false
         }
     }
 }

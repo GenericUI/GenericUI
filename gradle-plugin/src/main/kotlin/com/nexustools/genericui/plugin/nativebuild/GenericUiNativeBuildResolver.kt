@@ -417,9 +417,9 @@ object GenericUiNativeBuildResolver {
         if (targetName.startsWith("linux")) {
             return when {
                 compilationName.equals("gtk", ignoreCase = true) -> GenericUiVariantScope.GTK
-                compilationName.equals("qt", ignoreCase = true) -> GenericUiVariantScope.QT
-                extension.backends.gtkEnabled && !extension.backends.qtEnabled -> GenericUiVariantScope.GTK
-                extension.backends.qtEnabled && !extension.backends.gtkEnabled -> GenericUiVariantScope.QT
+                compilationName.equals("kde", ignoreCase = true) -> GenericUiVariantScope.KDE
+                extension.backends.gtkEnabled && !extension.backends.kdeEnabled -> GenericUiVariantScope.GTK
+                extension.backends.kdeEnabled && !extension.backends.gtkEnabled -> GenericUiVariantScope.KDE
                 else -> GenericUiVariantScope.LINUX_COMMON
             }
         }

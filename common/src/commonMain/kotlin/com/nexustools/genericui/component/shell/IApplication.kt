@@ -1,6 +1,7 @@
 package com.nexustools.genericui.component.shell
 
 import com.nexustools.genericui.component.fragment.FragmentBundle
+import com.nexustools.genericui.component.fragment.FragmentRegistry
 import com.nexustools.genericui.component.fragment.IFragment
 import com.nexustools.genericui.component.layout.Container
 import com.nexustools.genericui.component.system.PreferenceStore
@@ -8,9 +9,9 @@ import com.nexustools.genericui.core.Disposable
 import com.nexustools.genericui.core.GenericUI
 import com.nexustools.genericui.core.NativeFactory
 import com.nexustools.genericui.enums.bootstrap.BootstrapType
-import com.nexustools.genericui.enums.fragment.FragmentLaunchMode
 import com.nexustools.genericui.enums.system.BackendTarget
 import com.nexustools.genericui.enums.ui.ThemeMode
+import com.nexustools.genericui.exception.NativeUninitializedException
 import com.nexustools.genericui.resources.ResourceID
 import com.nexustools.genericui.style.color.BootstrapColorPalette
 import com.nexustools.genericui.style.css.PrecompiledStyleSheet
@@ -47,7 +48,7 @@ interface IApplication : Disposable {
     val backendName: String
         get() = GenericUI.activeFactory?.backendName.orEmpty()
 
-    /** Active platform [BackendTarget] (`Windows`, `MacOS`, `Gtk`, `Qt`, `Swing`, `Android`, `IOS`, `IPadOS`, `Web`). */
+    /** Active platform [BackendTarget] (`Windows`, `MacOS`, `Gtk`, `Kde`, `Swing`, `Android`, `IOS`, `IPadOS`, `Web`). */
     val backendTarget: BackendTarget
         get() = GenericUI.activeFactory?.backendTarget ?: BackendTarget.Windows
 
@@ -88,7 +89,22 @@ interface IApplication : Disposable {
 
     /** `true` if the application can spawn multiple native OS top-level windows. */
     val supportsMultipleWindows: Boolean
-        get() = GenericUI.activeFactory?.supportsMultipleWindows ?: true
+        get() = (GenericUI.activeFactory
+            ?: throw NativeUninitializedException("IApplication", "supportsMultipleWindows")).supportsMultipleWindows
+
+    /** `true` if the active backend supports floating/modal dialog windows. */
+    val supportsDialogWindows: Boolean
+        get() = (GenericUI.activeFactory
+            ?: throw NativeUninitializedException("IApplication", "supportsDialogWindows")).supportsDialogWindows
+
+    /** `true` if the active backend AND [fragmentClass]'s metadata allow opening another window. */
+    fun canOpenAdditionalWindow(fragmentClass: KClass<out IFragment>): Boolean {
+        val factory = GenericUI.activeFactory
+            ?: throw NativeUninitializedException("IApplication", "canOpenAdditionalWindow")
+        return factory.supportsMultipleWindows &&
+            !FragmentRegistry.isDialogFragment(fragmentClass) &&
+            FragmentRegistry.supportsMultipleWindows(fragmentClass)
+    }
 
     /** `true` if the application supports floating tool-modal utility windows (`PanelWindow`). */
     val supportsToolModalWindows: Boolean
@@ -238,21 +254,39 @@ interface IApplication : Disposable {
     /** Returns the ordered list of source file paths for all active stylesheets on this application. */
     fun getStyleSheetPaths(): List<String> = emptyList()
 
-    /** Launches [fragmentClass] into [mainWindow] (see [IWindow.launchFragment]). */
-    fun <T : IFragment> launchFragment(
+    /** Starts [fragmentClass] via [mainIWindow] (see [IWindow.startFragment]). */
+    fun <T : IFragment> startFragment(
         fragmentClass: KClass<T>,
         launchArgs: FragmentBundle? = null,
+        openAdditionalWindow: Boolean = false,
         addToBackStack: Boolean = true,
-        launchMode: FragmentLaunchMode = FragmentLaunchMode.SAME_WINDOW
-    ): T = mainIWindow.launchFragment(fragmentClass, launchArgs, addToBackStack, launchMode)
+        clearTask: Boolean = false
+    ): T = mainIWindow.startFragment(fragmentClass, launchArgs, openAdditionalWindow, addToBackStack, clearTask)
 
-    /** Launches an already-constructed [fragment] into [mainWindow] (see [IWindow.launchFragment]). */
-    fun <T : IFragment> launchFragment(
+    /** Convenience overload packing key-value pairs into a [FragmentBundle] via [FragmentBundle.of]. */
+    fun <T : IFragment> startFragment(
+        fragmentClass: KClass<T>,
+        firstArg: Pair<String, Any?>,
+        vararg extraArgs: Pair<String, Any?>,
+        openAdditionalWindow: Boolean = false,
+        addToBackStack: Boolean = true,
+        clearTask: Boolean = false
+    ): T = startFragment(
+        fragmentClass = fragmentClass,
+        launchArgs = FragmentBundle.of(firstArg, *extraArgs),
+        openAdditionalWindow = openAdditionalWindow,
+        addToBackStack = addToBackStack,
+        clearTask = clearTask
+    )
+
+    /** Starts an already-constructed [fragment] via [mainIWindow] (see [IWindow.startFragment]). */
+    fun <T : IFragment> startFragment(
         fragment: T,
         launchArgs: FragmentBundle? = null,
+        openAdditionalWindow: Boolean = false,
         addToBackStack: Boolean = true,
-        launchMode: FragmentLaunchMode = FragmentLaunchMode.SAME_WINDOW
-    ): T = mainIWindow.launchFragment(fragment, launchArgs, addToBackStack, launchMode)
+        clearTask: Boolean = false
+    ): T = mainIWindow.startFragment(fragment, launchArgs, openAdditionalWindow, addToBackStack, clearTask)
 
     /**
      * Enables or disables automatic main-window geometry and fullscreen persistence in [getPreferenceStore]
@@ -288,3 +322,36 @@ interface IApplication : Disposable {
     fun run(factory: NativeFactory = GenericUI.requireFactory())
     fun exit(exitCode: Int = 0)
 }
+
+/** Reified convenience for [IApplication.canOpenAdditionalWindow]. */
+inline fun <reified T : IFragment> IApplication.canOpenAdditionalWindow(): Boolean =
+    canOpenAdditionalWindow(T::class)
+
+/** Reified convenience for [IApplication.startFragment]. */
+inline fun <reified T : IFragment> IApplication.startFragment(
+    launchArgs: FragmentBundle? = null,
+    openAdditionalWindow: Boolean = false,
+    addToBackStack: Boolean = true,
+    clearTask: Boolean = false
+): T = startFragment(
+    fragmentClass = T::class,
+    launchArgs = launchArgs,
+    openAdditionalWindow = openAdditionalWindow,
+    addToBackStack = addToBackStack,
+    clearTask = clearTask
+)
+
+/** Reified convenience for [IApplication.startFragment] with key-value pair arguments. */
+inline fun <reified T : IFragment> IApplication.startFragment(
+    firstArg: Pair<String, Any?>,
+    vararg extraArgs: Pair<String, Any?>,
+    openAdditionalWindow: Boolean = false,
+    addToBackStack: Boolean = true,
+    clearTask: Boolean = false
+): T = startFragment(
+    fragmentClass = T::class,
+    launchArgs = FragmentBundle.of(firstArg, *extraArgs),
+    openAdditionalWindow = openAdditionalWindow,
+    addToBackStack = addToBackStack,
+    clearTask = clearTask
+)

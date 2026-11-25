@@ -205,7 +205,7 @@ open class HybridColumnLayout(
     var onActiveTabChanged: ((String) -> Unit)? = null
 
     val headerSlot: Container = Container("div", "gui-hybrid-header-slot").apply { isVisible = false }
-    val columnsRow: HStack = HStack().apply {
+    val columnsRow: HStack = HStack(gapPx = 0).apply {
         addClass("gui-hybrid-columns-row")
         alignItems = AlignItems.STRETCH
         getStyle().apply {
@@ -225,7 +225,7 @@ open class HybridColumnLayout(
             setOverflow(com.nexustools.genericui.enums.bootstrap.OverflowBehavior.HIDDEN)
         }
     }
-    val rightTabbedColumn: VStack = VStack().apply {
+    val rightTabbedColumn: VStack = VStack(gapPx = 0).apply {
         addClass("col gui-hybrid-tabbed-column")
         getStyle().setMinWidth(com.nexustools.genericui.style.css.CssLength.ZERO)
     }

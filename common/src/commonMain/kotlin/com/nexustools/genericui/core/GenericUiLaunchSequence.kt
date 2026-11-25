@@ -2,6 +2,7 @@ package com.nexustools.genericui.core
 
 import com.nexustools.genericui.component.fragment.Fragment
 import com.nexustools.genericui.component.fragment.FragmentBundle
+import com.nexustools.genericui.component.fragment.FragmentMetadata
 import com.nexustools.genericui.component.fragment.FragmentRegistry
 import com.nexustools.genericui.component.shell.Application
 import com.nexustools.genericui.component.shell.FragmentApplication
@@ -13,7 +14,7 @@ import kotlin.reflect.KClass
 
 /**
  * Shared startup and bootstrap coordinator invoked by generated platform entrypoints
- * across all 8 GenericUI backend targets (`windows`, `macos`, `gtk`, `qt`, `swing`, `android`, `ios`, `web`).
+ * across all 8 GenericUI backend targets (`windows`, `macos`, `gtk`, `kde`, `swing`, `android`, `ios`, `web`).
  */
 object GenericUiLaunchSequence {
 
@@ -23,7 +24,7 @@ object GenericUiLaunchSequence {
      * (forwarding command-line [args] inside a [FragmentBundle] on system targets), and configures
      * the primary window and theme.
      *
-     * On Desktop targets (`windows`, `macos`, `gtk`, `qt`, `swing`), if [GenericUiAppDescriptor.applicationFactory]
+     * On Desktop targets (`windows`, `macos`, `gtk`, `kde`, `swing`), if [GenericUiAppDescriptor.applicationFactory]
      * is provided (`@AppApplication`), the custom [Application] is instantiated and its overridable
      * [Application.onCreateMainFragment] / [Application.createMainFragment] routine is invoked.
      * Mobile (`android`, `ios`) and Web (`web`) targets ignore [GenericUiAppDescriptor.applicationFactory]
@@ -33,7 +34,8 @@ object GenericUiLaunchSequence {
         factory: NativeFactory? = GenericUI.activeFactory,
         args: Array<String> = emptyArray(),
         descriptor: GenericUiAppDescriptor,
-        isSystemTarget: Boolean = factory?.backendTarget?.isSystem ?: true
+        isSystemTarget: Boolean = factory?.backendTarget?.isSystem ?: true,
+        initialLaunchArgs: FragmentBundle? = null
     ): IApplication {
         GenericUI.applicationName = descriptor.appName
         GenericUI.appleIconExplicitlyProvided = descriptor.appleIconExplicitlyProvided
@@ -48,6 +50,21 @@ object GenericUiLaunchSequence {
         }
         GenericUiExtensionRegistry.dispatchBeforeAppPrepare(descriptor)
 
+        for ((fragClass, fragId) in descriptor.fragmentIds) {
+            if (!descriptor.fragmentMetadata.containsKey(fragClass)) {
+                val route = descriptor.fragmentRoutes[fragClass].orEmpty()
+                registerFragmentMetadata(fragClass, fragId, route)
+            }
+        }
+        for ((fragClass, route) in descriptor.fragmentRoutes) {
+            if (!descriptor.fragmentIds.containsKey(fragClass) && !descriptor.fragmentMetadata.containsKey(fragClass)) {
+                val resolvedId = FragmentRegistry.resolveFragmentId(fragClass)
+                registerFragmentMetadata(fragClass, resolvedId, route)
+            }
+        }
+        for ((fragClass, metadata) in descriptor.fragmentMetadata) {
+            registerFragmentMetadata(fragClass, metadata)
+        }
         for ((fragClass, fragFactory) in descriptor.fragmentRegistrations) {
             registerFragment(fragClass, fragFactory)
         }
@@ -56,10 +73,41 @@ object GenericUiLaunchSequence {
         }
 
         val launchBundle: FragmentBundle? = if (isSystemTarget) {
-            FragmentBundle.fromCommandLineArgs(args)
+            FragmentBundle().apply {
+                if (initialLaunchArgs != null && initialLaunchArgs.keys().isNotEmpty()) {
+                    putAll(initialLaunchArgs)
+                }
+                putAll(FragmentBundle.fromCommandLineArgs(args))
+            }
         } else {
-            null
+            initialLaunchArgs?.takeIf { it.keys().isNotEmpty() }
         }
+
+        val requestedFragmentId = launchBundle
+            ?.getString(FragmentBundle.KEY_LAUNCH_FRAGMENT_ID)
+            ?.takeIf { it.isNotBlank() }
+        val requestedRoute = launchBundle
+            ?.getString(FragmentBundle.KEY_LAUNCH_ROUTE)
+            ?.takeIf { it.isNotBlank() }
+        val requestedTargetClass: KClass<out Fragment>? =
+            requestedFragmentId?.let { FragmentRegistry.resolveFragmentClass(it) }
+                ?: requestedRoute?.let { FragmentRegistry.resolveFragmentClass(it) }
+        val requestedLaunchMode = launchBundle
+            ?.getString(FragmentBundle.KEY_LAUNCH_MODE)
+            ?.trim()
+            ?.uppercase()
+        val requestedOpenAdditionalWindow =
+            launchBundle?.getBoolean(FragmentBundle.KEY_LAUNCH_OPEN_ADDITIONAL_WINDOW, false) == true ||
+                requestedLaunchMode == "NEW_WINDOW" ||
+                requestedLaunchMode == "NEW_PANEL_WINDOW" ||
+                requestedLaunchMode == "NEW_DIALOG_WINDOW"
+        val isTargetDialog = requestedTargetClass != null && FragmentRegistry.isDialogFragment(requestedTargetClass)
+        val isSecondaryTarget = requestedTargetClass != null &&
+            descriptor.mainFragmentClass != null &&
+            requestedTargetClass != descriptor.mainFragmentClass
+        val suppressInitialMainWindow = isSecondaryTarget &&
+            requestedLaunchMode != "SAME_WINDOW" &&
+            (isTargetDialog || requestedOpenAdditionalWindow || factory?.supportsMultipleWindows != false)
 
         val resolvedThemeMode = ThemeMode.fromString(descriptor.themeMode)
         val effectiveThemeConfig = descriptor.themeConfig
@@ -77,10 +125,20 @@ object GenericUiLaunchSequence {
 
         if (isDesktopTarget && descriptor.applicationFactory != null) {
             val createdApp = descriptor.applicationFactory.invoke(launchBundle)
-            createdApp.setThemeConfig(effectiveThemeConfig)
-            createdApp.setThemeMode(resolvedThemeMode)
-            if (descriptor.themeColor.isNotBlank()) {
-                createdApp.setThemeColor(descriptor.themeColor)
+            if (createdApp is Application) {
+                createdApp.applyDescriptorThemeDefaults(
+                    defaultThemeConfig = effectiveThemeConfig,
+                    defaultThemeMode = resolvedThemeMode,
+                    defaultThemeColor = descriptor.themeColor
+                )
+                GenericUI.defaultThemeMode = createdApp.getThemeMode()
+                GenericUI.defaultThemeConfig = createdApp.getThemeConfig()
+            } else {
+                createdApp.setThemeConfig(effectiveThemeConfig)
+                createdApp.setThemeMode(resolvedThemeMode)
+                if (descriptor.themeColor.isNotBlank()) {
+                    createdApp.setThemeColor(descriptor.themeColor)
+                }
             }
             val mainWindow = createdApp.mainWindow
             if (descriptor.windowTitle.isNotBlank() &&
@@ -121,39 +179,64 @@ object GenericUiLaunchSequence {
                 createdApp.mainFragmentClass = descriptor.mainFragmentClass
                 createdApp.mainFragmentFactory = descriptor.mainFragmentFactory
                 createdApp.launchArguments = launchBundle
+                createdApp.mainWindow.fragmentContainer?.currentFragment?.let { active ->
+                    if (launchBundle != null && active.arguments == null) {
+                        active.arguments = launchBundle
+                    }
+                }
                 descriptor.mainFragmentFactory?.let { fragFactory ->
                     createdApp.bindDefaultMainFragmentFactory { rawArgs ->
                         fragFactory(FragmentBundle.fromCommandLineArgs(rawArgs))
                     }
                 }
-                if (mainWindow.getContent() == null && mainWindow.fragmentContainer?.currentFragment == null) {
+                if (suppressInitialMainWindow) {
+                    createdApp.suppressInitialMainWindowShow = true
+                    createdApp.mainWindow.fragmentContainer?.clearCurrentFragment()
+                } else if (isSecondaryTarget && requestedTargetClass != null) {
+                    val targetFragment = FragmentRegistry.instantiate(requestedTargetClass, launchBundle)
+                    createdApp.setFragment(targetFragment)
+                } else if (mainWindow.getContent() == null && mainWindow.fragmentContainer?.currentFragment == null) {
                     val frag = createdApp.onCreateMainFragment(launchBundle)
                     if (frag != null && mainWindow.fragmentContainer?.currentFragment == null && mainWindow.getContent() == null) {
                         createdApp.setFragment(frag)
                     }
                 }
+                createdApp.onLaunchArgumentsApplied(launchBundle)
             }
             return createdApp.also {
                 GenericUiExtensionRegistry.dispatchAppPrepared(it, descriptor)
             }
         }
 
-        val mainFragment = descriptor.mainFragmentFactory?.invoke(launchBundle)
-            ?: descriptor.mainFragmentClass?.let { FragmentRegistry.instantiate(it, launchBundle) }
-            ?: Fragment()
-        if (launchBundle != null && mainFragment.arguments == null) {
-            mainFragment.arguments = launchBundle
+        val initialFragment: Fragment? = when {
+            suppressInitialMainWindow -> null
+            isSecondaryTarget && requestedTargetClass != null ->
+                FragmentRegistry.instantiate(requestedTargetClass, launchBundle)
+            else -> descriptor.mainFragmentFactory?.invoke(launchBundle)
+                ?: descriptor.mainFragmentClass?.let { FragmentRegistry.instantiate(it, launchBundle) }
+                ?: Fragment()
         }
-        val app: IApplication = FragmentApplication(
-            initialFragment = mainFragment,
+        if (initialFragment != null && launchBundle != null && initialFragment.arguments == null) {
+            initialFragment.arguments = launchBundle
+        }
+        val app: FragmentApplication = FragmentApplication(
+            initialFragment = initialFragment,
             title = descriptor.windowTitle,
             initialThemeColor = descriptor.themeColor.takeIf { it.isNotBlank() }
         ).also { createdApp ->
+            createdApp.mainFragmentClass = descriptor.mainFragmentClass
+            createdApp.mainFragmentFactory = descriptor.mainFragmentFactory
+            createdApp.launchArguments = launchBundle
+            if (suppressInitialMainWindow) {
+                createdApp.suppressInitialMainWindowShow = true
+                createdApp.mainWindow.fragmentContainer?.clearCurrentFragment()
+            }
             createdApp.setThemeConfig(effectiveThemeConfig)
             createdApp.setThemeMode(resolvedThemeMode)
             if (descriptor.themeColor.isNotBlank()) {
                 createdApp.setThemeColor(descriptor.themeColor)
             }
+            createdApp.onLaunchArgumentsApplied(launchBundle)
         }
 
         val mainWindow = app.mainWindow
@@ -196,9 +279,10 @@ object GenericUiLaunchSequence {
         factory: NativeFactory,
         args: Array<String> = emptyArray(),
         descriptor: GenericUiAppDescriptor,
-        isSystemTarget: Boolean = factory.backendTarget.isSystem
+        isSystemTarget: Boolean = factory.backendTarget.isSystem,
+        initialLaunchArgs: FragmentBundle? = null
     ): IApplication {
-        val app = prepareApplication(factory, args, descriptor, isSystemTarget)
+        val app = prepareApplication(factory, args, descriptor, isSystemTarget, initialLaunchArgs)
         GenericUiExtensionRegistry.dispatchBeforeAppRun(app, factory)
         app.run(factory)
         return app
@@ -243,5 +327,22 @@ object GenericUiLaunchSequence {
         fragFactory: (FragmentBundle?) -> Fragment
     ) {
         FragmentRegistry.register(fragClass as KClass<Fragment>, fragFactory)
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun registerFragmentMetadata(
+        fragClass: KClass<out Fragment>,
+        fragmentId: String,
+        route: String
+    ) {
+        FragmentRegistry.registerMetadata(fragClass as KClass<Fragment>, fragmentId, route)
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun registerFragmentMetadata(
+        fragClass: KClass<out Fragment>,
+        metadata: FragmentMetadata
+    ) {
+        FragmentRegistry.registerMetadata(fragClass as KClass<Fragment>, metadata)
     }
 }

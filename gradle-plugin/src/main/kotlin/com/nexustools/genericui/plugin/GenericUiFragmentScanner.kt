@@ -37,8 +37,8 @@ object GenericUiFragmentScanner {
         "src/mac/kotlin",
         "src/gtkMain/kotlin",
         "src/gtk/kotlin",
-        "src/qtMain/kotlin",
-        "src/qt/kotlin",
+        "src/kdeMain/kotlin",
+        "src/kde/kotlin",
         "src/swingMain/kotlin",
         "src/swing/kotlin",
         "src/androidMain/kotlin",
@@ -74,12 +74,36 @@ object GenericUiFragmentScanner {
         val afterClassNameIdx: Int
     )
 
+    private data class ParsedAnnotationArgs(
+        val named: Map<String, String>,
+        val positionalByIndex: Map<Int, String>
+    )
+
     private val PACKAGE_REGEX = Regex("""(?m)^\s*package\s+([A-Za-z_][A-Za-z0-9_.]*)""")
 
     private val ANCHOR_SIMPLE_NAMES = setOf(
         "MainAppFragment",
         "AppFragment",
         "AppApplication"
+    )
+
+    private val MAIN_FRAGMENT_POSITIONAL_PARAMS = listOf(
+        "targets",
+        "label",
+        "route",
+        "exported",
+        "screenOrientation",
+        "multipleWindows"
+    )
+
+    private val APP_FRAGMENT_POSITIONAL_PARAMS = listOf(
+        "targets",
+        "label",
+        "route",
+        "exported",
+        "screenOrientation",
+        "multipleWindows",
+        "dialog"
     )
 
     private val CLASS_MODIFIER_KEYWORDS = setOf(
@@ -429,11 +453,31 @@ object GenericUiFragmentScanner {
                             val isMain = anchor.simpleName == "MainAppFragment"
                             val isAppClass = anchor.simpleName == "AppApplication"
 
+                            val positionalOrder = when {
+                                isMain -> MAIN_FRAGMENT_POSITIONAL_PARAMS
+                                isAppClass -> listOf("targets")
+                                else -> APP_FRAGMENT_POSITIONAL_PARAMS
+                            }
+                            val parsedArgs = parseAnnotationArgs(anchor.argsString, positionalOrder)
                             val parsedTargets = parseTargetsAttribute(anchor.argsString)
-                            val label = parseStringAttribute(anchor.argsString, "label") ?: ""
-                            val route = parseStringAttribute(anchor.argsString, "route") ?: ""
-                            val exported = parseBooleanAttribute(anchor.argsString, "exported") ?: isMain
-                            val screenOrientation = parseStringAttribute(anchor.argsString, "screenOrientation") ?: ""
+                            val label = parseStringAttribute(parsedArgs, "label", positionalOrder) ?: ""
+                            val route = parseStringAttribute(parsedArgs, "route", positionalOrder) ?: ""
+                            val exported = parseBooleanAttribute(parsedArgs, "exported", positionalOrder) ?: isMain
+                            val screenOrientation = parseStringAttribute(parsedArgs, "screenOrientation", positionalOrder) ?: ""
+                            val multipleWindows = if (isAppClass) {
+                                false
+                            } else {
+                                parseBooleanAttribute(parsedArgs, "multipleWindows", positionalOrder) ?: false
+                            }
+                            val hasIllegalMainDialogFlag = isMain && (
+                                "dialog" in parsedArgs.named ||
+                                    parsedArgs.positionalByIndex.containsKey(6)
+                                )
+                            val dialog = if (isMain || isAppClass) {
+                                false
+                            } else {
+                                parseBooleanAttribute(parsedArgs, "dialog", positionalOrder) ?: false
+                            }
 
                             val allAnnotations = linkedSetOf<String>()
                             for (ann in pendingAnnotations) {
@@ -457,7 +501,10 @@ object GenericUiFragmentScanner {
                                     hasNoArgConstructor = hasNoArg,
                                     sourceFilePath = sourceFilePath,
                                     isApplicationClass = isAppClass,
-                                    annotations = allAnnotations
+                                    annotations = allAnnotations,
+                                    multipleWindows = multipleWindows,
+                                    dialog = dialog,
+                                    hasIllegalMainDialogFlag = hasIllegalMainDialogFlag
                                 )
                             )
                         }
@@ -687,37 +734,75 @@ object GenericUiFragmentScanner {
         return resolved.ifEmpty { listOf(GenericUiVariantScope.COMMON) }
     }
 
-    private fun parseStringAttribute(argsString: String, attributeName: String): String? {
-        if (argsString.isBlank()) return null
-        for (arg in splitTopLevelCommas(argsString)) {
-            val eqIndex = findTopLevelEquals(arg)
-            if (eqIndex >= 0) {
-                val key = arg.substring(0, eqIndex).trim()
-                if (key == attributeName) {
-                    val valueExpr = arg.substring(eqIndex + 1).trim()
-                    if (valueExpr.startsWith("\"") && valueExpr.endsWith("\"") && valueExpr.length >= 2) {
-                        return valueExpr.substring(1, valueExpr.length - 1)
-                    }
+    private fun parseAnnotationArgs(
+        argsString: String,
+        positionalOrder: List<String>
+    ): ParsedAnnotationArgs {
+        if (argsString.isBlank()) return ParsedAnnotationArgs(emptyMap(), emptyMap())
+        val named = linkedMapOf<String, String>()
+        val positionalByIndex = linkedMapOf<Int, String>()
+        var inPositionalOrder = true
+        var argIndex = 0
+        for (rawArg in splitTopLevelCommas(argsString)) {
+            val trimmed = rawArg.trim()
+            if (trimmed.isEmpty()) continue
+            val eqIndex = findTopLevelEquals(trimmed)
+            if (eqIndex > 0) {
+                val key = trimmed.substring(0, eqIndex).trim()
+                val value = trimmed.substring(eqIndex + 1).trim()
+                if (key.isNotEmpty()) {
+                    named[key] = value
                 }
+                if (positionalOrder.getOrNull(argIndex) != key) {
+                    inPositionalOrder = false
+                }
+            } else if (inPositionalOrder) {
+                positionalByIndex[argIndex] = trimmed
             }
+            argIndex++
+        }
+        return ParsedAnnotationArgs(named = named, positionalByIndex = positionalByIndex)
+    }
+
+    private fun resolveAttributeExpr(
+        parsedArgs: ParsedAnnotationArgs,
+        attributeName: String,
+        positionalOrder: List<String>
+    ): String? {
+        parsedArgs.named[attributeName]?.let { return it }
+        val idx = positionalOrder.indexOf(attributeName)
+        if (idx >= 0) {
+            return parsedArgs.positionalByIndex[idx]
         }
         return null
     }
 
-    private fun parseBooleanAttribute(argsString: String, attributeName: String): Boolean? {
-        if (argsString.isBlank()) return null
-        for (arg in splitTopLevelCommas(argsString)) {
-            val eqIndex = findTopLevelEquals(arg)
-            if (eqIndex >= 0) {
-                val key = arg.substring(0, eqIndex).trim()
-                if (key == attributeName) {
-                    val valueExpr = arg.substring(eqIndex + 1).trim()
-                    if (valueExpr == "true") return true
-                    if (valueExpr == "false") return false
-                }
-            }
+    private fun parseStringAttribute(
+        parsedArgs: ParsedAnnotationArgs,
+        attributeName: String,
+        positionalOrder: List<String>
+    ): String? {
+        val valueExpr = resolveAttributeExpr(parsedArgs, attributeName, positionalOrder) ?: return null
+        if (valueExpr.startsWith("\"\"\"") && valueExpr.endsWith("\"\"\"") && valueExpr.length >= 6) {
+            return valueExpr.substring(3, valueExpr.length - 3)
+        }
+        if (valueExpr.startsWith("\"") && valueExpr.endsWith("\"") && valueExpr.length >= 2) {
+            return valueExpr.substring(1, valueExpr.length - 1)
         }
         return null
+    }
+
+    private fun parseBooleanAttribute(
+        parsedArgs: ParsedAnnotationArgs,
+        attributeName: String,
+        positionalOrder: List<String>
+    ): Boolean? {
+        val valueExpr = resolveAttributeExpr(parsedArgs, attributeName, positionalOrder) ?: return null
+        return when (valueExpr) {
+            "true" -> true
+            "false" -> false
+            else -> null
+        }
     }
 
     private fun checkClassHasNoArgConstructor(strippedSource: String, afterClassNameIdx: Int): Boolean {

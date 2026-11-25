@@ -40,14 +40,14 @@ open class Label(
             if (field != value) {
                 field = value
                 notifyParentCacheDirty()
-                typedNative<TextNativeImpl<*>>()?.setText(value)
+                runOnNativeUi { (it as? TextNativeImpl<*>)?.setText(value) }
             }
         }
 
     var maxLines: Int? = null
         set(value) {
             field = value
-            typedNative<TextNativeImpl<*>>()?.setMaxLines(value)
+            runOnNativeUi { (it as? TextNativeImpl<*>)?.setMaxLines(value) }
         }
 
     /**

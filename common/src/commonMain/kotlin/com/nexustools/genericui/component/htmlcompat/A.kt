@@ -7,6 +7,9 @@ open class A(
     href: String? = null,
     classPrefix: String = "link-primary"
 ) : Label(text = text, tagName = "a", classPrefix = classPrefix) {
+    override val supportsFocus: Boolean
+        get() = true
+
     var href: String? = href
         set(value) {
             field = value

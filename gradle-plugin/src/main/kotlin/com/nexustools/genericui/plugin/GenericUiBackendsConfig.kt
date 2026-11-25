@@ -8,7 +8,7 @@ import org.gradle.api.Action
  * - Shared system/tier modules: `:system`, `:jvm`, `:apple`, `:desktop`, `:mobile`.
  * - Native Desktop backends: `windows` (Win32 / Direct2D / ANGLE / Vulkan), `macos` / `mac`
  *   (AppKit / CoreGraphics / OpenGL ES / MoltenVK), `gtk` (GTK3/4 / Cairo / EGL / Vulkan), and
- *   `qt` (Qt5/6 / QPainter / QOpenGLWidget / QVulkanWindow).
+ *   `kde` (KF6 / Kirigami / QPainter / Vulkan).
  * - JVM Desktop backend: `swing` (AWT/Swing + optional LWJGL OpenGL ES & Vulkan).
  * - Mobile backends: `android`, `ios` (iPhone), and `ipados` / `ipad` (iPad).
  * - Web backend: `:web` (HTML5 DOM / Canvas2D / WebGL2 / WebGPU).
@@ -21,7 +21,7 @@ open class GenericUiBackendsConfig(
     var windowsEnabled: Boolean = false
     var macosEnabled: Boolean = false
     var gtkEnabled: Boolean = false
-    var qtEnabled: Boolean = false
+    var kdeEnabled: Boolean = false
     val swingConfig: SwingBackendConfig = SwingBackendConfig()
     var androidEnabled: Boolean = false
     var iosEnabled: Boolean = false
@@ -29,7 +29,7 @@ open class GenericUiBackendsConfig(
     var webEnabled: Boolean = false
     internal var onChanged: (() -> Unit)? = null
 
-    /** Explicitly enables or disables the shared `:desktop` module (`windows`, `macos`, `gtk`, `qt`, `swing` include it automatically). */
+    /** Explicitly enables or disables the shared `:desktop` module (`windows`, `macos`, `gtk`, `kde`, `swing` include it automatically). */
     fun desktop(enabled: Boolean = true) {
         desktopEnabled = enabled
         onChanged?.invoke()
@@ -65,9 +65,9 @@ open class GenericUiBackendsConfig(
         onChanged?.invoke()
     }
 
-    /** Enables or disables the native Qt (Qt5/6 / QPainter / QOpenGLWidget / QVulkanWindow + `:desktop` VLC) backend. */
-    fun qt(enabled: Boolean = true) {
-        qtEnabled = enabled
+    /** Enables or disables the native KDE (KF6 / Kirigami / QPainter / QVulkanWindow + `:desktop` VLC) backend. */
+    fun kde(enabled: Boolean = true) {
+        kdeEnabled = enabled
         onChanged?.invoke()
     }
 
@@ -125,13 +125,13 @@ open class GenericUiBackendsConfig(
     }
 
     /**
-     * Enables all GenericUI targets EXCEPT Swing (`windows`, `macos`, `gtk`, `qt`, `android`, `ios`, `ipados`, `web`).
+     * Enables all GenericUI targets EXCEPT Swing (`windows`, `macos`, `gtk`, `kde`, `android`, `ios`, `ipados`, `web`).
      */
     fun allExceptSwing() {
         windows(true)
         macos(true)
         gtk(true)
-        qt(true)
+        kde(true)
         swing(false)
         android(true)
         ios(true)
@@ -140,14 +140,14 @@ open class GenericUiBackendsConfig(
     }
 
     /**
-     * Enables all native Desktop GenericUI targets EXCEPT Swing (`windows`, `macos`, `gtk`, `qt`),
+     * Enables all native Desktop GenericUI targets EXCEPT Swing (`windows`, `macos`, `gtk`, `kde`),
      * leaving `swing`, `android`, `ios`, `ipados`, and `web` disabled.
      */
     fun allNativeDesktop() {
         windows(true)
         macos(true)
         gtk(true)
-        qt(true)
+        kde(true)
         swing(false)
         android(false)
         ios(false)
@@ -157,20 +157,20 @@ open class GenericUiBackendsConfig(
 
     /**
      * Alias for [allNativeDesktop]: enables all native Desktop GenericUI targets EXCEPT Swing
-     * (`windows`, `macos`, `gtk`, `qt`).
+     * (`windows`, `macos`, `gtk`, `kde`).
      */
     fun allDesktopExceptSwing() {
         allNativeDesktop()
     }
 
     /**
-     * Enables all Desktop GenericUI targets including Swing (`windows`, `macos`, `gtk`, `qt`, `swing`).
+     * Enables all Desktop GenericUI targets including Swing (`windows`, `macos`, `gtk`, `kde`, `swing`).
      */
     fun allDesktop() {
         windows(true)
         macos(true)
         gtk(true)
-        qt(true)
+        kde(true)
         swing(true)
     }
 
@@ -184,13 +184,13 @@ open class GenericUiBackendsConfig(
     }
 
     /**
-     * Enables all 9 GenericUI target backends (`windows`, `macos`, `gtk`, `qt`, `swing`, `android`, `ios`, `ipados`, `web`).
+     * Enables all 9 GenericUI target backends (`windows`, `macos`, `gtk`, `kde`, `swing`, `android`, `ios`, `ipados`, `web`).
      */
     fun all() {
         windows(true)
         macos(true)
         gtk(true)
-        qt(true)
+        kde(true)
         swing(true)
         android(true)
         ios(true)
@@ -198,9 +198,9 @@ open class GenericUiBackendsConfig(
         web(true)
     }
 
-    /** True whenever any native desktop backend (`windows`, `macos`, `gtk`, `qt`) is enabled. */
+    /** True whenever any native desktop backend (`windows`, `macos`, `gtk`, `kde`) is enabled. */
     val requiresNativeDesktopCommonModule: Boolean
-        get() = desktopEnabled || windowsEnabled || macosEnabled || gtkEnabled || qtEnabled
+        get() = desktopEnabled || windowsEnabled || macosEnabled || gtkEnabled || kdeEnabled
 
     /** Alias for [requiresNativeDesktopCommonModule]. */
     val requiresSharedDesktopModule: Boolean
@@ -214,9 +214,9 @@ open class GenericUiBackendsConfig(
     val requiresDesktopModule: Boolean
         get() = requiresDesktopCommonModule
 
-    /** True whenever shared Linux code is needed (`gtk` or `qt`). */
+    /** True whenever shared Linux code is needed (`gtk` or `kde`). */
     val requiresLinuxCommonModule: Boolean
-        get() = gtkEnabled || qtEnabled
+        get() = gtkEnabled || kdeEnabled
 
     /** True whenever `:mobile` is needed (`android`, `ios`, or `ipados`). */
     val requiresMobileCommonModule: Boolean

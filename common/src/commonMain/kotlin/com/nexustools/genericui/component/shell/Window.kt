@@ -2,7 +2,10 @@ package com.nexustools.genericui.component.shell
 
 import com.nexustools.genericui.component.dialog.DialogWindow
 import com.nexustools.genericui.component.dock.PanelWindow
+import com.nexustools.genericui.component.fragment.FragmentBundle
 import com.nexustools.genericui.component.fragment.FragmentContainer
+import com.nexustools.genericui.component.fragment.FragmentRegistry
+import com.nexustools.genericui.component.fragment.IFragment
 import com.nexustools.genericui.component.layout.Container
 import com.nexustools.genericui.component.navigation.BottomNavigationBar
 import com.nexustools.genericui.component.navigation.Navbar
@@ -13,6 +16,8 @@ import com.nexustools.genericui.core.NativeFactory
 import com.nexustools.genericui.core.NativeImpl
 import com.nexustools.genericui.enums.window.DisplayCutoutMode
 import com.nexustools.genericui.enums.window.WindowState
+import com.nexustools.genericui.exception.MultipleWindowsUnsupportedException
+import com.nexustools.genericui.exception.NativeUninitializedException
 import com.nexustools.genericui.geometry.Rect
 import com.nexustools.genericui.geometry.Size
 import com.nexustools.genericui.nativeimpl.shell.WindowNativeImpl
@@ -21,6 +26,7 @@ import com.nexustools.genericui.window.TitleBar
 import com.nexustools.genericui.window.TitleCapabilities
 import com.nexustools.genericui.window.WindowAspectRatioHelper
 import com.nexustools.genericui.window.WindowConfiguration
+import kotlin.reflect.KClass
 
 /**
  * Top-level host window (`Window`).
@@ -46,9 +52,12 @@ open class Window(
     }
 
     override val windowId: String = "window-${nextWindowId()}"
-    open override val ownerWindow: IWindow? = null
+    internal var secondaryOwnerWindow: IWindow? = null
+    open override val ownerWindow: IWindow?
+        get() = secondaryOwnerWindow
 
     internal var ExplicitFactory: NativeFactory? = null
+    internal var realizedFactory: NativeFactory? = null
     final override var isWindowShown: Boolean = false
         private set
     private var windowVisibleState: Boolean = true
@@ -92,6 +101,8 @@ open class Window(
         }
 
     private var titleState: String = title
+    private val windowTitleChangedListeners = mutableListOf<(String) -> Unit>()
+    private val windowFocusChangedListeners = mutableListOf<(Boolean) -> Unit>()
     private var windowIconState: String? = null
     private var positionXState: Int = 0
     private var positionYState: Int = 0
@@ -172,6 +183,8 @@ open class Window(
     final override var isWindowFocused: Boolean = false
         private set
 
+    internal override fun canAcceptFocusForIsFocused(): Boolean = true
+
     var frontOrderSequence: Long = 0L
         internal set
 
@@ -199,8 +212,12 @@ open class Window(
     }
 
     open override fun bringToFront() {
+        val impl = winImpl
+        if (!isWindowShown || impl == null) {
+            throw NativeUninitializedException("Window", "bringToFront")
+        }
         frontOrderSequence = nextFrontSequence()
-        winImpl?.bringToFront()
+        impl.bringToFront()
         if (_attachedPanelWindows.isNotEmpty()) {
             bringAttachedPanelWindowsToFront()
         }
@@ -211,7 +228,7 @@ open class Window(
 
     fun bringAttachedPanelWindowsToFront() {
         for (panelWin in _attachedPanelWindows.toList()) {
-            if (panelWin.isVisible) {
+            if (panelWin.isVisible && panelWin.isWindowShown) {
                 panelWin.bringToFront()
             }
         }
@@ -226,6 +243,10 @@ open class Window(
     }
 
     open override fun focus() {
+        val impl = winImpl
+        if (!isWindowShown || impl == null) {
+            throw NativeUninitializedException("Window", "focus")
+        }
         dispatchWindowFocusChanged(true)
     }
 
@@ -244,6 +265,9 @@ open class Window(
                 bringAttachedDialogWindowsToFront()
             }
             onFocusListener?.invoke(focused)
+            for (listener in windowFocusChangedListeners.toList()) {
+                listener(focused)
+            }
         } finally {
             isDispatchingWindowFocus = false
         }
@@ -253,6 +277,56 @@ open class Window(
         if (!isWindowShown && ExplicitFactory == null) return null
         return ExplicitFactory ?: GenericUI.activeFactory
     }
+
+    private fun resolveCapabilityFactory(operationName: String): NativeFactory =
+        ExplicitFactory ?: resolveActiveFactory() ?: GenericUI.activeFactory
+            ?: throw NativeUninitializedException("Window", operationName)
+
+    override val supportsMultipleWindows: Boolean
+        get() = resolveCapabilityFactory("supportsMultipleWindows").supportsMultipleWindows
+
+    override val supportsDialogWindows: Boolean
+        get() = resolveCapabilityFactory("supportsDialogWindows").supportsDialogWindows
+
+    override fun canOpenAdditionalWindow(fragmentClass: KClass<out IFragment>): Boolean {
+        val factory = resolveCapabilityFactory("canOpenAdditionalWindow")
+        return factory.supportsMultipleWindows &&
+            !FragmentRegistry.isDialogFragment(fragmentClass) &&
+            FragmentRegistry.supportsMultipleWindows(fragmentClass)
+    }
+
+    /** Reified convenience for [canOpenAdditionalWindow]. */
+    inline fun <reified T : IFragment> canOpenAdditionalWindow(): Boolean =
+        canOpenAdditionalWindow(T::class)
+
+    /** Reified convenience for [startFragment]. */
+    inline fun <reified T : IFragment> startFragment(
+        launchArgs: FragmentBundle? = null,
+        openAdditionalWindow: Boolean = false,
+        addToBackStack: Boolean = true,
+        clearTask: Boolean = false
+    ): T = startFragment(
+        fragmentClass = T::class,
+        launchArgs = launchArgs,
+        openAdditionalWindow = openAdditionalWindow,
+        addToBackStack = addToBackStack,
+        clearTask = clearTask
+    )
+
+    /** Reified convenience for [startFragment] with key-value pair arguments. */
+    inline fun <reified T : IFragment> startFragment(
+        firstArg: Pair<String, Any?>,
+        vararg extraArgs: Pair<String, Any?>,
+        openAdditionalWindow: Boolean = false,
+        addToBackStack: Boolean = true,
+        clearTask: Boolean = false
+    ): T = startFragment(
+        fragmentClass = T::class,
+        launchArgs = FragmentBundle.of(firstArg, *extraArgs),
+        openAdditionalWindow = openAdditionalWindow,
+        addToBackStack = addToBackStack,
+        clearTask = clearTask
+    )
 
     private fun isMobileBackendActive(): Boolean =
         (ExplicitFactory ?: GenericUI.activeFactory)?.backendTarget?.isMobile == true
@@ -376,6 +450,9 @@ open class Window(
                 }
                 prev?.updateFullscreenElementState(false, cutoutModeState)
                 updateFullscreenElementState(false, cutoutModeState)
+                if (wImpl.getFullscreenElement() != null) {
+                    wImpl.setFullscreenElement(null, cutoutModeState)
+                }
                 syncNavBarToNative(wImpl)
                 syncBottomNavToNative(wImpl)
                 if (windowStateVal == WindowState.NORMAL) {
@@ -539,6 +616,19 @@ open class Window(
     override fun setTitle(title: String) {
         titleState = title
         winImpl?.setTitle(title)
+        for (listener in windowTitleChangedListeners.toList()) {
+            listener(title)
+        }
+    }
+
+    override fun addOnWindowTitleChanged(listener: (String) -> Unit) {
+        if (!windowTitleChangedListeners.contains(listener)) {
+            windowTitleChangedListeners.add(listener)
+        }
+    }
+
+    override fun removeOnWindowTitleChanged(listener: (String) -> Unit) {
+        windowTitleChangedListeners.remove(listener)
     }
 
     override fun getTitle(): String = winImpl?.getTitle() ?: titleState
@@ -564,7 +654,11 @@ open class Window(
     }
 
     open override fun startSystemMove() {
-        winImpl?.startSystemMove()
+        val impl = winImpl
+        if (!isWindowShown || impl == null) {
+            throw NativeUninitializedException("Window", "startSystemMove")
+        }
+        impl.startSystemMove()
     }
 
     override fun getAspectRatio(): Double? = aspectRatioState
@@ -791,11 +885,6 @@ open class Window(
         fullscreenState = true
         windowStateVal = WindowState.FULLSCREEN
         cutoutModeState = cutoutMode
-        dispatchObservedWindowState(windowStateVal)
-        element.updateFullscreenElementState(true, cutoutMode)
-        if (element !== this) {
-            updateFullscreenElementState(true, cutoutMode)
-        }
         if (windowVisibleState) {
             winImpl?.let { impl ->
                 val elImpl = if (element === this) impl else element.ensureNativeImpl()
@@ -804,9 +893,14 @@ open class Window(
                 syncBottomNavToNative(impl)
                 impl.setFullscreenElement(elImpl, cutoutMode)
             }
-            if (!wasAlreadyFullscreen && hasShownVisiblyOnce && !suppressExplicitTracking) {
-                onPersistentWindowStateChanged?.invoke(true)
-            }
+        }
+        dispatchObservedWindowState(windowStateVal)
+        element.updateFullscreenElementState(true, cutoutMode)
+        if (element !== this) {
+            updateFullscreenElementState(true, cutoutMode)
+        }
+        if (windowVisibleState && !wasAlreadyFullscreen && hasShownVisiblyOnce && !suppressExplicitTracking) {
+            onPersistentWindowStateChanged?.invoke(true)
         }
     }
 
@@ -831,9 +925,6 @@ open class Window(
                 stateBeforeFullscreen
             }
         }
-        prev?.updateFullscreenElementState(false, cutoutModeState)
-        updateFullscreenElementState(false, cutoutModeState)
-        dispatchObservedWindowState(windowStateVal)
         val impl = winImpl
         if (impl != null && windowVisibleState) {
             syncNavBarToNative(impl)
@@ -875,6 +966,9 @@ open class Window(
                 lastWindowedNormalSize
             }
         }
+        prev?.updateFullscreenElementState(false, cutoutModeState)
+        updateFullscreenElementState(false, cutoutModeState)
+        dispatchObservedWindowState(windowStateVal)
         if (wasFullscreen && hasShownVisiblyOnce && windowVisibleState && !suppressExplicitTracking) {
             onPersistentWindowStateChanged?.invoke(true)
         }
@@ -1005,10 +1099,28 @@ open class Window(
         if (factory != null) {
             ExplicitFactory = factory
         }
+        val resolvedFactory = factory ?: ExplicitFactory ?: GenericUI.activeFactory
+            ?: throw NativeUninitializedException("Window", "show")
         val startHiddenOnInitialRealize = !isWindowShown && factory != null && hideRequestedBeforeInitialShow
         hideRequestedBeforeInitialShow = false
         if (!startHiddenOnInitialRealize) {
             windowVisibleState = true
+        }
+        if (this !is PanelWindow && windowVisibleState && !resolvedFactory.supportsMultipleWindows) {
+            val activeApp = Application.findApplicationForWindow(this) ?: Application.current
+            val existingShown = shownWindows.firstOrNull { other ->
+                other !== this &&
+                    !other.isDisposed &&
+                    other.isWindowShown &&
+                    other.isVisible &&
+                    (
+                        other.realizedFactory === resolvedFactory ||
+                            (activeApp != null && Application.findApplicationForWindow(other) === activeApp)
+                        )
+            }
+            if (existingShown != null) {
+                throw MultipleWindowsUnsupportedException(resolvedFactory.backendTarget.displayName)
+            }
         }
         val hasAnyContent = children.isNotEmpty() ||
             contentContainer != null ||
@@ -1026,16 +1138,13 @@ open class Window(
         }
         if (windowVisibleState && !hasShownVisiblyOnce) {
             hasShownVisiblyOnce = true
-            onBeforeFirstVisibleShow?.invoke(factory ?: ExplicitFactory ?: GenericUI.activeFactory)
+            onBeforeFirstVisibleShow?.invoke(resolvedFactory)
         }
-        if (factory == null && ExplicitFactory == null && GenericUI.activeFactory == null) {
-            return
-        }
+        realizedFactory = resolvedFactory
         isWindowShown = true
+        registerShownWindow(this)
         val impl = ensureNativeImpl() as? WindowNativeImpl<*>
-            ?: throw IllegalStateException(
-                "Cannot show Window '$titleState': no NativeImpl / NativeFactory is configured on the active backend."
-            )
+            ?: throw NativeUninitializedException("Window", "show")
         installNativeWindowResizeForwarder(impl)
         titleBarInstructions?.setHostEmbedsComponents(titleCapabilities.canEmbedComponentsInTitleBar)
         fragmentContainer?.ensureActiveFragmentStartedAndResumed()
@@ -1053,7 +1162,7 @@ open class Window(
             frontOrderSequence = nextFrontSequence()
             for (panelWin in _attachedPanelWindows.toList()) {
                 panelWin.syncToolModalAttachmentToNative()
-                if (panelWin.isVisible) {
+                if (panelWin.isVisible && panelWin.isWindowShown) {
                     panelWin.bringToFront()
                 }
             }
@@ -1124,10 +1233,13 @@ open class Window(
     }
 
     open override fun close() {
+        if (isDisposed) return
         if (hasShownVisiblyOnce && windowVisibleState) {
             onFlushPersistentWindowState?.invoke()
         }
         isWindowShown = false
+        realizedFactory = null
+        unregisterShownWindow(this)
         titleBarInstructions?.setHostEmbedsComponents(false)
         for (panelWin in _attachedPanelWindows.toList()) {
             panelWin.close()
@@ -1139,6 +1251,14 @@ open class Window(
         _attachedDialogWindows.clear()
         winImpl?.closeWindow()
         dispose()
+        Application.current?.checkExitIfNoFragmentsOpen()
+    }
+
+    override fun dispose() {
+        isWindowShown = false
+        realizedFactory = null
+        unregisterShownWindow(this)
+        super.dispose()
     }
 
     override fun setOnWindowResize(listener: ((WindowConfiguration) -> Unit)?) {
@@ -1156,6 +1276,19 @@ open class Window(
         winImpl?.setOnWindowFocusChanged { focused ->
             dispatchWindowFocusChanged(focused)
         }
+    }
+
+    override fun addOnWindowFocusChanged(listener: (Boolean) -> Unit) {
+        if (!windowFocusChangedListeners.contains(listener)) {
+            windowFocusChangedListeners.add(listener)
+        }
+        winImpl?.setOnWindowFocusChanged { focused ->
+            dispatchWindowFocusChanged(focused)
+        }
+    }
+
+    override fun removeOnWindowFocusChanged(listener: (Boolean) -> Unit) {
+        windowFocusChangedListeners.remove(listener)
     }
 
     override fun setOnWindowCloseRequested(listener: (() -> Boolean)?) {
@@ -1195,8 +1328,23 @@ open class Window(
         internal val DEFAULT_INITIAL_SIZE = Size(1280, 800)
         private var nextFrontOrderSeq: Long = 0L
         private var nextWinIdSeq: Long = 0L
+        private val shownWindows = mutableSetOf<Window>()
 
         internal fun nextFrontSequence(): Long = ++nextFrontOrderSeq
         internal fun nextWindowId(): Long = ++nextWinIdSeq
+
+        internal fun registerShownWindow(window: Window) {
+            if (window !is PanelWindow) {
+                shownWindows.add(window)
+            }
+        }
+
+        internal fun unregisterShownWindow(window: Window) {
+            shownWindows.remove(window)
+        }
+
+        internal fun clearShownWindowsForTests() {
+            shownWindows.clear()
+        }
     }
 }

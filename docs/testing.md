@@ -17,9 +17,9 @@
 | **`systemMain`** | `:system` | Non-web Blink style/layout verification & shared system test helpers. |
 | **`desktopMain` / `nativeDesktopMain`** | `:desktop` | [`DesktopSharedRunnerNativeImpl`](../tests/src/nativeDesktopMain/kotlin/com/nexustools/genericui/tests/desktop/DesktopSharedRunnerNativeImpl.kt) shared native desktop window & event pumping harness. |
 | **`jvmAndAndroidMain`** | `:jvm` | Shared JVM & Android screenshot/filesystem host test helpers ([`JestScreenshotHostIo`](../tests/src/jvmAndAndroidMain/kotlin/com/nexustools/genericui/tests/JestScreenshotHostIo.kt)). |
-| **`mingwMain` / `mingwX64Test`** | `:desktop` (`mingwMain`) | `WindowsVisualAppRunnerNativeImpl` — launches a **real onscreen Win32 window** when `testing { visualOnWindows = true }` (`windowsVisualTest`), or runs fast headless Win32/UxTheme/Direct2D verification (including `WindowsBackdropBlurTest`). |
-| **`macosMain` / `macosArm64Test`** | `:desktop` + `:apple` | `MacosJestElectricRunnerNativeImpl` for AppKit `NSWindow` / `NSView` & runtime squircle icon verification. |
-| **`linuxMain` / `linuxTest`** | `:desktop` (`linuxMain`) | Co-hosts both **`GtkJestElectricRunnerNativeImpl`** (GTK4 / Libadwaita) and **`QtJestElectricRunnerNativeImpl`** (Qt6 `QMainWindow`) inside a single binary (`LinuxGtkAndQtRunnerTest`). |
+| **`mingwMain` / `mingwX64Test`** | `:desktop` (`mingwMain`) | `WindowsVisualAppRunnerNativeImpl` — launches a **real onscreen Win32 window** (`PrintWindow(..., PW_RENDERFULLCONTENT)` retained `HWND` capture) when `testing { visualOnWindows = true }` (`windowsVisualTest`), or runs fast headless Win32/`ComCtl32 v6`/Direct2D verification (including `WindowsBackdropBlurTest`). |
+| **`macosMain` / `macosArm64Test`** | `:desktop` + `:apple` | `MacosJestElectricRunnerNativeImpl` for AppKit `NSWindow` / `NSView` retained widget capture (`cacheDisplayInRect:toBitmapImageRep:`) & runtime squircle icon verification. |
+| **`linuxMain` / `linuxTest`** | `:desktop` (`linuxMain`) | Co-hosts both **`GtkJestElectricRunnerNativeImpl`** (`GtkJestElectricBootstrap`, capturing retained GTK4 `GtkWidget*` surfaces via `GtkWidgetPaintable` + `GskRenderer`) and **`KdeJestElectricRunnerNativeImpl`** (`KdeJestElectricBootstrap`, capturing retained KDE `KF6` + `Breeze` `QWidget*` surfaces via `QWidget::render`) inside [`LinuxGtkAndKdeRunnerTest`](../tests/src/linuxTest/kotlin/com/nexustools/genericui/tests/linux/LinuxGtkAndKdeRunnerTest.kt). |
 | **`jvmMain` / `jvmTest`** | `:desktop` (`jvmMain`) + `:jvm` | `SwingJUnitRunnerNativeImpl` & `JestElectricSwingTestBase` (pumps AWT/Swing EDT `EventQueue`). |
 | **`mobileMain`** | `:mobile` | [`MobileSharedRunnerNativeImpl`](../tests/src/mobileMain/kotlin/com/nexustools/genericui/tests/mobile/MobileSharedRunnerNativeImpl.kt) shared posture & mobile lifecycle harness. |
 | **`androidMain` / `androidHostTest`** | `:mobile` + `:jvm` | `AndroidRobolectricRunnerNativeImpl` & `JestElectricRobolectricTestBase`. |
@@ -30,8 +30,8 @@
 
 ## 2. Headless `backdropFilter`, Thread Dispatching, & `ServiceWorker` Test Harnesses
 
-1. **`JestElectricButtonRenderUtil` & Headless `backdropFilter` Snapshots**:
-   - [`JestElectricButtonRenderUtil`](../tests/src/commonMain/kotlin/com/nexustools/genericui/test/jestelectric/render/JestElectricButtonRenderUtil.kt) and [`JestElectricContainerChromeRenderUtil`](../tests/src/commonMain/kotlin/com/nexustools/genericui/test/jestelectric/render/JestElectricContainerChromeRenderUtil.kt) resolve `CssFilter.backdropBlurOrFilter(styledSpec.backdropBlurPx, styledSpec.backdropFilter)` on `StyledButton` and `StyledContainer` (excluding `TextBubble`, which strips `backdropFilter`) and invoke `applyBackdropToImageBufferRegion(...)` (`FastBackdropBlurKernel`) onto the headless snapshot `RGBA_8888` buffer.
+1. **`JestElectricButtonRenderUtil` & Headless `backdropFilter` / `Composite` Snapshots**:
+   - [`JestElectricButtonRenderUtil`](../tests/src/commonMain/kotlin/com/nexustools/genericui/test/jestelectric/render/JestElectricButtonRenderUtil.kt) and [`JestElectricContainerChromeRenderUtil`](../tests/src/commonMain/kotlin/com/nexustools/genericui/test/jestelectric/render/JestElectricContainerChromeRenderUtil.kt) resolve `CssFilter.backdropBlurOrFilter(styledSpec.backdropBlurPx, styledSpec.backdropFilter)` (all 10 ops) across `StyledComponent`, `StyledButton`, `StyledContainer`, and `Composite` components (`StyledSlider`, `SeekBar` with zero `SeekBarNativeImpl`, `ExpandingVolumeSlider`) onto the headless `:tests` snapshot `RGBA_8888` buffer via `FastBackdropBlurKernel` / `CssFilterColorMatrix`, while native desktop visual runners capture genuine retained OS widget hierarchies (`cacheDisplayInRect:toBitmapImageRep:`, `PrintWindow(..., PW_RENDERFULLCONTENT)`, `GtkWidgetPaintable` + `GskRenderer`, `QWidget::render`), evaluating consumer/test theme rules via `ThemeStyleSheetRegistry` and CSS `@keyframes` via `SystemCssAnimationController` (`Animator`) + `BrowserLayoutEngine` proximal `position: relative` / `Window` parity.
    - When `effBackdropFilter != null` and no opaque background/tint is explicitly configured on `StyledButton`, `fillBg` defaults to `null` (transparent glass) instead of falling back to opaque `ctx.bgElevated`. Verified by `JestElectricRunnerTest.testSnapshotRendererAppliesBackdropBlurToStyledContainerAndStyledButton` and hardware backend tests such as `WindowsBackdropBlurTest` (`desktop/src/mingwX64Test/.../WindowsBackdropBlurTest.kt`).
 2. **`DefaultUiThreadDispatcherNativeImpl`, `JvmUiThreadDispatcherBase`, & Coroutines in Tests**:
    - [`DefaultUiThreadDispatcherNativeImpl`](../common/src/commonMain/kotlin/com/nexustools/genericui/threading/DefaultUiThreadDispatcherNativeImpl.kt) enforces dual-queue UI vs. Logic thread separation when `isSplitThreadingEnabled = true` (`dispatchToUi`, `dispatchToLogic`, `runOnUiBlocking`).
@@ -48,7 +48,7 @@
 
 ## 3. Single-`commonTest` Consumer Workflow & Headed Linux XQuartz Setup
 
-Consumer apps write UI tests once in `src/commonTest/kotlin`. When `testing { enabled = true }` is set in `build.gradle.kts`, the Gradle plugin automatically generates backend test runners and registers convenience tasks (`testSwing`, `testWindows`, `testMac`, `testLinux`, `testLinuxGtk`, `testLinuxQt`, `testAndroid`, `testIos`, `testIpados`, `testWeb`):
+Consumer apps write UI tests once in `src/commonTest/kotlin`. When `testing { enabled = true }` is set in `build.gradle.kts`, the Gradle plugin automatically generates backend test runners and registers convenience tasks (`testSwing`, `testWindows`, `testMac`, `testLinux`, `testLinuxGtk`, `testLinuxKde`, `testAndroid`, `testIos`, `testIpados`, `testWeb`):
 
 ```kotlin
 genericui {
@@ -59,10 +59,10 @@ genericui {
 }
 ```
 
-### Running Linux GTK4 / Qt6 Tests from macOS OrbStack (XQuartz)
+### Running Linux GTK4 / KDE Tests from macOS OrbStack (XQuartz) or Offscreen Qt
 
 ```bash
-export DISPLAY=host.orb.internal:0
+export DISPLAY=host.orb.internal:0   # Or QT_QPA_PLATFORM=offscreen for headless KDE tests
 ./gradlew :tests:linuxX64Test
 ```
 

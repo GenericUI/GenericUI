@@ -20,4 +20,6 @@ interface LazyListNativeImpl<out W> : AbstractContainerNativeImpl<W> {
         totalContentExtentPx: Float
     ) {}
     fun setOnViewportScrollChanged(listener: ((scrollOffsetPx: Float, viewportExtentPx: Float) -> Unit)?) {}
+    fun beginViewportScrollScope() {}
+    fun endViewportScrollScope() {}
 }

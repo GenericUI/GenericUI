@@ -6,7 +6,6 @@ import com.nexustools.genericui.component.layout.LayerAlignment
 import com.nexustools.genericui.component.lazy.LazyList
 import com.nexustools.genericui.component.navigation.BottomNavigationBar
 import com.nexustools.genericui.component.navigation.Navbar
-import com.nexustools.genericui.component.surface.TextBubble
 import com.nexustools.genericui.component.tabs.Tab
 import com.nexustools.genericui.component.tabs.TabContainer
 import com.nexustools.genericui.component.typography.Badge
@@ -36,7 +35,7 @@ import kotlin.math.roundToInt
  * and Absolute/Layered layout engine.
  *
  * Computes deterministic, browser-identical [ComputedLayoutBox] trees across all GenericUI
- * backends (`:windows`, `:macos`, `:gtk`, `:qt`, `:swing`, `:android`, `:ios`, `:web`).
+ * backends (`:windows`, `:macos`, `:gtk`, `:kde`, `:swing`, `:android`, `:ios`, `:web`).
  */
 class BrowserLayoutEngine<N>(
     private val adapter: LayoutNodeAdapter<N>,
@@ -74,6 +73,7 @@ class BrowserLayoutEngine<N>(
             borderBox = rootBorderBox,
             margin = resolveMarginInsets(rootStyle, viewportRect.width, viewportRect.height, viewportRect),
             viewportRect = viewportRect,
+            absContainingBlock = viewportRect,
             inheritedZIndex = rootStyle.zIndex
         )
     }
@@ -95,6 +95,7 @@ class BrowserLayoutEngine<N>(
         borderBox: Rect,
         margin: EdgeInsets,
         viewportRect: Rect,
+        absContainingBlock: Rect,
         inheritedZIndex: Int
     ): ComputedLayoutBox {
         if (style.display == CssDisplay.NONE) {
@@ -116,6 +117,7 @@ class BrowserLayoutEngine<N>(
             width = (paddingBox.width - style.padding.left - style.padding.right).coerceAtLeast(0),
             height = (paddingBox.height - style.padding.top - style.padding.bottom).coerceAtLeast(0)
         )
+        val nextAbsContainingBlock = if (style.position != CssPosition.STATIC) paddingBox else absContainingBlock
 
         val rawChildren = adapter.childrenOf(node)
         if (rawChildren.isEmpty()) {
@@ -170,6 +172,7 @@ class BrowserLayoutEngine<N>(
                 normalFlowIndices = normalFlowIndices,
                 contentBox = contentBox,
                 viewportRect = viewportRect,
+                absContainingBlock = nextAbsContainingBlock,
                 effectiveZIndex = effectiveZIndex,
                 outResults = childResults
             )
@@ -186,6 +189,7 @@ class BrowserLayoutEngine<N>(
                 normalFlowIndices = normalFlowIndices,
                 contentBox = contentBox,
                 viewportRect = viewportRect,
+                absContainingBlock = nextAbsContainingBlock,
                 effectiveZIndex = effectiveZIndex,
                 outResults = childResults
             )
@@ -197,6 +201,7 @@ class BrowserLayoutEngine<N>(
                 normalFlowIndices = normalFlowIndices,
                 contentBox = contentBox,
                 viewportRect = viewportRect,
+                absContainingBlock = nextAbsContainingBlock,
                 effectiveZIndex = effectiveZIndex,
                 outResults = childResults
             )
@@ -205,7 +210,11 @@ class BrowserLayoutEngine<N>(
         for (idx in positionedIndices) {
             val child = rawChildren[idx]
             val cs = childStyles[idx]
-            val containingBox = if (cs.position == CssPosition.FIXED) viewportRect else paddingBox
+            val containingBox = when {
+                cs.position == CssPosition.FIXED -> viewportRect
+                cs.layerRole != null -> paddingBox
+                else -> nextAbsContainingBlock
+            }
             childResults[idx] = layoutPositionedChild(
                 child = child,
                 childStyle = cs,
@@ -258,6 +267,7 @@ class BrowserLayoutEngine<N>(
         normalFlowIndices: List<Int>,
         contentBox: Rect,
         viewportRect: Rect,
+        absContainingBlock: Rect,
         effectiveZIndex: Int,
         outResults: Array<ComputedLayoutBox?>
     ) {
@@ -289,6 +299,7 @@ class BrowserLayoutEngine<N>(
                 borderBox = tabRect,
                 margin = EdgeInsets.ZERO,
                 viewportRect = viewportRect,
+                absContainingBlock = absContainingBlock,
                 inheritedZIndex = effectiveZIndex
             )
             cursorX += tabW
@@ -306,6 +317,7 @@ class BrowserLayoutEngine<N>(
                 borderBox = bodyRect,
                 margin = EdgeInsets.ZERO,
                 viewportRect = viewportRect,
+                absContainingBlock = absContainingBlock,
                 inheritedZIndex = effectiveZIndex
             )
         }
@@ -318,6 +330,7 @@ class BrowserLayoutEngine<N>(
         normalFlowIndices: List<Int>,
         contentBox: Rect,
         viewportRect: Rect,
+        absContainingBlock: Rect,
         effectiveZIndex: Int,
         outResults: Array<ComputedLayoutBox?>
     ) {
@@ -355,13 +368,21 @@ class BrowserLayoutEngine<N>(
             }
             val childY = cursorY + mar.top
             val childRect = Rect(childX, childY, childW, childH)
+            val placedRect = applyFlowOffsetsAndTransform(
+                rect = childRect,
+                style = cs,
+                containingWidthPx = contentBox.width,
+                containingHeightPx = contentBox.height,
+                viewportRect = viewportRect
+            )
 
             outResults[idx] = layoutNodeWithAllocatedBox(
                 node = child,
                 style = cs,
-                borderBox = childRect,
+                borderBox = placedRect,
                 margin = mar,
                 viewportRect = viewportRect,
+                absContainingBlock = absContainingBlock,
                 inheritedZIndex = effectiveZIndex
             )
 
@@ -376,7 +397,9 @@ class BrowserLayoutEngine<N>(
         var baseMainSize: Int,
         var mainSize: Int,
         var crossSize: Int,
-        var frozen: Boolean = false
+        var frozen: Boolean = false,
+        val measuredAutoSize: Size? = null,
+        val measuredAvailW: Int = -1
     )
 
     private class FlexLine(
@@ -391,6 +414,7 @@ class BrowserLayoutEngine<N>(
         normalFlowIndices: List<Int>,
         contentBox: Rect,
         viewportRect: Rect,
+        absContainingBlock: Rect,
         effectiveZIndex: Int,
         outResults: Array<ComputedLayoutBox?>
     ) {
@@ -449,6 +473,8 @@ class BrowserLayoutEngine<N>(
             // Determine flex base main size
             val basisLen = cs.flexBasis
             val mainPropLen = if (isRow) cs.width else cs.height
+            var capturedAutoSize: Size? = null
+            var capturedAvailW = -1
             val rawBaseMain = when {
                 // Explicit flex-basis: 0% / 0px with flex-grow > 0 (e.g. HybridColumnLayout 8:4 columns)
                 basisLen != null && !basisLen.isAuto && basisLen.value == 0f && cs.flexGrow > 0f -> 0
@@ -481,6 +507,8 @@ class BrowserLayoutEngine<N>(
                     val availW = if (isRow) (innerMainSize - mainMargin).coerceAtLeast(0) else if (prelimCrossSize > 0) prelimCrossSize else (innerCrossSize - crossMargin).coerceAtLeast(0)
                     val availH = if (isRow) (if (prelimCrossSize > 0) prelimCrossSize else innerCrossSize) else (innerMainSize - mainMargin).coerceAtLeast(0)
                     val autoSize = measureAutoDimension(child, cs, availW, availH, viewportRect)
+                    capturedAutoSize = autoSize
+                    capturedAvailW = availW
                     if (isRow) autoSize.width else autoSize.height
                 }
             }
@@ -499,7 +527,9 @@ class BrowserLayoutEngine<N>(
                 margin = mar,
                 baseMainSize = clampedBaseMain,
                 mainSize = clampedBaseMain,
-                crossSize = prelimCrossSize
+                crossSize = prelimCrossSize,
+                measuredAutoSize = capturedAutoSize,
+                measuredAvailW = capturedAvailW
             )
         }
 
@@ -639,9 +669,18 @@ class BrowserLayoutEngine<N>(
                             (innerCrossSize - crossMargin).coerceAtLeast(0)
                         } else {
                             val availW = if (isRow) rec.mainSize else (innerCrossSize - crossMargin).coerceAtLeast(0)
-                            val availH = if (isRow) (innerCrossSize - crossMargin).coerceAtLeast(0) else rec.mainSize
-                            val measured = measureAutoDimension(child, cs, availW, availH, viewportRect)
-                            if (isRow) measured.height else measured.width
+                            val prevAuto = rec.measuredAutoSize
+                            if (prevAuto != null &&
+                                ((isRow && (availW == rec.measuredAvailW || availW == prevAuto.width ||
+                                    (prevAuto.width < rec.measuredAvailW && availW >= prevAuto.width))) ||
+                                    (!isRow && availW == rec.measuredAvailW))
+                            ) {
+                                if (isRow) prevAuto.height else prevAuto.width
+                            } else {
+                                val availH = if (isRow) (innerCrossSize - crossMargin).coerceAtLeast(0) else rec.mainSize
+                                val measured = measureAutoDimension(child, cs, availW, availH, viewportRect)
+                                if (isRow) measured.height else measured.width
+                            }
                         }
                     }
                 }
@@ -758,13 +797,21 @@ class BrowserLayoutEngine<N>(
                 } else {
                     Rect(itemCrossPos, itemMainPos, rec.crossSize, rec.mainSize)
                 }
+                val placedBorderBox = applyFlowOffsetsAndTransform(
+                    rect = childBorderBox,
+                    style = cs,
+                    containingWidthPx = contentBox.width,
+                    containingHeightPx = contentBox.height,
+                    viewportRect = viewportRect
+                )
 
                 outResults[rec.childIndex] = layoutNodeWithAllocatedBox(
                     node = rawChildren[rec.childIndex],
                     style = cs,
-                    borderBox = childBorderBox,
+                    borderBox = placedBorderBox,
                     margin = mar,
                     viewportRect = viewportRect,
+                    absContainingBlock = absContainingBlock,
                     inheritedZIndex = effectiveZIndex
                 )
 
@@ -808,6 +855,7 @@ class BrowserLayoutEngine<N>(
                 borderBox = fillRect,
                 margin = mar,
                 viewportRect = viewportRect,
+                absContainingBlock = containingBox,
                 inheritedZIndex = parentZIndex
             )
         }
@@ -910,8 +958,52 @@ class BrowserLayoutEngine<N>(
             borderBox = childRect,
             margin = mar,
             viewportRect = viewportRect,
+            absContainingBlock = containingBox,
             inheritedZIndex = parentZIndex
         )
+    }
+
+    private fun applyFlowOffsetsAndTransform(
+        rect: Rect,
+        style: LayoutStyleSnapshot,
+        containingWidthPx: Int,
+        containingHeightPx: Int,
+        viewportRect: Rect
+    ): Rect {
+        var dx = 0f
+        var dy = 0f
+        if (style.position == CssPosition.RELATIVE) {
+            val leftPx = resolveLengthFloatPx(style.left, containingWidthPx, viewportRect)
+            val rightPx = resolveLengthFloatPx(style.right, containingWidthPx, viewportRect)
+            val topPx = resolveLengthFloatPx(style.top, containingHeightPx, viewportRect)
+            val bottomPx = resolveLengthFloatPx(style.bottom, containingHeightPx, viewportRect)
+            dx += leftPx ?: if (rightPx != null) -rightPx else 0f
+            dy += topPx ?: if (bottomPx != null) -bottomPx else 0f
+        }
+        dx += (style.translateXPercent / 100f) * rect.width + style.translateXPx
+        dy += (style.translateYPercent / 100f) * rect.height + style.translateYPx
+        if (dx == 0f && dy == 0f) return rect
+        return Rect(
+            x = (rect.x + dx).roundToInt(),
+            y = (rect.y + dy).roundToInt(),
+            width = rect.width,
+            height = rect.height
+        )
+    }
+
+    private fun normalizeTagFast(raw: String): String {
+        val len = raw.length
+        if (len == 0) return ""
+        if (raw[0] <= ' ' || raw[len - 1] <= ' ') return raw.trim().lowercase().removePrefix("genericui:")
+        if (len >= 10 && raw.startsWith("genericui:", ignoreCase = true)) {
+            return raw.trim().lowercase().removePrefix("genericui:")
+        }
+        for (i in 0 until len) {
+            if (raw[i] in 'A'..'Z') {
+                return raw.trim().lowercase().removePrefix("genericui:")
+            }
+        }
+        return raw
     }
 
     private fun measureAutoDimension(
@@ -921,9 +1013,13 @@ class BrowserLayoutEngine<N>(
         availableHeightPx: Int,
         viewportRect: Rect
     ): Size {
-        val normalizedTag = adapter.tagNameOf(node).trim().lowercase().removePrefix("genericui:")
+        val normalizedTag = normalizeTagFast(adapter.tagNameOf(node))
         if (normalizedTag == "tabcontainer" || normalizedTag == "tab-container") {
-            return Size(availableWidthPx.coerceAtLeast(160), 44)
+            val intrinsic = measurer.measureIntrinsicSize(node, availableWidthPx, availableHeightPx)
+            return Size(
+                width = availableWidthPx.coerceAtLeast(intrinsic.width.coerceAtLeast(160)),
+                height = intrinsic.height.takeIf { it > 0 } ?: 44
+            )
         }
         if (normalizedTag == "navbar" || normalizedTag == "bottomnavigationbar" || normalizedTag == "bottom-navigation-bar") {
             val intrinsic = measurer.measureIntrinsicSize(node, availableWidthPx, availableHeightPx)
@@ -969,6 +1065,17 @@ class BrowserLayoutEngine<N>(
         var maxH = 0
         var visibleFlowCount = 0
 
+        class AutoRowChild(
+            val node: N,
+            val style: LayoutStyleSnapshot,
+            val margin: EdgeInsets,
+            val baseW: Int,
+            val baseH: Int,
+            val explicitW: Int?,
+            val explicitH: Int?
+        )
+        val rowChildren = if (isRow) mutableListOf<AutoRowChild>() else null
+
         for (child in children) {
             val cs = adapter.layoutStyleOf(child, viewportRect.width, viewportRect.height)
             if (cs.display == CssDisplay.NONE) continue
@@ -988,6 +1095,9 @@ class BrowserLayoutEngine<N>(
                 }
                 Size(resolvedW, resolvedH)
             }
+            if (rowChildren != null) {
+                rowChildren.add(AutoRowChild(child, cs, mar, sub.width, sub.height, cw, ch))
+            }
             val outerW = sub.width + mar.left + mar.right
             val outerH = sub.height + mar.top + mar.bottom
             sumW += outerW
@@ -995,6 +1105,52 @@ class BrowserLayoutEngine<N>(
             sumH += outerH
             maxH = max(maxH, outerH)
             visibleFlowCount++
+        }
+
+        if (rowChildren != null && visibleFlowCount > 0 && innerAvailW > 0 && style.flexWrap == FlexWrap.NOWRAP) {
+            val totalRowMain = sumW + (visibleFlowCount - 1) * style.columnGapPx
+            if (totalRowMain > innerAvailW) {
+                val totalScaledShrink = rowChildren.sumOf { rec ->
+                    val canShrink = if (rec.explicitW != null) 0f else rec.style.flexShrink
+                    (canShrink * rec.baseW.coerceAtLeast(1)).toDouble()
+                }.toFloat()
+                if (totalScaledShrink > 0f) {
+                    var remainingDeficit = totalRowMain - innerAvailW
+                    var remainingScaled = totalScaledShrink
+                    var recomputedMaxH = 0
+                    for (rec in rowChildren) {
+                        val canShrink = if (rec.explicitW != null) 0f else rec.style.flexShrink
+                        val scaled = canShrink * rec.baseW.coerceAtLeast(1)
+                        var shrunkW = rec.baseW
+                        if (scaled > 0f && remainingScaled > 0f) {
+                            val reduction = (remainingDeficit * (scaled / remainingScaled)).roundToInt()
+                            shrunkW = clampDimension(
+                                value = (rec.baseW - reduction).coerceAtLeast(0),
+                                minLen = rec.style.minWidth,
+                                maxLen = rec.style.maxWidth,
+                                parentSizePx = innerAvailW,
+                                viewportRect = viewportRect
+                            )
+                            val reduced = (rec.baseW - shrunkW).coerceAtLeast(0)
+                            remainingDeficit = (remainingDeficit - reduced).coerceAtLeast(0)
+                            remainingScaled = (remainingScaled - scaled).coerceAtLeast(0f)
+                        }
+                        val itemH = if (shrunkW < rec.baseW && rec.explicitH == null) {
+                            if (rec.style.aspectRatio != null && rec.style.aspectRatio > 0f && shrunkW > 0) {
+                                (shrunkW / rec.style.aspectRatio).roundToInt()
+                            } else {
+                                measureAutoDimension(rec.node, rec.style, shrunkW.coerceAtLeast(1), innerAvailH, viewportRect).height
+                            }
+                        } else {
+                            rec.baseH
+                        }
+                        recomputedMaxH = max(recomputedMaxH, itemH + rec.margin.top + rec.margin.bottom)
+                    }
+                    if (recomputedMaxH > maxH) {
+                        maxH = recomputedMaxH
+                    }
+                }
+            }
         }
 
         val intrinsicFallback = if (visibleFlowCount == 0) {
@@ -1111,7 +1267,6 @@ class BrowserLayoutEngine<N>(
                     is Tab -> Size((component.title.length * 8 + 32).coerceAtLeast(80), 38)
                     is StyledButton -> Size((component.text.length * 8 + 28).coerceAtLeast(44), 38)
                     is Button -> Size((component.text.length * 8 + 28).coerceAtLeast(44), 38)
-                    is TextBubble -> Size((component.text.length * 8 + 24).coerceAtLeast(64), 34)
                     is Badge -> Size((component.text.length * 7 + 16).coerceAtLeast(32), 24)
                     is Heading -> Size((component.text.length * 10 + 8).coerceAtLeast(48), 32)
                     is Text -> Size((component.text.length * 8 + 8).coerceAtLeast(32), 24)

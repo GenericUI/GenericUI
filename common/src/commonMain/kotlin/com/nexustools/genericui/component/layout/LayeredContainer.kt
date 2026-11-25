@@ -24,6 +24,8 @@ open class LayeredContainer(
 
     init {
         htmlTag = tagName
+        addClass("gui-layered-container")
+        setAttribute("isLayeredHost", "true")
         initializeLayout()
     }
 

@@ -10,7 +10,7 @@ import kotlin.reflect.KClass
  *   deserialize arbitrary Kotlin `data class`es, POJOs, and enums without requiring boilerplate.
  * - On JavaScript (`:web` JS) and WebAssembly (`:web` Wasm), inspects JS object keys and reconstructs
  *   typed instances via registered adapters, [PreferenceSerializable], or `defaultValue` templates.
- * - On Kotlin/Native (`:desktop:windows`, `:desktop:macos`, `:desktop:gtk`, `:desktop:qt`, `:mobile:ios`),
+ * - On Kotlin/Native (`:desktop:windows`, `:desktop:macos`, `:desktop:gtk`, `:desktop:kde`, `:mobile:ios`),
  *   uses [PreferenceSerializable], registered adapters/factories, and `defaultValue` templates.
  */
 expect object PreferencePlatformReflector {

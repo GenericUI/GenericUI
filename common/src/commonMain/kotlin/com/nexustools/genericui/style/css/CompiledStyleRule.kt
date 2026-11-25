@@ -14,7 +14,8 @@ data class CompiledStyleRule(
     val pseudoClass: String? = segments.lastOrNull()?.let { it.pseudoClass ?: it.pseudoClasses.firstOrNull() }
         ?: segments.firstNotNullOfOrNull { it.pseudoClass ?: it.pseudoClasses.firstOrNull() },
     val mediaMinWidthPx: Int? = null,
-    val mediaMaxWidthPx: Int? = null
+    val mediaMaxWidthPx: Int? = null,
+    val backendMask: Int = BackendStyleMask.ALL
 ) {
     fun toCssRule(): CssRule {
         val mergedDecls = linkedMapOf<String, String>()
@@ -28,7 +29,8 @@ data class CompiledStyleRule(
             declarations = mergedDecls,
             mediaMinWidthPx = mediaMinWidthPx,
             mediaMaxWidthPx = mediaMaxWidthPx,
-            specificity = specificity
+            specificity = specificity,
+            backendMask = backendMask
         )
     }
 }

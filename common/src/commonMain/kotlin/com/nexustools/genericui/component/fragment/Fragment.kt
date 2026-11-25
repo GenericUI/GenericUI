@@ -16,6 +16,7 @@ import com.nexustools.genericui.enums.window.SoftInputMode
 import com.nexustools.genericui.window.IWindow
 import com.nexustools.genericui.window.TitleBar
 import com.nexustools.genericui.window.WindowConfiguration
+import kotlin.reflect.KClass
 
 /**
  * Activity-like lifecycle component extending [Container] and implementing [IFragment].
@@ -65,6 +66,30 @@ open class Fragment : Container("fragment"), IFragment {
 
     /** Optional display title for window titlebars and navigation bars. */
     open var pageTitle: String = ""
+
+    /**
+     * When `true`, hosting this fragment removes native OS window chrome (`setTitleBar(null)` +
+     * `setUndecorated(true)`) so an overlay or fragment-provided titlebar owns windowed chrome,
+     * provided the attached window supports custom titlebars and embedded titlebar components
+     * (`(supportsCustomTitleBar && canEmbedComponentsInTitleBar) || !isTitleBarRequired`).
+     */
+    open val prefersUndecoratedWindow: Boolean = false
+
+    /**
+     * `true` when the currently attached hosting window requires a titlebar (`isTitleBarRequired`),
+     * supports custom titlebars (`supportsCustomTitleBar`), and can embed components inside the
+     * titlebar (`canEmbedComponentsInTitleBar`), allowing an overlay-embedded window titlebar to
+     * replace native OS window chrome.
+     */
+    val isOverlayWindowTitleBarSupported: Boolean
+        get() = (attachedWindow ?: attachedIWindow)?.titleCapabilities?.let {
+            it.isTitleBarRequired && it.supportsCustomTitleBar && it.canEmbedComponentsInTitleBar
+        } == true
+
+    internal fun canUseCustomUndecoratedChromeFor(window: IWindow?): Boolean {
+        val caps = window?.titleCapabilities ?: return false
+        return (caps.supportsCustomTitleBar && caps.canEmbedComponentsInTitleBar) || !caps.isTitleBarRequired
+    }
 
     private var navBar: Navbar? = null
     private var bottomNavigationBar: BottomNavigationBar? = null
@@ -196,7 +221,11 @@ open class Fragment : Container("fragment"), IFragment {
             }
             win.setNavBar(if (fullscreenMode) null else navBar)
             win.setBottomNavigationBar(if (fullscreenMode) null else bottomNavigationBar)
-            if (titleBar != null) {
+            val canUseCustomUndecoratedChrome = canUseCustomUndecoratedChromeFor(win)
+            if (prefersUndecoratedWindow && canUseCustomUndecoratedChrome) {
+                win.setTitleBar(null)
+                win.setUndecorated(true)
+            } else if (titleBar != null) {
                 win.setTitleBar(titleBar)
             }
             if (menuBar != null) {
@@ -210,7 +239,11 @@ open class Fragment : Container("fragment"), IFragment {
         } else {
             fullscreenMode = iWin.isFullscreen()
         }
-        if (titleBar != null) {
+        val canUseCustomUndecoratedChrome = canUseCustomUndecoratedChromeFor(iWin)
+        if (prefersUndecoratedWindow && canUseCustomUndecoratedChrome) {
+            iWin.setTitleBar(null)
+            iWin.setUndecorated(true)
+        } else if (titleBar != null) {
             iWin.setTitleBar(titleBar)
         }
     }
@@ -526,4 +559,41 @@ open class Fragment : Container("fragment"), IFragment {
         fallbackPreferenceStore = null
         super.dispose()
     }
+
+    /** Reified convenience for [canOpenAdditionalWindow]. */
+    inline fun <reified T : IFragment> canOpenAdditionalWindow(): Boolean =
+        canOpenAdditionalWindow(T::class)
+
+    /** Reified convenience for [startFragment]. */
+    inline fun <reified T : IFragment> startFragment(
+        launchArgs: FragmentBundle? = null,
+        openAdditionalWindow: Boolean = false,
+        addToBackStack: Boolean = true,
+        clearTask: Boolean = false,
+        targetWindow: IWindow? = null
+    ): T = startFragment(
+        fragmentClass = T::class,
+        launchArgs = launchArgs,
+        openAdditionalWindow = openAdditionalWindow,
+        addToBackStack = addToBackStack,
+        clearTask = clearTask,
+        targetWindow = targetWindow
+    )
+
+    /** Reified convenience for [startFragment] with key-value pair arguments. */
+    inline fun <reified T : IFragment> startFragment(
+        firstArg: Pair<String, Any?>,
+        vararg extraArgs: Pair<String, Any?>,
+        openAdditionalWindow: Boolean = false,
+        addToBackStack: Boolean = true,
+        clearTask: Boolean = false,
+        targetWindow: IWindow? = null
+    ): T = startFragment(
+        fragmentClass = T::class,
+        launchArgs = FragmentBundle.of(firstArg, *extraArgs),
+        openAdditionalWindow = openAdditionalWindow,
+        addToBackStack = addToBackStack,
+        clearTask = clearTask,
+        targetWindow = targetWindow
+    )
 }

@@ -1,8 +1,48 @@
 package com.nexustools.genericui.window
 
+import com.nexustools.genericui.component.action.Button
+import com.nexustools.genericui.component.action.DropdownButton
+import com.nexustools.genericui.component.action.FloatingActionButton
+import com.nexustools.genericui.component.action.IconButton
+import com.nexustools.genericui.component.action.SplitDropdownButton
+import com.nexustools.genericui.component.action.StyledButton
+import com.nexustools.genericui.component.action.ToggleButton
+import com.nexustools.genericui.component.action.Toolbar
+import com.nexustools.genericui.component.composite.Composite
+import com.nexustools.genericui.component.feedback.Alert
+import com.nexustools.genericui.component.feedback.Banner
+import com.nexustools.genericui.component.feedback.ProgressBar
+import com.nexustools.genericui.component.feedback.Spinner
+import com.nexustools.genericui.component.feedback.Toast
+import com.nexustools.genericui.component.form.CheckBox
+import com.nexustools.genericui.component.form.ComboBox
+import com.nexustools.genericui.component.form.RadioButton
+import com.nexustools.genericui.component.form.RangeSlider
+import com.nexustools.genericui.component.form.Select
+import com.nexustools.genericui.component.form.Slider
+import com.nexustools.genericui.component.form.StyledSlider
+import com.nexustools.genericui.component.form.Switch
+import com.nexustools.genericui.component.form.TextField
+import com.nexustools.genericui.component.fragment.Fragment
+import com.nexustools.genericui.component.fragment.FragmentContainer
 import com.nexustools.genericui.component.layout.Container
+import com.nexustools.genericui.component.layout.LayoutBackendTarget
+import com.nexustools.genericui.component.layout.ScrollView
+import com.nexustools.genericui.component.layout.StyledContainer
 import com.nexustools.genericui.component.shell.Window
+import com.nexustools.genericui.component.surface.Accordion
+import com.nexustools.genericui.component.surface.Card
+import com.nexustools.genericui.component.surface.CollapsiblePanel
+import com.nexustools.genericui.component.surface.Jumbotron
+import com.nexustools.genericui.component.surface.ListGroup
+import com.nexustools.genericui.component.surface.ListGroupItem
+import com.nexustools.genericui.component.surface.StyledComponent
+import com.nexustools.genericui.component.surface.Well
+import com.nexustools.genericui.component.tabs.Tab
+import com.nexustools.genericui.component.tabs.TabContainer
+import com.nexustools.genericui.component.typography.Badge
 import com.nexustools.genericui.core.GenericUI
+import com.nexustools.genericui.style.policy.AestheticStylePolicy
 import com.nexustools.genericui.core.NativeFactory
 import com.nexustools.genericui.core.NativeImpl
 import com.nexustools.genericui.enums.bootstrap.AlignItems
@@ -28,6 +68,7 @@ import com.nexustools.genericui.enums.window.WindowState
 import com.nexustools.genericui.event.KeyEvent
 import com.nexustools.genericui.event.PointerEvent
 import com.nexustools.genericui.event.WheelEvent
+import com.nexustools.genericui.exception.NativeUninitializedException
 import com.nexustools.genericui.geometry.EdgeInsets
 import com.nexustools.genericui.geometry.Rect
 import com.nexustools.genericui.geometry.Size
@@ -81,6 +122,7 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -221,12 +263,20 @@ class WindowUndecoratedAndStateTest {
         override fun clearChildrenNative() {}
     }
 
-    private class FakeWindowNativeImpl : StubNativeImpl("window"), WindowNativeImpl<Any> {
-        override val supportsCustomTitleBar: Boolean = true
+    private class FakeWindowNativeImpl(
+        private val capabilities: TitleCapabilities = TitleCapabilities(
+            isSupported = true,
+            isTitleBarRequired = true,
+            supportsCustomTitleBar = true,
+            supportsCustomComponents = true
+        )
+    ) : StubNativeImpl("window"), WindowNativeImpl<Any> {
+        override val supportsCustomTitleBar: Boolean = capabilities.supportsCustomTitleBar
         override val supportsEmbeddedMenuBarInTitleBar: Boolean = true
         override val supportsMultiWindow: Boolean = true
         override val supportsNavbarMenuBar: Boolean = true
         override val supportsMobileNavbarMenuBar: Boolean = false
+        override fun getTitleCapabilities(): TitleCapabilities = capabilities
 
         private var title: String = "GenericUI"
         private var windowSize: Size = Size(800, 600)
@@ -307,14 +357,23 @@ class WindowUndecoratedAndStateTest {
         }
     }
 
-    private class FakeWindowTestFactory : NativeFactory {
+    private class FakeWindowTestFactory(
+        override val defaultTitleCapabilities: TitleCapabilities = TitleCapabilities(
+            isSupported = true,
+            isTitleBarRequired = true,
+            supportsCustomTitleBar = true,
+            supportsCustomComponents = true
+        ),
+        private val windowCapabilitiesOverride: TitleCapabilities = defaultTitleCapabilities
+    ) : NativeFactory {
         val createdWindows = mutableListOf<FakeWindowNativeImpl>()
 
         private fun unsupported(): Nothing = throw UnsupportedOperationException("Unused in WindowUndecoratedAndStateTest")
 
         override val backendTarget: BackendTarget = BackendTarget.Swing
         override fun createApplication(): ApplicationNativeImpl<*> = unsupported()
-        override fun createWindow(): WindowNativeImpl<*> = FakeWindowNativeImpl().also { createdWindows.add(it) }
+        override fun createWindow(): WindowNativeImpl<*> =
+            FakeWindowNativeImpl(windowCapabilitiesOverride).also { createdWindows.add(it) }
         override fun createMenuBar(): MenuBarNativeImpl<*> = unsupported()
         override fun createMenu(): MenuNativeImpl<*> = unsupported()
         override fun createMenuItem(checkable: Boolean, radio: Boolean): MenuItemNativeImpl<*> = unsupported()
@@ -327,6 +386,10 @@ class WindowUndecoratedAndStateTest {
         override fun createToolPalette(): ToolPaletteNativeImpl<*> = unsupported()
         override fun createContainer(classPrefix: String): ContainerNativeImpl<*> = FakeContainerNativeImpl(classPrefix)
         override fun createStyledContainer(classPrefix: String, tagName: String): StyledContainerNativeImpl<*> = unsupported()
+        override fun createStyledComponent(
+            classPrefix: String,
+            tagName: String
+        ): com.nexustools.genericui.nativeimpl.surface.StyledComponentNativeImpl<*> = unsupported()
         override fun createBookContainer(): BookContainerNativeImpl<*> = unsupported()
         override fun createScrollView(): ScrollViewNativeImpl<*> = unsupported()
         override fun createDivider(): DividerNativeImpl<*> = unsupported()
@@ -373,7 +436,9 @@ class WindowUndecoratedAndStateTest {
         assertFalse(window.isUndecorated)
         window.setUndecorated(true)
         assertTrue(window.isUndecorated)
-        window.startSystemMove()
+        assertFailsWith<NativeUninitializedException> {
+            window.startSystemMove()
+        }
         assertTrue(factory.createdWindows.isEmpty())
 
         window.show(factory)
@@ -463,5 +528,260 @@ class WindowUndecoratedAndStateTest {
         )
 
         window.close()
+    }
+
+    @Test
+    fun fragmentPrefersUndecoratedWindowAppliesAndRestoresOnTransition() {
+        val factory = FakeWindowTestFactory()
+        GenericUI.activeFactory = factory
+
+        val window = Window(initialSize = Size(800, 450))
+        val container = com.nexustools.genericui.component.fragment.FragmentContainer(hostWindow = window)
+        val undecoratedFrag = object : com.nexustools.genericui.component.fragment.Fragment() {
+            override val prefersUndecoratedWindow: Boolean = true
+        }
+        val standardFrag = com.nexustools.genericui.component.fragment.Fragment()
+
+        container.setFragment(undecoratedFrag)
+        assertTrue(undecoratedFrag.isOverlayWindowTitleBarSupported)
+        assertTrue(window.isUndecorated)
+        window.setContent(container)
+        window.show(factory)
+        val fakeImpl = factory.createdWindows.single()
+        assertTrue(fakeImpl.isUndecorated())
+
+        container.setFragment(standardFrag)
+        assertFalse(window.isUndecorated)
+        assertFalse(fakeImpl.isUndecorated())
+
+        window.close()
+    }
+
+    @Test
+    fun fragmentPrefersUndecoratedWindowRefusesToStripChromeWhenLinuxWmUnsupported() {
+        val unsupportedLinuxCaps = TitleCapabilities(
+            isSupported = true,
+            isTitleBarRequired = true,
+            supportsCustomTitleBar = false,
+            supportsCustomComponents = false
+        )
+        val factory = FakeWindowTestFactory(defaultTitleCapabilities = unsupportedLinuxCaps)
+        GenericUI.activeFactory = factory
+
+        val window = Window(initialSize = Size(800, 450))
+        val container = FragmentContainer(hostWindow = window)
+        val undecoratedFrag = object : Fragment() {
+            override val prefersUndecoratedWindow: Boolean = true
+        }
+        val standardFrag = Fragment()
+
+        container.setFragment(undecoratedFrag)
+        assertFalse(undecoratedFrag.isOverlayWindowTitleBarSupported)
+        assertFalse(window.isUndecorated)
+
+        window.setContent(container)
+        window.show(factory)
+        val fakeImpl = factory.createdWindows.single()
+        assertFalse(fakeImpl.isUndecorated())
+        assertFalse(fakeImpl.setUndecoratedCalls.contains(true))
+
+        container.setFragment(standardFrag)
+        assertFalse(window.isUndecorated)
+        assertFalse(fakeImpl.isUndecorated())
+
+        container.setFragment(undecoratedFrag)
+        assertFalse(window.isUndecorated)
+        assertFalse(fakeImpl.isUndecorated())
+        assertFalse(fakeImpl.setUndecoratedCalls.contains(true))
+
+        window.close()
+    }
+
+    @Test
+    fun fragmentLateCapabilityMismatchRestoresDecoratedFrameOnShow() {
+        val unsupportedLinuxCaps = TitleCapabilities(
+            isSupported = true,
+            isTitleBarRequired = true,
+            supportsCustomTitleBar = false,
+            supportsCustomComponents = false
+        )
+        // Simulate factory default reporting true prior to window creation, while actual WindowNativeImpl
+        // detects an unsupported Linux WM and reports supportsCustomTitleBar = false at realize/show time.
+        val factory = FakeWindowTestFactory(
+            defaultTitleCapabilities = TitleCapabilities(
+                isSupported = true,
+                isTitleBarRequired = true,
+                supportsCustomTitleBar = true,
+                supportsCustomComponents = true
+            ),
+            windowCapabilitiesOverride = unsupportedLinuxCaps
+        )
+        GenericUI.activeFactory = factory
+
+        val window = Window(initialSize = Size(800, 450))
+        val container = FragmentContainer(hostWindow = window)
+        val undecoratedFrag = object : Fragment() {
+            override val prefersUndecoratedWindow: Boolean = true
+        }
+
+        container.setFragment(undecoratedFrag)
+        assertTrue(window.isUndecorated)
+        window.setContent(container)
+        window.show(factory)
+
+        val fakeImpl = factory.createdWindows.single()
+        assertFalse(undecoratedFrag.isOverlayWindowTitleBarSupported)
+        assertFalse(window.isUndecorated)
+        assertFalse(fakeImpl.isUndecorated())
+
+        window.close()
+    }
+
+    @Test
+    fun aestheticStylePolicyDistinguishesButtonsAndExplicitTokensFromSystemControls() {
+        val btn = Button("Save")
+        val iconBtn = IconButton("star")
+        val toggleBtn = ToggleButton("Pin")
+        val fabBtn = FloatingActionButton("plus")
+        val styledBtn = StyledButton("Styled")
+        val dropdownBtn = DropdownButton("Menu")
+        val splitBtn = SplitDropdownButton("Run")
+        val styledContainer = StyledContainer()
+        val styledComponent = StyledComponent()
+        val compositeControl = object : Composite("custom-composite") {}
+        val styledSlider = StyledSlider()
+        val card = Card("Card")
+        val badge = Badge("New")
+        val alert = Alert("Heads up")
+        val banner = Banner("Notice")
+        val toast = Toast("Info", "Saved")
+        val listGroup = ListGroup()
+        val listGroupItem = ListGroupItem()
+        val jumbotron = Jumbotron()
+        val well = Well()
+
+        assertTrue(AestheticStylePolicy.isStandardButtonComponent(btn))
+        assertTrue(AestheticStylePolicy.isStandardButtonComponent(iconBtn))
+        assertTrue(AestheticStylePolicy.isStandardButtonComponent(toggleBtn))
+        assertTrue(AestheticStylePolicy.isStandardButtonComponent(fabBtn))
+        assertFalse(AestheticStylePolicy.isStandardButtonComponent(dropdownBtn))
+        assertFalse(AestheticStylePolicy.isStandardButtonComponent(splitBtn))
+        assertFalse(AestheticStylePolicy.isStandardButtonComponent(styledBtn))
+        assertFalse(AestheticStylePolicy.isStandardButtonComponent(styledContainer))
+        assertFalse(AestheticStylePolicy.isStandardButtonComponent(styledComponent))
+        assertFalse(AestheticStylePolicy.isStandardButtonComponent(compositeControl))
+        assertFalse(AestheticStylePolicy.isStandardButtonComponent(styledSlider))
+
+        assertTrue(AestheticStylePolicy.isStandardButtonTagOrPrefix("button", "btn"))
+        assertTrue(AestheticStylePolicy.isStandardButtonTagOrPrefix("button", "btn btn-fab"))
+        assertFalse(AestheticStylePolicy.isStandardButtonTagOrPrefix("genericui:dropdownbutton", "btn-dropdown"))
+        assertFalse(AestheticStylePolicy.isStandardButtonTagOrPrefix("button", "btn-split-dropdown"))
+        assertFalse(AestheticStylePolicy.isStandardButtonTagOrPrefix("button", "styled-btn"))
+        assertFalse(AestheticStylePolicy.isStandardButtonTagOrPrefix("genericui:toolbar", "btn-toolbar"))
+        assertFalse(AestheticStylePolicy.isStandardButtonTagOrPrefix("genericui:progressbar"))
+        assertFalse(AestheticStylePolicy.isStandardButtonTagOrPrefix("genericui:styled-slider", "styled-slider"))
+
+        for (eligibleButton in listOf(btn, iconBtn, toggleBtn, fabBtn, styledBtn)) {
+            assertTrue(
+                AestheticStylePolicy.supportsBootstrapColorOnSystemBackend(eligibleButton),
+                "Expected supportsBootstrapColorOnSystemBackend == true for ${eligibleButton::class.simpleName}"
+            )
+            assertFalse(
+                AestheticStylePolicy.isBootstrapSpecificNonControlComponent(eligibleButton),
+                "Expected isBootstrapSpecificNonControlComponent == false for ${eligibleButton::class.simpleName}"
+            )
+        }
+
+        val bootstrapNonControls = listOf(
+            badge,
+            alert,
+            banner,
+            toast,
+            card,
+            listGroup,
+            listGroupItem,
+            jumbotron,
+            well
+        )
+        for (nonControl in bootstrapNonControls) {
+            assertTrue(
+                AestheticStylePolicy.isBootstrapSpecificNonControlComponent(nonControl),
+                "Expected isBootstrapSpecificNonControlComponent == true for ${nonControl::class.simpleName}"
+            )
+            assertTrue(
+                AestheticStylePolicy.supportsBootstrapColorOnSystemBackend(nonControl),
+                "Expected supportsBootstrapColorOnSystemBackend == true for ${nonControl::class.simpleName}"
+            )
+            assertFalse(
+                AestheticStylePolicy.isStandardButtonComponent(nonControl),
+                "Expected isStandardButtonComponent == false for ${nonControl::class.simpleName}"
+            )
+        }
+
+        assertTrue(AestheticStylePolicy.isBootstrapSpecificNonControlTagOrPrefix("span", "badge"))
+        assertTrue(AestheticStylePolicy.isBootstrapSpecificNonControlTagOrPrefix("genericui:alert"))
+        assertTrue(AestheticStylePolicy.isBootstrapSpecificNonControlTagOrPrefix("genericui:banner"))
+        assertTrue(AestheticStylePolicy.isBootstrapSpecificNonControlTagOrPrefix("genericui:toast"))
+        assertTrue(AestheticStylePolicy.isBootstrapSpecificNonControlTagOrPrefix("genericui:card", "card"))
+        assertTrue(AestheticStylePolicy.isBootstrapSpecificNonControlTagOrPrefix("genericui:listgroup", "list-group"))
+        assertTrue(AestheticStylePolicy.isBootstrapSpecificNonControlTagOrPrefix("genericui:listgroupitem"))
+        assertTrue(AestheticStylePolicy.isBootstrapSpecificNonControlTagOrPrefix("genericui:jumbotron"))
+        assertTrue(AestheticStylePolicy.isBootstrapSpecificNonControlTagOrPrefix("genericui:well"))
+        assertFalse(AestheticStylePolicy.isBootstrapSpecificNonControlTagOrPrefix("span", "label"))
+        assertFalse(AestheticStylePolicy.isBootstrapSpecificNonControlTagOrPrefix("genericui:styled-slider", "styled-slider"))
+
+        val nonBootstrapStyledSurfaces = listOf(styledContainer, styledComponent, compositeControl, styledSlider)
+        for (surface in nonBootstrapStyledSurfaces) {
+            assertTrue(
+                AestheticStylePolicy.isExplicitlyStyledComponent(surface),
+                "Expected isExplicitlyStyledComponent == true for ${surface::class.simpleName}"
+            )
+            assertFalse(
+                AestheticStylePolicy.supportsBootstrapColorOnSystemBackend(surface),
+                "Expected supportsBootstrapColorOnSystemBackend == false for ${surface::class.simpleName}"
+            )
+        }
+
+        val nonButtonControlsAndContainers = listOf(
+            dropdownBtn,
+            splitBtn,
+            ProgressBar(),
+            Spinner(),
+            styledSlider,
+            compositeControl,
+            CheckBox(),
+            RadioButton("a"),
+            Switch(),
+            Slider(),
+            RangeSlider(),
+            Select(),
+            ComboBox(),
+            TextField(),
+            ScrollView(),
+            TabContainer(),
+            Tab(),
+            Toolbar(),
+            CollapsiblePanel("Section"),
+            Accordion(),
+            Container()
+        )
+        for (control in nonButtonControlsAndContainers) {
+            assertFalse(
+                AestheticStylePolicy.isStandardButtonComponent(control),
+                "Expected isStandardButtonComponent == false for ${control::class.simpleName}"
+            )
+            assertFalse(
+                AestheticStylePolicy.isBootstrapSpecificNonControlComponent(control),
+                "Expected isBootstrapSpecificNonControlComponent == false for ${control::class.simpleName}"
+            )
+            assertFalse(
+                AestheticStylePolicy.supportsBootstrapColorOnSystemBackend(control),
+                "Expected supportsBootstrapColorOnSystemBackend == false for ${control::class.simpleName}"
+            )
+            assertTrue(
+                AestheticStylePolicy.supportsBootstrapColor(control, LayoutBackendTarget.WEB),
+                "Expected WEB to support Bootstrap color for ${control::class.simpleName}"
+            )
+        }
     }
 }

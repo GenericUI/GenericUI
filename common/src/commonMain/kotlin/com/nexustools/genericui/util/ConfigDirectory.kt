@@ -14,7 +14,7 @@ import com.nexustools.genericui.nativeimpl.system.UserDirectoryNativeImpl
  * persist per-key `.bson`, `.plist`, or custom configuration files in the user's OS profile directory:
  * - **Windows (`:desktop:windows`)**: `%APPDATA%\<appName>`
  * - **macOS (`:desktop:macos`)**: `~/Library/Preferences/<appName>` (or `~/.config/<appName>`)
- * - **Linux (`:desktop:gtk`, `:desktop:qt`)**: `$XDG_CONFIG_HOME/<appName>` (or `~/.config/<appName>`)
+ * - **Linux (`:desktop:gtk`, `:desktop:kde`)**: `$XDG_CONFIG_HOME/<appName>` (or `~/.config/<appName>`)
  * - **Swing (`:desktop:swing`)**: Host OS user config directory (`%APPDATA%`, `~/Library/Preferences`, or `~/.config`)
  * - **Android (`:mobile:android`)**: `<context.filesDir>/<appName>`
  * - **iOS (`:mobile:ios`)**: `<Home>/Library/Application Support/<appName>`

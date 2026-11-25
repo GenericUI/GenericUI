@@ -23,9 +23,14 @@ open class FragmentContainer(
 
     private val backStack = mutableListOf<StackEntry>()
     private val forwardStack = mutableListOf<StackEntry>()
+    private var lastFragmentForcedUndecorated: Boolean = false
 
     @Suppress("USELESS_CAST")
     var hostingIWindow: IWindow? = hostWindow as? IWindow
+        set(value) {
+            field = value
+            attachHostingIWindowListeners(value)
+        }
 
     override var currentFragment: Fragment? = null
         protected set
@@ -44,20 +49,26 @@ open class FragmentContainer(
 
     init {
         htmlTag = "genericui:fragment-container"
-        hostWindow?.setOnWindowFocusChanged { focused ->
-            currentFragment?.onWindowFocusChanged(focused)
-        }
-        if (hostWindow == null && hostingIWindow != null) {
-            hostingIWindow?.setOnWindowResize { config ->
-                onResize(config.widthPx, config.heightPx)
-                onConfigurationChanged(config)
-            }
-            hostingIWindow?.setOnWindowFocusChanged { focused ->
+        if (hostWindow != null) {
+            hostWindow?.setOnWindowFocusChanged { focused ->
                 currentFragment?.onWindowFocusChanged(focused)
             }
+        } else {
+            attachHostingIWindowListeners(hostingIWindow)
         }
         if (initialFragment != null) {
             setFragment(initialFragment)
+        }
+    }
+
+    private fun attachHostingIWindowListeners(window: IWindow?) {
+        if (window == null || hostWindow != null) return
+        window.setOnWindowResize { config ->
+            onResize(config.widthPx, config.heightPx)
+            onConfigurationChanged(config)
+        }
+        window.setOnWindowFocusChanged { focused ->
+            currentFragment?.onWindowFocusChanged(focused)
         }
     }
 
@@ -130,6 +141,30 @@ open class FragmentContainer(
     override fun replaceFragment(fragment: Fragment) {
         clearAndDestroyStack(forwardStack)
         transitionToFragment(fragment, destroyPrevious = true, restoredState = null)
+    }
+
+    /**
+     * Destroys [currentFragment] (if any), clears both back and forward navigation stacks,
+     * detaches the fragment view from this container, and sets [currentFragment] to `null`
+     * without closing or disposing any parent [Window].
+     */
+    fun clearCurrentFragment() {
+        val outgoing = currentFragment
+        clearAndDestroyStack(backStack)
+        clearAndDestroyStack(forwardStack)
+        if (outgoing != null) {
+            outgoing.performPause()
+            outgoing.performStop()
+            outgoing.performDestroy()
+            outgoing.attachedWindow = null
+            outgoing.attachedIWindow = null
+            outgoing.fragmentHost = null
+            if (children.contains(outgoing)) {
+                removeChild(outgoing)
+            }
+        }
+        currentFragment = null
+        lastFragmentForcedUndecorated = false
     }
 
     private fun clearAndDestroyStack(stack: MutableList<StackEntry>) {
@@ -206,10 +241,26 @@ open class FragmentContainer(
         val resolvedWindow = resolveAttachedWindow()
         fragment.attachedWindow = resolvedWindow
         fragment.attachedIWindow = resolvedIWindow
+        val effectiveWindow: IWindow? = resolvedWindow ?: resolvedIWindow
+        val shouldForceUndecorated = fragment.prefersUndecoratedWindow &&
+            effectiveWindow != null &&
+            fragment.canUseCustomUndecoratedChromeFor(effectiveWindow)
+        if (!shouldForceUndecorated && lastFragmentForcedUndecorated) {
+            resolvedWindow?.setUndecorated(false)
+            if (resolvedIWindow !== resolvedWindow) {
+                resolvedIWindow?.setUndecorated(false)
+            }
+        }
         fragment.syncChromeToAttachedWindow()
+        lastFragmentForcedUndecorated = shouldForceUndecorated
         if (resolvedWindow == null && resolvedIWindow != null) {
             resolvedIWindow.setFullscreen(fragment.isFullscreen(), fragment.getDisplayCutoutMode())
-            fragment.getTitleBar()?.let { resolvedIWindow.setTitleBar(it) }
+            if (shouldForceUndecorated) {
+                resolvedIWindow.setTitleBar(null)
+                resolvedIWindow.setUndecorated(true)
+            } else {
+                fragment.getTitleBar()?.let { resolvedIWindow.setTitleBar(it) }
+            }
             if (fragment.pageTitle.isNotBlank()) {
                 resolvedIWindow.setTitle(fragment.pageTitle)
             }

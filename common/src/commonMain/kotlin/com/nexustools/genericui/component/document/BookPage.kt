@@ -11,17 +11,12 @@ import com.nexustools.genericui.component.typography.Label
 import com.nexustools.genericui.component.typography.MarkdownView
 import com.nexustools.genericui.core.AbstractComponent
 import com.nexustools.genericui.core.AbstractContainer
-import com.nexustools.genericui.enums.css.CssBoxSizing
-import com.nexustools.genericui.enums.css.CssPosition
 import com.nexustools.genericui.enums.document.PrintPageOrientation
 import com.nexustools.genericui.enums.document.PrintPageSize
 import com.nexustools.genericui.geometry.Size
-import com.nexustools.genericui.style.color.RgbaColor
 import com.nexustools.genericui.style.css.CssAspectRatio
 import com.nexustools.genericui.style.css.CssEdgeLengths
 import com.nexustools.genericui.style.css.CssLength
-import com.nexustools.genericui.style.css.CssShadow
-import com.nexustools.genericui.style.css.CssShadowList
 
 /**
  * Single printable page container inside a [BookContainer], sized to the aspect ratio and physical
@@ -129,28 +124,6 @@ open class BookPage(
             setMinHeight(CssLength.px(hPx))
             setAspectRatio(CssAspectRatio(wMm, hMm))
             setPadding(CssEdgeLengths.px(padPx))
-            setBackgroundColor(RgbaColor.WHITE)
-            setColor(RgbaColor.BLACK)
-            setBoxSizing(CssBoxSizing.BORDER_BOX)
-            setPosition(CssPosition.RELATIVE)
-            setMargin(
-                CssEdgeLengths(
-                    top = CssLength.ZERO,
-                    right = CssLength.AUTO,
-                    bottom = CssLength.px(12),
-                    left = CssLength.AUTO
-                )
-            )
-            setBoxShadow(
-                CssShadowList.of(
-                    CssShadow.px(
-                        offsetX = 0f,
-                        offsetY = 2f,
-                        blurRadius = 8f,
-                        color = RgbaColor(0, 0, 0, 56)
-                    )
-                )
-            )
         }
     }
 

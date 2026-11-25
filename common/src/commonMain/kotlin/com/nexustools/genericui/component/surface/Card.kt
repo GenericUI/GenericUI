@@ -3,14 +3,18 @@ package com.nexustools.genericui.component.surface
 import com.nexustools.genericui.component.typography.Heading
 import com.nexustools.genericui.core.AbstractContainer
 import com.nexustools.genericui.core.NativeFactory
+import com.nexustools.genericui.enums.bootstrap.BootstrapType
 import com.nexustools.genericui.nativeimpl.layout.ContainerNativeImpl
 
 /**
  * Bootstrap card surface container (`<div class="card">`).
  */
 open class Card(
-    title: String? = null
+    title: String? = null,
+    type: BootstrapType = BootstrapType.NONE
 ) : AbstractContainer("card") {
+    constructor(type: BootstrapType) : this(title = null, type = type)
+
     var title: String? = title
         set(value) {
             field = value
@@ -21,6 +25,9 @@ open class Card(
 
     init {
         htmlTag = "genericui:card"
+        if (type != BootstrapType.NONE) {
+            this.type = type
+        }
         if (title != null) {
             val h = Heading(title, level = 5)
             headerHeading = h

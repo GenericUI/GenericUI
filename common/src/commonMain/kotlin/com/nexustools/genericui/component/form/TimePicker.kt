@@ -5,4 +5,13 @@ package com.nexustools.genericui.component.form
  */
 class TimePicker(
     isoTime: String = "12:00"
-) : TextField(value = isoTime, placeholder = "HH:MM")
+) : TextField(value = isoTime, placeholder = "HH:MM") {
+    init {
+        setAttribute("data-control-variant", "time")
+    }
+
+    override fun syncStateToNative() {
+        setAttribute("data-control-variant", "time")
+        super.syncStateToNative()
+    }
+}

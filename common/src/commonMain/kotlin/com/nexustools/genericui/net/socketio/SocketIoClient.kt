@@ -5,6 +5,8 @@ import com.nexustools.genericui.core.GenericUI
 import com.nexustools.genericui.nativeimpl.net.DefaultWebSocketNativeImpl
 import com.nexustools.genericui.nativeimpl.net.WebSocketNativeImpl
 import com.nexustools.genericui.net.http.HttpClient
+import com.nexustools.genericui.threading.PlatformReentrantLock
+import com.nexustools.genericui.threading.withLock
 import kotlin.coroutines.Continuation
 import kotlin.coroutines.EmptyCoroutineContext
 import kotlin.coroutines.startCoroutine
@@ -23,9 +25,12 @@ import kotlinx.coroutines.withTimeoutOrNull
 class SocketIoClient internal constructor(
     val url: String,
     val options: SocketIoOptions,
-    internal val webSocketNativeImpl: WebSocketNativeImpl,
+    webSocketNativeImpl: WebSocketNativeImpl,
     val httpClient: HttpClient
 ) : Disposable {
+
+    internal var webSocketNativeImpl: WebSocketNativeImpl = webSocketNativeImpl
+        private set
 
     constructor(
         url: String,
@@ -34,7 +39,9 @@ class SocketIoClient internal constructor(
     ) : this(
         url = url,
         options = options,
-        webSocketNativeImpl = GenericUI.activeFactory?.createWebSocket() ?: DefaultWebSocketNativeImpl(),
+        webSocketNativeImpl = findMockEndpointFactory(url)?.invoke()
+            ?: GenericUI.activeFactory?.createWebSocket()
+            ?: DefaultWebSocketNativeImpl(),
         httpClient = httpClient
     )
 
@@ -68,11 +75,17 @@ class SocketIoClient internal constructor(
 
     suspend fun connect(): Boolean {
         if (isDisposed) return false
-        attachWebSocketCallbacks()
         sioConnected = false
         awaitingSocketIoConnect = false
 
         val wsUrl = buildWebSocketUrl()
+        val mockFactory = findMockEndpointFactory(url) ?: findMockEndpointFactory(wsUrl)
+        if (mockFactory != null && webSocketNativeImpl !is DefaultWebSocketNativeImpl) {
+            webSocketNativeImpl.dispose()
+            webSocketNativeImpl = mockFactory.invoke()
+        }
+        attachWebSocketCallbacks()
+
         val connected = webSocketNativeImpl.connect(wsUrl, options.headers)
         if (!connected) {
             return false
@@ -356,7 +369,48 @@ class SocketIoClient internal constructor(
     }
 
     companion object {
+        private val mockEndpointsLock = PlatformReentrantLock()
+        private val mockEndpoints = LinkedHashMap<String, () -> WebSocketNativeImpl>()
+
         fun io(url: String, options: SocketIoOptions = SocketIoOptions()): SocketIoClient =
             SocketIoClient(url = url, options = options)
+
+        fun registerMockEndpoint(
+            urlPattern: String,
+            factory: () -> WebSocketNativeImpl = { DefaultWebSocketNativeImpl() }
+        ) {
+            mockEndpointsLock.withLock {
+                mockEndpoints[urlPattern] = factory
+            }
+        }
+
+        fun unregisterMockEndpoint(urlPattern: String) {
+            mockEndpointsLock.withLock {
+                mockEndpoints.remove(urlPattern)
+            }
+        }
+
+        fun clearMockEndpoints() {
+            mockEndpointsLock.withLock {
+                mockEndpoints.clear()
+            }
+        }
+
+        internal fun findMockEndpointFactory(url: String): (() -> WebSocketNativeImpl)? {
+            return mockEndpointsLock.withLock {
+                mockEndpoints[url]
+                    ?: mockEndpoints[url.substringBefore('?')]
+                    ?: mockEndpoints.entries.firstOrNull { (pattern, _) -> matchesEndpointPattern(pattern, url) }?.value
+            }
+        }
+
+        private fun matchesEndpointPattern(pattern: String, url: String): Boolean {
+            if (pattern == "*" || pattern == url) return true
+            if (pattern.endsWith("*")) {
+                val prefix = pattern.removeSuffix("*")
+                return url.startsWith(prefix)
+            }
+            return false
+        }
     }
 }

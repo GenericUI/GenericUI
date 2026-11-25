@@ -20,7 +20,7 @@ The `:idea-plugin` module (`idea-plugin/`) provides an IntelliJ IDEA integration
    - Generates `bootstrap { ... }` / `style { ... }` builders when `dsl()` (`:extensions:ui:dsl`) is checked, or `getBootstrap().apply { ... }` / `getStyle().apply { ... }` accessors otherwise.
    - No manual platform source sets or per-backend `main()` files are generated; the Gradle plugin generates all 9 platform launchers in `build/generated/genericui/` at build time.
 2. **Interactive Target Backend Checkboxes (`GenericUiTargetCheckboxPanel` & `GenericUiTargetBackend`)**:
-   - **Desktop Targets**: Windows (`windows`), macOS (`macos`), Linux GTK4 (`gtk`), Linux Qt6 (`qt`), and Java Swing (`swing`, with sub-checkboxes for LWJGL OpenGL ES & Vulkan).
+   - **Desktop Targets**: Windows (`windows`), macOS (`macos`), Linux GTK4 (`gtk`), Linux KDE (`kde`), and Java Swing (`swing`, with sub-checkboxes for LWJGL OpenGL ES & Vulkan).
    - **Mobile Targets**: Android (`android`), iOS (`ios` — iPhone), and **iPadOS (`ipados` — iPad)**.
    - **Web Targets**: Web (`web` — dual Kotlin/Wasm primary + Kotlin/JS IR fallback).
    - **Quick-Select Preset Buttons**: `"All Except Swing"`, `"Desktop Only (No Swing)"`, `"Mobile Only"`, `"Apple Only"`, `"Select All"`, `"Clear All"`.

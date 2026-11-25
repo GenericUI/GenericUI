@@ -5,8 +5,6 @@ import com.nexustools.genericui.component.layout.Container
 import com.nexustools.genericui.component.layout.VStack
 import com.nexustools.genericui.enums.bootstrap.BootstrapSize
 import com.nexustools.genericui.enums.bootstrap.BootstrapType
-import com.nexustools.genericui.enums.bootstrap.OverflowBehavior
-import com.nexustools.genericui.enums.bootstrap.PositionMode
 import com.nexustools.genericui.enums.bootstrap.TextAlignment
 
 /**
@@ -26,17 +24,9 @@ open class StepScrollView(
         textAlignment = TextAlignment.CENTER
     }
 
-    val viewport: Container = Container("div", "viewport w-100").apply {
-        overflowBehavior = OverflowBehavior.HIDDEN
-        positionMode = PositionMode.RELATIVE
-        transition = "height .5s ease"
-    }
+    val viewport: Container = Container("div", "viewport w-100")
 
-    val contentTable: Container = Container("table", "w-100").apply {
-        positionMode = PositionMode.RELATIVE
-        transition = "top .5s ease"
-        topOffset = "0px"
-    }
+    val contentTable: Container = Container("table", "step-scroll-content w-100")
 
     val downButton: Button = Button("▼", BootstrapType.SECONDARY, BootstrapSize.SM).apply {
         addClass("selectitemdown")

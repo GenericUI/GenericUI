@@ -5,18 +5,21 @@ import kotlin.concurrent.atomics.ExperimentalAtomicApi
 import kotlin.math.PI
 import kotlin.math.ceil
 import kotlin.math.cos
+import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
 import kotlin.math.sin
+import kotlin.math.sqrt
 
 /**
- * High-throughput, zero-steady-state-allocation CPU backdrop filter kernel.
+ * High-throughput, zero-steady-state-allocation CPU backdrop and foreground filter kernel.
  *
  * Uses a lock-free multi-slot scratch buffer pool (`AtomicReference` ring) to eliminate per-frame
  * heap allocations, together with multi-stage `1/2` and `1/4` bilinear downsampling + 3-pass
  * sliding-window separable Gaussian-approximated box blur for radii `>= 4px` (and full-resolution
- * 3-pass separable blur for small radii `< 4px`).
+ * 3-pass separable blur for small radii `< 4px`), plus full `drop-shadow(...)` alpha-mask blur,
+ * offset, tint, and source-over compositing.
  */
 @OptIn(ExperimentalAtomicApi::class)
 object FastBackdropBlurKernel {
@@ -40,6 +43,8 @@ object FastBackdropBlurKernel {
         var tmpG = FloatArray(0)
         var tmpB = FloatArray(0)
         var tmpA = FloatArray(0)
+        var shadowAlphaBuf = FloatArray(0)
+        var shadowTmpBuf = FloatArray(0)
 
         private var halfCap = 0
         var hR = FloatArray(0)
@@ -61,6 +66,46 @@ object FastBackdropBlurKernel {
         var qTmpB = FloatArray(0)
         var qTmpA = FloatArray(0)
 
+        private var qIntCap = 0
+        var qIR = IntArray(0)
+        var qIG = IntArray(0)
+        var qIB = IntArray(0)
+        var qIA = IntArray(0)
+        var qTmpIR = IntArray(0)
+        var qTmpIG = IntArray(0)
+        var qTmpIB = IntArray(0)
+        var qTmpIA = IntArray(0)
+        var qPacked = LongArray(0)
+
+        private var upsampleLutCap = 0
+        var upX0 = IntArray(0)
+        var upX1 = IntArray(0)
+        var upWx = IntArray(0)
+
+        fun ensureQuarterInt(size: Int) {
+            if (size <= qIntCap) return
+            val next = nextCapacity(qIntCap, size)
+            qIntCap = next
+            qIR = IntArray(next)
+            qIG = IntArray(next)
+            qIB = IntArray(next)
+            qIA = IntArray(next)
+            qTmpIR = IntArray(next)
+            qTmpIG = IntArray(next)
+            qTmpIB = IntArray(next)
+            qTmpIA = IntArray(next)
+            qPacked = LongArray(next)
+        }
+
+        fun ensureUpsampleLut(width: Int) {
+            if (width <= upsampleLutCap) return
+            val next = nextCapacity(upsampleLutCap, width)
+            upsampleLutCap = next
+            upX0 = IntArray(next)
+            upX1 = IntArray(next)
+            upWx = IntArray(next)
+        }
+
         fun ensureFull(size: Int) {
             if (size <= fullCap) return
             val next = nextCapacity(fullCap, size)
@@ -73,6 +118,8 @@ object FastBackdropBlurKernel {
             tmpG = FloatArray(next)
             tmpB = FloatArray(next)
             tmpA = FloatArray(next)
+            shadowAlphaBuf = FloatArray(next)
+            shadowTmpBuf = FloatArray(next)
         }
 
         fun ensureHalf(size: Int) {
@@ -140,9 +187,71 @@ object FastBackdropBlurKernel {
         regionWidth: Int,
         regionHeight: Int,
         cornerRadiusPx: Float = 0f
+    ): Boolean = applyBackdropToRegionInternal(
+        filter = filter,
+        pixels = argbPixels,
+        strideWords = bufferWidth,
+        bufferWidth = bufferWidth,
+        bufferHeight = bufferHeight,
+        regionX = regionX,
+        regionY = regionY,
+        regionWidth = regionWidth,
+        regionHeight = regionHeight,
+        cornerRadiusPx = cornerRadiusPx,
+        componentOpacity = 1f,
+        premultiplied = false
+    )
+
+    /**
+     * Applies [filter] in-place onto a rectangular (optionally rounded) region of a little-endian
+     * premultiplied `BGRA_8888` (`0xAARRGGBB` 32-bit int words) framebuffer with [strideWords] words
+     * per row and optional [componentOpacity] blending, using zero steady-state allocations.
+     */
+    fun applyBackdropToPremulBgraRegion(
+        filter: CssFilter,
+        pixels: IntArray,
+        strideWords: Int,
+        bufferWidth: Int,
+        bufferHeight: Int,
+        regionX: Int,
+        regionY: Int,
+        regionWidth: Int,
+        regionHeight: Int,
+        cornerRadiusPx: Float = 0f,
+        componentOpacity: Float = 1f
+    ): Boolean = applyBackdropToRegionInternal(
+        filter = filter,
+        pixels = pixels,
+        strideWords = strideWords,
+        bufferWidth = bufferWidth,
+        bufferHeight = bufferHeight,
+        regionX = regionX,
+        regionY = regionY,
+        regionWidth = regionWidth,
+        regionHeight = regionHeight,
+        cornerRadiusPx = cornerRadiusPx,
+        componentOpacity = componentOpacity,
+        premultiplied = true
+    )
+
+    private fun applyBackdropToRegionInternal(
+        filter: CssFilter,
+        pixels: IntArray,
+        strideWords: Int,
+        bufferWidth: Int,
+        bufferHeight: Int,
+        regionX: Int,
+        regionY: Int,
+        regionWidth: Int,
+        regionHeight: Int,
+        cornerRadiusPx: Float,
+        componentOpacity: Float,
+        premultiplied: Boolean
     ): Boolean {
-        if (!filter.hasActiveEffects || bufferWidth <= 0 || bufferHeight <= 0) return false
-        if (argbPixels.size < bufferWidth * bufferHeight) return false
+        if (!filter.hasActiveEffects || bufferWidth <= 0 || bufferHeight <= 0 || strideWords < bufferWidth) return false
+        val effectiveOpacity = componentOpacity.coerceIn(0f, 1f)
+        if (effectiveOpacity <= 0.004f) return false
+        if (pixels.size < (bufferHeight - 1) * strideWords + bufferWidth) return false
 
         val x0 = regionX.coerceIn(0, bufferWidth)
         val y0 = regionY.coerceIn(0, bufferHeight)
@@ -155,13 +264,15 @@ object FastBackdropBlurKernel {
         val effectiveRadius = cornerRadiusPx.coerceIn(0f, min(regionWidth, regionHeight) * 0.5f)
         val checkRounded = effectiveRadius > 0.5f
         val blurPx = if (filter.hasBlur) (filter.blur?.resolvePx() ?: 0f).coerceIn(0f, MAX_BLUR_RADIUS_PX) else 0f
+        val shadow = filter.dropShadow?.takeIf { filter.hasDropShadow }
+        val op255 = (effectiveOpacity * 255f + 0.5f).toInt().coerceIn(0, 255)
 
-        // Pure color filter with no blur needs no neighbor capture or scratch buffers.
-        if (blurPx <= 0f) {
-            applyPixelOpsInPlaceArgbRegion(
+        // Pure color filter with no blur and no drop-shadow needs no neighbor capture or scratch buffers.
+        if (blurPx <= 0f && shadow == null) {
+            applyPixelOpsInPlaceRegion(
                 filter = filter,
-                argbPixels = argbPixels,
-                bufferWidth = bufferWidth,
+                pixels = pixels,
+                strideWords = strideWords,
                 x0 = x0,
                 y0 = y0,
                 x1 = x1,
@@ -171,19 +282,55 @@ object FastBackdropBlurKernel {
                 regionWidth = regionWidth,
                 regionHeight = regionHeight,
                 effectiveRadius = effectiveRadius,
-                checkRounded = checkRounded
+                checkRounded = checkRounded,
+                op255 = op255,
+                premultiplied = premultiplied
             )
             return true
         }
 
-        val pad = ceil(blurPx * 1.5f).toInt().coerceIn(1, 32)
-        val capX0 = (x0 - pad).coerceAtLeast(0)
-        val capY0 = (y0 - pad).coerceAtLeast(0)
-        val capX1 = (x1 + pad).coerceAtMost(bufferWidth)
-        val capY1 = (y1 + pad).coerceAtMost(bufferHeight)
+        val blurPad = if (blurPx > 0f) ceil(blurPx * 1.5f).toInt().coerceIn(1, 32) else 0
+        val shadowBlurPx = if (shadow != null) (shadow.blurRadius.resolvePx() ?: 0f).coerceIn(0f, MAX_BLUR_RADIUS_PX) else 0f
+        val shadowOffX = shadow?.offsetX?.resolvePx() ?: 0f
+        val shadowOffY = shadow?.offsetY?.resolvePx() ?: 0f
+        val shadowBlurPad = if (shadow != null && shadowBlurPx > 0f) ceil(shadowBlurPx * 1.5f).toInt().coerceIn(1, 32) else 0
+        val padLeft = if (shadow != null) max(blurPad, shadowBlurPad + ceil(max(0f, shadowOffX)).toInt().coerceAtMost(64)) else blurPad
+        val padRight = if (shadow != null) max(blurPad, shadowBlurPad + ceil(max(0f, -shadowOffX)).toInt().coerceAtMost(64)) else blurPad
+        val padTop = if (shadow != null) max(blurPad, shadowBlurPad + ceil(max(0f, shadowOffY)).toInt().coerceAtMost(64)) else blurPad
+        val padBottom = if (shadow != null) max(blurPad, shadowBlurPad + ceil(max(0f, -shadowOffY)).toInt().coerceAtMost(64)) else blurPad
+
+        val capX0 = (x0 - padLeft).coerceAtLeast(0)
+        val capY0 = (y0 - padTop).coerceAtLeast(0)
+        val capX1 = (x1 + padRight).coerceAtMost(bufferWidth)
+        val capY1 = (y1 + padBottom).coerceAtMost(bufferHeight)
         val capW = capX1 - capX0
         val capH = capY1 - capY0
         if (capW <= 0 || capH <= 0) return false
+
+        if (premultiplied && blurPx >= DOWNSAMPLE_4X_THRESHOLD_PX && !filter.hasPixelOps && shadow == null && capW >= 16 && capH >= 16) {
+            return applyFastBlurOnlyPremulBgra4x(
+                pixels = pixels,
+                strideWords = strideWords,
+                x0 = x0,
+                y0 = y0,
+                x1 = x1,
+                y1 = y1,
+                capX0 = capX0,
+                capY0 = capY0,
+                capX1 = capX1,
+                capY1 = capY1,
+                capW = capW,
+                capH = capH,
+                regionX = regionX,
+                regionY = regionY,
+                regionWidth = regionWidth,
+                regionHeight = regionHeight,
+                effectiveRadius = effectiveRadius,
+                checkRounded = checkRounded,
+                blurPx = blurPx,
+                op255 = op255
+            )
+        }
 
         val pixelCount = capW * capH
         val scratch = acquireScratch()
@@ -195,20 +342,49 @@ object FastBackdropBlurKernel {
             val aBuf = scratch.aBuf
 
             var p = 0
-            for (y in capY0 until capY1) {
-                val rowOffset = y * bufferWidth
-                for (x in capX0 until capX1) {
-                    val px = argbPixels[rowOffset + x]
-                    val a = ((px ushr 24) and 0xFF) / 255f
-                    aBuf[p] = a
-                    rBuf[p] = ((px ushr 16) and 0xFF) * a
-                    gBuf[p] = ((px ushr 8) and 0xFF) * a
-                    bBuf[p] = (px and 0xFF) * a
-                    p++
+            if (premultiplied) {
+                for (y in capY0 until capY1) {
+                    val rowOffset = y * strideWords
+                    for (x in capX0 until capX1) {
+                        val px = pixels[rowOffset + x]
+                        aBuf[p] = ((px ushr 24) and 0xFF) / 255f
+                        rBuf[p] = ((px ushr 16) and 0xFF).toFloat()
+                        gBuf[p] = ((px ushr 8) and 0xFF).toFloat()
+                        bBuf[p] = (px and 0xFF).toFloat()
+                        p++
+                    }
+                }
+            } else {
+                for (y in capY0 until capY1) {
+                    val rowOffset = y * strideWords
+                    for (x in capX0 until capX1) {
+                        val px = pixels[rowOffset + x]
+                        val a = ((px ushr 24) and 0xFF) / 255f
+                        aBuf[p] = a
+                        rBuf[p] = ((px ushr 16) and 0xFF) * a
+                        gBuf[p] = ((px ushr 8) and 0xFF) * a
+                        bBuf[p] = (px and 0xFF) * a
+                        p++
+                    }
                 }
             }
 
-            runAdaptiveBlur(scratch, capW, capH, blurPx)
+            if (blurPx > 0f) {
+                runAdaptiveBlur(scratch, capW, capH, blurPx)
+            }
+
+            val shadowAlpha = scratch.shadowAlphaBuf
+            if (shadow != null) {
+                val filterOp = (filter.opacity ?: 1f).coerceIn(0f, 1f)
+                var sp = 0
+                while (sp < pixelCount) {
+                    shadowAlpha[sp] = (aBuf[sp].coerceIn(0f, 1f) * filterOp).coerceIn(0f, 1f)
+                    sp++
+                }
+                if (shadowBlurPx > 0f) {
+                    runAdaptiveAlphaBlur(scratch, capW, capH, shadowBlurPx, shadowAlpha, scratch.shadowTmpBuf)
+                }
+            }
 
             val hasOps = filter.hasPixelOps
             val hueDeg = filter.hueRotateDeg
@@ -217,8 +393,13 @@ object FastBackdropBlurKernel {
             val cosH = if (hasHue) cos(hueRad) else 1f
             val sinH = if (hasHue) sin(hueRad) else 0f
 
+            val scR = if (shadow != null) shadow.color.r / 255f else 0f
+            val scG = if (shadow != null) shadow.color.g / 255f else 0f
+            val scB = if (shadow != null) shadow.color.b / 255f else 0f
+            val scA = if (shadow != null) shadow.color.alphaFloat else 0f
+
             for (y in y0 until y1) {
-                val dstRow = y * bufferWidth
+                val dstRow = y * strideWords
                 val srcRow = (y - capY0) * capW
                 val localY = (y - regionY).toFloat()
                 for (x in x0 until x1) {
@@ -233,7 +414,7 @@ object FastBackdropBlurKernel {
                         continue
                     }
                     val srcIdx = srcRow + (x - capX0)
-                    var a = aBuf[srcIdx].coerceIn(0f, 1f)
+                    val a = aBuf[srcIdx].coerceIn(0f, 1f)
                     var r = 0f
                     var g = 0f
                     var b = 0f
@@ -243,15 +424,29 @@ object FastBackdropBlurKernel {
                         g = (gBuf[srcIdx] * inv255A).coerceIn(0f, 1f)
                         b = (bBuf[srcIdx] * inv255A).coerceIn(0f, 1f)
                     }
-                    if (hasOps) {
-                        val packed = applyColorOpsToNormalizedPixel(filter, r, g, b, a, hasHue, cosH, sinH)
-                        argbPixels[dstRow + x] = packed
+                    val filtWord = if (shadow != null) {
+                        val sx = (x - capX0).toFloat() - shadowOffX
+                        val sy = (y - capY0).toFloat() - shadowOffY
+                        val maskA = sampleShadowAlpha(shadowAlpha, capW, capH, sx, sy)
+                        if (hasOps) {
+                            evaluateColorOps(filter, r, g, b, a, hasHue, cosH, sinH) { fgR, fgG, fgB, fgA ->
+                                compositeShadowAndPack(fgR, fgG, fgB, fgA, maskA, scR, scG, scB, scA, premultiplied)
+                            }
+                        } else {
+                            compositeShadowAndPack(r, g, b, a, maskA, scR, scG, scB, scA, premultiplied)
+                        }
+                    } else if (hasOps) {
+                        evaluateColorOps(filter, r, g, b, a, hasHue, cosH, sinH) { fgR, fgG, fgB, fgA ->
+                            packRgbaFloats(fgR, fgG, fgB, fgA, premultiplied)
+                        }
                     } else {
-                        val ai = (a * 255f).roundToInt().coerceIn(0, 255)
-                        val ri = (r * 255f).roundToInt().coerceIn(0, 255)
-                        val gi = (g * 255f).roundToInt().coerceIn(0, 255)
-                        val bi = (b * 255f).roundToInt().coerceIn(0, 255)
-                        argbPixels[dstRow + x] = (ai shl 24) or (ri shl 16) or (gi shl 8) or bi
+                        packRgbaFloats(r, g, b, a, premultiplied)
+                    }
+
+                    pixels[dstRow + x] = if (premultiplied && op255 < 255) {
+                        blendPremulWords(pixels[dstRow + x], filtWord, op255)
+                    } else {
+                        filtWord
                     }
                 }
             }
@@ -262,17 +457,18 @@ object FastBackdropBlurKernel {
     }
 
     /**
-     * Applies blur + pixel color adjustments to an `RGBA_8888` byte array, returning a new buffer
-     * (or the original [rgbaBytes] if inactive), using pooled scratch memory for all intermediates.
+     * Applies blur + pixel color adjustments + drop-shadow to an `RGBA_8888` byte array, returning
+     * a new buffer (or the original [rgbaBytes] if inactive), using pooled scratch memory for all intermediates.
      */
     fun applyBackdropToRgbaBytes(filter: CssFilter, rgbaBytes: ByteArray, width: Int, height: Int): ByteArray {
         if (!filter.hasActiveEffects || width <= 0 || height <= 0) return rgbaBytes
         val totalBytes = width * height * 4
         if (rgbaBytes.size < totalBytes) return rgbaBytes
-        if (!filter.hasBlur) return applyColorOpsToRgbaBytes(filter, rgbaBytes, width, height)
-
-        val blurPx = (filter.blur?.resolvePx() ?: 0f).coerceIn(0f, MAX_BLUR_RADIUS_PX)
-        if (blurPx <= 0f) return applyColorOpsToRgbaBytes(filter, rgbaBytes, width, height)
+        val blurPx = if (filter.hasBlur) (filter.blur?.resolvePx() ?: 0f).coerceIn(0f, MAX_BLUR_RADIUS_PX) else 0f
+        val shadow = filter.dropShadow?.takeIf { filter.hasDropShadow }
+        if (blurPx <= 0f && shadow == null) {
+            return applyColorOpsToRgbaBytes(filter, rgbaBytes, width, height)
+        }
 
         val out = ByteArray(totalBytes)
         val pixelCount = width * height
@@ -296,7 +492,25 @@ object FastBackdropBlurKernel {
                 p++
             }
 
-            runAdaptiveBlur(scratch, width, height, blurPx)
+            if (blurPx > 0f) {
+                runAdaptiveBlur(scratch, width, height, blurPx)
+            }
+
+            val shadowAlpha = scratch.shadowAlphaBuf
+            val shadowBlurPx = if (shadow != null) (shadow.blurRadius.resolvePx() ?: 0f).coerceIn(0f, MAX_BLUR_RADIUS_PX) else 0f
+            val shadowOffX = shadow?.offsetX?.resolvePx() ?: 0f
+            val shadowOffY = shadow?.offsetY?.resolvePx() ?: 0f
+            if (shadow != null) {
+                val filterOp = (filter.opacity ?: 1f).coerceIn(0f, 1f)
+                var sp = 0
+                while (sp < pixelCount) {
+                    shadowAlpha[sp] = (aBuf[sp].coerceIn(0f, 1f) * filterOp).coerceIn(0f, 1f)
+                    sp++
+                }
+                if (shadowBlurPx > 0f) {
+                    runAdaptiveAlphaBlur(scratch, width, height, shadowBlurPx, shadowAlpha, scratch.shadowTmpBuf)
+                }
+            }
 
             val hasOps = filter.hasPixelOps
             val hueDeg = filter.hueRotateDeg
@@ -305,33 +519,54 @@ object FastBackdropBlurKernel {
             val cosH = if (hasHue) cos(hueRad) else 1f
             val sinH = if (hasHue) sin(hueRad) else 0f
 
+            val scR = if (shadow != null) shadow.color.r / 255f else 0f
+            val scG = if (shadow != null) shadow.color.g / 255f else 0f
+            val scB = if (shadow != null) shadow.color.b / 255f else 0f
+            val scA = if (shadow != null) shadow.color.alphaFloat else 0f
+
             idx = 0
             p = 0
-            while (p < pixelCount) {
-                val a = aBuf[p].coerceIn(0f, 1f)
-                var r = 0f
-                var g = 0f
-                var b = 0f
-                if (a > 0.0005f) {
-                    val inv255A = 1f / (255f * a)
-                    r = (rBuf[p] * inv255A).coerceIn(0f, 1f)
-                    g = (gBuf[p] * inv255A).coerceIn(0f, 1f)
-                    b = (bBuf[p] * inv255A).coerceIn(0f, 1f)
-                }
-                if (hasOps) {
-                    val argb = applyColorOpsToNormalizedPixel(filter, r, g, b, a, hasHue, cosH, sinH)
+            for (y in 0 until height) {
+                for (x in 0 until width) {
+                    val a = aBuf[p].coerceIn(0f, 1f)
+                    var r = 0f
+                    var g = 0f
+                    var b = 0f
+                    if (a > 0.0005f) {
+                        val inv255A = 1f / (255f * a)
+                        r = (rBuf[p] * inv255A).coerceIn(0f, 1f)
+                        g = (gBuf[p] * inv255A).coerceIn(0f, 1f)
+                        b = (bBuf[p] * inv255A).coerceIn(0f, 1f)
+                    }
+                    val argb = if (shadow != null) {
+                        val maskA = sampleShadowAlpha(
+                            shadowAlpha = shadowAlpha,
+                            w = width,
+                            h = height,
+                            sx = x.toFloat() - shadowOffX,
+                            sy = y.toFloat() - shadowOffY
+                        )
+                        if (hasOps) {
+                            evaluateColorOps(filter, r, g, b, a, hasHue, cosH, sinH) { fgR, fgG, fgB, fgA ->
+                                compositeShadowAndPack(fgR, fgG, fgB, fgA, maskA, scR, scG, scB, scA, premultiplied = false)
+                            }
+                        } else {
+                            compositeShadowAndPack(r, g, b, a, maskA, scR, scG, scB, scA, premultiplied = false)
+                        }
+                    } else if (hasOps) {
+                        evaluateColorOps(filter, r, g, b, a, hasHue, cosH, sinH) { fgR, fgG, fgB, fgA ->
+                            packRgbaFloats(fgR, fgG, fgB, fgA, premultiplied = false)
+                        }
+                    } else {
+                        packRgbaFloats(r, g, b, a, premultiplied = false)
+                    }
                     out[idx] = ((argb ushr 16) and 0xFF).toByte()
                     out[idx + 1] = ((argb ushr 8) and 0xFF).toByte()
                     out[idx + 2] = (argb and 0xFF).toByte()
                     out[idx + 3] = ((argb ushr 24) and 0xFF).toByte()
-                } else {
-                    out[idx] = (r * 255f).roundToInt().coerceIn(0, 255).toByte()
-                    out[idx + 1] = (g * 255f).roundToInt().coerceIn(0, 255).toByte()
-                    out[idx + 2] = (b * 255f).roundToInt().coerceIn(0, 255).toByte()
-                    out[idx + 3] = (a * 255f).roundToInt().coerceIn(0, 255).toByte()
+                    idx += 4
+                    p++
                 }
-                idx += 4
-                p++
             }
         } finally {
             releaseScratch(scratch)
@@ -431,7 +666,9 @@ object FastBackdropBlurKernel {
             val g = (out[i + 1].toInt() and 0xFF) / 255f
             val b = (out[i + 2].toInt() and 0xFF) / 255f
             val a = rawA / 255f
-            val argb = applyColorOpsToNormalizedPixel(filter, r, g, b, a, hasHue, cosH, sinH)
+            val argb = evaluateColorOps(filter, r, g, b, a, hasHue, cosH, sinH) { fgR, fgG, fgB, fgA ->
+                packRgbaFloats(fgR, fgG, fgB, fgA, premultiplied = false)
+            }
             out[i] = ((argb ushr 16) and 0xFF).toByte()
             out[i + 1] = ((argb ushr 8) and 0xFF).toByte()
             out[i + 2] = (argb and 0xFF).toByte()
@@ -492,6 +729,47 @@ object FastBackdropBlurKernel {
         }
     }
 
+    private fun runAdaptiveAlphaBlur(
+        scratch: ScratchBuffers,
+        width: Int,
+        height: Int,
+        radiusPx: Float,
+        buf: FloatArray,
+        tmp: FloatArray
+    ) {
+        if (radiusPx >= DOWNSAMPLE_4X_THRESHOLD_PX && width >= 16 && height >= 16) {
+            val halfW = (width + 1) ushr 1
+            val halfH = (height + 1) ushr 1
+            val qW = (halfW + 1) ushr 1
+            val qH = (halfH + 1) ushr 1
+            scratch.ensureHalf(halfW * halfH)
+            scratch.ensureQuarter(qW * qH)
+
+            downsampleBox2xSingle(buf, width, height, scratch.hA, halfW, halfH)
+            downsampleBox2xSingle(scratch.hA, halfW, halfH, scratch.qA, qW, qH)
+
+            val radii = CssFilter.boxBlurRadiiForGaussianSigma((radiusPx * 0.25f).coerceAtLeast(1f))
+            runThreePassBoxBlurSingle(scratch.qA, scratch.qTmpA, qW, qH, radii)
+
+            bilinearUpsampleSingle(scratch.qA, qW, qH, scratch.hA, halfW, halfH)
+            bilinearUpsampleSingle(scratch.hA, halfW, halfH, buf, width, height)
+        } else if (radiusPx >= DOWNSAMPLE_2X_THRESHOLD_PX && width >= 8 && height >= 8) {
+            val halfW = (width + 1) ushr 1
+            val halfH = (height + 1) ushr 1
+            scratch.ensureHalf(halfW * halfH)
+
+            downsampleBox2xSingle(buf, width, height, scratch.hA, halfW, halfH)
+
+            val radii = CssFilter.boxBlurRadiiForGaussianSigma((radiusPx * 0.5f).coerceAtLeast(1f))
+            runThreePassBoxBlurSingle(scratch.hA, scratch.hTmpA, halfW, halfH, radii)
+
+            bilinearUpsampleSingle(scratch.hA, halfW, halfH, buf, width, height)
+        } else {
+            val radii = CssFilter.boxBlurRadiiForGaussianSigma(radiusPx)
+            runThreePassBoxBlurSingle(buf, tmp, width, height, radii)
+        }
+    }
+
     private fun runThreePassBoxBlur(
         rBuf: FloatArray, gBuf: FloatArray, bBuf: FloatArray, aBuf: FloatArray,
         tmpR: FloatArray, tmpG: FloatArray, tmpB: FloatArray, tmpA: FloatArray,
@@ -510,6 +788,20 @@ object FastBackdropBlurKernel {
             boxBlurVertical(tmpG, gBuf, width, height, boxRadius)
             boxBlurVertical(tmpB, bBuf, width, height, boxRadius)
             boxBlurVertical(tmpA, aBuf, width, height, boxRadius)
+        }
+    }
+
+    private fun runThreePassBoxBlurSingle(
+        buf: FloatArray,
+        tmp: FloatArray,
+        width: Int,
+        height: Int,
+        radii: IntArray
+    ) {
+        for (boxRadius in radii) {
+            if (boxRadius <= 0) continue
+            boxBlurHorizontal(buf, tmp, width, height, boxRadius)
+            boxBlurVertical(tmp, buf, width, height, boxRadius)
         }
     }
 
@@ -580,6 +872,28 @@ object FastBackdropBlurKernel {
         }
     }
 
+    private fun downsampleBox2xSingle(
+        src: FloatArray,
+        srcW: Int,
+        srcH: Int,
+        dst: FloatArray,
+        dstW: Int,
+        dstH: Int
+    ) {
+        for (dy in 0 until dstH) {
+            val sy0 = dy shl 1
+            val sy1 = min(sy0 + 1, srcH - 1)
+            val row0 = sy0 * srcW
+            val row1 = sy1 * srcW
+            val dstRow = dy * dstW
+            for (dx in 0 until dstW) {
+                val sx0 = dx shl 1
+                val sx1 = min(sx0 + 1, srcW - 1)
+                dst[dstRow + dx] = (src[row0 + sx0] + src[row0 + sx1] + src[row1 + sx0] + src[row1 + sx1]) * 0.25f
+            }
+        }
+    }
+
     private fun bilinearUpsample(
         srcR: FloatArray, srcG: FloatArray, srcB: FloatArray, srcA: FloatArray,
         srcW: Int, srcH: Int,
@@ -623,10 +937,102 @@ object FastBackdropBlurKernel {
         }
     }
 
-    private fun applyPixelOpsInPlaceArgbRegion(
+    private fun bilinearUpsampleSingle(
+        src: FloatArray,
+        srcW: Int,
+        srcH: Int,
+        dst: FloatArray,
+        dstW: Int,
+        dstH: Int
+    ) {
+        val maxSx = (srcW - 1).toFloat()
+        val maxSy = (srcH - 1).toFloat()
+        for (y in 0 until dstH) {
+            val sy = ((y + 0.5f) * 0.5f - 0.5f).coerceIn(0f, maxSy)
+            val y0 = sy.toInt()
+            val y1 = min(y0 + 1, srcH - 1)
+            val fy = sy - y0
+            val ify = 1f - fy
+            val srcRow0 = y0 * srcW
+            val srcRow1 = y1 * srcW
+            val dstRow = y * dstW
+            for (x in 0 until dstW) {
+                val sx = ((x + 0.5f) * 0.5f - 0.5f).coerceIn(0f, maxSx)
+                val x0 = sx.toInt()
+                val x1 = min(x0 + 1, srcW - 1)
+                val fx = sx - x0
+                val ifx = 1f - fx
+                val w00 = ifx * ify
+                val w10 = fx * ify
+                val w01 = ifx * fy
+                val w11 = fx * fy
+                dst[dstRow + x] =
+                    src[srcRow0 + x0] * w00 + src[srcRow0 + x1] * w10 + src[srcRow1 + x0] * w01 + src[srcRow1 + x1] * w11
+            }
+        }
+    }
+
+    private fun sampleShadowAlpha(
+        shadowAlpha: FloatArray,
+        w: Int,
+        h: Int,
+        sx: Float,
+        sy: Float
+    ): Float {
+        val x0 = floor(sx).toInt()
+        val y0 = floor(sy).toInt()
+        val fx = sx - x0
+        val fy = sy - y0
+        val x1 = x0 + 1
+        val y1 = y0 + 1
+        val a00 = if (x0 in 0 until w && y0 in 0 until h) shadowAlpha[y0 * w + x0] else 0f
+        if (fx == 0f && fy == 0f) return a00
+        val a10 = if (x1 in 0 until w && y0 in 0 until h) shadowAlpha[y0 * w + x1] else 0f
+        val a01 = if (x0 in 0 until w && y1 in 0 until h) shadowAlpha[y1 * w + x0] else 0f
+        val a11 = if (x1 in 0 until w && y1 in 0 until h) shadowAlpha[y1 * w + x1] else 0f
+        val top = a00 + (a10 - a00) * fx
+        val bot = a01 + (a11 - a01) * fx
+        return (top + (bot - top) * fy).coerceIn(0f, 1f)
+    }
+
+    private fun compositeShadowAndPack(
+        fgR: Float,
+        fgG: Float,
+        fgB: Float,
+        fgA: Float,
+        maskA: Float,
+        scR: Float,
+        scG: Float,
+        scB: Float,
+        scA: Float,
+        premultiplied: Boolean
+    ): Int {
+        val shA = (maskA * scA).coerceIn(0f, 1f)
+        val invFgA = 1f - fgA
+        val outA = (fgA + shA * invFgA).coerceIn(0f, 1f)
+        val outRp = (fgR * fgA + scR * shA * invFgA).coerceIn(0f, 1f)
+        val outGp = (fgG * fgA + scG * shA * invFgA).coerceIn(0f, 1f)
+        val outBp = (fgB * fgA + scB * shA * invFgA).coerceIn(0f, 1f)
+        val ai = (outA * 255f).roundToInt().coerceIn(0, 255)
+        if (ai == 0) return 0
+        return if (premultiplied) {
+            val ri = (outRp * 255f).roundToInt().coerceIn(0, ai)
+            val gi = (outGp * 255f).roundToInt().coerceIn(0, ai)
+            val bi = (outBp * 255f).roundToInt().coerceIn(0, ai)
+            (ai shl 24) or (ri shl 16) or (gi shl 8) or bi
+        } else {
+            val invOutA255 = 255f / outA
+            val ri = (outRp * invOutA255).roundToInt().coerceIn(0, 255)
+            val gi = (outGp * invOutA255).roundToInt().coerceIn(0, 255)
+            val bi = (outBp * invOutA255).roundToInt().coerceIn(0, 255)
+            (ai shl 24) or (ri shl 16) or (gi shl 8) or bi
+        }
+    }
+
+    private fun applyPixelOpsInPlaceRegion(
         filter: CssFilter,
-        argbPixels: IntArray,
-        bufferWidth: Int,
+        pixels: IntArray,
+        strideWords: Int,
         x0: Int,
         y0: Int,
         x1: Int,
@@ -636,7 +1042,9 @@ object FastBackdropBlurKernel {
         regionWidth: Int,
         regionHeight: Int,
         effectiveRadius: Float,
-        checkRounded: Boolean
+        checkRounded: Boolean,
+        op255: Int,
+        premultiplied: Boolean
     ) {
         val hueDeg = filter.hueRotateDeg
         val hasHue = hueDeg != null && hueDeg != 0f
@@ -645,7 +1053,7 @@ object FastBackdropBlurKernel {
         val sinH = if (hasHue) sin(hueRad) else 0f
 
         for (y in y0 until y1) {
-            val rowOff = y * bufferWidth
+            val rowOff = y * strideWords
             val localY = (y - regionY).toFloat()
             for (x in x0 until x1) {
                 if (checkRounded && !isPointInsideRoundedRect(
@@ -658,17 +1066,78 @@ object FastBackdropBlurKernel {
                 ) {
                     continue
                 }
-                val px = argbPixels[rowOff + x]
-                val a = ((px ushr 24) and 0xFF) / 255f
-                val r = ((px ushr 16) and 0xFF) / 255f
-                val g = ((px ushr 8) and 0xFF) / 255f
-                val b = (px and 0xFF) / 255f
-                argbPixels[rowOff + x] = applyColorOpsToNormalizedPixel(filter, r, g, b, a, hasHue, cosH, sinH)
+                val px = pixels[rowOff + x]
+                val a255 = (px ushr 24) and 0xFF
+                val a = a255 / 255f
+                val r: Float
+                val g: Float
+                val b: Float
+                if (premultiplied) {
+                    if (a255 > 0) {
+                        val invPremul = 1f / a255.toFloat()
+                        r = (((px ushr 16) and 0xFF) * invPremul).coerceIn(0f, 1f)
+                        g = (((px ushr 8) and 0xFF) * invPremul).coerceIn(0f, 1f)
+                        b = ((px and 0xFF) * invPremul).coerceIn(0f, 1f)
+                    } else {
+                        r = 0f
+                        g = 0f
+                        b = 0f
+                    }
+                } else {
+                    r = ((px ushr 16) and 0xFF) / 255f
+                    g = ((px ushr 8) and 0xFF) / 255f
+                    b = (px and 0xFF) / 255f
+                }
+                val filtWord = evaluateColorOps(filter, r, g, b, a, hasHue, cosH, sinH) { fgR, fgG, fgB, fgA ->
+                    packRgbaFloats(fgR, fgG, fgB, fgA, premultiplied)
+                }
+                pixels[rowOff + x] = if (premultiplied && op255 < 255) {
+                    blendPremulWords(px, filtWord, op255)
+                } else {
+                    filtWord
+                }
             }
         }
     }
 
-    private fun applyColorOpsToNormalizedPixel(
+    private fun blendPremulWords(orig: Int, filtered: Int, op255: Int): Int {
+        val invOp = 255 - op255
+        val oa = (orig ushr 24) and 0xFF
+        val or = (orig ushr 16) and 0xFF
+        val og = (orig ushr 8) and 0xFF
+        val ob = orig and 0xFF
+        val fa = (filtered ushr 24) and 0xFF
+        val fr = (filtered ushr 16) and 0xFF
+        val fg = (filtered ushr 8) and 0xFF
+        val fb = filtered and 0xFF
+        val outA = ((oa * invOp + fa * op255 + 127) / 255).coerceIn(0, 255)
+        val outR = ((or * invOp + fr * op255 + 127) / 255).coerceIn(0, outA)
+        val outG = ((og * invOp + fg * op255 + 127) / 255).coerceIn(0, outA)
+        val outB = ((ob * invOp + fb * op255 + 127) / 255).coerceIn(0, outA)
+        return (outA shl 24) or (outR shl 16) or (outG shl 8) or outB
+    }
+
+    private fun packRgbaFloats(r: Float, g: Float, b: Float, a: Float, premultiplied: Boolean): Int {
+        val ai = (a * 255f).roundToInt().coerceIn(0, 255)
+        return if (premultiplied) {
+            if (ai == 0) {
+                0
+            } else {
+                val scale = a * 255f
+                val ri = (r * scale).roundToInt().coerceIn(0, ai)
+                val gi = (g * scale).roundToInt().coerceIn(0, ai)
+                val bi = (b * scale).roundToInt().coerceIn(0, ai)
+                (ai shl 24) or (ri shl 16) or (gi shl 8) or bi
+            }
+        } else {
+            val ri = (r * 255f).roundToInt().coerceIn(0, 255)
+            val gi = (g * 255f).roundToInt().coerceIn(0, 255)
+            val bi = (b * 255f).roundToInt().coerceIn(0, 255)
+            (ai shl 24) or (ri shl 16) or (gi shl 8) or bi
+        }
+    }
+
+    private inline fun <T> evaluateColorOps(
         filter: CssFilter,
         inR: Float,
         inG: Float,
@@ -676,8 +1145,9 @@ object FastBackdropBlurKernel {
         inA: Float,
         hasHue: Boolean,
         cosH: Float,
-        sinH: Float
-    ): Int {
+        sinH: Float,
+        onResult: (r: Float, g: Float, b: Float, a: Float) -> T
+    ): T {
         var r = inR
         var g = inG
         var b = inB
@@ -729,7 +1199,7 @@ object FastBackdropBlurKernel {
 
         val brVal = filter.brightness
         val invVal = filter.invert
-        val brightnessBeforeInvert = brVal == 0f && invVal != null && invVal != 0f
+        val brightnessBeforeInvert = brVal == 0f && invVal != null && invVal > 0f
         if (brightnessBeforeInvert) {
             val br = brVal!!.coerceAtLeast(0f)
             r = (r * br).coerceIn(0f, 1f)
@@ -764,11 +1234,7 @@ object FastBackdropBlurKernel {
             a = (a * opVal.coerceIn(0f, 1f)).coerceIn(0f, 1f)
         }
 
-        val ai = (a * 255f).roundToInt().coerceIn(0, 255)
-        val ri = (r * 255f).roundToInt().coerceIn(0, 255)
-        val gi = (g * 255f).roundToInt().coerceIn(0, 255)
-        val bi = (b * 255f).roundToInt().coerceIn(0, 255)
-        return (ai shl 24) or (ri shl 16) or (gi shl 8) or bi
+        return onResult(r, g, b, a)
     }
 
     private fun isPointInsideRoundedRect(
@@ -793,5 +1259,226 @@ object FastBackdropBlurKernel {
         val dx = px - cx
         val dy = py - cy
         return (dx * dx + dy * dy) <= (radius * radius)
+    }
+
+    private fun applyFastBlurOnlyPremulBgra4x(
+        pixels: IntArray,
+        strideWords: Int,
+        x0: Int,
+        y0: Int,
+        x1: Int,
+        y1: Int,
+        capX0: Int,
+        capY0: Int,
+        capX1: Int,
+        capY1: Int,
+        capW: Int,
+        capH: Int,
+        regionX: Int,
+        regionY: Int,
+        regionWidth: Int,
+        regionHeight: Int,
+        effectiveRadius: Float,
+        checkRounded: Boolean,
+        blurPx: Float,
+        op255: Int
+    ): Boolean {
+        val qW = ((capW + 3) ushr 2).coerceAtLeast(1)
+        val qH = ((capH + 3) ushr 2).coerceAtLeast(1)
+        val clippedW = x1 - x0
+        val scratch = acquireScratch()
+        try {
+            scratch.ensureQuarterInt(qW * qH)
+            scratch.ensureUpsampleLut(clippedW)
+
+            val qIR = scratch.qIR
+            val qIG = scratch.qIG
+            val qIB = scratch.qIB
+            val qIA = scratch.qIA
+            val qTmpR = scratch.qTmpIR
+            val qTmpG = scratch.qTmpIG
+            val qTmpB = scratch.qTmpIB
+            val qTmpA = scratch.qTmpIA
+
+            for (qy in 0 until qH) {
+                val sy0 = capY0 + (qy shl 2)
+                val sy1 = min(sy0 + 2, capY1 - 1)
+                val row0 = sy0 * strideWords
+                val row1 = sy1 * strideWords
+                val qRow = qy * qW
+                for (qx in 0 until qW) {
+                    val sx0 = capX0 + (qx shl 2)
+                    val sx1 = min(sx0 + 2, capX1 - 1)
+                    val p00 = pixels[row0 + sx0]
+                    val p10 = pixels[row0 + sx1]
+                    val p01 = pixels[row1 + sx0]
+                    val p11 = pixels[row1 + sx1]
+                    val qi = qRow + qx
+                    qIA[qi] = (((p00 ushr 24) and 0xFF) + ((p10 ushr 24) and 0xFF) + ((p01 ushr 24) and 0xFF) + ((p11 ushr 24) and 0xFF)) shl 2
+                    qIR[qi] = (((p00 ushr 16) and 0xFF) + ((p10 ushr 16) and 0xFF) + ((p01 ushr 16) and 0xFF) + ((p11 ushr 16) and 0xFF)) shl 2
+                    qIG[qi] = (((p00 ushr 8) and 0xFF) + ((p10 ushr 8) and 0xFF) + ((p01 ushr 8) and 0xFF) + ((p11 ushr 8) and 0xFF)) shl 2
+                    qIB[qi] = ((p00 and 0xFF) + (p10 and 0xFF) + (p01 and 0xFF) + (p11 and 0xFF)) shl 2
+                }
+            }
+
+            val radii = CssFilter.boxBlurRadiiForGaussianSigma((blurPx * 0.25f).coerceAtLeast(1f))
+            for (boxRadius in radii) {
+                if (boxRadius <= 0) continue
+                boxBlurHorizontalInt(qIR, qTmpR, qW, qH, boxRadius)
+                boxBlurHorizontalInt(qIG, qTmpG, qW, qH, boxRadius)
+                boxBlurHorizontalInt(qIB, qTmpB, qW, qH, boxRadius)
+                boxBlurHorizontalInt(qIA, qTmpA, qW, qH, boxRadius)
+                boxBlurVerticalInt(qTmpR, qIR, qW, qH, boxRadius)
+                boxBlurVerticalInt(qTmpG, qIG, qW, qH, boxRadius)
+                boxBlurVerticalInt(qTmpB, qIB, qW, qH, boxRadius)
+                boxBlurVerticalInt(qTmpA, qIA, qW, qH, boxRadius)
+            }
+
+            val qCount = qW * qH
+            val qPacked = scratch.qPacked
+            var qi = 0
+            while (qi < qCount) {
+                val aVal = ((qIA[qi] + 8) ushr 4).coerceIn(0, 255).toLong()
+                val rVal = ((qIR[qi] + 8) ushr 4).coerceIn(0, 255).toLong()
+                val gVal = ((qIG[qi] + 8) ushr 4).coerceIn(0, 255).toLong()
+                val bVal = ((qIB[qi] + 8) ushr 4).coerceIn(0, 255).toLong()
+                qPacked[qi] = (aVal shl 48) or (rVal shl 32) or (gVal shl 16) or bVal
+                qi++
+            }
+
+            val maxQxf16 = (qW - 1) shl 4
+            val maxQy = qH - 1
+            val upX0 = scratch.upX0
+            val upWx = scratch.upWx
+            for (lx in 0 until clippedW) {
+                val cx = (x0 + lx) - capX0
+                val qxf16 = ((cx shl 2) - 6).coerceIn(0, maxQxf16)
+                upX0[lx] = qxf16 ushr 4
+                upWx[lx] = qxf16 and 0xF
+            }
+
+            val maxQyf16 = (qH - 1) shl 4
+            val rSq = effectiveRadius * effectiveRadius
+            val rRegionH = regionHeight.toFloat()
+            val regRight = regionX + regionWidth
+            val op256 = ((op255 * 256 + 127) / 255).coerceIn(0, 256).toLong()
+            val inv256 = 256L - op256
+            val opaque = op255 >= 255
+
+            for (y in y0 until y1) {
+                val cy = y - capY0
+                val qyf16 = ((cy shl 2) - 6).coerceIn(0, maxQyf16)
+                val iy0 = qyf16 ushr 4
+                val iy1 = if (iy0 < maxQy) iy0 + 1 else iy0
+                val fy = qyf16 and 0xF
+                val ify = 16 - fy
+                val qRow0 = iy0 * qW
+                val qRow1 = iy1 * qW
+                val dstRow = y * strideWords + x0
+
+                var rowStart = 0
+                var rowEnd = clippedW
+                if (checkRounded) {
+                    val py = (y - regionY).toFloat() + 0.5f
+                    val dy = when {
+                        py < effectiveRadius -> effectiveRadius - py
+                        py > rRegionH - effectiveRadius -> py - (rRegionH - effectiveRadius)
+                        else -> 0f
+                    }
+                    if (dy > 0f) {
+                        val rem = rSq - dy * dy
+                        if (rem <= 0f) continue
+                        val maxDx = sqrt(rem)
+                        val leftClipX = (regionX + (effectiveRadius - maxDx - 0.5f).let { if (it > 0f) ceil(it).toInt() else 0 })
+                        val rightClipX = (regRight - (effectiveRadius - maxDx - 0.5f).let { if (it > 0f) floor(it).toInt() else 0 })
+                        if (leftClipX > x0) rowStart = (leftClipX - x0).coerceAtMost(clippedW)
+                        if (rightClipX < x1) rowEnd = (rightClipX - x0).coerceAtLeast(rowStart)
+                    }
+                }
+
+                var cachedIx0 = -1
+                var p00 = 0L
+                var p10 = 0L
+                var p01 = 0L
+                var p11 = 0L
+                val maxIx = qW - 1
+                val topBlend0 = qPacked[qRow0]
+                if (rowStart < rowEnd && topBlend0 >= 0L) {
+                    // Enter cached horizontal span scan across quarter-res texels
+                    for (lx in rowStart until rowEnd) {
+                        val ix0 = upX0[lx]
+                        if (ix0 != cachedIx0) {
+                            cachedIx0 = ix0
+                            val ix1 = if (ix0 < maxIx) ix0 + 1 else ix0
+                            p00 = qPacked[qRow0 + ix0]
+                            p10 = qPacked[qRow0 + ix1]
+                            p01 = qPacked[qRow1 + ix0]
+                            p11 = qPacked[qRow1 + ix1]
+                        }
+                        val fx = upWx[lx]
+                        val ifx = 16 - fx
+                        val top = p00 * ifx + p10 * fx
+                        val bot = p01 * ifx + p11 * fx
+                        val blended = ((top * ify + bot * fy + 0x0080008000800080L) ushr 8) and 0x00FF00FF00FF00FFL
+                        val finalPacked = if (opaque) {
+                            blended
+                        } else {
+                            val dst = pixels[dstRow + lx]
+                            val dstSwar = (((dst ushr 24) and 0xFF).toLong() shl 48) or
+                                (((dst ushr 16) and 0xFF).toLong() shl 32) or
+                                (((dst ushr 8) and 0xFF).toLong() shl 16) or
+                                (dst and 0xFF).toLong()
+                            ((blended * op256 + dstSwar * inv256 + 0x0080008000800080L) ushr 8) and 0x00FF00FF00FF00FFL
+                        }
+                        pixels[dstRow + lx] = (((finalPacked ushr 48) and 0xFFL).toInt() shl 24) or
+                            (((finalPacked ushr 32) and 0xFFL).toInt() shl 16) or
+                            (((finalPacked ushr 16) and 0xFFL).toInt() shl 8) or
+                            (finalPacked and 0xFFL).toInt()
+                    }
+                }
+            }
+        } finally {
+            releaseScratch(scratch)
+        }
+        return true
+    }
+
+    private fun boxBlurHorizontalInt(src: IntArray, dst: IntArray, width: Int, height: Int, radius: Int) {
+        val windowSize = radius + radius + 1
+        val invFixed = (1 shl 16) / windowSize
+        val halfFixed = 1 shl 15
+        for (y in 0 until height) {
+            val rowOff = y * width
+            var acc = src[rowOff] * (radius + 1)
+            for (dx in 1..radius) {
+                acc += src[rowOff + min(dx, width - 1)]
+            }
+            dst[rowOff] = (acc * invFixed + halfFixed) ushr 16
+            for (x in 1 until width) {
+                val addIdx = min(x + radius, width - 1)
+                val subIdx = max(x - radius - 1, 0)
+                acc += src[rowOff + addIdx] - src[rowOff + subIdx]
+                dst[rowOff + x] = (acc * invFixed + halfFixed) ushr 16
+            }
+        }
+    }
+
+    private fun boxBlurVerticalInt(src: IntArray, dst: IntArray, width: Int, height: Int, radius: Int) {
+        val windowSize = radius + radius + 1
+        val invFixed = (1 shl 16) / windowSize
+        val halfFixed = 1 shl 15
+        for (x in 0 until width) {
+            var acc = src[x] * (radius + 1)
+            for (dy in 1..radius) {
+                acc += src[min(dy, height - 1) * width + x]
+            }
+            dst[x] = (acc * invFixed + halfFixed) ushr 16
+            for (y in 1 until height) {
+                val addRow = min(y + radius, height - 1) * width
+                val subRow = max(y - radius - 1, 0) * width
+                acc += src[addRow + x] - src[subRow + x]
+                dst[y * width + x] = (acc * invFixed + halfFixed) ushr 16
+            }
+        }
     }
 }

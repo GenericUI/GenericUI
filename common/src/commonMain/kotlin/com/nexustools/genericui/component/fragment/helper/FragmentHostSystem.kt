@@ -853,11 +853,21 @@ class FragmentHostSystem(
     }
 
     fun applyStoredStyleSheetTo(fragment: Fragment) {
-        val precompiled = precompiledStyleSheet
-        val sheet = themeStyleSheet
-        when {
-            precompiled != null -> fragment.applyPrecompiledStyleSheet(precompiled, viewportWidthPx)
-            sheet != null -> fragment.applyStyleSheet(sheet, viewportWidthPx)
+        val hostApp = (fragment.application as? com.nexustools.genericui.component.shell.Application)
+            ?: com.nexustools.genericui.component.shell.Application.current
+        if (hostApp?.buildCombinedActiveStyleSheet() != null) {
+            hostApp.applyActiveStyleSheetsTo(
+                root = fragment,
+                viewportWidthPx = viewportWidthPx,
+                refreshThemeDependents = false
+            )
+        } else {
+            val precompiled = precompiledStyleSheet
+            val sheet = themeStyleSheet
+            when {
+                precompiled != null -> fragment.applyPrecompiledStyleSheet(precompiled, viewportWidthPx)
+                sheet != null -> fragment.applyStyleSheet(sheet, viewportWidthPx)
+            }
         }
         lastStyledFragment = fragment
         lastStyledBreakpointTier = resolveBreakpointTier(viewportWidthPx)
@@ -895,7 +905,8 @@ class FragmentHostSystem(
         stageLayout.onConfigurationChanged(newConfig)
         val active = currentFragment ?: return
         val nextTier = resolveBreakpointTier(nextW)
-        if (active !== lastStyledFragment || nextTier != lastStyledBreakpointTier || newConfig.themeMode != lastStyledThemeMode) {
+        val prevTheme = lastStyledThemeMode ?: newConfig.themeMode.also { lastStyledThemeMode = it }
+        if (active !== lastStyledFragment || nextTier != lastStyledBreakpointTier || newConfig.themeMode != prevTheme) {
             lastStyledThemeMode = newConfig.themeMode
             applyStoredStyleSheetTo(active)
         }
@@ -910,6 +921,10 @@ class FragmentHostSystem(
         if (widthPx > 0) {
             viewportWidthPx = widthPx
         }
+        currentFragment?.let {
+            lastStyledFragment = it
+            lastStyledBreakpointTier = resolveBreakpointTier(viewportWidthPx)
+        }
         currentFragment?.onResize(viewportWidthPx, viewportHeightPx)
     }
 
@@ -918,6 +933,10 @@ class FragmentHostSystem(
         themeStyleSheet = precompiled.styleSheet
         if (widthPx > 0) {
             viewportWidthPx = widthPx
+        }
+        currentFragment?.let {
+            lastStyledFragment = it
+            lastStyledBreakpointTier = resolveBreakpointTier(viewportWidthPx)
         }
         currentFragment?.onResize(viewportWidthPx, viewportHeightPx)
     }

@@ -11,7 +11,7 @@ import com.nexustools.genericui.util.Database
  * NodeJS `fs.promises`-like 100% asynchronous, non-blocking cross-platform OS [IFileSystem].
  *
  * Delegates all operations to the active backend's [FileSystemNativeImpl]:
- * - **Desktop (`:qt`, `:gtk`, `:windows`, `:macos`, `:swing`)**: [isAvailable] is [FileSystemAvailability.Always];
+ * - **Desktop (`:kde`, `:gtk`, `:windows`, `:macos`, `:swing`)**: [isAvailable] is [FileSystemAvailability.Always];
  *   reads and writes OS file paths asynchronously without blocking the UI thread.
  * - **Mobile (`:android`, `:ios`)**: [isAvailable] is [FileSystemAvailability.WithPermission] for external storage /
  *   Storage Access Framework / UIDocumentPicker, and [FileSystemAvailability.Always] for app-sandbox paths.

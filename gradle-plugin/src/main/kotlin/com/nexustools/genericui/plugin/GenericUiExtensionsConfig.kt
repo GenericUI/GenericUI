@@ -181,6 +181,27 @@ open class GenericUiExtensionsConfig {
         } else {
             extensionOptions.remove("serviceWorker.trayIcon")
         }
+        val macosTrayIcon = serviceWorkerConfig.macosTrayIcon?.trim().orEmpty()
+        if (macosTrayIcon.isNotEmpty()) {
+            extensionOptions["serviceWorker.macosTrayIcon"] = macosTrayIcon
+        } else {
+            extensionOptions.remove("serviceWorker.macosTrayIcon")
+        }
+        val localNetDesc = serviceWorkerConfig.macLocalNetworkUsageDescription?.trim().orEmpty()
+        if (localNetDesc.isNotEmpty()) {
+            extensionOptions["serviceWorker.macLocalNetworkUsageDescription"] = localNetDesc
+        } else {
+            extensionOptions.remove("serviceWorker.macLocalNetworkUsageDescription")
+        }
+        val bonjourServices = serviceWorkerConfig.macBonjourServices
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .distinct()
+        if (bonjourServices.isNotEmpty()) {
+            extensionOptions["serviceWorker.macBonjourServices"] = bonjourServices.joinToString(",")
+        } else {
+            extensionOptions.remove("serviceWorker.macBonjourServices")
+        }
     }
 
     /**
@@ -513,7 +534,7 @@ open class GenericUiExtensionsConfig {
                     GenericUiVariantScope.WINDOWS,
                     GenericUiVariantScope.MACOS,
                     GenericUiVariantScope.GTK,
-                    GenericUiVariantScope.QT,
+                    GenericUiVariantScope.KDE,
                     GenericUiVariantScope.LINUX_COMMON,
                     GenericUiVariantScope.NATIVE_DESKTOP_COMMON,
                     GenericUiVariantScope.DESKTOP_COMMON ->
@@ -539,7 +560,7 @@ open class GenericUiExtensionsConfig {
                     GenericUiVariantScope.WINDOWS,
                     GenericUiVariantScope.MACOS,
                     GenericUiVariantScope.GTK,
-                    GenericUiVariantScope.QT,
+                    GenericUiVariantScope.KDE,
                     GenericUiVariantScope.SWING,
                     GenericUiVariantScope.ANDROID,
                     GenericUiVariantScope.IOS,
@@ -562,7 +583,7 @@ open class GenericUiExtensionsConfig {
                     GenericUiVariantScope.WINDOWS,
                     GenericUiVariantScope.MACOS,
                     GenericUiVariantScope.GTK,
-                    GenericUiVariantScope.QT,
+                    GenericUiVariantScope.KDE,
                     GenericUiVariantScope.LINUX_COMMON,
                     GenericUiVariantScope.NATIVE_DESKTOP_COMMON,
                     GenericUiVariantScope.DESKTOP_COMMON ->
@@ -586,7 +607,7 @@ open class GenericUiExtensionsConfig {
                     GenericUiVariantScope.WINDOWS,
                     GenericUiVariantScope.MACOS,
                     GenericUiVariantScope.GTK,
-                    GenericUiVariantScope.QT,
+                    GenericUiVariantScope.KDE,
                     GenericUiVariantScope.LINUX_COMMON,
                     GenericUiVariantScope.NATIVE_DESKTOP_COMMON,
                     GenericUiVariantScope.DESKTOP_COMMON ->
@@ -610,7 +631,7 @@ open class GenericUiExtensionsConfig {
                     GenericUiVariantScope.WINDOWS,
                     GenericUiVariantScope.MACOS,
                     GenericUiVariantScope.GTK,
-                    GenericUiVariantScope.QT,
+                    GenericUiVariantScope.KDE,
                     GenericUiVariantScope.LINUX_COMMON,
                     GenericUiVariantScope.NATIVE_DESKTOP_COMMON,
                     GenericUiVariantScope.DESKTOP_COMMON ->
@@ -639,8 +660,8 @@ open class GenericUiExtensionsConfig {
                         add("com.nexustools.genericui.ext.mediacontrols.macos.MacosMediaControlsProvider.register()")
                     GenericUiVariantScope.GTK ->
                         add("com.nexustools.genericui.ext.mediacontrols.gtk.GtkMediaControlsProvider.register()")
-                    GenericUiVariantScope.QT ->
-                        add("com.nexustools.genericui.ext.mediacontrols.qt.QtMediaControlsProvider.register()")
+                    GenericUiVariantScope.KDE ->
+                        add("com.nexustools.genericui.ext.mediacontrols.kde.KdeMediaControlsProvider.register()")
                     GenericUiVariantScope.SWING ->
                         add("com.nexustools.genericui.ext.mediacontrols.swing.SwingMediaControlsProvider.register()")
                     GenericUiVariantScope.ANDROID ->
@@ -660,7 +681,7 @@ open class GenericUiExtensionsConfig {
                     GenericUiVariantScope.WINDOWS,
                     GenericUiVariantScope.MACOS,
                     GenericUiVariantScope.GTK,
-                    GenericUiVariantScope.QT,
+                    GenericUiVariantScope.KDE,
                     GenericUiVariantScope.LINUX_COMMON,
                     GenericUiVariantScope.NATIVE_DESKTOP_COMMON,
                     GenericUiVariantScope.DESKTOP_COMMON ->
@@ -688,7 +709,7 @@ open class GenericUiExtensionsConfig {
                     GenericUiVariantScope.WINDOWS,
                     GenericUiVariantScope.MACOS,
                     GenericUiVariantScope.GTK,
-                    GenericUiVariantScope.QT,
+                    GenericUiVariantScope.KDE,
                     GenericUiVariantScope.SWING,
                     GenericUiVariantScope.ANDROID,
                     GenericUiVariantScope.IOS,
@@ -714,8 +735,8 @@ open class GenericUiExtensionsConfig {
                         add("com.nexustools.genericui.ext.pip.macos.MacosPipProvider.register()")
                     GenericUiVariantScope.GTK ->
                         add("com.nexustools.genericui.ext.pip.gtk.GtkPipProvider.register()")
-                    GenericUiVariantScope.QT ->
-                        add("com.nexustools.genericui.ext.pip.qt.QtPipProvider.register()")
+                    GenericUiVariantScope.KDE ->
+                        add("com.nexustools.genericui.ext.pip.kde.KdePipProvider.register()")
                     GenericUiVariantScope.LINUX_COMMON,
                     GenericUiVariantScope.NATIVE_DESKTOP_COMMON,
                     GenericUiVariantScope.DESKTOP_COMMON ->

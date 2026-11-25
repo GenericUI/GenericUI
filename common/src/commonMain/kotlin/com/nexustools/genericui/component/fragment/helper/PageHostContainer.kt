@@ -3,6 +3,7 @@ package com.nexustools.genericui.component.fragment.helper
 import com.nexustools.genericui.component.feedback.Spinner
 import com.nexustools.genericui.component.layout.Container
 import com.nexustools.genericui.component.shell.Window
+import com.nexustools.genericui.core.NativeFactory
 import com.nexustools.genericui.enums.fragment.FragmentState
 import com.nexustools.genericui.style.css.CssStyleSheet
 import com.nexustools.genericui.style.css.PrecompiledStyleSheet
@@ -142,6 +143,35 @@ open class PageHostContainer(
     override fun applyStyleSheet(styleSheet: CssStyleSheet, viewportWidthPx: Int) {
         themeStyleSheet = styleSheet
         super.applyStyleSheet(styleSheet, viewportWidthPx)
+        if (viewportWidthPx > 0 && this.viewportWidthPx <= 0) {
+            this.viewportWidthPx = viewportWidthPx
+        }
+        activePage?.onResize(this.viewportWidthPx, this.viewportHeightPx)
+    }
+
+    override fun applyStyleSheetWalk(
+        styleSheet: CssStyleSheet,
+        viewportWidthPx: Int,
+        walkSheet: CssStyleSheet,
+        activeFactory: NativeFactory?,
+        isDark: Boolean,
+        mediaBucket: Int,
+        refOldWidthPx: Int,
+        mediaMode: Int,
+        targetClasses: Set<String>,
+        targetIds: Set<String>,
+        targetTags: Set<String>,
+        targetAncestorClasses: Set<String>,
+        targetAncestorIds: Set<String>,
+        targetAncestorTags: Set<String>,
+        inInvalidatedAncestorSubtree: Boolean
+    ) {
+        themeStyleSheet = styleSheet
+        super.applyStyleSheetWalk(
+            styleSheet, viewportWidthPx, walkSheet, activeFactory, isDark,
+            mediaBucket, refOldWidthPx, mediaMode, targetClasses, targetIds, targetTags,
+            targetAncestorClasses, targetAncestorIds, targetAncestorTags, inInvalidatedAncestorSubtree
+        )
         if (viewportWidthPx > 0 && this.viewportWidthPx <= 0) {
             this.viewportWidthPx = viewportWidthPx
         }

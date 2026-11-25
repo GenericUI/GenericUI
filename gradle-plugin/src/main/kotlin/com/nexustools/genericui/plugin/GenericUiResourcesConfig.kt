@@ -9,7 +9,7 @@ import org.gradle.api.Action
  * directories and automatically generates type-safe Kotlin `R` and `RC` objects (`1 Class Per File`)
  * alongside translated native resource bundles for Windows (`.rc`), Android (`VectorDrawable` & `values/`),
  * macOS/iOS/iPadOS (`Localizable.strings` & `Assets.xcassets`), Linux GTK4 (`gresource.xml`),
- * Linux Qt6 (`.qrc`), and Web/Swing (`genericui-resources.json` & CSS variables).
+ * Linux KDE (ELF `.rodata`), and Web/Swing (`genericui-resources.json` & CSS variables).
  */
 open class GenericUiResourcesConfig {
     /** Whether automatic `R` / `RC` resource compilation and multi-backend translation is enabled. */
@@ -32,7 +32,7 @@ open class GenericUiResourcesConfig {
         "res"
     )
 
-    /** Whether to emit native backend resource translations (`.rc`, `VectorDrawable`, `gresource.xml`, `.qrc`, `Assets.xcassets`, Web JSON). */
+    /** Whether to emit native backend resource translations (`.rc`, `VectorDrawable`, `gresource.xml`, ELF `.rodata`, `Assets.xcassets`, Web JSON). */
     var translateForAllBackends: Boolean = true
 
     /** Optional generic icon path override configured directly inside `resources { ... }`. */

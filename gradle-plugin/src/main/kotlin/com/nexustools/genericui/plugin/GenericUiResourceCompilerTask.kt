@@ -27,7 +27,7 @@ import kotlin.math.roundToInt
  *    - Windows Win32 `.rc` script, `.h` header, and staged `windows/assets/...` payloads (`windows/genericui_resources.rc`, `windows/genericui_resource_ids.h`)
  *    - Android `res/values/<name>.xml` & `res/drawable/<name>.xml` (`VectorDrawable` translated from `.svg`)
  *    - macOS / iOS `Localizable.strings` & `Assets.xcassets`
- *    - Linux GTK4 `genericui.gresource.xml` & Qt6 `genericui_resources.qrc`
+ *    - Linux GTK4 & KDE ELF `.rodata` tables (`linux/genericui_app_resources.c`)
  *    - Web / Swing `genericui-resources.json`, `genericui-resource-vars.css`, and staged `web/assets/<type>/<fileName>`
  *    - Shared module resource manifest (`manifest/genericui-module-resources.json`) with upstream module merging
  */
@@ -91,6 +91,10 @@ abstract class GenericUiResourceCompilerTask : DefaultTask() {
     @get:Input
     @get:Optional
     abstract val trayIconPath: Property<String>
+
+    @get:Input
+    @get:Optional
+    abstract val macosTrayIconPath: Property<String>
 
     @get:Input
     @get:Optional
@@ -410,7 +414,9 @@ abstract class GenericUiResourceCompilerTask : DefaultTask() {
                             recordAndroidVariant(entry, parentDir)
                         }
                     }
-                    (parentDir in setOf("styles", "style", "css", "scss", "sass") || file.parentFile == root) &&
+                    (parentDir in setOf("styles", "style", "css", "scss", "sass") ||
+                        relPath.substringBefore('/', "").lowercase() in setOf("styles", "style", "css", "scss", "sass") ||
+                        file.parentFile == root) &&
                         ext in setOf("scss", "sass", "css") && !file.name.startsWith("_") -> {
                         if (ident.isNotEmpty() && ident !in styles) {
                             val numId = (0x7f0c shl 16) or (nextStyleIdx++ and 0xFFFF)
@@ -971,9 +977,29 @@ abstract class GenericUiResourceCompilerTask : DefaultTask() {
             }
         }
         for (st in styles) {
-            appendLine(
-                "        table.registerResourceId(ResourceID(0x${st.numericId.toString(16)}, ResourceType.STYLE, ${escapeKotlinString(st.name)}, ${escapeKotlinString(st.relativePath)}))"
-            )
+            val resIdExpr = "ResourceID(0x${st.numericId.toString(16)}, ResourceType.STYLE, ${escapeKotlinString(st.name)}, ${escapeKotlinString(st.relativePath)})"
+            val text = st.textContent
+            if (text != null) {
+                val textExpr = if (text.length <= 32768) {
+                    escapeKotlinString(text)
+                } else {
+                    buildString {
+                        append("buildString { ")
+                        var offset = 0
+                        while (offset < text.length) {
+                            val end = (offset + 16384).coerceAtMost(text.length)
+                            append("append(")
+                            append(escapeKotlinString(text.substring(offset, end)))
+                            append("); ")
+                            offset = end
+                        }
+                        append("}")
+                    }
+                }
+                appendLine("        table.registerStyle($resIdExpr, $textExpr)")
+            } else {
+                appendLine("        table.registerResourceId($resIdExpr)")
+            }
         }
         appendLine("    }")
         appendLine("}")
@@ -1374,11 +1400,12 @@ object RC {
         for (st in styles) {
             val txtB64 = st.textContent?.let { Base64.getEncoder().encodeToString(it.toByteArray(Charsets.UTF_8)) } ?: ""
             val modRel = GenericUiModuleResourceManifestParser.stripScopePrefix(st.relativePath)
+            val ext = st.relativePath.substringAfterLast('.', "scss").lowercase()
             entries.add(
                 "{\"type\":\"STYLE\",\"name\":${escapeJsonString(st.name)},\"id\":${st.numericId}," +
                     "\"relativePath\":${escapeJsonString(modRel)},\"canonicalRelativePath\":${escapeJsonString(st.relativePath)}," +
                     "\"nativeResourceKey\":${escapeJsonString(st.nativeResourceKey)},\"nativeLibraryGroupId\":\"\"," +
-                    "\"textBase64\":${escapeJsonString(txtB64)}}"
+                    "\"format\":${escapeJsonString(ext)},\"textBase64\":${escapeJsonString(txtB64)},\"base64Data\":${escapeJsonString(txtB64)}}"
             )
         }
 
@@ -1620,6 +1647,26 @@ object RC {
             }
             if ("tray_icon_svg" !in payloadMap && traySource != null && traySource.extension.equals("svg", ignoreCase = true)) {
                 payloadMap["tray_icon_svg"] = traySource.readBytes()
+            }
+            val explicitMacosTraySource = resolveExistingIconFileOrNull(projDir, macosTrayIconPath.orNull)
+            if (explicitMacosTraySource != null) {
+                if ("macos_tray_icon_png" !in payloadMap) {
+                    val macTrayTmpDir = File(outDir, ".macos-tray-tmp").apply { mkdirs() }
+                    val macTrayPngFile = GenericUiDefaultIconProvider.ensurePngFromSourceOrDefault(
+                        sourceIconFile = explicitMacosTraySource,
+                        projectRootDir = projDir,
+                        outputDir = macTrayTmpDir,
+                        fileName = "macos_tray_icon.png",
+                        wrapInAppleTile = false,
+                        fullBleedSquare = false,
+                        requestedSizeOverride = 64
+                    )
+                    payloadMap["macos_tray_icon_png"] = macTrayPngFile.readBytes()
+                    macTrayTmpDir.deleteRecursively()
+                }
+                if ("macos_tray_icon_svg" !in payloadMap && explicitMacosTraySource.extension.equals("svg", ignoreCase = true)) {
+                    payloadMap["macos_tray_icon_svg"] = explicitMacosTraySource.readBytes()
+                }
             }
         }
 
@@ -2017,6 +2064,12 @@ object RC {
         appendLine("        <item name=\"android:textColorSecondary\">@color/${colorPrefix}_text_secondary</item>")
         appendLine("        <item name=\"android:statusBarColor\">@color/${colorPrefix}_primary_dark</item>")
         appendLine("        <item name=\"android:navigationBarColor\">@color/${colorPrefix}_surface</item>")
+        appendLine("    </style>")
+        appendLine("    <style name=\"Theme.GenericUI.Dialog\" parent=\"Theme.MaterialComponents.DayNight.Dialog\">")
+        appendLine("        <item name=\"windowNoTitle\">true</item>")
+        appendLine("        <item name=\"android:windowNoTitle\">true</item>")
+        appendLine("        <item name=\"android:windowIsFloating\">true</item>")
+        appendLine("        <item name=\"android:windowCloseOnTouchOutside\">true</item>")
         appendLine("    </style>")
         appendLine("</resources>")
     }

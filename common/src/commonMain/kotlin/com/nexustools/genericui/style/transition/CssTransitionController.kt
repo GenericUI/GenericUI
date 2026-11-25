@@ -1,5 +1,6 @@
 package com.nexustools.genericui.style.transition
 
+import com.nexustools.genericui.animation.Animator
 import com.nexustools.genericui.core.AbstractComponent
 import com.nexustools.genericui.core.AbstractContainer
 import com.nexustools.genericui.core.AbstractContainerNativeImpl
@@ -12,7 +13,7 @@ import kotlin.math.roundToInt
  * `background-color`) for an [AbstractComponent] or [AbstractContainer].
  *
  * - **Native Transition Processing First**: When attached to a backend whose `NativeImpl`
- *   reports `supportsNativeTransitions() == true` (`:web`, `:macos`, `:ios`, `:android`, `:gtk`, `:qt`),
+ *   reports `supportsNativeTransitions() == true` (`:web`, `:macos`, `:ios`, `:android`, `:gtk`, `:kde`),
  *   delegates transition execution to the native compositor (`runNativeTransition`) and enables
  *   native hardware layer caching (`enableHardwareLayerCache(true)`).
  * - **Window-Manager-Style Pre-Rendered Container Buffer Caching**: For [AbstractContainer] instances,
@@ -51,6 +52,11 @@ class CssTransitionController(
         private set
 
     private val activeTransitions = linkedMapOf<String, ActivePropertyTransition>()
+    private var vblankWatcherId: Int = -1
+    private var isDisposed: Boolean = false
+
+    fun hasActiveSoftwareTransition(property: String): Boolean =
+        activeTransitions[property]?.let { !it.nativeDispatched } == true
 
     var currentFrameState: ContainerAnimationFrameState = ContainerAnimationFrameState()
         private set
@@ -67,13 +73,17 @@ class CssTransitionController(
     var onTransitionFrame: ((ContainerAnimationFrameState) -> Unit)? = null
     var onTransitionFinished: (() -> Unit)? = null
 
-    fun updateTransitionCss(transitionCss: String?) {
-        specs = CssTransitionSpec.parseList(transitionCss)
+    fun updateTransitionSpecs(newSpecs: List<CssTransitionSpec>) {
+        specs = newSpecs
         owner.nativeImpl?.let { impl ->
             if (impl.supportsNativeTransitions()) {
                 impl.configureNativeTransitions(specs)
             }
         }
+    }
+
+    fun updateTransitionCss(transitionCss: String?) {
+        updateTransitionSpecs(CssTransitionSpec.parseList(transitionCss))
     }
 
     /**
@@ -214,6 +224,12 @@ class CssTransitionController(
 
         activeTransitions[transition.property] = transition
         recomputeCurrentFrameState(isInitialStart = true)
+
+        if (!isDisposed && !transition.nativeDispatched && vblankWatcherId <= 0) {
+            vblankWatcherId = Animator.watchVBlank { deltaMs, _, _ ->
+                owner.stepTransitions(deltaMs.toFloat())
+            }
+        }
     }
 
     /**
@@ -225,6 +241,7 @@ class CssTransitionController(
         if (activeTransitions.isEmpty()) return
         val safeDelta = deltaMs.coerceAtLeast(0f)
 
+        val hadSoftwareOpacity = hasActiveSoftwareTransition("opacity")
         val completedKeys = mutableListOf<String>()
         for ((key, tr) in activeTransitions) {
             tr.elapsedMs += safeDelta
@@ -234,6 +251,10 @@ class CssTransitionController(
         }
 
         recomputeCurrentFrameState(isInitialStart = false)
+
+        if (hadSoftwareOpacity) {
+            owner.applyAnimatedOpacityForTransition(currentFrameState.opacity)
+        }
 
         if (owner is AbstractContainer) {
             val composited = owner.renderCache.compositeAnimatedFrame(owner, currentFrameState)
@@ -256,15 +277,34 @@ class CssTransitionController(
      */
     fun finishAllTransitions() {
         if (activeTransitions.isEmpty()) return
+        val hadSoftwareOpacity = hasActiveSoftwareTransition("opacity")
         for (tr in activeTransitions.values) {
             tr.elapsedMs = tr.spec.delayMs + tr.spec.durationMs
         }
         recomputeCurrentFrameState(isInitialStart = false)
+        if (hadSoftwareOpacity) {
+            owner.applyAnimatedOpacityForTransition(currentFrameState.opacity)
+        }
         activeTransitions.clear()
         completeAllTransitions()
     }
 
+    fun cancelAllTransitions(disposing: Boolean = false) {
+        if (disposing) {
+            isDisposed = true
+        }
+        if (vblankWatcherId > 0) {
+            Animator.unwatchVBlank(vblankWatcherId)
+            vblankWatcherId = -1
+        }
+        activeTransitions.clear()
+    }
+
     private fun completeAllTransitions() {
+        if (vblankWatcherId > 0) {
+            Animator.unwatchVBlank(vblankWatcherId)
+            vblankWatcherId = -1
+        }
         currentFrameState = currentFrameState.copy(progress = 1.0f, isAnimating = false)
         if (owner is AbstractContainer) {
             val containerImpl = owner.nativeImpl as? AbstractContainerNativeImpl<*>

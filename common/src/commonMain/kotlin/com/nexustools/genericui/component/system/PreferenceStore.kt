@@ -13,7 +13,7 @@ import kotlin.reflect.KClass
  *
  * Accepts arbitrary objects, `data class`es, [Map]s, [Collection]s, arrays, enums, and primitives directly
  * via [put] / [save] and reconstructs them via [get] / [load] across all 8 GenericUI backends:
- * - **Windows (`:desktop:windows`) & Linux (`:desktop:gtk`, `:desktop:qt`)**: Stores each `key` in its own
+ * - **Windows (`:desktop:windows`) & Linux (`:desktop:gtk`, `:desktop:kde`)**: Stores each `key` in its own
  *   `<userConfigDir>/<appName>/<key>.bson` file encoded with [com.nexustools.genericui.util.BinaryJson].
  * - **macOS (`:desktop:macos`) & iOS (`:mobile:ios`)**: Stores each `key` in its own
  *   `<userConfigDir>/<appName>/<key>.plist` file encoded with [com.nexustools.genericui.util.BinaryPlist] (`bplist00`).

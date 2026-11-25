@@ -7,6 +7,8 @@ import com.nexustools.genericui.core.AbstractComponent
 import com.nexustools.genericui.core.GenericUI
 import com.nexustools.genericui.core.NativeFactory
 import com.nexustools.genericui.core.NativeImpl
+import com.nexustools.genericui.exception.NativeUninitializedException
+import com.nexustools.genericui.exception.ToolModalWindowsUnsupportedException
 import com.nexustools.genericui.geometry.Rect
 import com.nexustools.genericui.geometry.Size
 import com.nexustools.genericui.nativeimpl.shell.WindowNativeImpl
@@ -135,6 +137,15 @@ class PanelWindow(
             ?: attachedMainWindow?.resolveActiveFactory()
             ?: panel?.resolveActiveFactory()
             ?: GenericUI.activeFactory
+
+    override fun show(factory: NativeFactory?) {
+        val resolvedFactory = factory ?: ExplicitFactory ?: resolveActiveFactory() ?: GenericUI.activeFactory
+            ?: throw NativeUninitializedException("PanelWindow", "show")
+        if (!resolvedFactory.supportsToolModalWindows) {
+            throw ToolModalWindowsUnsupportedException(resolvedFactory.backendTarget.displayName)
+        }
+        super.show(resolvedFactory)
+    }
 
     override fun hide() {
         isVisible = false

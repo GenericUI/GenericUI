@@ -6,4 +6,5 @@ interface DropdownNativeImpl<out W> : AbstractContainerNativeImpl<W> {
     fun setLabel(label: String)
     fun setItems(items: List<Pair<String, String>>)
     fun setOnItemSelected(listener: ((String) -> Unit)?)
+    fun setOnPrimaryAction(listener: (() -> Unit)?) {}
 }

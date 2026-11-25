@@ -25,7 +25,7 @@ import com.nexustools.genericui.style.theme.SystemThemeDetector
 
 /**
  * Cross-platform styled button (`<button class="styled-btn">`) extending [Button] with consistent
- * support across all 8 backends (`:windows`, `:macos`, `:gtk`, `:qt`, `:swing`, `:android`, `:ios`, `:web`)
+ * support across all 8 backends (`:windows`, `:macos`, `:gtk`, `:kde`, `:swing`, `:android`, `:ios`, `:web`)
  * for:
  * - Solid, RGBA alpha-transparent, and linear/radial gradient backgrounds
  * - Custom borders (`borderWidthPx`, `borderStyle`, `borderColor`, `borderRadiusPx`)
@@ -516,17 +516,54 @@ open class StyledButton(
         return resolved
     }
 
+    private var visualsSyncedForImpl: StyledButtonNativeImpl<*>? = null
+    private var lastSyncedBaseVisuals: StyledVisualSpec? = null
+    private var lastSyncedHoverVisuals: StyledVisualSpec? = null
+    private var lastSyncedFocusVisuals: StyledVisualSpec? = null
+    private var lastSyncedActiveVisuals: StyledVisualSpec? = null
+    private var lastSyncedDisabledVisuals: StyledVisualSpec? = null
+
     protected fun syncVisualsToNative() {
         val impl = typedNative<StyledButtonNativeImpl<*>>() ?: return
-        impl.setBaseVisuals(resolveBaseVisualSpec())
-        impl.setHoverVisuals(resolveHoverVisualSpec())
-        impl.setFocusVisuals(resolveFocusVisualSpec())
-        impl.setActiveVisuals(resolveActiveVisualSpec())
-        impl.setDisabledVisuals(resolveDisabledVisualSpec())
+        val forceAll = visualsSyncedForImpl !== impl
+        val base = resolveBaseVisualSpec()
+        if (forceAll || base != lastSyncedBaseVisuals) {
+            lastSyncedBaseVisuals = base
+            impl.setBaseVisuals(base)
+        }
+        val hover = resolveHoverVisualSpec()
+        if (forceAll || hover != lastSyncedHoverVisuals) {
+            lastSyncedHoverVisuals = hover
+            impl.setHoverVisuals(hover)
+        }
+        val focus = resolveFocusVisualSpec()
+        if (forceAll || focus != lastSyncedFocusVisuals) {
+            lastSyncedFocusVisuals = focus
+            impl.setFocusVisuals(focus)
+        }
+        val active = resolveActiveVisualSpec()
+        if (forceAll || active != lastSyncedActiveVisuals) {
+            lastSyncedActiveVisuals = active
+            impl.setActiveVisuals(active)
+        }
+        val disabled = resolveDisabledVisualSpec()
+        if (forceAll || disabled != lastSyncedDisabledVisuals) {
+            lastSyncedDisabledVisuals = disabled
+            impl.setDisabledVisuals(disabled)
+        }
+        visualsSyncedForImpl = impl
     }
 
-    override fun applyComputedStyle(style: ComputedStyle) {
-        super.applyComputedStyle(style)
+    internal override fun onComputedStyleChanged(previous: ComputedStyle?, current: ComputedStyle) {
+        super.onComputedStyleChanged(previous, current)
+        syncVisualsToNative()
+    }
+
+    internal override fun onComponentOpacityChanged() {
+        syncVisualsToNative()
+    }
+
+    internal override fun onComponentEnabledChanged(enabled: Boolean) {
         syncVisualsToNative()
     }
 
@@ -549,6 +586,7 @@ open class StyledButton(
         factory.createStyledButton(styledClassPrefix)
 
     override fun syncStateToNative() {
+        visualsSyncedForImpl = null
         super.syncStateToNative()
         syncVisualsToNative()
     }

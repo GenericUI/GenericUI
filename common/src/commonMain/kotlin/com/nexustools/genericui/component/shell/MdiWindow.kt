@@ -99,6 +99,7 @@ open class MdiWindow(
         addClass("mdi-window-header")
         alignItems = AlignItems.CENTER
         justifyContent = JustifyContent.BETWEEN
+        minHeightPx = 36
     }
 
     val bodyContainer: Container = Container("div", "mdi-window-body")

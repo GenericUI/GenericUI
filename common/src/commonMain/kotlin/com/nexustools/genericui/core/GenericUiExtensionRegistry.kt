@@ -1,5 +1,6 @@
 package com.nexustools.genericui.core
 
+import com.nexustools.genericui.component.shell.Application
 import com.nexustools.genericui.component.shell.IApplication
 
 /**
@@ -54,6 +55,15 @@ object GenericUiExtensionRegistry {
             hook.onBeforeAppRun(app, factory)
         }
     }
+
+    fun dispatchAppEventLoopStarted(app: Application, factory: NativeFactory) {
+        for (hook in lifecycleHooks.toList()) {
+            hook.onAppEventLoopStarted(app, factory)
+        }
+    }
+
+    fun hasAnyExtensionOpenFragments(app: Application): Boolean =
+        lifecycleHooks.toList().any { it.hasOpenFragments(app) }
 
     fun dispatchAppShutdown(app: IApplication?) {
         for (hook in lifecycleHooks.toList()) {

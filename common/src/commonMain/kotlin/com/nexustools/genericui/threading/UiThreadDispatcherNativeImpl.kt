@@ -6,7 +6,7 @@ import kotlinx.coroutines.CoroutineScope
 /**
  * Backend-specific UI and Logic thread dispatcher contract (`*NativeImpl`).
  *
- * On all 7 non-Web backends (`:desktop:windows`, `:desktop:macos`, `:desktop:gtk`, `:desktop:qt`,
+ * On all 7 non-Web backends (`:desktop:windows`, `:desktop:macos`, `:desktop:gtk`, `:desktop:kde`,
  * `:desktop:swing`, `:mobile:android`, `:mobile:ios`), [isSplitThreadingEnabled] is `true`:
  * - **UI Thread**: Exclusively performs UI tree mutations, layout passes, style application, and rendering.
  * - **Logic Thread**: Executes user event callbacks (`onClick`, pointer/key handlers, timers) and application logic,

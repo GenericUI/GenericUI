@@ -4,8 +4,6 @@ import com.nexustools.genericui.component.fragment.helper.LayeredFragment
 import com.nexustools.genericui.component.lazy.LazyGrid
 import com.nexustools.genericui.component.lazy.TreeNode
 import com.nexustools.genericui.component.lazy.TreeView
-import com.nexustools.genericui.component.surface.TextBubble
-import com.nexustools.genericui.component.surface.TextBubblePointerSide
 import com.nexustools.genericui.component.typography.Text
 import com.nexustools.genericui.enums.css.CssUnit
 import com.nexustools.genericui.geometry.EdgeInsets
@@ -15,6 +13,7 @@ import com.nexustools.genericui.style.css.ComputedStyle
 import com.nexustools.genericui.style.css.CssEdgeLengths
 import com.nexustools.genericui.style.css.CssLength
 import com.nexustools.genericui.style.css.StyledVisualSpec
+import com.nexustools.genericui.style.policy.AestheticStylePolicy
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -23,14 +22,16 @@ import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
-class LayeredContainerAndTextBubbleTest {
+class LayeredContainerTest {
 
     @Test
     fun testLayeredContainerOrderingAndConstraints() {
         val container = LayeredContainer()
         assertEquals("genericui:layered-container", container.htmlTag)
         assertTrue(container.getClasses().contains("gui-layered-container"))
-        assertEquals("relative", container.getStyle().getPosition()?.cssValue)
+        assertNull(container.getStyle().getPosition(), "LayeredContainer must default to position: relative via stylesheet, not inline")
+        container.applyStyleSheet(com.nexustools.genericui.res.Resources.coreDefaultStyleSheet())
+        assertEquals("relative", container.resolveEffectiveStyle().position)
 
         val videoSurface = Box()
         val subtitleOverlay = Box()
@@ -69,18 +70,36 @@ class LayeredContainerAndTextBubbleTest {
         assertTrue(videoSurface.getClasses().contains("gui-layer-fill"))
         assertEquals("100%", videoSurface.getStyle().getWidth()?.toCssString())
         assertEquals("100%", videoSurface.getStyle().getHeight()?.toCssString())
+        assertNull(videoSurface.getStyle().getPointerEvents(), "Non-pass-through layer must not force inline pointer-events: auto")
 
-        // Updating layer constraint updates zIndex
         container.setLayerConstraint(videoSurface, LayerConstraint.fill(zIndex = 21))
         assertEquals(21, container.getLayerConstraint(videoSurface)?.zIndex)
 
-        // Removing a layer cleans up constraint tracking
         container.removeLayer(subtitleOverlay)
         assertNull(container.getLayerConstraint(subtitleOverlay))
         assertEquals(2, container.layers.size)
 
         container.clearLayers()
         assertEquals(0, container.layers.size)
+
+        val cssOverlaySheet = com.nexustools.genericui.style.css.CssStyleSheet.parse(
+            ".queue-overlay.hidden { pointer-events: none; }"
+        )
+        val queueOverlay = Box().apply {
+            addClass("queue-overlay")
+            addClass("hidden")
+        }
+        container.addLayer(queueOverlay, LayerConstraint.fill(zIndex = 5, passThroughPointerEvents = false))
+        queueOverlay.applyStyleSheet(cssOverlaySheet)
+        assertNull(queueOverlay.getStyle().getPointerEvents())
+        assertFalse(queueOverlay.pointerEventsEnabled, "CSS pointer-events: none must remain effective on non-pass-through layers")
+
+        container.setLayerConstraint(queueOverlay, LayerConstraint.fill(zIndex = 5, passThroughPointerEvents = true))
+        assertEquals("none", queueOverlay.getStyle().getPointerEvents()?.cssValue)
+        container.setLayerConstraint(queueOverlay, LayerConstraint.fill(zIndex = 5, passThroughPointerEvents = false))
+        assertNull(queueOverlay.getStyle().getPointerEvents())
+        assertFalse(queueOverlay.pointerEventsEnabled)
+        container.clearLayers()
     }
 
     @Test
@@ -108,42 +127,22 @@ class LayeredContainerAndTextBubbleTest {
     }
 
     @Test
-    fun testTextBubblePropertiesAndPointerSides() {
-        val bubble = TextBubble(
-            text = "12:34",
-            pointerSide = TextBubblePointerSide.BOTTOM,
-            pointerOffset = 0.5f,
-            pointerWidthPx = 12,
-            pointerHeightPx = 8
-        )
-
-        assertEquals("genericui:text-bubble", bubble.htmlTag)
-        assertEquals("12:34", bubble.text)
-        assertEquals("12:34", bubble.textLabel.text)
-        assertTrue(bubble.getClasses().contains("gui-text-bubble"))
-        assertTrue(bubble.getClasses().contains("gui-text-bubble-pointer-bottom"))
-        assertEquals("BOTTOM", bubble.getAttribute("pointerSide"))
-        assertEquals("0.5", bubble.getAttribute("pointerOffset"))
-        assertEquals("12", bubble.getAttribute("pointerWidthPx"))
-        assertEquals("8", bubble.getAttribute("pointerHeightPx"))
-
-        bubble.text = "01:02:03"
-        bubble.pointerSide = TextBubblePointerSide.TOP
-        bubble.pointerOffset = 1.25f // Clamped to 1.0f
-        bubble.pointerWidthPx = 14
-        bubble.pointerHeightPx = 10
-
-        assertEquals("01:02:03", bubble.textLabel.text)
-        assertTrue(bubble.getClasses().contains("gui-text-bubble-pointer-top"))
-        assertFalse(bubble.getClasses().contains("gui-text-bubble-pointer-bottom"))
-        assertEquals("TOP", bubble.getAttribute("pointerSide"))
-        assertEquals(1.0f, bubble.pointerOffset)
-        assertEquals("1.0", bubble.getAttribute("pointerOffset"))
-        assertEquals("14", bubble.getAttribute("pointerWidthPx"))
-        assertEquals("10", bubble.getAttribute("pointerHeightPx"))
-
-        bubble.pointerSide = TextBubblePointerSide.NONE
-        assertTrue(bubble.getClasses().contains("gui-text-bubble-pointer-none"))
+    fun testBlurredStyledContainerCaptionLayer() {
+        val label = Text("Hello blurred caption")
+        val captionBanner = StyledContainer().apply {
+            backgroundColor = RgbaColor(0, 0, 0, 148)
+            setBackdropBlur(12f)
+            borderRadiusPx = 8f
+            addChild(label)
+        }
+        assertTrue(AestheticStylePolicy.isStyledContainerOnly(captionBanner))
+        for (target in LayoutBackendTarget.entries) {
+            assertTrue(AestheticStylePolicy.supportsBackdropFilterBlur(captionBanner, target))
+        }
+        val spec = captionBanner.resolveVisualSpec()
+        assertEquals(12f, spec.backdropBlurPx)
+        assertEquals(148, spec.backgroundColor?.a)
+        assertEquals("Hello blurred caption", label.text)
     }
 
     @Test

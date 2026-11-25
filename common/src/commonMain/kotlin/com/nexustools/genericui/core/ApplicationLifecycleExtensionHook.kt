@@ -1,5 +1,6 @@
 package com.nexustools.genericui.core
 
+import com.nexustools.genericui.component.shell.Application
 import com.nexustools.genericui.component.shell.IApplication
 
 /**
@@ -11,5 +12,7 @@ interface ApplicationLifecycleExtensionHook {
     fun onBeforeAppPrepare(descriptor: GenericUiAppDescriptor) {}
     fun onAppPrepared(app: IApplication, descriptor: GenericUiAppDescriptor) {}
     fun onBeforeAppRun(app: IApplication, factory: NativeFactory?) {}
+    fun onAppEventLoopStarted(app: Application, factory: NativeFactory) {}
+    fun hasOpenFragments(app: Application): Boolean = false
     fun onAppShutdown(app: IApplication?) {}
 }

@@ -8,6 +8,8 @@ import com.nexustools.genericui.core.NativeFactory
 import com.nexustools.genericui.enums.ui.Orientation
 import com.nexustools.genericui.nativeimpl.lazy.LazyListNativeImpl
 import com.nexustools.genericui.threading.GenericUiThreading
+import com.nexustools.genericui.threading.PlatformReentrantLock
+import com.nexustools.genericui.threading.withLock
 
 /**
  * True virtualized lazy list component ([Orientation.VERTICAL] or [Orientation.HORIZONTAL]).
@@ -36,18 +38,30 @@ open class LazyList(
     val viewHolderPool: ViewHolderPool = ViewHolderPool()
     val viewportTracker: LazyViewportTracker = LazyViewportTracker(overscanItems)
 
+    private val lazyStateLock: PlatformReentrantLock = PlatformReentrantLock()
     private val activeHolders = linkedMapOf<Int, ViewHolder>()
     private val cachedItemHolders = linkedMapOf<Int, ViewHolder>()
     private var isRefreshingViewport: Boolean = false
+    private var lastSyncedImpl: LazyListNativeImpl<*>? = null
+    private var lastSyncedItemCount: Int = -1
+
+    internal val needsViewportSync: Boolean
+        get() = lazyStateLock.withLock {
+            val total = adapter?.getItemCount() ?: totalItemCount
+            total > 0 && (activeHolders.isEmpty() || nativeImpl == null || nativeImpl !== lastSyncedImpl)
+        }
 
     var adapter: LazyAdapter<ViewHolder>? = null
         set(value) {
-            field?.unregisterDataSetObserver(adapterObserver)
-            unloadAllVisibleItems()
-            clearCachedItemHolders()
-            field = value
-            value?.registerDataSetObserver(adapterObserver)
-            refreshLazyViewport()
+            lazyStateLock.withLock {
+                field?.unregisterDataSetObserver(adapterObserver)
+                unloadAllVisibleItems()
+                clearCachedItemHolders()
+                lastSyncedItemCount = -1
+                field = value
+                value?.registerDataSetObserver(adapterObserver)
+                refreshLazyViewport()
+            }
         }
 
     var totalItemCount: Int = 0
@@ -67,14 +81,14 @@ open class LazyList(
         private set
 
     val loadedItemIndices: Set<Int>
-        get() = activeHolders.keys.toSet()
+        get() = lazyStateLock.withLock { activeHolders.keys.toSet() }
 
     val loadedItemCount: Int
-        get() {
+        get() = lazyStateLock.withLock {
             if (activeHolders.isEmpty() && (adapter?.getItemCount() ?: totalItemCount) > 0 && !isRefreshingViewport) {
                 refreshLazyViewport()
             }
-            return activeHolders.size
+            activeHolders.size
         }
 
     private val adapterObserver: () -> Unit = {
@@ -98,16 +112,19 @@ open class LazyList(
         onUnloadItem: ((index: Int, component: AbstractComponent) -> Unit)? = null,
         initialScrollIndex: Int? = null
     ): LazyList = apply {
-        isRefreshingViewport = false
-        unloadAllVisibleItems()
-        clearCachedItemHolders()
-        this.totalItemCount = count.coerceAtLeast(0)
-        this.itemBuilder = onLoadItem
-        this.itemUnloader = onUnloadItem
-        if (initialScrollIndex != null && initialScrollIndex >= 0) {
-            scrollToIndex(initialScrollIndex)
-        } else {
-            refreshLazyViewport()
+        lazyStateLock.withLock {
+            isRefreshingViewport = false
+            unloadAllVisibleItems()
+            clearCachedItemHolders()
+            lastSyncedItemCount = -1
+            this.totalItemCount = count.coerceAtLeast(0)
+            this.itemBuilder = onLoadItem
+            this.itemUnloader = onUnloadItem
+            if (initialScrollIndex != null && initialScrollIndex >= 0) {
+                scrollToIndex(initialScrollIndex)
+            } else {
+                refreshLazyViewport()
+            }
         }
     }
 
@@ -115,7 +132,7 @@ open class LazyList(
      * Updates the current scroll position and viewport size, immediately unloading items that scrolled
      * out of view and loading items that entered the visible viewport window.
      */
-    fun onViewportChanged(scrollOffsetPx: Float, viewportExtentPx: Float): LazyViewportWindow {
+    fun onViewportChanged(scrollOffsetPx: Float, viewportExtentPx: Float): LazyViewportWindow = lazyStateLock.withLock {
         val clampedScroll = scrollOffsetPx.coerceAtLeast(0f)
         val clampedExtent = viewportExtentPx.coerceAtLeast(1f)
         val pending = pendingScrollIndex
@@ -128,46 +145,69 @@ open class LazyList(
             this.viewportExtentPx = clampedExtent
             val window = refreshLazyViewport()
             typedNative<LazyListNativeImpl<*>>()?.scrollToIndex(targetIdx)
-            return window
+            return@withLock window
         }
         if (clampedScroll > 0f) {
             pendingScrollIndex = null
         }
         this.scrollOffsetPx = clampedScroll
         this.viewportExtentPx = clampedExtent
-        return refreshLazyViewport()
+        val impl = typedNative<LazyListNativeImpl<*>>()
+        impl?.beginViewportScrollScope()
+        if (impl != null) {
+            GenericUiThreading.runOnUi { (nativeImpl as? LazyListNativeImpl<*>)?.beginViewportScrollScope() }
+        }
+        return@withLock try {
+            refreshLazyViewport()
+        } finally {
+            if (impl != null) {
+                GenericUiThreading.runOnUi { (nativeImpl as? LazyListNativeImpl<*>)?.endViewportScrollScope() }
+            }
+            impl?.endViewportScrollScope()
+        }
     }
 
     fun scrollToIndex(index: Int) {
-        val total = adapter?.getItemCount() ?: totalItemCount
-        val targetIdx = if (total > 0) index.coerceIn(0, total - 1) else index.coerceAtLeast(0)
-        pendingScrollIndex = targetIdx
-        val contextIdx = (targetIdx - 1).coerceAtLeast(0)
-        val targetOffset = (contextIdx * estimatedItemExtentPx).coerceAtLeast(0f)
-        this.scrollOffsetPx = targetOffset
-        refreshLazyViewport()
-        typedNative<LazyListNativeImpl<*>>()?.scrollToIndex(targetIdx)
+        lazyStateLock.withLock {
+            val total = adapter?.getItemCount() ?: totalItemCount
+            val targetIdx = if (total > 0) index.coerceIn(0, total - 1) else index.coerceAtLeast(0)
+            pendingScrollIndex = targetIdx
+            val contextIdx = (targetIdx - 1).coerceAtLeast(0)
+            val targetOffset = (contextIdx * estimatedItemExtentPx).coerceAtLeast(0f)
+            this.scrollOffsetPx = targetOffset
+            refreshLazyViewport()
+            typedNative<LazyListNativeImpl<*>>()?.scrollToIndex(targetIdx)
+        }
     }
 
-    fun refreshLazyViewport(): LazyViewportWindow {
-        if (isRefreshingViewport) return activeViewportWindow
+    fun refreshLazyViewport(): LazyViewportWindow = lazyStateLock.withLock {
+        if (isRefreshingViewport) return@withLock activeViewportWindow
         isRefreshingViewport = true
         try {
             val total = adapter?.getItemCount() ?: totalItemCount
+            val prevWindow = activeViewportWindow
+            var mutatedHolders = false
             val window = viewportTracker.updateViewport(
                 scrollOffsetPx = scrollOffsetPx,
                 viewportExtentPx = viewportExtentPx,
                 estimatedItemExtentPx = estimatedItemExtentPx,
                 totalItems = total,
                 columns = 1,
-                onUnloadIndex = { idx -> unloadItemAtIndex(idx) },
-                onLoadIndex = { idx -> loadItemAtIndex(idx) }
+                onUnloadIndex = { idx ->
+                    unloadItemAtIndex(idx)
+                    mutatedHolders = true
+                },
+                onLoadIndex = { idx ->
+                    loadItemAtIndex(idx)
+                    mutatedHolders = true
+                }
             )
             activeViewportWindow = window
             if (total > 0 && window.activeCount > 0 && activeHolders.size < window.activeCount) {
                 for (idx in window.firstActiveIndex..window.lastActiveIndex) {
                     if (!activeHolders.containsKey(idx)) {
                         loadItemAtIndex(idx)
+                        mutatedHolders = true
                     }
                 }
             }
@@ -187,6 +227,7 @@ open class LazyList(
                     idx++
                 }
                 if (orderChanged) {
+                    mutatedHolders = true
                     activeHolders.clear()
                     for ((k, v) in sortedEntries) {
                         activeHolders[k] = v
@@ -207,25 +248,50 @@ open class LazyList(
                     trailingSpacerPx = window.trailingSpacerPx,
                     totalContentExtentPx = window.totalContentExtentPx
                 )
-                impl.setItemCount(total) { index ->
-                    val holder = activeHolders[index] ?: bindHolderForIndex(index)
-                    holder.itemView.ensureNativeImpl()
-                        ?: (resolveActiveFactory() ?: com.nexustools.genericui.core.GenericUI.activeFactory)!!.createContainer("lazy-item")
+                val needsItemSync = impl !== lastSyncedImpl ||
+                    total != lastSyncedItemCount ||
+                    prevWindow.firstActiveIndex != window.firstActiveIndex ||
+                    prevWindow.lastActiveIndex != window.lastActiveIndex ||
+                    mutatedHolders
+                if (needsItemSync) {
+                    impl.setItemCount(total) { index ->
+                        val holder = activeHolders[index] ?: bindHolderForIndex(index)
+                        holder.itemView.ensureNativeImpl()
+                            ?: (resolveActiveFactory() ?: com.nexustools.genericui.core.GenericUI.activeFactory)!!.createContainer("lazy-item")
+                    }
+                    lastSyncedImpl = impl
+                    lastSyncedItemCount = total
                 }
                 if (scrollOffsetPx == 0f && adapter == null && itemUnloader == null && cachedItemHolders.isEmpty() && total > window.lastActiveIndex + 1) {
                     val prewarmEnd = minOf(total - 1, window.lastActiveIndex + 28)
                     prewarmOverscanHolders(window.lastActiveIndex + 1, prewarmEnd)
                 }
             }
-            return window
+            return@withLock window
         } finally {
             isRefreshingViewport = false
         }
     }
 
+    private fun resolveActiveItemCascadeSheet(): com.nexustools.genericui.style.css.CssStyleSheet? {
+        if ((resolveActiveFactory() ?: com.nexustools.genericui.core.GenericUI.activeFactory)?.isStyleSheetEngineEnabled == false) {
+            return null
+        }
+        return resolveEffectiveAncestorStyleSheet() ?: Application.current?.buildCombinedActiveStyleSheet()
+    }
+
+    protected override fun propagateInheritedFocusableToExtraChildren(ancestorAllowsFocus: Boolean) {
+        val cachedSnapshot = lazyStateLock.withLock {
+            runCatching { ArrayList(cachedItemHolders.values) }.getOrElse { emptyList() }
+        }
+        for (holder in cachedSnapshot) {
+            holder.itemView.updateInheritedFocusable(ancestorAllowsFocus)
+        }
+    }
+
     private fun prewarmOverscanHolders(startIdx: Int, endIdxInclusive: Int) {
-        val applyStyles = (resolveActiveFactory() ?: com.nexustools.genericui.core.GenericUI.activeFactory)?.isStyleSheetEngineEnabled != false
-        val sheets = if (applyStyles) Application.current?.getStyleSheets() else null
+        val effectiveSheet = resolveActiveItemCascadeSheet()
+        val vw = lastStyleSheetViewportWidthPx
         for (index in startIdx..endIdxInclusive) {
             if (activeHolders.containsKey(index) || cachedItemHolders.containsKey(index)) continue
             val view = itemBuilder?.invoke(index) ?: continue
@@ -235,11 +301,8 @@ open class LazyList(
             }
             view.setAttribute("data-lazy-index", index.toString())
             view.parent = this
-            if (applyStyles && sheets != null) {
-                for (sheet in sheets) {
-                    sheet.styleSheet.applyToTree(view)
-                }
-            }
+            view.recomputeInheritedFocusableFromParent()
+            effectiveSheet?.applyToTree(view, vw)
             view.ensureNativeImpl()
             if (cachedItemHolders.size < 64) {
                 cachedItemHolders[index] = holder
@@ -262,6 +325,7 @@ open class LazyList(
             }.getOrElse { 0 }
             activeHolders[index] = cached
             addChild(cached.itemView, insertPos)
+            cached.itemView.recomputeInheritedFocusableFromParent()
             return cached
         }
         val holder = if (currentAdapter != null) {
@@ -285,12 +349,9 @@ open class LazyList(
         }.getOrElse { 0 }
         activeHolders[index] = holder
         holder.itemView.parent = this
-        if ((resolveActiveFactory() ?: com.nexustools.genericui.core.GenericUI.activeFactory)?.isStyleSheetEngineEnabled != false) {
-            Application.current?.getStyleSheets()?.forEach { sheet ->
-                sheet.styleSheet.applyToTree(holder.itemView)
-            }
-        }
+        resolveActiveItemCascadeSheet()?.applyToTree(holder.itemView, lastStyleSheetViewportWidthPx)
         addChild(holder.itemView, insertPos)
+        holder.itemView.recomputeInheritedFocusableFromParent()
         return holder
     }
 
@@ -315,15 +376,27 @@ open class LazyList(
     }
 
     fun unloadAllVisibleItems() {
-        viewportTracker.unloadAll { idx -> unloadItemAtIndex(idx) }
-        val remaining = runCatching { ArrayList<Int?>(activeHolders.keys).filterNotNull() }.getOrElse { emptyList() }
-        for (idx in remaining) {
-            unloadItemAtIndex(idx)
+        lazyStateLock.withLock {
+            lastSyncedItemCount = -1
+            viewportTracker.unloadAll { idx -> unloadItemAtIndex(idx) }
+            val remaining = runCatching { ArrayList<Int?>(activeHolders.keys).filterNotNull() }.getOrElse { emptyList() }
+            for (idx in remaining) {
+                unloadItemAtIndex(idx)
+            }
         }
     }
 
     protected override fun createNativeImpl(factory: NativeFactory): LazyListNativeImpl<*> =
         factory.createLazyList()
+
+    protected override fun onAttachNative(impl: com.nexustools.genericui.core.NativeImpl<*>) {
+        super.onAttachNative(impl)
+        lazyStateLock.withLock {
+            if ((adapter?.getItemCount() ?: totalItemCount) > 0 && impl !== lastSyncedImpl) {
+                refreshLazyViewport()
+            }
+        }
+    }
 
     override fun resolveActiveFactory(): NativeFactory? {
         if (!isVisible) return null
@@ -334,14 +407,16 @@ open class LazyList(
     override fun ensureNativeImpl(): com.nexustools.genericui.core.NativeImpl<*>? {
         val wasAlreadyCreated = (nativeImpl != null)
         val impl = super.ensureNativeImpl() ?: return null
-        if (wasAlreadyCreated && activeHolders.isEmpty() && (adapter?.getItemCount() ?: totalItemCount) > 0) {
-            refreshLazyViewport()
-        }
-        val pending = pendingScrollIndex
-        if (pending != null) {
-            val total = adapter?.getItemCount() ?: totalItemCount
-            val targetIdx = if (total > 0) pending.coerceIn(0, total - 1) else pending.coerceAtLeast(0)
-            (impl as? LazyListNativeImpl<*>)?.scrollToIndex(targetIdx)
+        lazyStateLock.withLock {
+            if (wasAlreadyCreated && activeHolders.isEmpty() && (adapter?.getItemCount() ?: totalItemCount) > 0) {
+                refreshLazyViewport()
+            }
+            val pending = pendingScrollIndex
+            if (pending != null) {
+                val total = adapter?.getItemCount() ?: totalItemCount
+                val targetIdx = if (total > 0) pending.coerceIn(0, total - 1) else pending.coerceAtLeast(0)
+                (impl as? LazyListNativeImpl<*>)?.scrollToIndex(targetIdx)
+            }
         }
         return impl
     }
@@ -349,35 +424,40 @@ open class LazyList(
     override fun syncStateToNative() {
         super.syncStateToNative()
         val impl = typedNative<LazyListNativeImpl<*>>() ?: return
-        impl.setOrientation(orientation)
-        impl.setEstimatedItemExtent(estimatedItemExtentPx, viewportTracker.overscanItems)
-        impl.setOnViewportScrollChanged { scrollPx, extentPx ->
-            if (GenericUI.activeFactory != null &&
-                GenericUiThreading.isSplitThreadingEnabled &&
-                !GenericUiThreading.isOnLogicThread()
-            ) {
-                GenericUiThreading.runOnLogic {
-                    if (!isDisposed && !isRefreshingViewport) {
-                        onViewportChanged(scrollPx, extentPx)
+        lazyStateLock.withLock {
+            lastSyncedItemCount = -1
+            impl.setOrientation(orientation)
+            impl.setEstimatedItemExtent(estimatedItemExtentPx, viewportTracker.overscanItems)
+            impl.setOnViewportScrollChanged { scrollPx, extentPx ->
+                if (GenericUI.activeFactory != null &&
+                    GenericUiThreading.isSplitThreadingEnabled &&
+                    !GenericUiThreading.isOnLogicThread()
+                ) {
+                    GenericUiThreading.runOnLogic {
+                        if (!isDisposed && !isRefreshingViewport) {
+                            onViewportChanged(scrollPx, extentPx)
+                        }
                     }
+                } else if (!isRefreshingViewport) {
+                    onViewportChanged(scrollPx, extentPx)
                 }
-            } else if (!isRefreshingViewport) {
-                onViewportChanged(scrollPx, extentPx)
             }
-        }
-        refreshLazyViewport()
-        val pending = pendingScrollIndex
-        if (pending != null) {
-            val total = adapter?.getItemCount() ?: totalItemCount
-            val targetIdx = if (total > 0) pending.coerceIn(0, total - 1) else pending.coerceAtLeast(0)
-            impl.scrollToIndex(targetIdx)
+            refreshLazyViewport()
+            val pending = pendingScrollIndex
+            if (pending != null) {
+                val total = adapter?.getItemCount() ?: totalItemCount
+                val targetIdx = if (total > 0) pending.coerceIn(0, total - 1) else pending.coerceAtLeast(0)
+                impl.scrollToIndex(targetIdx)
+            }
         }
     }
 
     override fun dispose() {
-        unloadAllVisibleItems()
-        clearCachedItemHolders()
-        viewHolderPool.clear()
+        lazyStateLock.withLock {
+            unloadAllVisibleItems()
+            clearCachedItemHolders()
+            viewHolderPool.clear()
+        }
         super.dispose()
     }
 }

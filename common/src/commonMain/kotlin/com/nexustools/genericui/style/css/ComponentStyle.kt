@@ -173,6 +173,16 @@ class ComponentStyle(
     private var _transform: CssTransform2D? = null
     private var _transformOrigin: CssBackgroundPosition? = null
     private var _transitions: List<CssTransitionSpec>? = null
+    private var _animationRaw: String? = null
+    private var _animations: List<CssAnimationSpec>? = null
+    private var _animationName: String? = null
+    private var _animationDuration: String? = null
+    private var _animationTimingFunction: String? = null
+    private var _animationDelay: String? = null
+    private var _animationIterationCount: String? = null
+    private var _animationDirection: String? = null
+    private var _animationFillMode: String? = null
+    private var _animationPlayState: String? = null
     private var _filter: CssFilter? = null
     private var _backdropFilter: CssFilter? = null
 
@@ -207,6 +217,15 @@ class ComponentStyle(
     private fun updateImportance(property: CssProperty, present: Boolean, important: Boolean) {
         markProperty(property, present, important)
     }
+
+    private fun isUnchangedProperty(
+        property: CssProperty,
+        present: Boolean,
+        important: Boolean,
+        valuesEqual: Boolean
+    ): Boolean = valuesEqual &&
+        hasProperty(property) == present &&
+        isImportant(property) == (present && (important || defaultImportantScope))
 
     private fun notifyChanged() {
         val changedProp = lastMarkedProperty
@@ -244,6 +263,7 @@ class ComponentStyle(
      * Explicitly marks or unmarks [property] as `!important`.
      */
     fun markImportant(property: CssProperty, important: Boolean = true) {
+        if (isImportant(property) == important) return
         setImportantBit(property, important)
         if (!suppressInternalNotifications) {
             if (onPropertyChange != null) {
@@ -309,6 +329,7 @@ class ComponentStyle(
 
     fun getBackgroundColor(): RgbaColor? = _backgroundColor
     fun setBackgroundColor(color: RgbaColor?, important: Boolean = false) {
+        if (isUnchangedProperty(CssProperty.BACKGROUND_COLOR, color != null, important, _backgroundColor == color)) return
         _backgroundColor = color
         updateImportance(CssProperty.BACKGROUND_COLOR, color != null, important)
         notifyChanged()
@@ -422,6 +443,7 @@ class ComponentStyle(
 
     fun getColor(): RgbaColor? = _color
     fun setColor(color: RgbaColor?, important: Boolean = false) {
+        if (isUnchangedProperty(CssProperty.COLOR, color != null, important, _color == color)) return
         _color = color
         updateImportance(CssProperty.COLOR, color != null, important)
         notifyChanged()
@@ -464,8 +486,10 @@ class ComponentStyle(
 
     fun getOpacity(): Float? = _opacity
     fun setOpacity(opacity: Float?, important: Boolean = false) {
-        _opacity = opacity?.coerceIn(0f, 1f)
-        updateImportance(CssProperty.OPACITY, _opacity != null, important)
+        val clamped = opacity?.coerceIn(0f, 1f)
+        if (isUnchangedProperty(CssProperty.OPACITY, clamped != null, important, _opacity == clamped)) return
+        _opacity = clamped
+        updateImportance(CssProperty.OPACITY, clamped != null, important)
         notifyChanged()
     }
 
@@ -479,6 +503,7 @@ class ComponentStyle(
 
     fun getDisplay(): CssDisplay? = _display
     fun setDisplay(display: CssDisplay?, important: Boolean = false) {
+        if (isUnchangedProperty(CssProperty.DISPLAY, display != null, important, _display == display)) return
         _display = display
         updateImportance(CssProperty.DISPLAY, display != null, important)
         notifyChanged()
@@ -490,6 +515,7 @@ class ComponentStyle(
 
     fun getVisibility(): CssVisibility? = _visibility
     fun setVisibility(visibility: CssVisibility?, important: Boolean = false) {
+        if (isUnchangedProperty(CssProperty.VISIBILITY, visibility != null, important, _visibility == visibility)) return
         _visibility = visibility
         updateImportance(CssProperty.VISIBILITY, visibility != null, important)
         notifyChanged()
@@ -501,6 +527,7 @@ class ComponentStyle(
 
     fun getPosition(): CssPosition? = _position
     fun setPosition(position: CssPosition?, important: Boolean = false) {
+        if (isUnchangedProperty(CssProperty.POSITION, position != null, important, _position == position)) return
         _position = position
         updateImportance(CssProperty.POSITION, position != null, important)
         notifyChanged()
@@ -512,6 +539,7 @@ class ComponentStyle(
 
     fun getTop(): CssLength? = _top
     fun setTop(top: CssLength?, important: Boolean = false) {
+        if (isUnchangedProperty(CssProperty.TOP, top != null, important, _top == top)) return
         _top = top
         updateImportance(CssProperty.TOP, top != null, important)
         notifyChanged()
@@ -523,6 +551,7 @@ class ComponentStyle(
 
     fun getRight(): CssLength? = _right
     fun setRight(right: CssLength?, important: Boolean = false) {
+        if (isUnchangedProperty(CssProperty.RIGHT, right != null, important, _right == right)) return
         _right = right
         updateImportance(CssProperty.RIGHT, right != null, important)
         notifyChanged()
@@ -534,6 +563,7 @@ class ComponentStyle(
 
     fun getBottom(): CssLength? = _bottom
     fun setBottom(bottom: CssLength?, important: Boolean = false) {
+        if (isUnchangedProperty(CssProperty.BOTTOM, bottom != null, important, _bottom == bottom)) return
         _bottom = bottom
         updateImportance(CssProperty.BOTTOM, bottom != null, important)
         notifyChanged()
@@ -545,6 +575,7 @@ class ComponentStyle(
 
     fun getLeft(): CssLength? = _left
     fun setLeft(left: CssLength?, important: Boolean = false) {
+        if (isUnchangedProperty(CssProperty.LEFT, left != null, important, _left == left)) return
         _left = left
         updateImportance(CssProperty.LEFT, left != null, important)
         notifyChanged()
@@ -556,6 +587,7 @@ class ComponentStyle(
 
     fun getWidth(): CssLength? = _width
     fun setWidth(width: CssLength?, important: Boolean = false) {
+        if (isUnchangedProperty(CssProperty.WIDTH, width != null, important, _width == width)) return
         _width = width
         updateImportance(CssProperty.WIDTH, width != null, important)
         notifyChanged()
@@ -569,6 +601,7 @@ class ComponentStyle(
 
     fun getHeight(): CssLength? = _height
     fun setHeight(height: CssLength?, important: Boolean = false) {
+        if (isUnchangedProperty(CssProperty.HEIGHT, height != null, important, _height == height)) return
         _height = height
         updateImportance(CssProperty.HEIGHT, height != null, important)
         notifyChanged()
@@ -582,6 +615,7 @@ class ComponentStyle(
 
     fun getMinWidth(): CssLength? = _minWidth
     fun setMinWidth(minWidth: CssLength?, important: Boolean = false) {
+        if (isUnchangedProperty(CssProperty.MIN_WIDTH, minWidth != null, important, _minWidth == minWidth)) return
         _minWidth = minWidth
         updateImportance(CssProperty.MIN_WIDTH, minWidth != null, important)
         notifyChanged()
@@ -594,6 +628,7 @@ class ComponentStyle(
 
     fun getMinHeight(): CssLength? = _minHeight
     fun setMinHeight(minHeight: CssLength?, important: Boolean = false) {
+        if (isUnchangedProperty(CssProperty.MIN_HEIGHT, minHeight != null, important, _minHeight == minHeight)) return
         _minHeight = minHeight
         updateImportance(CssProperty.MIN_HEIGHT, minHeight != null, important)
         notifyChanged()
@@ -606,6 +641,7 @@ class ComponentStyle(
 
     fun getMaxWidth(): CssLength? = _maxWidth
     fun setMaxWidth(maxWidth: CssLength?, important: Boolean = false) {
+        if (isUnchangedProperty(CssProperty.MAX_WIDTH, maxWidth != null, important, _maxWidth == maxWidth)) return
         _maxWidth = maxWidth
         updateImportance(CssProperty.MAX_WIDTH, maxWidth != null, important)
         notifyChanged()
@@ -618,6 +654,7 @@ class ComponentStyle(
 
     fun getMaxHeight(): CssLength? = _maxHeight
     fun setMaxHeight(maxHeight: CssLength?, important: Boolean = false) {
+        if (isUnchangedProperty(CssProperty.MAX_HEIGHT, maxHeight != null, important, _maxHeight == maxHeight)) return
         _maxHeight = maxHeight
         updateImportance(CssProperty.MAX_HEIGHT, maxHeight != null, important)
         notifyChanged()
@@ -1380,6 +1417,7 @@ class ComponentStyle(
 
     fun getPointerEvents(): CssPointerEvents? = _pointerEvents
     fun setPointerEvents(pointerEvents: CssPointerEvents?, important: Boolean = false) {
+        if (isUnchangedProperty(CssProperty.POINTER_EVENTS, pointerEvents != null, important, _pointerEvents == pointerEvents)) return
         _pointerEvents = pointerEvents
         updateImportance(CssProperty.POINTER_EVENTS, pointerEvents != null, important)
         notifyChanged()
@@ -1424,6 +1462,7 @@ class ComponentStyle(
 
     fun getZIndex(): Int? = _zIndex
     fun setZIndex(zIndex: Int?, important: Boolean = false) {
+        if (isUnchangedProperty(CssProperty.Z_INDEX, zIndex != null, important, _zIndex == zIndex)) return
         _zIndex = zIndex
         updateImportance(CssProperty.Z_INDEX, zIndex != null, important)
         notifyChanged()
@@ -1435,9 +1474,14 @@ class ComponentStyle(
 
     fun getTransform(): CssTransform2D? = _transform
     fun setTransform(transform: CssTransform2D?, important: Boolean = false) {
+        if (isUnchangedProperty(CssProperty.TRANSFORM, transform != null, important, _transform == transform)) return
         _transform = transform
         updateImportance(CssProperty.TRANSFORM, transform != null, important)
         notifyChanged()
+    }
+
+    fun setTransform(transform: CssTransform, important: Boolean = false) {
+        setTransform(transform.toTransform2D(), important)
     }
 
     var transform: CssTransform2D?
@@ -1465,6 +1509,87 @@ class ComponentStyle(
     var transitions: List<CssTransitionSpec>?
         @JvmName("obtainTransitions") get() = _transitions
         @JvmName("assignTransitions") set(value) = setTransitions(value)
+
+    fun getAnimation(): String? = _animationRaw
+    fun setAnimation(animation: String?, important: Boolean = false) {
+        val trimmed = animation?.trim()?.takeIf { it.isNotEmpty() }
+        _animationRaw = trimmed
+        _animations = trimmed?.let { CssAnimationSpec.parseList(it) }?.takeIf { it.isNotEmpty() }
+        updateImportance(CssProperty.ANIMATION, trimmed != null, important)
+        notifyChanged()
+    }
+
+    var animation: String?
+        @JvmName("obtainAnimation") get() = _animationRaw
+        @JvmName("assignAnimation") set(value) = setAnimation(value)
+
+    fun getAnimations(): List<CssAnimationSpec>? = _animations
+    fun setAnimations(animations: List<CssAnimationSpec>?, important: Boolean = false) {
+        _animations = animations?.takeIf { it.isNotEmpty() }
+        _animationRaw = _animations?.joinToString(", ") { it.toCssString() }
+        updateImportance(CssProperty.ANIMATION, _animations != null, important)
+        notifyChanged()
+    }
+
+    var animations: List<CssAnimationSpec>?
+        @JvmName("obtainAnimations") get() = _animations
+        @JvmName("assignAnimations") set(value) = setAnimations(value)
+
+    fun getAnimationName(): String? = _animationName
+    fun setAnimationName(name: String?, important: Boolean = false) {
+        _animationName = name?.trim()?.takeIf { it.isNotEmpty() }
+        updateImportance(CssProperty.ANIMATION_NAME, _animationName != null, important)
+        notifyChanged()
+    }
+
+    fun getAnimationDuration(): String? = _animationDuration
+    fun setAnimationDuration(duration: String?, important: Boolean = false) {
+        _animationDuration = duration?.trim()?.takeIf { it.isNotEmpty() }
+        updateImportance(CssProperty.ANIMATION_DURATION, _animationDuration != null, important)
+        notifyChanged()
+    }
+
+    fun getAnimationTimingFunction(): String? = _animationTimingFunction
+    fun setAnimationTimingFunction(timingFunction: String?, important: Boolean = false) {
+        _animationTimingFunction = timingFunction?.trim()?.takeIf { it.isNotEmpty() }
+        updateImportance(CssProperty.ANIMATION_TIMING_FUNCTION, _animationTimingFunction != null, important)
+        notifyChanged()
+    }
+
+    fun getAnimationDelay(): String? = _animationDelay
+    fun setAnimationDelay(delay: String?, important: Boolean = false) {
+        _animationDelay = delay?.trim()?.takeIf { it.isNotEmpty() }
+        updateImportance(CssProperty.ANIMATION_DELAY, _animationDelay != null, important)
+        notifyChanged()
+    }
+
+    fun getAnimationIterationCount(): String? = _animationIterationCount
+    fun setAnimationIterationCount(count: String?, important: Boolean = false) {
+        _animationIterationCount = count?.trim()?.takeIf { it.isNotEmpty() }
+        updateImportance(CssProperty.ANIMATION_ITERATION_COUNT, _animationIterationCount != null, important)
+        notifyChanged()
+    }
+
+    fun getAnimationDirection(): String? = _animationDirection
+    fun setAnimationDirection(direction: String?, important: Boolean = false) {
+        _animationDirection = direction?.trim()?.takeIf { it.isNotEmpty() }
+        updateImportance(CssProperty.ANIMATION_DIRECTION, _animationDirection != null, important)
+        notifyChanged()
+    }
+
+    fun getAnimationFillMode(): String? = _animationFillMode
+    fun setAnimationFillMode(fillMode: String?, important: Boolean = false) {
+        _animationFillMode = fillMode?.trim()?.takeIf { it.isNotEmpty() }
+        updateImportance(CssProperty.ANIMATION_FILL_MODE, _animationFillMode != null, important)
+        notifyChanged()
+    }
+
+    fun getAnimationPlayState(): String? = _animationPlayState
+    fun setAnimationPlayState(playState: String?, important: Boolean = false) {
+        _animationPlayState = playState?.trim()?.takeIf { it.isNotEmpty() }
+        updateImportance(CssProperty.ANIMATION_PLAY_STATE, _animationPlayState != null, important)
+        notifyChanged()
+    }
 
     fun getFilter(): CssFilter? = _filter
     fun setFilter(filter: CssFilter?, important: Boolean = false) {
@@ -1592,6 +1717,16 @@ class ComponentStyle(
             _transform = null
             _transformOrigin = null
             _transitions = null
+            _animationRaw = null
+            _animations = null
+            _animationName = null
+            _animationDuration = null
+            _animationTimingFunction = null
+            _animationDelay = null
+            _animationIterationCount = null
+            _animationDirection = null
+            _animationFillMode = null
+            _animationPlayState = null
             _filter = null
             _backdropFilter = null
         } finally {
@@ -1705,6 +1840,16 @@ class ComponentStyle(
             _transform = other._transform
             _transformOrigin = other._transformOrigin
             _transitions = other._transitions
+            _animationRaw = other._animationRaw
+            _animations = other._animations
+            _animationName = other._animationName
+            _animationDuration = other._animationDuration
+            _animationTimingFunction = other._animationTimingFunction
+            _animationDelay = other._animationDelay
+            _animationIterationCount = other._animationIterationCount
+            _animationDirection = other._animationDirection
+            _animationFillMode = other._animationFillMode
+            _animationPlayState = other._animationPlayState
             _filter = other._filter
             _backdropFilter = other._backdropFilter
         } finally {
@@ -1838,6 +1983,15 @@ class ComponentStyle(
             if (canOverride(CssProperty.TRANSFORM)) { _transform = other._transform; applyImp(CssProperty.TRANSFORM) }
             if (canOverride(CssProperty.TRANSFORM_ORIGIN)) { _transformOrigin = other._transformOrigin; applyImp(CssProperty.TRANSFORM_ORIGIN) }
             if (canOverride(CssProperty.TRANSITION)) { _transitions = other._transitions; applyImp(CssProperty.TRANSITION) }
+            if (canOverride(CssProperty.ANIMATION)) { _animationRaw = other._animationRaw; _animations = other._animations; applyImp(CssProperty.ANIMATION) }
+            if (canOverride(CssProperty.ANIMATION_NAME)) { _animationName = other._animationName; applyImp(CssProperty.ANIMATION_NAME) }
+            if (canOverride(CssProperty.ANIMATION_DURATION)) { _animationDuration = other._animationDuration; applyImp(CssProperty.ANIMATION_DURATION) }
+            if (canOverride(CssProperty.ANIMATION_TIMING_FUNCTION)) { _animationTimingFunction = other._animationTimingFunction; applyImp(CssProperty.ANIMATION_TIMING_FUNCTION) }
+            if (canOverride(CssProperty.ANIMATION_DELAY)) { _animationDelay = other._animationDelay; applyImp(CssProperty.ANIMATION_DELAY) }
+            if (canOverride(CssProperty.ANIMATION_ITERATION_COUNT)) { _animationIterationCount = other._animationIterationCount; applyImp(CssProperty.ANIMATION_ITERATION_COUNT) }
+            if (canOverride(CssProperty.ANIMATION_DIRECTION)) { _animationDirection = other._animationDirection; applyImp(CssProperty.ANIMATION_DIRECTION) }
+            if (canOverride(CssProperty.ANIMATION_FILL_MODE)) { _animationFillMode = other._animationFillMode; applyImp(CssProperty.ANIMATION_FILL_MODE) }
+            if (canOverride(CssProperty.ANIMATION_PLAY_STATE)) { _animationPlayState = other._animationPlayState; applyImp(CssProperty.ANIMATION_PLAY_STATE) }
             if (canOverride(CssProperty.FILTER)) { _filter = other._filter; applyImp(CssProperty.FILTER) }
             if (canOverride(CssProperty.BACKDROP_FILTER)) { _backdropFilter = other._backdropFilter; applyImp(CssProperty.BACKDROP_FILTER) }
         } finally {
@@ -1864,13 +2018,17 @@ class ComponentStyle(
      *   - If [allowTypography] is `false`: strips those typography/color properties as well, and
      *     always strips aesthetic skinning properties.
      */
-    fun copyFilteredForSystemComponent(allowTypography: Boolean, allowAestheticSkin: Boolean): ComponentStyle {
+    fun copyFilteredForSystemComponent(
+        allowTypography: Boolean,
+        allowAestheticSkin: Boolean,
+        allowFilter: Boolean = allowAestheticSkin
+    ): ComponentStyle {
         val copy = ComponentStyle()
         if (allowAestheticSkin) {
             copy.copyFrom(this)
             return copy
         }
-        val (maskLow, maskHigh) = ComputedStyle.systemFilterBitmasks(allowTypography)
+        val (maskLow, maskHigh) = ComputedStyle.systemFilterBitmasks(allowTypography, allowFilter = allowFilter)
         copy.activeBitmaskLow = activeBitmaskLow and maskLow
         copy.activeBitmaskHigh = activeBitmaskHigh and maskHigh
         copy.importantBitmaskLow = importantBitmaskLow and maskLow
@@ -1930,6 +2088,16 @@ class ComponentStyle(
         copy._transform = _transform
         copy._transformOrigin = _transformOrigin
         copy._transitions = _transitions
+        copy._animationRaw = _animationRaw
+        copy._animations = _animations
+        copy._animationName = _animationName
+        copy._animationDuration = _animationDuration
+        copy._animationTimingFunction = _animationTimingFunction
+        copy._animationDelay = _animationDelay
+        copy._animationIterationCount = _animationIterationCount
+        copy._animationDirection = _animationDirection
+        copy._animationFillMode = _animationFillMode
+        copy._animationPlayState = _animationPlayState
 
         if (allowTypography) {
             copy._color = _color
@@ -1946,6 +2114,9 @@ class ComponentStyle(
             copy._textOverflow = _textOverflow
             copy._whiteSpace = _whiteSpace
             copy._wordBreak = _wordBreak
+        }
+        if (allowFilter) {
+            copy._filter = _filter
         }
         return copy
     }
@@ -2113,6 +2284,15 @@ class ComponentStyle(
         CssProperty.TRANSITION -> _transitions?.takeIf { it.isNotEmpty() }?.joinToString(", ") {
             "${it.property} ${it.durationMs}ms ${it.timingFunction.toCssString()} ${it.delayMs}ms"
         }
+        CssProperty.ANIMATION -> _animationRaw ?: _animations?.takeIf { it.isNotEmpty() }?.joinToString(", ") { it.toCssString() }
+        CssProperty.ANIMATION_NAME -> _animationName
+        CssProperty.ANIMATION_DURATION -> _animationDuration
+        CssProperty.ANIMATION_TIMING_FUNCTION -> _animationTimingFunction
+        CssProperty.ANIMATION_DELAY -> _animationDelay
+        CssProperty.ANIMATION_ITERATION_COUNT -> _animationIterationCount
+        CssProperty.ANIMATION_DIRECTION -> _animationDirection
+        CssProperty.ANIMATION_FILL_MODE -> _animationFillMode
+        CssProperty.ANIMATION_PLAY_STATE -> _animationPlayState
         CssProperty.FILTER -> _filter?.toCssString()
         CssProperty.BACKDROP_FILTER -> _backdropFilter?.toCssString()
     }
@@ -2313,6 +2493,18 @@ class ComponentStyle(
             transition = getSinglePropertyCssString(CssProperty.TRANSITION) ?: sheetBase?.transition,
             transitions = _transitions ?: sheetBase?.transitions
         )
+        CssProperty.ANIMATION -> current.copy(
+            animation = _animationRaw ?: sheetBase?.animation,
+            animations = _animations ?: sheetBase?.animations
+        )
+        CssProperty.ANIMATION_NAME -> current.copy(animationName = _animationName ?: sheetBase?.animationName)
+        CssProperty.ANIMATION_DURATION -> current.copy(animationDuration = _animationDuration ?: sheetBase?.animationDuration)
+        CssProperty.ANIMATION_TIMING_FUNCTION -> current.copy(animationTimingFunction = _animationTimingFunction ?: sheetBase?.animationTimingFunction)
+        CssProperty.ANIMATION_DELAY -> current.copy(animationDelay = _animationDelay ?: sheetBase?.animationDelay)
+        CssProperty.ANIMATION_ITERATION_COUNT -> current.copy(animationIterationCount = _animationIterationCount ?: sheetBase?.animationIterationCount)
+        CssProperty.ANIMATION_DIRECTION -> current.copy(animationDirection = _animationDirection ?: sheetBase?.animationDirection)
+        CssProperty.ANIMATION_FILL_MODE -> current.copy(animationFillMode = _animationFillMode ?: sheetBase?.animationFillMode)
+        CssProperty.ANIMATION_PLAY_STATE -> current.copy(animationPlayState = _animationPlayState ?: sheetBase?.animationPlayState)
         CssProperty.FILTER -> current.copy(filter = _filter ?: sheetBase?.filter)
         CssProperty.BACKDROP_FILTER -> current.copy(backdropFilter = _backdropFilter ?: sheetBase?.backdropFilter)
         else -> null
@@ -2522,7 +2714,17 @@ class ComponentStyle(
             activeBitmaskLow = baseStyle.activeBitmaskLow or activeBitmaskLow,
             activeBitmaskHigh = baseStyle.activeBitmaskHigh or activeBitmaskHigh,
             importantBitmaskLow = baseStyle.importantBitmaskLow or importantBitmaskLow,
-            importantBitmaskHigh = baseStyle.importantBitmaskHigh or importantBitmaskHigh
+            importantBitmaskHigh = baseStyle.importantBitmaskHigh or importantBitmaskHigh,
+            animation = if (canOverride(CssProperty.ANIMATION)) _animationRaw ?: getSinglePropertyCssString(CssProperty.ANIMATION) ?: baseStyle.animation else baseStyle.animation,
+            animations = if (canOverride(CssProperty.ANIMATION)) _animations ?: baseStyle.animations else baseStyle.animations,
+            animationName = if (canOverride(CssProperty.ANIMATION_NAME)) _animationName ?: baseStyle.animationName else baseStyle.animationName,
+            animationDuration = if (canOverride(CssProperty.ANIMATION_DURATION)) _animationDuration ?: baseStyle.animationDuration else baseStyle.animationDuration,
+            animationTimingFunction = if (canOverride(CssProperty.ANIMATION_TIMING_FUNCTION)) _animationTimingFunction ?: baseStyle.animationTimingFunction else baseStyle.animationTimingFunction,
+            animationDelay = if (canOverride(CssProperty.ANIMATION_DELAY)) _animationDelay ?: baseStyle.animationDelay else baseStyle.animationDelay,
+            animationIterationCount = if (canOverride(CssProperty.ANIMATION_ITERATION_COUNT)) _animationIterationCount ?: baseStyle.animationIterationCount else baseStyle.animationIterationCount,
+            animationDirection = if (canOverride(CssProperty.ANIMATION_DIRECTION)) _animationDirection ?: baseStyle.animationDirection else baseStyle.animationDirection,
+            animationFillMode = if (canOverride(CssProperty.ANIMATION_FILL_MODE)) _animationFillMode ?: baseStyle.animationFillMode else baseStyle.animationFillMode,
+            animationPlayState = if (canOverride(CssProperty.ANIMATION_PLAY_STATE)) _animationPlayState ?: baseStyle.animationPlayState else baseStyle.animationPlayState
         )
     }
 }

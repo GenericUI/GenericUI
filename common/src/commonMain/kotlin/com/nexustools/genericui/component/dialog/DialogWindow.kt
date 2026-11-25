@@ -1,7 +1,10 @@
 package com.nexustools.genericui.component.dialog
 
 import com.nexustools.genericui.component.action.Button
+import com.nexustools.genericui.component.fragment.FragmentBundle
 import com.nexustools.genericui.component.fragment.FragmentContainer
+import com.nexustools.genericui.component.fragment.FragmentRegistry
+import com.nexustools.genericui.component.fragment.IFragment
 import com.nexustools.genericui.component.layout.Container
 import com.nexustools.genericui.component.layout.HStack
 import com.nexustools.genericui.component.layout.Spacer
@@ -19,6 +22,8 @@ import com.nexustools.genericui.enums.bootstrap.SpacingScale
 import com.nexustools.genericui.enums.dialog.DialogPresentationStyle
 import com.nexustools.genericui.enums.window.DisplayCutoutMode
 import com.nexustools.genericui.enums.window.WindowState
+import com.nexustools.genericui.exception.NativeUninitializedException
+import com.nexustools.genericui.exception.UnsupportedBackendCapabilityException
 import com.nexustools.genericui.geometry.Rect
 import com.nexustools.genericui.geometry.Size
 import com.nexustools.genericui.nativeimpl.dialog.DialogWindowNativeImpl
@@ -28,6 +33,7 @@ import com.nexustools.genericui.window.TitleBar
 import com.nexustools.genericui.window.TitleCapabilities
 import com.nexustools.genericui.window.WindowConfiguration
 import kotlin.jvm.JvmName
+import kotlin.reflect.KClass
 
 /**
  * Custom modal or modeless dialog window capable of hosting arbitrary GenericUI component trees.
@@ -191,6 +197,8 @@ open class DialogWindow(
     final override var isWindowFocused: Boolean = false
         private set
 
+    internal override fun canAcceptFocusForIsFocused(): Boolean = true
+
     override var isClosable: Boolean = true
     var dismissOnBackdropClick: Boolean = true
     override val isMinimizable: Boolean = false
@@ -334,12 +342,86 @@ open class DialogWindow(
             ?: currentOwnerWindow?.resolveActiveFactory()
             ?: (if (isWindowShown && isVisible) GenericUI.activeFactory else null)
 
+    private fun resolveCapabilityFactory(operationName: String): NativeFactory {
+        val targetName = if (this is com.nexustools.genericui.component.overlay.Modal) "Modal" else "DialogWindow"
+        return explicitFactory
+            ?: currentOwnerWindow?.let { it.ExplicitFactory ?: it.resolveActiveFactory() }
+            ?: resolveActiveFactory()
+            ?: GenericUI.activeFactory
+            ?: throw NativeUninitializedException(targetName, operationName)
+    }
+
+    override val supportsMultipleWindows: Boolean
+        get() = resolveCapabilityFactory("supportsMultipleWindows").supportsMultipleWindows
+
+    override val supportsDialogWindows: Boolean
+        get() = resolveCapabilityFactory("supportsDialogWindows").supportsDialogWindows
+
+    override fun canOpenAdditionalWindow(fragmentClass: KClass<out IFragment>): Boolean {
+        val factory = resolveCapabilityFactory("canOpenAdditionalWindow")
+        return factory.supportsMultipleWindows &&
+            !FragmentRegistry.isDialogFragment(fragmentClass) &&
+            FragmentRegistry.supportsMultipleWindows(fragmentClass)
+    }
+
+    /** Reified convenience for [canOpenAdditionalWindow]. */
+    inline fun <reified T : IFragment> canOpenAdditionalWindow(): Boolean =
+        canOpenAdditionalWindow(T::class)
+
+    /** Reified convenience for [startFragment]. */
+    inline fun <reified T : IFragment> startFragment(
+        launchArgs: FragmentBundle? = null,
+        openAdditionalWindow: Boolean = false,
+        addToBackStack: Boolean = true,
+        clearTask: Boolean = false
+    ): T = startFragment(
+        fragmentClass = T::class,
+        launchArgs = launchArgs,
+        openAdditionalWindow = openAdditionalWindow,
+        addToBackStack = addToBackStack,
+        clearTask = clearTask
+    )
+
+    /** Reified convenience for [startFragment] with key-value pair arguments. */
+    inline fun <reified T : IFragment> startFragment(
+        firstArg: Pair<String, Any?>,
+        vararg extraArgs: Pair<String, Any?>,
+        openAdditionalWindow: Boolean = false,
+        addToBackStack: Boolean = true,
+        clearTask: Boolean = false
+    ): T = startFragment(
+        fragmentClass = T::class,
+        launchArgs = FragmentBundle.of(firstArg, *extraArgs),
+        openAdditionalWindow = openAdditionalWindow,
+        addToBackStack = addToBackStack,
+        clearTask = clearTask
+    )
+
+    private var isHandlingClose: Boolean = false
+    private var nativeCloseDispatched: Boolean = false
+
     fun open(ownerWindow: Window? = null) {
+        val resolvedOwner = ownerWindow
+            ?: currentOwnerWindow
+            ?: Application.current?.mainWindow?.takeIf { mainWin ->
+                mainWin.isWindowShown &&
+                    mainWin.isVisible &&
+                    (mainWin.fragmentContainer?.currentFragment != null || mainWin.getContent() != null)
+            }
+        val targetName = if (this is com.nexustools.genericui.component.overlay.Modal) "Modal" else "DialogWindow"
+        val resolvedFactory = resolvedOwner?.resolveActiveFactory()
+            ?: resolvedOwner?.ExplicitFactory
+            ?: explicitFactory
+            ?: super.resolveActiveFactory()
+            ?: GenericUI.activeFactory
+            ?: throw NativeUninitializedException(targetName, "open")
+        if (!resolvedFactory.supportsDialogWindows) {
+            throw UnsupportedBackendCapabilityException("dialogWindows", resolvedFactory.backendTarget.displayName)
+        }
         val existingParent = parent
         if (existingParent != null && existingParent !is Window) {
             (existingParent as? AbstractContainer)?.removeChild(this)
         }
-        val resolvedOwner = ownerWindow ?: currentOwnerWindow ?: Application.current?.mainWindow
         if (resolvedOwner != null) {
             if (currentOwnerWindow != null && currentOwnerWindow !== resolvedOwner) {
                 currentOwnerWindow?.unregisterAttachedDialogWindow(this)
@@ -350,26 +432,34 @@ open class DialogWindow(
                 this.parent = resolvedOwner
             }
         }
+        if (explicitFactory == null && resolvedOwner == null && GenericUI.activeFactory == null) {
+            explicitFactory = resolvedFactory
+        }
+        nativeCloseDispatched = false
         isVisible = true
         isWindowShown = true
         isWindowFocused = true
-        if ((resolveActiveFactory() ?: GenericUI.activeFactory)?.isStyleSheetEngineEnabled != false) {
+        if (resolvedFactory.isStyleSheetEngineEnabled) {
             Application.current?.getStyleSheets()?.forEach { sheet ->
                 sheet.styleSheet.applyToTree(this)
             }
         }
-        ensureNativeImpl()
+        val impl = ensureNativeImpl() as? DialogWindowNativeImpl<*>
+            ?: throw NativeUninitializedException(targetName, "open")
         syncTitleBarComponents()
-        val ownerNative = (ownerWindow ?: currentOwnerWindow)?.ensureNativeImpl() as? WindowNativeImpl<*>
-        typedNative<DialogWindowNativeImpl<*>>()?.let { impl ->
-            if (hasExplicitSize) {
-                impl.setBounds(windowBoundsState.x, windowBoundsState.y, windowBoundsState.width, windowBoundsState.height)
-                impl.setPreferredSize(Size(windowBoundsState.width, windowBoundsState.height))
-            } else {
-                impl.setPreferredSize(null)
-            }
-            impl.showDialog(ownerNative)
+        val ownerNative = if (resolvedOwner?.isWindowShown == true) {
+            resolvedOwner.ensureNativeImpl() as? WindowNativeImpl<*>
+        } else {
+            null
         }
+        if (hasExplicitSize) {
+            impl.setBounds(windowBoundsState.x, windowBoundsState.y, windowBoundsState.width, windowBoundsState.height)
+            impl.setPreferredSize(Size(windowBoundsState.width, windowBoundsState.height))
+        } else {
+            impl.setPreferredSize(null)
+        }
+        impl.showDialog(ownerNative)
+        fragmentContainer?.ensureActiveFragmentStartedAndResumed()
         onFocusListener?.invoke(true)
     }
 
@@ -395,7 +485,11 @@ open class DialogWindow(
     }
 
     override fun hide() {
-        typedNative<DialogWindowNativeImpl<*>>()?.closeDialog()
+        val impl = typedNative<DialogWindowNativeImpl<*>>()
+        if (impl != null && !nativeCloseDispatched) {
+            nativeCloseDispatched = true
+            impl.closeDialog()
+        }
         currentOwnerWindow?.unregisterAttachedDialogWindow(this)
         isVisible = false
         isWindowShown = false
@@ -406,17 +500,47 @@ open class DialogWindow(
     }
 
     override fun close() {
+        if (isHandlingClose) return
         if (onCloseRequestedListener?.invoke() == false) return
-        typedNative<DialogWindowNativeImpl<*>>()?.closeDialog()
-        currentOwnerWindow?.unregisterAttachedDialogWindow(this)
-        isVisible = false
-        isWindowShown = false
-        if (isWindowFocused) {
-            isWindowFocused = false
-            onFocusListener?.invoke(false)
+        val impl = typedNative<DialogWindowNativeImpl<*>>()
+        if (impl != null && !nativeCloseDispatched) {
+            nativeCloseDispatched = true
+            impl.closeDialog()
         }
-        titleBarInstructions?.setHostEmbedsComponents(false)
-        onCloseHandler?.invoke()
+        finalizeDialogClose()
+    }
+
+    private fun finalizeDialogClose() {
+        if (isHandlingClose) return
+        if (!isWindowShown && !isVisible && fragmentContainer?.currentFragment == null && currentOwnerWindow == null) {
+            return
+        }
+        isHandlingClose = true
+        try {
+            val impl = typedNative<DialogWindowNativeImpl<*>>()
+            if (impl != null && !nativeCloseDispatched) {
+                nativeCloseDispatched = true
+                impl.closeDialog()
+            }
+            currentOwnerWindow?.unregisterAttachedDialogWindow(this)
+            currentOwnerWindow = null
+            if (parent is Window) {
+                parent = null
+            }
+            isVisible = false
+            isWindowShown = false
+            isFocused = false
+            if (isWindowFocused) {
+                isWindowFocused = false
+                onFocusListener?.invoke(false)
+            }
+            titleBarInstructions?.setHostEmbedsComponents(false)
+            fragmentContainer?.clearCurrentFragment()
+            onCloseHandler?.invoke()
+        } finally {
+            isHandlingClose = false
+        }
+        Application.current?.checkExitIfNoFragmentsOpen()
     }
 
     override fun minimize() {
@@ -432,13 +556,37 @@ open class DialogWindow(
     }
 
     override fun focus() {
+        val impl = typedNative<DialogWindowNativeImpl<*>>()
+        val targetName = if (this is com.nexustools.genericui.component.overlay.Modal) "Modal" else "DialogWindow"
+        if (!isWindowShown || impl == null) {
+            throw NativeUninitializedException(targetName, "focus")
+        }
         isFocused = true
         isWindowFocused = true
+        val ownerNative = if (currentOwnerWindow?.isWindowShown == true) {
+            currentOwnerWindow?.ensureNativeImpl() as? WindowNativeImpl<*>
+        } else {
+            null
+        }
+        impl.showDialog(ownerNative)
         onFocusListener?.invoke(true)
     }
 
     override fun bringToFront() {
-        focus()
+        val impl = typedNative<DialogWindowNativeImpl<*>>()
+        val targetName = if (this is com.nexustools.genericui.component.overlay.Modal) "Modal" else "DialogWindow"
+        if (!isWindowShown || impl == null) {
+            throw NativeUninitializedException(targetName, "bringToFront")
+        }
+        isFocused = true
+        isWindowFocused = true
+        val ownerNative = if (currentOwnerWindow?.isWindowShown == true) {
+            currentOwnerWindow?.ensureNativeImpl() as? WindowNativeImpl<*>
+        } else {
+            null
+        }
+        impl.showDialog(ownerNative)
+        onFocusListener?.invoke(true)
     }
 
     override fun setContent(container: Container) {
@@ -462,7 +610,7 @@ open class DialogWindow(
     override fun getOrCreateFragmentContainer(): FragmentContainer {
         val existing = fragmentContainer
         if (existing != null) return existing
-        val created = FragmentContainer(null, currentOwnerWindow).also {
+        val created = FragmentContainer(null, null).also {
             it.hostingIWindow = this
         }
         _fragmentContainer = created
@@ -499,14 +647,7 @@ open class DialogWindow(
             impl.setPreferredSize(null)
         }
         impl.setOnDialogClosed {
-            currentOwnerWindow?.unregisterAttachedDialogWindow(this)
-            isVisible = false
-            isWindowShown = false
-            if (isWindowFocused) {
-                isWindowFocused = false
-                onFocusListener?.invoke(false)
-            }
-            onCloseHandler?.invoke()
+            finalizeDialogClose()
         }
         syncTitleBarComponents()
     }

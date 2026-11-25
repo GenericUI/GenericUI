@@ -7,7 +7,7 @@
         Official IntelliJ IDEA plugin for creating and managing <b>GenericUI</b> Kotlin Multiplatform projects.
         <ul>
             <li><b>New GenericUI Project Wizard</b>: Interactive checkboxes for selecting all 9 target backends
-                (<code>windows</code>, <code>macos</code>, <code>gtk</code>, <code>qt</code>, <code>swing</code>,
+                (<code>windows</code>, <code>macos</code>, <code>gtk</code>, <code>kde</code>, <code>swing</code>,
                 <code>android</code>, <code>ios</code>, <code>ipados</code>, <code>web</code>) with quick presets
                 (<i>All Except Swing</i>, <i>Desktop Only (No Swing)</i>, <i>Mobile Only</i>, <i>Apple Only</i>, <i>Select All</i>),
                 window defaults (<code>alwaysOnTop</code>, <code>aspectRatio</code>), Apple icon overrides, and

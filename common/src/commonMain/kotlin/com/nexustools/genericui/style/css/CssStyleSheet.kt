@@ -2,6 +2,7 @@ package com.nexustools.genericui.style.css
 
 import com.nexustools.genericui.component.shell.Application
 import com.nexustools.genericui.core.AbstractComponent
+import com.nexustools.genericui.enums.system.BackendTarget
 import com.nexustools.genericui.enums.ui.ThemeMode
 import com.nexustools.genericui.style.color.RgbaColor
 import com.nexustools.genericui.style.gradient.Gradient.Gradient
@@ -22,7 +23,8 @@ class CssStyleSheet(
     val rules: List<CssRule> = emptyList(),
     val keyframes: Map<String, Map<String, Map<String, String>>> = emptyMap(),
     val isPrecompiled: Boolean = false,
-    var sourceCssText: String = ""
+    var sourceCssText: String = "",
+    val composedSheets: List<CssStyleSheet> = emptyList()
 ) {
     private val sortedRules: List<CssRule> =
         if (isPrecompiled) rules else rules.sortedBy { it.specificity }
@@ -39,26 +41,59 @@ class CssStyleSheet(
     internal val tagRules: Map<String, List<CssRule>>
     internal val universalRules: List<CssRule>
     private val mediaBreakpoints: IntArray
+    private val mediaBreakpointMasks: IntArray
+    private val mediaRuleIndices: IntArray
     private val subjectClasses: Set<String>
     private val ancestorClasses: Set<String>
+    private val backendFilterCache = arrayOfNulls<CssStyleSheet>(BackendTarget.entries.size)
+    internal var keyframeVariants: Map<String, List<Pair<Int, Map<String, Map<String, String>>>>> = emptyMap()
 
     init {
         val idIndexMap = linkedMapOf<String, ArrayList<Int>>()
         val classIndexMap = linkedMapOf<String, ArrayList<Int>>()
         val tagIndexMap = linkedMapOf<String, ArrayList<Int>>()
         val universalIndices = ArrayList<Int>()
-        val breakpointsSet = linkedSetOf<Int>()
+        val breakpointMasksMap = linkedMapOf<Int, Int>()
+        val mediaRuleIndexList = ArrayList<Int>()
         val subjectClassesSet = linkedSetOf<String>()
         val ancestorClassesSet = linkedSetOf<String>()
 
         for (i in sortedRules.indices) {
             val rule = sortedRules[i]
-            rule.mediaMinWidthPx?.let { if (it > 0) breakpointsSet.add(it) }
-            rule.mediaMaxWidthPx?.let { if (it in 1 until Int.MAX_VALUE) breakpointsSet.add(it) }
-            if (rule.chainTokens.isEmpty()) continue
+            val hasMedia = rule.mediaMinWidthPx != null || rule.mediaMaxWidthPx != null
+            if (hasMedia) {
+                mediaRuleIndexList.add(i)
+            }
+            rule.mediaMinWidthPx?.let {
+                if (it > 0) {
+                    breakpointMasksMap[it] = (breakpointMasksMap[it] ?: 0) or rule.backendMask
+                }
+            }
+            rule.mediaMaxWidthPx?.let {
+                if (it in 1 until Int.MAX_VALUE) {
+                    breakpointMasksMap[it] = (breakpointMasksMap[it] ?: 0) or rule.backendMask
+                }
+            }
+            if (rule.chainTokens.isEmpty() || rule.chainTokens.any { it.isEmpty() }) continue
             subjectClassesSet.addAll(rule.subjectRequiredClasses)
+            subjectClassesSet.addAll(rule.subjectExcludedClasses)
             for (ancClasses in rule.ancestorRequiredClasses) {
                 ancestorClassesSet.addAll(ancClasses)
+            }
+            for (ancExcl in rule.ancestorExcludedClasses) {
+                ancestorClassesSet.addAll(ancExcl)
+            }
+            for (ancPosPseudos in rule.ancestorPositivePseudos) {
+                if ("hover" in ancPosPseudos) ancestorClassesSet.add("pseudo:hover")
+                if ("focus" in ancPosPseudos || "focus-visible" in ancPosPseudos || "focus-within" in ancPosPseudos) {
+                    ancestorClassesSet.add("pseudo:focus")
+                }
+            }
+            for (ancExclPseudos in rule.ancestorExcludedPseudos) {
+                if ("hover" in ancExclPseudos) ancestorClassesSet.add("pseudo:hover")
+                if ("focus" in ancExclPseudos || "focus-visible" in ancExclPseudos || "focus-within" in ancExclPseudos) {
+                    ancestorClassesSet.add("pseudo:focus")
+                }
             }
             val subjectId = rule.subjectRequiredId
             if (subjectId != null) {
@@ -82,7 +117,10 @@ class CssStyleSheet(
         classBuckets = classIndexMap.mapValues { (_, list) -> list.toIntArray() }
         tagBuckets = tagIndexMap.mapValues { (_, list) -> list.toIntArray() }
         universalBucket = universalIndices.toIntArray()
-        mediaBreakpoints = breakpointsSet.sorted().toIntArray()
+        val sortedBreakpointEntries = breakpointMasksMap.entries.sortedBy { it.key }
+        mediaBreakpoints = IntArray(sortedBreakpointEntries.size) { sortedBreakpointEntries[it].key }
+        mediaBreakpointMasks = IntArray(sortedBreakpointEntries.size) { sortedBreakpointEntries[it].value }
+        mediaRuleIndices = mediaRuleIndexList.toIntArray()
         subjectClasses = subjectClassesSet
         ancestorClasses = ancestorClassesSet
 
@@ -92,22 +130,323 @@ class CssStyleSheet(
         universalRules = universalIndices.map { sortedRules[it] }
     }
 
-    internal fun isClassReferencedInSubject(cls: String): Boolean = cls in subjectClasses
+    internal fun isClassReferencedInSubject(cls: String): Boolean =
+        systemIsClassReferencedHook?.invoke(this, cls, false) ?: (cls in subjectClasses)
 
-    internal fun isClassReferencedInAncestor(cls: String): Boolean = cls in ancestorClasses
+    internal fun isClassReferencedInAncestor(cls: String): Boolean =
+        systemIsClassReferencedHook?.invoke(this, cls, true) ?: (cls in ancestorClasses)
+
+    internal fun collectDescendantInvalidation(
+        component: AbstractComponent,
+        changedClasses: List<String>,
+        outSubjectClasses: MutableSet<String>,
+        outSubjectIds: MutableSet<String>,
+        outSubjectTags: MutableSet<String>
+    ): Int {
+        systemCollectDescendantInvalidationHook?.invoke(
+            this,
+            component,
+            changedClasses,
+            outSubjectClasses,
+            outSubjectIds,
+            outSubjectTags
+        )?.let { return it }
+
+        if (changedClasses.isEmpty() || ancestorClasses.none { it in changedClasses }) {
+            return DESCENDANT_INVALIDATION_NONE
+        }
+
+        val ancestorId = component.id
+        val ancestorNormalizedTag = CssRule.normalizeSelectorTag(component.htmlTag.ifEmpty { "genericui:component" })
+        val isDarkTheme = Application.current?.getResolvedTheme() == ThemeMode.DARK
+        val baseClasses = component.collectSelectorClassSnapshot()
+        val needDark = ancestorNormalizedTag == "genericui:app" && isDarkTheme && "bs-theme-dark" !in baseClasses
+        val needHover = component.isHovered && "pseudo:hover" !in baseClasses
+        val needFocus = component.isFocused && "pseudo:focus" !in baseClasses
+        val ancestorClassSet = if (needDark || needHover || needFocus) {
+            LinkedHashSet(baseClasses).apply {
+                if (needDark) add("bs-theme-dark")
+                if (needHover) add("pseudo:hover")
+                if (needFocus) add("pseudo:focus")
+            }
+        } else {
+            baseClasses
+        }
+
+        val activeTarget = resolveActiveBackendTarget()
+        var mode = DESCENDANT_INVALIDATION_NONE
+        for (rule in sortedRules) {
+            if (!rule.matchesBackend(activeTarget)) continue
+            if (rule.ancestorTokens.isEmpty()) continue
+            var matchedStep = false
+            for (i in rule.ancestorTokens.indices) {
+                val reqClasses = rule.ancestorRequiredClasses[i]
+                val exclClasses = rule.ancestorExcludedClasses[i]
+                val reqPseudos = rule.ancestorPositivePseudos[i]
+                val exclPseudos = rule.ancestorExcludedPseudos[i]
+                var mentionsChanged = false
+                for (cls in changedClasses) {
+                    if (cls in reqClasses || cls in exclClasses ||
+                        (cls == "pseudo:hover" && ("hover" in reqPseudos || "hover" in exclPseudos)) ||
+                        (cls == "pseudo:focus" && (
+                            "focus" in reqPseudos || "focus-visible" in reqPseudos || "focus-within" in reqPseudos ||
+                                "focus" in exclPseudos || "focus-visible" in exclPseudos || "focus-within" in exclPseudos
+                            ))
+                    ) {
+                        mentionsChanged = true
+                        break
+                    }
+                }
+                if (!mentionsChanged) continue
+
+                val reqIds = rule.ancestorRequiredIds[i]
+                if (reqIds.isNotEmpty() && reqIds.any { it != ancestorId }) continue
+                val rawReqTag = rule.ancestorLeadingTags[i]
+                if (rawReqTag.isNotEmpty() && CssRule.normalizeSelectorTag(rawReqTag) != ancestorNormalizedTag) continue
+                val exclIds = rule.ancestorExcludedIds[i]
+                if (ancestorId != null && exclIds.isNotEmpty() && ancestorId in exclIds) continue
+                val exclTags = rule.ancestorExcludedTags[i]
+                if (exclTags.isNotEmpty() && exclTags.any { CssRule.normalizeSelectorTag(it) == ancestorNormalizedTag }) continue
+
+                var reqClassesOk = true
+                for (rc in reqClasses) {
+                    if (rc !in ancestorClassSet && rc !in changedClasses) {
+                        reqClassesOk = false
+                        break
+                    }
+                }
+                if (!reqClassesOk) continue
+
+                var exclClassesOk = true
+                for (ec in exclClasses) {
+                    if (ec in ancestorClassSet && ec !in changedClasses) {
+                        exclClassesOk = false
+                        break
+                    }
+                }
+                if (!exclClassesOk) continue
+
+                if ("hover" in reqPseudos && "pseudo:hover" !in ancestorClassSet && "pseudo:hover" !in changedClasses) continue
+                if ("hover" in exclPseudos && "pseudo:hover" in ancestorClassSet && "pseudo:hover" !in changedClasses) continue
+                if (("focus" in reqPseudos || "focus-visible" in reqPseudos || "focus-within" in reqPseudos) &&
+                    "pseudo:focus" !in ancestorClassSet && "pseudo:focus" !in changedClasses
+                ) continue
+                if (("focus" in exclPseudos || "focus-visible" in exclPseudos || "focus-within" in exclPseudos) &&
+                    "pseudo:focus" in ancestorClassSet && "pseudo:focus" !in changedClasses
+                ) continue
+
+                matchedStep = true
+                break
+            }
+            if (!matchedStep) continue
+
+            val subjId = rule.subjectRequiredId
+            if (subjId != null) {
+                outSubjectIds.add(subjId)
+                if (mode == DESCENDANT_INVALIDATION_NONE) mode = DESCENDANT_INVALIDATION_TARGETED
+            } else if (rule.subjectRequiredClasses.isNotEmpty()) {
+                outSubjectClasses.add(rule.subjectRequiredClasses.first())
+                if (mode == DESCENDANT_INVALIDATION_NONE) mode = DESCENDANT_INVALIDATION_TARGETED
+            } else if (rule.subjectLeadingTag.isNotEmpty()) {
+                outSubjectTags.add(CssRule.normalizeSelectorTag(rule.subjectLeadingTag))
+                if (mode == DESCENDANT_INVALIDATION_NONE) mode = DESCENDANT_INVALIDATION_TARGETED
+            } else {
+                return DESCENDANT_INVALIDATION_WHOLE_SUBTREE
+            }
+        }
+        return mode
+    }
+
+    internal fun collectMediaInvalidation(
+        oldViewportWidthPx: Int,
+        newViewportWidthPx: Int,
+        outSubjectClasses: MutableSet<String>,
+        outSubjectIds: MutableSet<String>,
+        outSubjectTags: MutableSet<String>,
+        outAncestorClasses: MutableSet<String> = linkedSetOf(),
+        outAncestorIds: MutableSet<String> = linkedSetOf(),
+        outAncestorTags: MutableSet<String> = linkedSetOf()
+    ): Int {
+        systemCollectMediaInvalidationHook?.invoke(
+            this,
+            oldViewportWidthPx,
+            newViewportWidthPx,
+            outSubjectClasses,
+            outSubjectIds,
+            outSubjectTags,
+            outAncestorClasses,
+            outAncestorIds,
+            outAncestorTags
+        )?.let { return it }
+
+        if (oldViewportWidthPx == newViewportWidthPx || mediaRuleIndices.isEmpty()) {
+            return DESCENDANT_INVALIDATION_NONE
+        }
+        val activeTarget = resolveActiveBackendTarget()
+        var mode = DESCENDANT_INVALIDATION_NONE
+        for (idx in mediaRuleIndices) {
+            val rule = sortedRules[idx]
+            if (!rule.matchesBackend(activeTarget)) continue
+            if (rule.matchesMediaQuery(oldViewportWidthPx) == rule.matchesMediaQuery(newViewportWidthPx)) {
+                continue
+            }
+            val subjId = rule.subjectRequiredId
+            if (subjId != null) {
+                outSubjectIds.add(subjId)
+                if (mode == DESCENDANT_INVALIDATION_NONE) mode = DESCENDANT_INVALIDATION_TARGETED
+            } else if (rule.subjectRequiredClasses.isNotEmpty()) {
+                outSubjectClasses.add(rule.subjectRequiredClasses.first())
+                if (mode == DESCENDANT_INVALIDATION_NONE) mode = DESCENDANT_INVALIDATION_TARGETED
+            } else {
+                val subjTag = rule.subjectLeadingTag.takeIf { it.isNotEmpty() }?.let { CssRule.normalizeSelectorTag(it) }
+                if (subjTag != null) {
+                    outSubjectTags.add(subjTag)
+                    if (mode == DESCENDANT_INVALIDATION_NONE) mode = DESCENDANT_INVALIDATION_TARGETED
+                } else {
+                    var targetedByAncestor = false
+                    for (i in rule.ancestorTokens.indices.reversed()) {
+                        val ancId = rule.ancestorRequiredIds.getOrNull(i)?.firstOrNull()
+                        if (ancId != null) {
+                            outAncestorIds.add(ancId)
+                            targetedByAncestor = true
+                            break
+                        }
+                        val ancCls = rule.ancestorRequiredClasses.getOrNull(i)?.firstOrNull()
+                        if (ancCls != null) {
+                            outAncestorClasses.add(ancCls)
+                            targetedByAncestor = true
+                            break
+                        }
+                        val ancTag = rule.ancestorLeadingTags.getOrNull(i)?.takeIf { it.isNotEmpty() }?.let { CssRule.normalizeSelectorTag(it) }
+                        if (ancTag != null) {
+                            outAncestorTags.add(ancTag)
+                            targetedByAncestor = true
+                            break
+                        }
+                    }
+                    if (!targetedByAncestor) {
+                        return DESCENDANT_INVALIDATION_WHOLE_SUBTREE
+                    }
+                    if (mode == DESCENDANT_INVALIDATION_NONE) mode = DESCENDANT_INVALIDATION_TARGETED
+                }
+            }
+        }
+        return mode
+    }
+
+    private fun resolveActiveBackendTarget(): BackendTarget =
+        BackendStyleMask.resolveRuntimeBackendTarget(
+            Application.current?.backendTarget,
+            com.nexustools.genericui.core.GenericUI.activeFactory?.backendTarget
+        )
+
+    fun filterForBackend(target: BackendTarget): CssStyleSheet {
+        backendFilterCache[target.ordinal]?.let { return it }
+        val targetBit = BackendStyleMask.bitFor(target)
+
+        if (composedSheets.isNotEmpty()) {
+            val filteredChildren = composedSheets.map { it.filterForBackend(target) }
+            val allIdentical = filteredChildren.indices.all { filteredChildren[it] === composedSheets[it] }
+            val needsKfFilter = keyframeVariantsNeedFilter(targetBit)
+            val result = if (allIdentical && !needsKfFilter) {
+                this
+            } else {
+                combineCascade(filteredChildren)
+            }
+            backendFilterCache[target.ordinal] = result
+            return result
+        }
+
+        val allRulesMatch = sortedRules.all { (it.backendMask and targetBit) != 0 }
+        val needsKfFilter = keyframeVariantsNeedFilter(targetBit)
+        if (allRulesMatch && !needsKfFilter) {
+            backendFilterCache[target.ordinal] = this
+            return this
+        }
+
+        val filteredRules = rules.filter { (it.backendMask and targetBit) != 0 }
+        val filteredKeyframes = linkedMapOf<String, Map<String, Map<String, String>>>()
+        val filteredKfVariants = linkedMapOf<String, List<Pair<Int, Map<String, Map<String, String>>>>>()
+        for ((animName, stops) in keyframes) {
+            val variants = keyframeVariants[animName]
+            if (variants == null) {
+                filteredKeyframes[animName] = stops
+            } else {
+                val matching = variants.filter { (mask, _) -> (mask and targetBit) != 0 }
+                if (matching.isNotEmpty()) {
+                    filteredKeyframes[animName] = matching.last().second
+                    filteredKfVariants[animName] = matching
+                }
+            }
+        }
+        val filtered = CssStyleSheet(
+            rules = filteredRules,
+            keyframes = filteredKeyframes,
+            isPrecompiled = isPrecompiled,
+            sourceCssText = ""
+        )
+        filtered.keyframeVariants = filteredKfVariants
+        backendFilterCache[target.ordinal] = filtered
+        return filtered
+    }
+
+    private fun keyframeVariantsNeedFilter(targetBit: Int): Boolean {
+        for (variants in keyframeVariants.values) {
+            if (variants.size > 1) return true
+            val singleMask = variants.firstOrNull()?.first ?: continue
+            if ((singleMask and targetBit) == 0) return true
+        }
+        return false
+    }
+
+    fun toWebCss(): String = toBackendCss(BackendTarget.Web)
+
+    internal fun toBackendCss(target: BackendTarget): String {
+        val filtered = filterForBackend(target)
+        val sb = StringBuilder()
+        for (rule in filtered.rules) {
+            if (rule.declarations.isEmpty()) continue
+            val decls = rule.declarations.entries.joinToString("; ") { (k, v) -> "$k: $v" }
+            val hasMedia = rule.mediaMinWidthPx != null || rule.mediaMaxWidthPx != null
+            if (hasMedia) {
+                val mediaParts = ArrayList<String>(2)
+                rule.mediaMinWidthPx?.let { mediaParts.add("(min-width: ${it}px)") }
+                rule.mediaMaxWidthPx?.let { mediaParts.add("(max-width: ${it}px)") }
+                sb.append("@media ").append(mediaParts.joinToString(" and ")).append(" {\n")
+                sb.append("  ").append(rule.selector).append(" { ").append(decls).append("; }\n")
+                sb.append("}\n")
+            } else {
+                sb.append(rule.selector).append(" { ").append(decls).append("; }\n")
+            }
+        }
+        for ((animName, frames) in filtered.keyframes) {
+            sb.append("@keyframes ").append(animName).append(" {\n")
+            for ((stop, declsMap) in frames) {
+                val decls = declsMap.entries.joinToString("; ") { (k, v) -> "$k: $v" }
+                sb.append("  ").append(stop).append(" { ").append(decls).append("; }\n")
+            }
+            sb.append("}\n")
+        }
+        return sb.toString().trim()
+    }
 
     fun resolveMediaQueryBucket(viewportWidthPx: Int): Int {
         systemMediaQueryBucketHook?.invoke(this, viewportWidthPx)?.let { return it }
         if (mediaBreakpoints.isEmpty()) return 0
+        val activeTarget = resolveActiveBackendTarget()
         var hash = 1
-        for (bp in mediaBreakpoints) {
+        var anyIncluded = false
+        for (i in mediaBreakpoints.indices) {
+            if (!BackendStyleMask.matches(mediaBreakpointMasks[i], activeTarget)) continue
+            anyIncluded = true
+            val bp = mediaBreakpoints[i]
             hash = hash * 31 + when {
                 viewportWidthPx < bp -> 0
                 viewportWidthPx == bp -> 1
                 else -> 2
             }
         }
-        return hash
+        return if (anyIncluded) hash else 0
     }
 
     private val styleLookupCache = linkedMapOf<String, ComputedStyle>()
@@ -122,13 +461,32 @@ class CssStyleSheet(
         id: String? = null,
         ancestorChain: List<Set<String>> = emptyList(),
         viewportWidthPx: Int = 1280
+    ): ComputedStyle = resolveStyleInternal(
+        classes = classes,
+        tagName = tagName,
+        id = id,
+        ancestorChain = ancestorChain,
+        viewportWidthPx = viewportWidthPx,
+        subjectEnabled = true
+    )
+
+    private fun resolveStyleInternal(
+        classes: Set<String>,
+        tagName: String = "div",
+        id: String? = null,
+        ancestorChain: List<Set<String>> = emptyList(),
+        viewportWidthPx: Int = 1280,
+        subjectEnabled: Boolean = true
     ): ComputedStyle {
+        val activeTarget = resolveActiveBackendTarget()
         val isDarkTheme = Application.current?.getResolvedTheme() == ThemeMode.DARK ||
             "bs-theme-dark" in classes ||
             ancestorChain.any { "bs-theme-dark" in it }
         val mediaBucket = resolveMediaQueryBucket(viewportWidthPx)
         val cacheKey = buildString {
+            append(activeTarget.id).append('|')
             append(if (isDarkTheme) "dark|" else "light|")
+            append(if (subjectEnabled) "en|" else "dis|")
             append(tagName).append('|').append(id ?: "").append('|').append(mediaBucket).append('|')
             append(classes.joinToString(",")).append('|')
             for (anc in ancestorChain) {
@@ -137,7 +495,15 @@ class CssStyleSheet(
         }
         styleLookupCache[cacheKey]?.let { return it }
 
-        val matchingRules = collectMatchingRules(classes, tagName, id, ancestorChain, viewportWidthPx)
+        val matchingRules = collectMatchingRules(
+            classes = classes,
+            tagName = tagName,
+            id = id,
+            ancestorChain = ancestorChain,
+            viewportWidthPx = viewportWidthPx,
+            subjectEnabled = subjectEnabled,
+            activeTarget = activeTarget
+        )
 
         val baseRules = ArrayList<CssRule>(matchingRules.size)
         var hoverRules: ArrayList<CssRule>? = null
@@ -231,7 +597,9 @@ class CssStyleSheet(
         tagName: String,
         id: String?,
         ancestorChain: List<Set<String>>,
-        viewportWidthPx: Int
+        viewportWidthPx: Int,
+        subjectEnabled: Boolean = true,
+        activeTarget: BackendTarget? = resolveActiveBackendTarget()
     ): List<CssRule> {
         if (sortedRules.isEmpty()) return emptyList()
         val normalizedTargetTag = normalizeTagName(tagName)
@@ -241,8 +609,9 @@ class CssStyleSheet(
             if (bucket == null) return
             for (ruleIdx in bucket) {
                 val rule = sortedRules[ruleIdx]
-                if (rule.matchesMediaQuery(viewportWidthPx) &&
-                    matchesRule(rule, classes, normalizedTargetTag, id, ancestorChain)
+                if (rule.matchesBackend(activeTarget) &&
+                    rule.matchesMediaQuery(viewportWidthPx) &&
+                    matchesRule(rule, classes, normalizedTargetTag, id, ancestorChain, subjectEnabled)
                 ) {
                     matchedIndices.add(ruleIdx)
                 }
@@ -312,6 +681,10 @@ class CssStyleSheet(
                 pTokens.add("tag:genericui:fragment")
             }
             p.id?.takeIf { it.isNotEmpty() }?.let { pTokens.add("#$it") }
+            pTokens.add(if (p.isEnabled) "pseudo:enabled" else "pseudo:disabled")
+            if (p.isHovered) pTokens.add("pseudo:hover")
+            if (p.isFocused) pTokens.add("pseudo:focus")
+            if (p.isActivePressed) pTokens.add("pseudo:active")
             ancestors.add(pTokens)
             p = p.parent
         }
@@ -353,12 +726,13 @@ class CssStyleSheet(
             }
         }
         val orderedAncestors = buildAncestorChain(component)
-        return resolveStyleForClasses(
+        return resolveStyleInternal(
             classes = classes,
             tagName = tagName,
             id = component.id,
             ancestorChain = orderedAncestors,
-            viewportWidthPx = viewportWidthPx
+            viewportWidthPx = viewportWidthPx,
+            subjectEnabled = component.isEnabled
         )
     }
 
@@ -418,12 +792,13 @@ class CssStyleSheet(
         classes: Set<String>,
         normalizedTargetTag: String,
         id: String?,
-        ancestorChain: List<Set<String>>
+        ancestorChain: List<Set<String>>,
+        subjectEnabled: Boolean = true
     ): Boolean {
-        if (rule.chainTokens.isEmpty()) return false
+        if (rule.chainTokens.isEmpty() || rule.chainTokens.any { it.isEmpty() }) return false
         if (rule.isUniversalStarOnly) return true
 
-        if (!matchesSubjectToken(rule, classes, normalizedTargetTag, id)) {
+        if (!matchesSubjectToken(rule, classes, normalizedTargetTag, id, subjectEnabled)) {
             return false
         }
         val ancestorTokens = rule.ancestorTokens
@@ -469,8 +844,16 @@ class CssStyleSheet(
         rule: CssRule,
         classes: Set<String>,
         normalizedTargetTag: String,
-        id: String?
+        id: String?,
+        subjectEnabled: Boolean
     ): Boolean {
+        if (rule.subjectExcludedClasses.any { it in classes }) return false
+        if (id != null && id in rule.subjectExcludedIds) return false
+        if (rule.subjectExcludedTags.isNotEmpty() && normalizedTargetTag in rule.subjectExcludedTags) return false
+        if ("enabled" in rule.subjectPositivePseudos && !subjectEnabled) return false
+        if ("disabled" in rule.subjectExcludedPseudos && !subjectEnabled) return false
+        if ("enabled" in rule.subjectExcludedPseudos && subjectEnabled) return false
+
         if (rule.subjectToken == "*") return true
 
         val reqIds = rule.subjectRequiredIds
@@ -488,7 +871,14 @@ class CssStyleSheet(
             if (normalizedLeadingTag != normalizedTargetTag) return false
         }
 
-        return reqIds.isNotEmpty() || reqClasses.isNotEmpty() || normalizedLeadingTag.isNotEmpty()
+        return reqIds.isNotEmpty() ||
+            reqClasses.isNotEmpty() ||
+            normalizedLeadingTag.isNotEmpty() ||
+            rule.subjectExcludedClasses.isNotEmpty() ||
+            rule.subjectExcludedIds.isNotEmpty() ||
+            rule.subjectExcludedTags.isNotEmpty() ||
+            rule.subjectPositivePseudos.isNotEmpty() ||
+            rule.subjectExcludedPseudos.isNotEmpty()
     }
 
     private fun matchesPreparsedAncestor(
@@ -496,6 +886,23 @@ class CssStyleSheet(
         ancestorStepIndex: Int,
         ancestorEntry: Set<String>
     ): Boolean {
+        val exclClasses = rule.ancestorExcludedClasses.getOrNull(ancestorStepIndex).orEmpty()
+        if (exclClasses.any { it in ancestorEntry }) return false
+        val exclIds = rule.ancestorExcludedIds.getOrNull(ancestorStepIndex).orEmpty()
+        if (exclIds.any { "#$it" in ancestorEntry || it in ancestorEntry }) return false
+        val exclTags = rule.ancestorExcludedTags.getOrNull(ancestorStepIndex).orEmpty()
+        if (exclTags.any { "tag:$it" in ancestorEntry || it in ancestorEntry }) return false
+        val exclPseudos = rule.ancestorExcludedPseudos.getOrNull(ancestorStepIndex).orEmpty()
+        for (ep in exclPseudos) {
+            val mapped = if (ep == "focus-visible" || ep == "focus-within") "focus" else ep
+            if ("pseudo:$mapped" in ancestorEntry) return false
+        }
+        val reqPseudos = rule.ancestorPositivePseudos.getOrNull(ancestorStepIndex).orEmpty()
+        for (rp in reqPseudos) {
+            val mapped = if (rp == "focus-visible" || rp == "focus-within") "focus" else rp
+            if ("pseudo:$mapped" !in ancestorEntry) return false
+        }
+
         val tok = rule.ancestorTokens[ancestorStepIndex]
         if (tok == "*") return true
 
@@ -517,7 +924,14 @@ class CssStyleSheet(
             if (!matchedTag) return false
         }
 
-        return idMatches.isNotEmpty() || reqClasses.isNotEmpty() || normalizedReqTag.isNotEmpty()
+        return idMatches.isNotEmpty() ||
+            reqClasses.isNotEmpty() ||
+            normalizedReqTag.isNotEmpty() ||
+            exclClasses.isNotEmpty() ||
+            exclIds.isNotEmpty() ||
+            exclTags.isNotEmpty() ||
+            reqPseudos.isNotEmpty() ||
+            exclPseudos.isNotEmpty()
     }
 
     private fun normalizeTagName(tag: String): String =
@@ -527,6 +941,10 @@ class CssStyleSheet(
         CssRule.normalizeSelectorTag(rawTag)
 
     companion object {
+        internal const val DESCENDANT_INVALIDATION_NONE: Int = 0
+        internal const val DESCENDANT_INVALIDATION_TARGETED: Int = 1
+        internal const val DESCENDANT_INVALIDATION_WHOLE_SUBTREE: Int = 2
+
         var systemStyleResolverHook: ((
             sheet: CssStyleSheet,
             component: AbstractComponent,
@@ -537,6 +955,33 @@ class CssStyleSheet(
         var systemMediaQueryBucketHook: ((
             sheet: CssStyleSheet,
             viewportWidthPx: Int
+        ) -> Int?)? = null
+
+        internal var systemIsClassReferencedHook: ((
+            sheet: CssStyleSheet,
+            cls: String,
+            checkAncestor: Boolean
+        ) -> Boolean?)? = null
+
+        internal var systemCollectDescendantInvalidationHook: ((
+            sheet: CssStyleSheet,
+            component: AbstractComponent,
+            changedClasses: List<String>,
+            outSubjectClasses: MutableSet<String>,
+            outSubjectIds: MutableSet<String>,
+            outSubjectTags: MutableSet<String>
+        ) -> Int?)? = null
+
+        internal var systemCollectMediaInvalidationHook: ((
+            sheet: CssStyleSheet,
+            oldViewportWidthPx: Int,
+            newViewportWidthPx: Int,
+            outSubjectClasses: MutableSet<String>,
+            outSubjectIds: MutableSet<String>,
+            outSubjectTags: MutableSet<String>,
+            outAncestorClasses: MutableSet<String>,
+            outAncestorIds: MutableSet<String>,
+            outAncestorTags: MutableSet<String>
         ) -> Int?)? = null
 
         private val WHITESPACE_REGEX = Regex("\\s+")
@@ -550,6 +995,48 @@ class CssStyleSheet(
          * Constructs a precompiled [CssStyleSheet] from build-time pre-parsed and specificity-sorted
          * [CssRule]s and `@keyframes` maps so zero SASS/CSS parsing occurs at runtime.
          */
+        fun combineCascade(sheets: List<CssStyleSheet>): CssStyleSheet {
+            if (sheets.isEmpty()) return empty()
+            val flattened = ArrayList<CssStyleSheet>(sheets.size)
+            fun collect(sheet: CssStyleSheet) {
+                if (sheet.composedSheets.isNotEmpty()) {
+                    for (child in sheet.composedSheets) collect(child)
+                } else {
+                    flattened.add(sheet)
+                }
+            }
+            for (s in sheets) collect(s)
+            if (flattened.isEmpty()) return empty()
+            if (flattened.size == 1) return flattened[0]
+
+            val mergedRules = ArrayList<CssRule>()
+            val mergedKeyframes = linkedMapOf<String, Map<String, Map<String, String>>>()
+            val mergedKfVariants = linkedMapOf<String, MutableList<Pair<Int, Map<String, Map<String, String>>>>>()
+            for (s in flattened) {
+                if (s.rules.isNotEmpty()) {
+                    mergedRules.addAll(s.rules)
+                }
+                for ((animName, stops) in s.keyframes) {
+                    mergedKeyframes[animName] = stops
+                    val variants = s.keyframeVariants[animName]
+                    if (variants != null) {
+                        mergedKfVariants.getOrPut(animName) { mutableListOf() }.addAll(variants)
+                    } else {
+                        mergedKfVariants.getOrPut(animName) { mutableListOf() }.add(BackendStyleMask.ALL to stops)
+                    }
+                }
+            }
+            val combined = CssStyleSheet(
+                rules = mergedRules,
+                keyframes = mergedKeyframes,
+                isPrecompiled = false,
+                sourceCssText = "",
+                composedSheets = flattened
+            )
+            combined.keyframeVariants = mergedKfVariants
+            return combined
+        }
+
         fun precompiled(
             rules: List<CssRule>,
             keyframes: Map<String, Map<String, Map<String, String>>> = emptyMap()
@@ -882,68 +1369,145 @@ class CssStyleSheet(
             return decls
         }
 
-        fun parse(cssText: String): CssStyleSheet {
+        fun parse(cssText: String, targetBackend: BackendTarget? = null): CssStyleSheet {
             val rules = mutableListOf<CssRule>()
             val keyframes = linkedMapOf<String, Map<String, Map<String, String>>>()
+            val keyframeVariants = linkedMapOf<String, MutableList<Pair<Int, Map<String, Map<String, String>>>>>()
             val cleaned = cssText.replace(COMMENT_REGEX, "")
+            parseInto(
+                cleanedCss = cleaned,
+                activeMinWidthPx = null,
+                activeMaxWidthPx = null,
+                activeBackendMask = BackendStyleMask.ALL,
+                targetMask = targetBackend?.let { BackendStyleMask.bitFor(it) },
+                outRules = rules,
+                outKeyframes = keyframes,
+                outKeyframeVariants = keyframeVariants
+            )
+            val sheet = CssStyleSheet(rules, keyframes, sourceCssText = cssText)
+            sheet.keyframeVariants = keyframeVariants
+            return sheet
+        }
+
+        private fun parseInto(
+            cleanedCss: String,
+            activeMinWidthPx: Int?,
+            activeMaxWidthPx: Int?,
+            activeBackendMask: Int,
+            targetMask: Int?,
+            outRules: MutableList<CssRule>,
+            outKeyframes: MutableMap<String, Map<String, Map<String, String>>>,
+            outKeyframeVariants: MutableMap<String, MutableList<Pair<Int, Map<String, Map<String, String>>>>>
+        ) {
+            if (activeBackendMask == BackendStyleMask.NONE) return
+            if (targetMask != null && (activeBackendMask and targetMask) == 0) return
 
             var i = 0
-            val n = cleaned.length
+            val n = cleanedCss.length
             while (i < n) {
-                while (i < n && cleaned[i].isWhitespace()) i++
+                while (i < n && cleanedCss[i].isWhitespace()) i++
                 if (i >= n) break
 
                 val headerStart = i
-                while (i < n && cleaned[i] != '{') i++
+                while (i < n && cleanedCss[i] != '{') i++
                 if (i >= n) break
-                val header = cleaned.substring(headerStart, i).trim()
+                val header = cleanedCss.substring(headerStart, i).trim()
                 val bodyStart = i + 1
                 var depth = 1
                 i++
                 while (i < n && depth > 0) {
-                    if (cleaned[i] == '{') depth++
-                    else if (cleaned[i] == '}') depth--
+                    if (cleanedCss[i] == '{') depth++
+                    else if (cleanedCss[i] == '}') depth--
                     i++
                 }
-                val body = cleaned.substring(bodyStart, (i - 1).coerceAtLeast(bodyStart)).trim()
+                val body = cleanedCss.substring(bodyStart, (i - 1).coerceAtLeast(bodyStart)).trim()
 
                 when {
-                    header.startsWith("@keyframes", ignoreCase = true) -> {
-                        val animName = header.replace(KEYFRAMES_PREFIX_REGEX, "").trim()
+                    header.startsWith("@keyframes", ignoreCase = true) ||
+                        header.startsWith("@-webkit-keyframes", ignoreCase = true) -> {
+                        val animName = header
+                            .replace(KEYFRAMES_PREFIX_REGEX, "")
+                            .replace(Regex("^@-webkit-keyframes\\s+", RegexOption.IGNORE_CASE), "")
+                            .trim()
+                        val frameRules = mutableListOf<CssRule>()
+                        parseInto(
+                            cleanedCss = body,
+                            activeMinWidthPx = null,
+                            activeMaxWidthPx = null,
+                            activeBackendMask = BackendStyleMask.ALL,
+                            targetMask = null,
+                            outRules = frameRules,
+                            outKeyframes = linkedMapOf(),
+                            outKeyframeVariants = linkedMapOf()
+                        )
                         val frames = linkedMapOf<String, Map<String, String>>()
-                        val subSheet = parse(body)
-                        for (r in subSheet.rules) {
-                            frames[r.selector] = r.declarations
+                        for (r in frameRules) {
+                            val existing = frames[r.selector]
+                            frames[r.selector] = if (existing != null) existing + r.declarations else r.declarations
                         }
                         if (animName.isNotEmpty()) {
-                            keyframes[animName] = frames
+                            outKeyframes[animName] = frames
+                            outKeyframeVariants.getOrPut(animName) { mutableListOf() }
+                                .add(activeBackendMask to frames)
                         }
+                    }
+                    BackendStyleMask.parseDirectiveHeader(header) != null -> {
+                        val dirMask = BackendStyleMask.parseDirectiveHeader(header)!!
+                        val nextMask = activeBackendMask and dirMask
+                        parseInto(
+                            cleanedCss = body,
+                            activeMinWidthPx = activeMinWidthPx,
+                            activeMaxWidthPx = activeMaxWidthPx,
+                            activeBackendMask = nextMask,
+                            targetMask = targetMask,
+                            outRules = outRules,
+                            outKeyframes = outKeyframes,
+                            outKeyframeVariants = outKeyframeVariants
+                        )
+                    }
+                    BackendStyleMask.isBackendDirectivePrefix(header) -> {
+                        // Skip malformed backend directives instead of turning them into selectors
                     }
                     header.startsWith("@media", ignoreCase = true) -> {
                         val minW = MIN_WIDTH_REGEX.find(header)?.groupValues?.get(1)?.toIntOrNull()
                         val maxW = MAX_WIDTH_REGEX.find(header)?.groupValues?.get(1)?.toIntOrNull()
-                        val innerSheet = parse(body)
-                        for (innerRule in innerSheet.rules) {
-                            rules.add(
-                                innerRule.copy(
-                                    mediaMinWidthPx = minW ?: innerRule.mediaMinWidthPx,
-                                    mediaMaxWidthPx = maxW ?: innerRule.mediaMaxWidthPx
+                        val nextMin = when {
+                            activeMinWidthPx != null && minW != null -> maxOf(activeMinWidthPx, minW)
+                            else -> minW ?: activeMinWidthPx
+                        }
+                        val nextMax = when {
+                            activeMaxWidthPx != null && maxW != null -> minOf(activeMaxWidthPx, maxW)
+                            else -> maxW ?: activeMaxWidthPx
+                        }
+                        parseInto(
+                            cleanedCss = body,
+                            activeMinWidthPx = nextMin,
+                            activeMaxWidthPx = nextMax,
+                            activeBackendMask = activeBackendMask,
+                            targetMask = targetMask,
+                            outRules = outRules,
+                            outKeyframes = outKeyframes,
+                            outKeyframeVariants = outKeyframeVariants
+                        )
+                    }
+                    header.isNotEmpty() -> {
+                        val decls = parseDeclarations(body)
+                        val selectors = com.nexustools.genericui.style.transition.CssTransitionSpec.splitTopLevelCommas(header)
+                        for (rawSel in selectors) {
+                            val sel = CssRule.sanitizeSelectorOrNull(rawSel) ?: continue
+                            outRules.add(
+                                CssRule(
+                                    selector = sel,
+                                    declarations = decls,
+                                    mediaMinWidthPx = activeMinWidthPx,
+                                    mediaMaxWidthPx = activeMaxWidthPx,
+                                    backendMask = activeBackendMask
                                 )
                             )
                         }
                     }
-                    header.isNotEmpty() -> {
-                        val decls = parseDeclarations(body)
-                        val selectors = header.split(",").map { it.trim() }.filter { it.isNotEmpty() }
-                        for (rawSel in selectors) {
-                            val sel = CssRule.sanitizeSelectorOrNull(rawSel) ?: continue
-                            rules.add(CssRule(sel, decls))
-                        }
-                    }
                 }
             }
-
-            return CssStyleSheet(rules, keyframes, sourceCssText = cssText)
         }
 
         fun empty(): CssStyleSheet = CssStyleSheet()

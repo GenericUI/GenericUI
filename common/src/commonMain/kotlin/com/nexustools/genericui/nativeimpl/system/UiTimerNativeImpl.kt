@@ -5,7 +5,7 @@ import com.nexustools.genericui.core.Disposable
 /**
  * Platform-native UI timer scheduler (`setTimeout` / `setInterval` / `clearTimer` / `clearAllTimers`).
  *
- * Implementations run callbacks on the UI thread across all 8 backends (`:windows`, `:macos`, `:gtk`, `:qt`,
+ * Implementations run callbacks on the UI thread across all 8 backends (`:windows`, `:macos`, `:gtk`, `:kde`,
  * `:swing`, `:android`, `:ios`, `:web`), while also supporting deterministic time advancement
  * ([advanceTimeBy], [flushAll]) in headless unit tests.
  */

@@ -12,7 +12,7 @@ enum class LayoutBackendTarget {
     WINDOWS,
     MACOS,
     GTK,
-    QT,
+    KDE,
     SWING,
     ANDROID,
     IOS,
@@ -20,7 +20,7 @@ enum class LayoutBackendTarget {
     WEB;
 
     val isDesktop: Boolean
-        get() = this == WINDOWS || this == MACOS || this == GTK || this == QT || this == SWING
+        get() = this == WINDOWS || this == MACOS || this == GTK || this == KDE || this == SWING
 
     val isMobile: Boolean
         get() = this == ANDROID || this == IOS || this == IPADOS
@@ -32,7 +32,7 @@ enum class LayoutBackendTarget {
         WINDOWS -> BackendTarget.Windows
         MACOS -> BackendTarget.MacOS
         GTK -> BackendTarget.Gtk
-        QT -> BackendTarget.Qt
+        KDE -> BackendTarget.Kde
         SWING -> BackendTarget.Swing
         ANDROID -> BackendTarget.Android
         IOS -> BackendTarget.IOS
@@ -45,7 +45,7 @@ enum class LayoutBackendTarget {
             BackendTarget.Windows -> WINDOWS
             BackendTarget.MacOS -> MACOS
             BackendTarget.Gtk -> GTK
-            BackendTarget.Qt -> QT
+            BackendTarget.Kde -> KDE
             BackendTarget.Swing -> SWING
             BackendTarget.Android -> ANDROID
             BackendTarget.IOS -> IOS
@@ -59,7 +59,7 @@ enum class LayoutBackendTarget {
                 "windows", "win32" -> WINDOWS
                 "macos", "mac", "cocoa", "appkit" -> MACOS
                 "gtk", "gtk3", "gtk4", "linux" -> GTK
-                "qt", "qt5", "qt6" -> QT
+                "kde", "kde6", "plasma" -> KDE
                 "swing", "awt", "jvm" -> SWING
                 "android" -> ANDROID
                 "ios", "uikit" -> IOS

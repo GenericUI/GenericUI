@@ -9,7 +9,7 @@ import kotlinx.coroutines.CoroutineScope
  * Global coordinator for GenericUI's Dual-Thread UI Rendering/Updating vs. Logic/Event-Handler
  * Thread Separation architecture.
  *
- * - On all 7 non-Web backends (`:desktop:windows`, `:desktop:macos`, `:desktop:gtk`, `:desktop:qt`,
+ * - On all 7 non-Web backends (`:desktop:windows`, `:desktop:macos`, `:desktop:gtk`, `:desktop:kde`,
  *   `:desktop:swing`, `:mobile:android`, `:mobile:ios`), [isSplitThreadingEnabled] is `true`:
  *   - User event handlers (`onClick`, pointer/key listeners, timers) execute on the **Logic Thread**
  *     ([isOnLogicThread] == `true`, [isOnUiThread] == `false`).

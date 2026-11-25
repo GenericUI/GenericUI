@@ -8,7 +8,7 @@ import com.nexustools.genericui.io.Writable
 /**
  * Cross-platform representation of a file or folder returned by [FileBrowserDialog].
  *
- * - On Desktop (`:windows`, `:macos`, `:gtk`, `:qt`, `:swing`), wraps a native filesystem path.
+ * - On Desktop (`:windows`, `:macos`, `:gtk`, `:kde`, `:swing`), wraps a native filesystem path.
  * - On `:android`, wraps a `content://` `Uri` (or tree `Uri` for folders) returned by the external
  *   Android system file browser (`Intent.ACTION_OPEN_DOCUMENT` / `ACTION_CREATE_DOCUMENT` / `ACTION_OPEN_DOCUMENT_TREE`).
  * - On `:web`, wraps an HTML5 `File` / `FileSystemFileHandle` / `FileSystemDirectoryHandle`.

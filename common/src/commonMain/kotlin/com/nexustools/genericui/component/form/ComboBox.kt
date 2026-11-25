@@ -6,5 +6,22 @@ package com.nexustools.genericui.component.form
 class ComboBox(
     options: List<SelectOption> = emptyList(),
     selectedValue: String? = options.firstOrNull()?.value,
-    var allowCustomInput: Boolean = true
-) : Select(options = options, selectedValue = selectedValue)
+    allowCustomInput: Boolean = true
+) : Select(options = options, selectedValue = selectedValue) {
+    var allowCustomInput: Boolean = allowCustomInput
+        set(value) {
+            field = value
+            setAttribute("data-allow-custom-input", value.toString())
+        }
+
+    init {
+        setAttribute("data-control-variant", "combobox")
+        setAttribute("data-allow-custom-input", allowCustomInput.toString())
+    }
+
+    override fun syncStateToNative() {
+        setAttribute("data-control-variant", "combobox")
+        setAttribute("data-allow-custom-input", allowCustomInput.toString())
+        super.syncStateToNative()
+    }
+}

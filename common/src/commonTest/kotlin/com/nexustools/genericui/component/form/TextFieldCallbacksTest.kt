@@ -272,6 +272,10 @@ class TextFieldCallbacksTest {
         override fun createDockWindow(): DockWindowNativeImpl<*> = unsupported()
         override fun createToolPalette(): ToolPaletteNativeImpl<*> = unsupported()
         override fun createStyledContainer(classPrefix: String, tagName: String): StyledContainerNativeImpl<*> = unsupported()
+        override fun createStyledComponent(
+            classPrefix: String,
+            tagName: String
+        ): com.nexustools.genericui.nativeimpl.surface.StyledComponentNativeImpl<*> = unsupported()
         override fun createBookContainer(): BookContainerNativeImpl<*> = unsupported()
         override fun createScrollView(): ScrollViewNativeImpl<*> = unsupported()
         override fun createDivider(): DividerNativeImpl<*> = unsupported()

@@ -198,7 +198,11 @@ class AppleUiThreadDispatcherNativeImpl(
             val remaining = lock.withLock { inFlightLogicCount }
             if (remaining <= 0) break
             if (NSThread.isMainThread) {
-                CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.001, true)
+                if (iterations <= 60) {
+                    usleep(25u)
+                } else {
+                    CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.001, true)
+                }
             } else {
                 usleep(50u)
             }
@@ -221,7 +225,11 @@ class AppleUiThreadDispatcherNativeImpl(
                 continue
             }
             if (NSThread.isMainThread) {
-                CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.001, true)
+                if (iterations <= 60) {
+                    usleep(25u)
+                } else {
+                    CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.001, true)
+                }
             } else {
                 usleep(50u)
             }

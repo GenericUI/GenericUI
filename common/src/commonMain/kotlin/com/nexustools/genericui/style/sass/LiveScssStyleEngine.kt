@@ -1,23 +1,25 @@
 package com.nexustools.genericui.style.sass
 
 import com.nexustools.genericui.core.AbstractComponent
+import com.nexustools.genericui.enums.system.BackendTarget
 import com.nexustools.genericui.style.css.CssStyleSheet
 
 /**
  * Live SCSS editing, validation, compilation, and real-time stylesheet application engine.
  *
  * Allows applications and developer tools to edit SCSS source text (`$variables`, `@mixin` / `@include`,
- * nested selectors, `&` parent selectors, `@media` queries, and `genericui:*` custom tags) at runtime,
- * immediately compiling it into a [CssStyleSheet] and applying the resulting styles to all bound
- * root components.
+ * nested selectors, `&` parent selectors, `@media` queries, backend `@` directives, and `genericui:*`
+ * custom tags) at runtime, immediately compiling it into a [CssStyleSheet] and applying the resulting
+ * styles to all bound root components.
  */
 class LiveScssStyleEngine(
-    initialScss: String = ""
+    initialScss: String = "",
+    val targetBackend: BackendTarget? = null
 ) {
     var currentScss: String = initialScss
         private set
 
-    var lastCompileResult: ScssCompileResult = SassCompiler.compileDetailed(initialScss)
+    var lastCompileResult: ScssCompileResult = SassCompiler.compileDetailed(initialScss, targetBackend)
         private set
 
     val currentStyleSheet: CssStyleSheet
@@ -25,6 +27,13 @@ class LiveScssStyleEngine(
 
     val compiledCss: String
         get() = lastCompileResult.compiledCss
+
+    val compiledWebCss: String
+        get() = when {
+            !lastCompileResult.isSuccess -> lastCompileResult.styleSheet.toWebCss()
+            targetBackend == BackendTarget.Web -> lastCompileResult.compiledCss
+            else -> SassCompiler.compileToWebCss(lastCompileResult.scssSource)
+        }
 
     val variables: Map<String, String>
         get() = lastCompileResult.variables
@@ -36,6 +45,7 @@ class LiveScssStyleEngine(
         private set
 
     private val boundComponents = mutableListOf<AbstractComponent>()
+    private val engineMarkedComponents = HashSet<AbstractComponent>()
     private val updateListeners = mutableListOf<(ScssCompileResult) -> Unit>()
 
     /**
@@ -47,13 +57,26 @@ class LiveScssStyleEngine(
         if (component !in boundComponents) {
             boundComponents.add(component)
         }
+        if (component.getAttribute("data-style-engine") == null) {
+            component.setAttribute("data-style-engine", "custom")
+            engineMarkedComponents.add(component)
+        }
         if (lastCompileResult.isSuccess) {
+            component.scopedStyleSheet = lastCompileResult.styleSheet
             component.applyStyleSheet(lastCompileResult.styleSheet, viewportWidthPx)
         }
     }
 
     fun unbindRootComponent(component: AbstractComponent) {
         boundComponents.remove(component)
+        if (component.scopedStyleSheet === lastCompileResult.styleSheet) {
+            component.scopedStyleSheet = null
+        } else if (component in engineMarkedComponents) {
+            component.scopedStyleSheet = null
+        }
+        if (engineMarkedComponents.remove(component) && component.getAttribute("data-style-engine") == "custom") {
+            component.removeAttribute("data-style-engine")
+        }
     }
 
     /**
@@ -63,6 +86,7 @@ class LiveScssStyleEngine(
     fun reapplyToBoundComponents(viewportWidthPx: Int = 1280) {
         if (!lastCompileResult.isSuccess) return
         for (root in boundComponents) {
+            root.scopedStyleSheet = lastCompileResult.styleSheet
             root.applyStyleSheet(lastCompileResult.styleSheet, viewportWidthPx)
         }
     }
@@ -73,11 +97,12 @@ class LiveScssStyleEngine(
      */
     fun updateScss(scssSource: String, viewportWidthPx: Int = 1280): ScssCompileResult {
         currentScss = scssSource
-        val result = SassCompiler.compileDetailed(scssSource)
+        val result = SassCompiler.compileDetailed(scssSource, targetBackend)
         if (result.isSuccess) {
             lastCompileResult = result
             revisionCount += 1
             for (root in boundComponents) {
+                root.scopedStyleSheet = result.styleSheet
                 root.applyStyleSheet(result.styleSheet, viewportWidthPx)
             }
         } else {

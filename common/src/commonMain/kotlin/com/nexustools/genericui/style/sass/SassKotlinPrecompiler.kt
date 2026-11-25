@@ -40,7 +40,9 @@ object SassKotlinPrecompiler {
         } else {
             imports.values.joinToString("\n") + "\n"
         }
-        val compiledCss = SassCompiler.compileToCss(importHeader + varHeader + scssSource)
+        val combinedSource = importHeader + varHeader + scssSource
+        val compiledCss = SassCompiler.compileToCss(combinedSource)
+        val webCss = SassCompiler.compileToWebCss(combinedSource)
         val parsedSheet = CssStyleSheet.parse(compiledCss)
         val compiledRules = parsedSheet.rules.mapIndexed { idx, rule ->
             compileRule(rule, idx)
@@ -49,12 +51,13 @@ object SassKotlinPrecompiler {
         val precompiledSheet = CssStyleSheet.precompiledFromCompiledRules(
             compiledRules = compiledRules,
             keyframes = keyframesMap,
-            rawCss = compiledCss
+            rawCss = webCss
         )
+        precompiledSheet.keyframeVariants = parsedSheet.keyframeVariants
         return object : PrecompiledStyleSheet {
             override val name: String = name
             override val cssResourcePath: String = resourcePath
-            override val rawCss: String = compiledCss
+            override val rawCss: String = webCss
             override val compiledRules: List<CompiledStyleRule> = compiledRules
             override val keyframes: Map<String, Map<String, Map<String, String>>> = keyframesMap
             override val styleSheet: CssStyleSheet = precompiledSheet
@@ -79,7 +82,8 @@ object SassKotlinPrecompiler {
             declarations = rule.cleanedDeclarations,
             segments = segments,
             mediaMinWidthPx = rule.mediaMinWidthPx,
-            mediaMaxWidthPx = rule.mediaMaxWidthPx
+            mediaMaxWidthPx = rule.mediaMaxWidthPx,
+            backendMask = rule.backendMask
         )
     }
 
@@ -121,6 +125,7 @@ object SassKotlinPrecompiler {
         sb.appendLine("package $packageName")
         sb.appendLine()
         sb.appendLine("import com.nexustools.genericui.style.color.RgbaColor")
+        sb.appendLine("import com.nexustools.genericui.style.css.BackendStyleMask")
         sb.appendLine("import com.nexustools.genericui.style.css.CompiledSelectorSegment")
         sb.appendLine("import com.nexustools.genericui.style.css.CompiledStyleRule")
         sb.appendLine("import com.nexustools.genericui.style.css.ComponentStyle")
@@ -155,13 +160,20 @@ object SassKotlinPrecompiler {
             sb.appendLine("            sourceOrder = ${rule.sourceOrder},")
             sb.appendLine("            mediaMinWidthPx = ${rule.mediaMinWidthPx ?: "null"},")
             sb.appendLine("            mediaMaxWidthPx = ${rule.mediaMaxWidthPx ?: "null"},")
+            if (rule.backendMask != com.nexustools.genericui.style.css.BackendStyleMask.ALL) {
+                sb.appendLine("            backendMask = ${com.nexustools.genericui.style.css.BackendStyleMask.formatKotlinExpr(rule.backendMask)},")
+            }
             sb.appendLine("            segments = listOf(")
             for ((sIdx, seg) in rule.segments.withIndex()) {
                 val sComma = if (sIdx < rule.segments.lastIndex) "," else ""
                 val classesLiteral = if (seg.classes.isEmpty()) "emptySet()" else "setOf(${seg.classes.joinToString(", ") { escapeKotlinString(it) }})"
                 val pseudosLiteral = if (seg.pseudoClasses.isEmpty()) "emptySet()" else "setOf(${seg.pseudoClasses.joinToString(", ") { escapeKotlinString(it) }})"
                 val combLiteral = seg.combinatorToNext?.let { "CssCombinator.${it.name}" } ?: "null"
-                sb.appendLine("                CompiledSelectorSegment(tagName = ${seg.tagName?.let { escapeKotlinString(it) } ?: "null"}, id = ${seg.id?.let { escapeKotlinString(it) } ?: "null"}, classes = $classesLiteral, pseudoClasses = $pseudosLiteral, combinatorToNext = $combLiteral)$sComma")
+                val exclClassesArg = if (seg.excludedClasses.isEmpty()) "" else ", excludedClasses = setOf(${seg.excludedClasses.joinToString(", ") { escapeKotlinString(it) }})"
+                val exclPseudosArg = if (seg.excludedPseudoClasses.isEmpty()) "" else ", excludedPseudoClasses = setOf(${seg.excludedPseudoClasses.joinToString(", ") { escapeKotlinString(it) }})"
+                val exclTagsArg = if (seg.excludedTags.isEmpty()) "" else ", excludedTags = setOf(${seg.excludedTags.joinToString(", ") { escapeKotlinString(it) }})"
+                val exclIdsArg = if (seg.excludedIds.isEmpty()) "" else ", excludedIds = setOf(${seg.excludedIds.joinToString(", ") { escapeKotlinString(it) }})"
+                sb.appendLine("                CompiledSelectorSegment(tagName = ${seg.tagName?.let { escapeKotlinString(it) } ?: "null"}, id = ${seg.id?.let { escapeKotlinString(it) } ?: "null"}, classes = $classesLiteral, pseudoClasses = $pseudosLiteral, combinatorToNext = $combLiteral$exclClassesArg$exclPseudosArg$exclTagsArg$exclIdsArg)$sComma")
             }
             sb.appendLine("            ),")
             sb.appendLine("            style = ComponentStyle().apply {")
@@ -322,7 +334,7 @@ object SassKotlinPrecompiler {
             sb.appendLine("                setFontStyle(com.nexustools.genericui.enums.css.CssFontStyle.${it.name}, ${s.isImportant(CssProperty.FONT_STYLE)})")
         }
         s.getLineHeight()?.let {
-            sb.appendLine("                CssLength.parse(${escapeKotlinString(it.toCssString())})?.let { l -> setLineHeight(l, ${s.isImportant(CssProperty.LINE_HEIGHT)}) }")
+            sb.appendLine("                CssLength.parseLineHeight(${escapeKotlinString(it.toCssString())})?.let { l -> setLineHeight(l, ${s.isImportant(CssProperty.LINE_HEIGHT)}) }")
         }
         s.getLetterSpacing()?.let {
             sb.appendLine("                CssLength.parse(${escapeKotlinString(it.toCssString())})?.let { l -> setLetterSpacing(l, ${s.isImportant(CssProperty.LETTER_SPACING)}) }")
@@ -409,7 +421,34 @@ object SassKotlinPrecompiler {
             sb.appendLine("                setZIndex($it, ${s.isImportant(CssProperty.Z_INDEX)})")
         }
         s.getTransform()?.let {
-            sb.appendLine("                CssTransform2D.parse(${escapeKotlinString(it.toCssString())})?.let { tr -> setTransform(tr, ${s.isImportant(CssProperty.TRANSFORM)}) }")
+            sb.appendLine("                com.nexustools.genericui.style.css.CssTransform.parse(${escapeKotlinString(it.toCssString())})?.let { tr -> setTransform(tr, ${s.isImportant(CssProperty.TRANSFORM)}) }")
+        }
+        s.getAnimation()?.let {
+            sb.appendLine("                setAnimation(${escapeKotlinString(it)}, ${s.isImportant(CssProperty.ANIMATION)})")
+        }
+        s.getAnimationName()?.let {
+            sb.appendLine("                setAnimationName(${escapeKotlinString(it)}, ${s.isImportant(CssProperty.ANIMATION_NAME)})")
+        }
+        s.getAnimationDuration()?.let {
+            sb.appendLine("                setAnimationDuration(${escapeKotlinString(it)}, ${s.isImportant(CssProperty.ANIMATION_DURATION)})")
+        }
+        s.getAnimationTimingFunction()?.let {
+            sb.appendLine("                setAnimationTimingFunction(${escapeKotlinString(it)}, ${s.isImportant(CssProperty.ANIMATION_TIMING_FUNCTION)})")
+        }
+        s.getAnimationDelay()?.let {
+            sb.appendLine("                setAnimationDelay(${escapeKotlinString(it)}, ${s.isImportant(CssProperty.ANIMATION_DELAY)})")
+        }
+        s.getAnimationIterationCount()?.let {
+            sb.appendLine("                setAnimationIterationCount(${escapeKotlinString(it)}, ${s.isImportant(CssProperty.ANIMATION_ITERATION_COUNT)})")
+        }
+        s.getAnimationDirection()?.let {
+            sb.appendLine("                setAnimationDirection(${escapeKotlinString(it)}, ${s.isImportant(CssProperty.ANIMATION_DIRECTION)})")
+        }
+        s.getAnimationFillMode()?.let {
+            sb.appendLine("                setAnimationFillMode(${escapeKotlinString(it)}, ${s.isImportant(CssProperty.ANIMATION_FILL_MODE)})")
+        }
+        s.getAnimationPlayState()?.let {
+            sb.appendLine("                setAnimationPlayState(${escapeKotlinString(it)}, ${s.isImportant(CssProperty.ANIMATION_PLAY_STATE)})")
         }
         s.getFilter()?.let {
             sb.appendLine("                CssFilter.parse(${escapeKotlinString(it.toCssString())})?.let { f -> setFilter(f, ${s.isImportant(CssProperty.FILTER)}) }")

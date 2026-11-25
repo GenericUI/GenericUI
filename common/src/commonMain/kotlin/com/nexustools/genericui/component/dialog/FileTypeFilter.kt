@@ -3,7 +3,7 @@ package com.nexustools.genericui.component.dialog
 /**
  * Rich cross-platform file-type filter definition for [FileBrowserDialog], [FileOpenDialog], and [FileSaveDialog].
  *
- * - On Desktop (`:windows`, `:macos`, `:gtk`, `:qt`, `:swing`), populates the native file dialog's
+ * - On Desktop (`:windows`, `:macos`, `:gtk`, `:kde`, `:swing`), populates the native file dialog's
  *   filter dropdown (`description` + extension patterns).
  * - On `:web`, translates all [extensions] and [mimeTypes] into the invisible `<input type="file" accept="...">`
  *   attribute via [toWebAcceptAttribute] and performs post-selection validation.

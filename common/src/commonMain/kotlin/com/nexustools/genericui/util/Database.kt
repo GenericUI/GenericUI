@@ -19,7 +19,7 @@ import com.nexustools.genericui.util.db.DatabaseTableSchema
  *
  * Uses an enum/class-based query & filter AST ([DatabaseTableSchema], [DatabaseQuery], [DatabaseFilter],
  * [DatabaseRecord]) that requires **zero string query parsing**:
- * - **System Targets (`:windows`, `:macos`, `:gtk`, `:qt`, `:swing`, `:android`, `:ios`)**: Backed by a SQLite
+ * - **System Targets (`:windows`, `:macos`, `:gtk`, `:kde`, `:swing`, `:android`, `:ios`)**: Backed by a SQLite
  *   database file on disk (resolved inside [ConfigDirectory] by default, or at any custom [filePath] via
  *   [setFilePath] / [com.nexustools.genericui.io.IFileSystem.openDatabase]).
  * - **Web (`:web`)**: Backed by browser `window.indexedDB` in a strictly isolated database namespace

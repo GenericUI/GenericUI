@@ -1,9 +1,7 @@
 package com.nexustools.genericui.component.action
 
-import com.nexustools.genericui.enums.bootstrap.BorderRadiusStyle
 import com.nexustools.genericui.enums.bootstrap.BootstrapSize
 import com.nexustools.genericui.enums.bootstrap.BootstrapType
-import com.nexustools.genericui.enums.bootstrap.ShadowElevation
 
 /**
  * Circular elevated Floating Action Button (FAB).
@@ -19,7 +17,5 @@ class FloatingActionButton(
 ) {
     init {
         this.icon = icon
-        this.borderRadiusStyle = BorderRadiusStyle.CIRCLE
-        this.shadowElevation = ShadowElevation.LG
     }
 }

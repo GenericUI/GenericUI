@@ -67,6 +67,9 @@ open class FragmentApplication(
 
     override fun onApplicationStarted() {
         super.onApplicationStarted()
+        if (suppressInitialMainWindowShow) {
+            return
+        }
         if (rootFragmentContainer.currentFragment == null &&
             (mainFragmentFactory != null || mainFragmentClass != null)
         ) {

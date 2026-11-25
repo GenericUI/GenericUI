@@ -21,7 +21,7 @@ import com.nexustools.genericui.nativeimpl.system.UserDirectoryNativeImpl
  * fallback when [GenericUI.activeFactory] is initialized later in the application lifecycle.
  *
  * - [isAvailable] is always [FileSystemAvailability.Always] across all 8 backends (`:windows`, `:macos`, `:gtk`,
- *   `:qt`, `:swing`, `:android`, `:ios`, `:web`).
+ *   `:kde`, `:swing`, `:android`, `:ios`, `:web`).
  * - System backends store files in the OS application config/cache directory and delegate async streams to [com.nexustools.genericui.io.FileSystem].
  * - `:web` (`WebUserDirectoryNativeImpl`) stores files directly in browser `window.indexedDB` (`"config"` and `"cache"`
  *   stores) without using [Database].

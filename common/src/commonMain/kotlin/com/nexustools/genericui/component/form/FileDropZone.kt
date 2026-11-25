@@ -16,6 +16,9 @@ class FileDropZone(
     var filters: List<FileTypeFilter> = emptyList(),
     var promptText: String = "Drop files here or click to browse"
 ) : AbstractContainer() {
+    override val supportsFocus: Boolean
+        get() = true
+
     var onFilesDroppedOrSelected: ((List<SelectedFile>) -> Unit)? = null
     var onSelectionCancelled: (() -> Unit)? = null
 

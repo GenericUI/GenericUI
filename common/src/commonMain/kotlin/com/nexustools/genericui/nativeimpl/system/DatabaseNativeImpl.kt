@@ -12,7 +12,7 @@ import com.nexustools.genericui.util.db.DatabaseTableSchema
  * Per-backend native contract for a 100% asynchronous, non-blocking structured [com.nexustools.genericui.util.Database].
  *
  * Platform implementations:
- * - **Desktop (`:windows`, `:macos`, `:gtk`, `:qt`) & `:ios`**: Native `sqlite3` C library executing
+ * - **Desktop (`:windows`, `:macos`, `:gtk`, `:kde`) & `:ios`**: Native `sqlite3` C library executing
  *   [com.nexustools.genericui.util.db.DatabaseQuerySqlTranslator] parameterized SQL on an async coroutine dispatcher.
  * - **Swing (`:swing`)**: JDBC SQLite (`org.sqlite.JDBC`) / file-backed engine on `Dispatchers.IO`.
  * - **Android (`:android`)**: `android.database.sqlite.SQLiteDatabase` on `Dispatchers.IO`.

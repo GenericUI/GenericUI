@@ -2,6 +2,7 @@
 
 package com.nexustools.genericui.apple
 
+import com.nexustools.genericui.nativeimpl.net.DefaultHttpClientNativeImpl
 import com.nexustools.genericui.nativeimpl.net.HttpClientNativeImpl
 import com.nexustools.genericui.nativeimpl.net.HttpConnectionNativeImpl
 import com.nexustools.genericui.net.http.HttpMethod
@@ -150,7 +151,7 @@ class AppleHttpClientNativeImpl(
             routes[url]
                 ?: routes[url.substringBefore('?')]
                 ?: routes.entries.firstOrNull { (pattern, _) -> matchesPattern(pattern, url) }?.value
-        }
+        } ?: DefaultHttpClientNativeImpl.findStaticRouteHandler(url)
     }
 
     private fun matchesPattern(pattern: String, url: String): Boolean {

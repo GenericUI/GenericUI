@@ -3,6 +3,7 @@ package com.nexustools.genericui.style
 import com.nexustools.genericui.component.action.Button
 import com.nexustools.genericui.component.layout.Container
 import com.nexustools.genericui.component.shell.Application
+import com.nexustools.genericui.component.typography.Badge
 import com.nexustools.genericui.enums.bootstrap.AlignItems
 import com.nexustools.genericui.enums.bootstrap.BootstrapAspectRatio
 import com.nexustools.genericui.enums.bootstrap.BootstrapBorderWidth
@@ -35,6 +36,7 @@ import com.nexustools.genericui.enums.css.CssGenericFontFamily
 import com.nexustools.genericui.enums.css.CssPointerEvents
 import com.nexustools.genericui.enums.css.CssPosition
 import com.nexustools.genericui.enums.css.CssTextDecoration
+import com.nexustools.genericui.enums.css.CssUnit
 import com.nexustools.genericui.enums.css.CssUserSelect
 import com.nexustools.genericui.enums.css.CssVisibility
 import com.nexustools.genericui.enums.ui.ThemeMode
@@ -60,6 +62,7 @@ import com.nexustools.genericui.style.css.CssShadowList
 import com.nexustools.genericui.style.css.CssStyleSheet
 import com.nexustools.genericui.style.sass.SassKotlinPrecompiler
 import com.nexustools.genericui.style.theme.SystemThemeDetector
+import com.nexustools.genericui.style.theme.ThemeConfig
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -490,5 +493,104 @@ class ComponentStyleBootstrapAndThemeTest {
         assertEquals(RgbaColor.fromHex("#dc3545"), styledFiltered.getBackgroundColor())
         assertEquals(12f, styledFiltered.getBorderRadius()?.topLeft?.value)
         assertEquals(RgbaColor.fromHex("#10b981"), styledFiltered.getColor())
+    }
+
+    @Test
+    fun testBadgeAndTranslucentForegroundContrastOnDarkAndOverlaySurfaces() {
+        val prevApp = Application.current
+        try {
+            val darkHost = Container("overlay-host").apply {
+                setAttribute("data-overlay-host-root", "true")
+            }
+            val directPlayPill = Badge("DIRECT PLAY", type = BootstrapType.INFO, pill = true)
+            val fallbackPill = Badge("HD", type = BootstrapType.NONE, pill = true)
+            darkHost.addChild(directPlayPill)
+            darkHost.addChild(fallbackPill)
+
+            assertTrue(directPlayPill.isOnDarkSurface())
+            assertTrue(fallbackPill.isOnDarkSurface())
+
+            // Even with dark/translucent pill fills, resolved foreground achieves strong contrast and never stays low-contrast black
+            directPlayPill.getStyle().apply {
+                setBackgroundColor(RgbaColor(79, 140, 255, 72))
+                setColor(RgbaColor(33, 37, 41, 255))
+            }
+            val resolvedDirectFg = directPlayPill.resolveEffectivePillForegroundColor(darkTheme = true)
+            val compositedDirectBg = ThemeConfig.compositeOver(
+                RgbaColor(79, 140, 255, 72),
+                RgbaColor(14, 16, 22, 255)
+            )
+            assertEquals(RgbaColor.WHITE, resolvedDirectFg)
+            assertTrue(ThemeConfig.contrastRatio(resolvedDirectFg, compositedDirectBg) >= 4.5)
+
+            // No-type .badge fallback on dark surface uses dark surface fill and white foreground
+            val fallbackBg = fallbackPill.resolveEffectivePillBackgroundColor(darkTheme = true)
+            val fallbackFg = fallbackPill.resolveEffectivePillForegroundColor(darkTheme = true)
+            assertTrue(ThemeConfig.relativeLuminance(fallbackBg) < 138)
+            assertEquals(RgbaColor.WHITE, fallbackFg)
+            assertTrue(ThemeConfig.contrastRatio(fallbackFg, fallbackBg) >= 4.5)
+
+            // Translucent color compositing over dark backdrop vs light backdrop in ThemeConfig.autoContrastForeground
+            val translucentBlue = RgbaColor(37, 99, 235, 90)
+            assertEquals(RgbaColor.WHITE, ThemeConfig.autoContrastForeground(translucentBlue, darkBackdrop = true))
+            assertEquals(RgbaColor(33, 37, 41), ThemeConfig.autoContrastForeground(translucentBlue, darkBackdrop = false))
+        } finally {
+            Application.current = prevApp
+        }
+    }
+
+    @Test
+    fun testCssUnitNumberAndUnitlessLineHeightParsingAndResolution() {
+        assertEquals("", CssUnit.NUMBER.symbol)
+        assertNull(CssUnit.fromCss(""))
+        assertEquals(CssLength(1.5f, CssUnit.NUMBER), CssLength.number(1.5f))
+        assertEquals("1", CssLength(1f, CssUnit.NUMBER).toCssString())
+        assertEquals("1.38", CssLength(1.38f, CssUnit.NUMBER).toCssString())
+        assertEquals(30f, CssLength.number(1.5f).resolvePx(parentFontSizePx = 20f))
+        assertEquals(24f, CssLength.number(1.5f).resolvePx())
+
+        assertEquals(CssLength(1f, CssUnit.NUMBER), CssLength.parseLineHeight("1"))
+        assertEquals(CssLength(1.38f, CssUnit.NUMBER), CssLength.parseLineHeight(" 1.38 !important "))
+        assertEquals(CssLength(0f, CssUnit.NUMBER), CssLength.parseLineHeight("0"))
+        assertEquals(CssLength(18f, CssUnit.PX), CssLength.parseLineHeight("18px"))
+        assertEquals(CssLength(1.5f, CssUnit.EM), CssLength.parseLineHeight("1.5em"))
+        assertEquals(CssLength(120f, CssUnit.PERCENT), CssLength.parseLineHeight("120%"))
+        assertNull(CssLength.parseLineHeight(null))
+        assertNull(CssLength.parseLineHeight("  "))
+
+        // CssLength.parse remains backward-compatible for non-line-height bare numeric strings
+        assertEquals(CssLength(12f, CssUnit.PX), CssLength.parse("12"))
+
+        val sheet = CssStyleSheet.parse(
+            """
+            .badge { line-height: 1; font-size: 12px; }
+            .title { line-height: 1.38; font-size: 20px; }
+            .fixed { line-height: 24px; }
+            """.trimIndent()
+        )
+        val badgeContainer = Container().apply {
+            addClass("badge")
+            applyStyleSheet(sheet)
+        }
+        val titleContainer = Container().apply {
+            addClass("title")
+            applyStyleSheet(sheet)
+        }
+        val fixedContainer = Container().apply {
+            addClass("fixed")
+            applyStyleSheet(sheet)
+        }
+        assertEquals(CssLength(1f, CssUnit.NUMBER), badgeContainer.computedStyle?.lineHeight)
+        assertEquals(12f, badgeContainer.computedStyle?.lineHeight?.resolvePx(parentFontSizePx = 12f))
+        assertEquals(CssLength(1.38f, CssUnit.NUMBER), titleContainer.computedStyle?.lineHeight)
+        assertEquals(27.6f, titleContainer.computedStyle?.lineHeight?.resolvePx(parentFontSizePx = 20f) ?: -1f, 0.001f)
+        assertEquals(CssLength(24f, CssUnit.PX), fixedContainer.computedStyle?.lineHeight)
+
+        val precompiled = SassKotlinPrecompiler.precompile(
+            scssSource = ".badge { line-height: 1; } .title { line-height: 1.38; }",
+            name = "UnitlessTest"
+        )
+        assertEquals(CssLength(1f, CssUnit.NUMBER), precompiled.compiledRules[0].style.getLineHeight())
+        assertEquals(CssLength(1.38f, CssUnit.NUMBER), precompiled.compiledRules[1].style.getLineHeight())
     }
 }

@@ -1,9 +1,28 @@
 package com.nexustools.genericui.style.layout
 
 import com.nexustools.genericui.component.action.Button
+import com.nexustools.genericui.component.action.DropdownButton
+import com.nexustools.genericui.component.action.FloatingActionButton
+import com.nexustools.genericui.component.action.IconButton
+import com.nexustools.genericui.component.action.SplitDropdownButton
 import com.nexustools.genericui.component.action.StyledButton
+import com.nexustools.genericui.component.action.ToggleButton
+import com.nexustools.genericui.component.action.Toolbar
+import com.nexustools.genericui.component.composite.Composite
 import com.nexustools.genericui.component.dialog.DialogWindow
 import com.nexustools.genericui.component.feedback.Alert
+import com.nexustools.genericui.component.feedback.Banner
+import com.nexustools.genericui.component.feedback.ProgressBar
+import com.nexustools.genericui.component.feedback.Spinner
+import com.nexustools.genericui.component.feedback.Toast
+import com.nexustools.genericui.component.form.CheckBox
+import com.nexustools.genericui.component.form.ComboBox
+import com.nexustools.genericui.component.form.RadioButton
+import com.nexustools.genericui.component.form.RangeSlider
+import com.nexustools.genericui.component.form.Select
+import com.nexustools.genericui.component.form.Slider
+import com.nexustools.genericui.component.form.StyledSlider
+import com.nexustools.genericui.component.form.Switch
 import com.nexustools.genericui.component.form.TextArea
 import com.nexustools.genericui.component.form.TextField
 import com.nexustools.genericui.component.layout.AspectRatioContainer
@@ -13,13 +32,22 @@ import com.nexustools.genericui.component.layout.HybridSplitNavigationLayout
 import com.nexustools.genericui.component.layout.LayerAlignment
 import com.nexustools.genericui.component.layout.LayeredContainer
 import com.nexustools.genericui.component.layout.LayoutBackendTarget
+import com.nexustools.genericui.component.layout.ScrollView
 import com.nexustools.genericui.component.layout.StackConstraint
 import com.nexustools.genericui.component.layout.StyledContainer
 import com.nexustools.genericui.component.layout.VStack
 import com.nexustools.genericui.component.lazy.LazyList
 import com.nexustools.genericui.component.navigation.Navbar
+import com.nexustools.genericui.component.surface.Accordion
 import com.nexustools.genericui.component.surface.Card
-import com.nexustools.genericui.component.surface.TextBubble
+import com.nexustools.genericui.component.surface.CollapsiblePanel
+import com.nexustools.genericui.component.surface.Jumbotron
+import com.nexustools.genericui.component.surface.ListGroup
+import com.nexustools.genericui.component.surface.ListGroupItem
+import com.nexustools.genericui.component.surface.StyledComponent
+import com.nexustools.genericui.component.surface.Well
+import com.nexustools.genericui.component.tabs.Tab
+import com.nexustools.genericui.component.tabs.TabContainer
 import com.nexustools.genericui.component.typography.Badge
 import com.nexustools.genericui.core.AbstractComponent
 import com.nexustools.genericui.enums.bootstrap.BootstrapAspectRatio
@@ -89,7 +117,8 @@ class BrowserLayoutEngineAndStylePolicyTest {
         val videoSurface = Container("div", "video-surface")
         val overlayLayer = LayeredContainer()
         val hudSurface = StyledContainer()
-        val subtitleOverlay = TextBubble("Subtitles Active").apply {
+        val subtitleOverlay = StyledContainer().apply {
+            setBackdropBlur(8f)
             widthPx = 220
             heightPx = 36
         }
@@ -208,20 +237,55 @@ class BrowserLayoutEngineAndStylePolicyTest {
     fun aestheticStylePolicyAndBackdropBlurBackendFiltering() {
         val styledContainer = StyledContainer()
         val styledButton = StyledButton("Play")
-        val textBubble = TextBubble("01:23")
+        val styledComponent = StyledComponent()
+        val compositeControl = object : Composite("custom-composite") {}
+        val styledSlider = StyledSlider()
+        val glassOverlay = StyledContainer(classPrefix = "hud-overlay")
         val card = Card()
         val badge = Badge("NEW")
         val alert = Alert("Ready")
+        val banner = Banner("Notice")
+        val toast = Toast("Title", "Message")
+        val listGroup = ListGroup()
+        val listGroupItem = ListGroupItem()
+        val jumbotron = Jumbotron()
+        val well = Well()
         val plainButton = Button("Plain")
+        val iconButton = IconButton("star")
+        val toggleButton = ToggleButton("Pin")
+        val fabButton = FloatingActionButton("plus")
         val plainContainer = Container()
 
+        val backdropSurfaces = setOf<AbstractComponent>(
+            styledContainer,
+            styledButton,
+            styledComponent,
+            compositeControl,
+            styledSlider,
+            glassOverlay
+        )
+
         // Explicitly styled components
-        for (comp in listOf(styledContainer, styledButton, textBubble, card, badge, alert)) {
+        for (comp in listOf(
+            styledContainer,
+            styledButton,
+            styledComponent,
+            compositeControl,
+            styledSlider,
+            glassOverlay,
+            card,
+            badge,
+            alert,
+            banner,
+            toast,
+            jumbotron,
+            well
+        )) {
             assertTrue(AestheticStylePolicy.isExplicitlyStyledComponent(comp))
             assertTrue(AestheticStylePolicy.supportsExtendedVisualStyles(comp, LayoutBackendTarget.WINDOWS))
             assertTrue(AestheticStylePolicy.supportsExtendedVisualStyles(comp, LayoutBackendTarget.ANDROID))
             assertTrue(AestheticStylePolicy.supportsExtendedVisualStyles(comp, LayoutBackendTarget.IPADOS))
-            val supportsBackdrop = comp === styledContainer || comp === styledButton
+            val supportsBackdrop = comp in backdropSurfaces
             for (target in LayoutBackendTarget.entries) {
                 if (supportsBackdrop) {
                     assertTrue(AestheticStylePolicy.supportsBackdropFilterBlur(comp, target))
@@ -251,7 +315,69 @@ class BrowserLayoutEngineAndStylePolicyTest {
             assertFalse(AestheticStylePolicy.usesSystemThemeControlAppearance(comp, LayoutBackendTarget.WEB))
         }
 
-        // StyledVisualSpec backdrop-filter parsing & StyledContainer-only retention
+        // BootstrapType policy: Button hierarchy & Bootstrap non-control components -> true
+        val bootstrapEnabled = listOf(
+            plainButton,
+            iconButton,
+            toggleButton,
+            fabButton,
+            styledButton,
+            badge,
+            alert,
+            banner,
+            toast,
+            card,
+            listGroup,
+            listGroupItem,
+            jumbotron,
+            well
+        )
+        for (comp in bootstrapEnabled) {
+            assertTrue(
+                AestheticStylePolicy.supportsBootstrapColorOnSystemBackend(comp),
+                "Expected supportsBootstrapColorOnSystemBackend == true for ${comp::class.simpleName}"
+            )
+        }
+
+        // Non-Button controls & generic styled containers/composites -> false on system backends
+        val bootstrapDisabledOnSystem = listOf(
+            styledContainer,
+            styledComponent,
+            glassOverlay,
+            DropdownButton("Menu"),
+            SplitDropdownButton("Run"),
+            ProgressBar(),
+            Spinner(),
+            styledSlider,
+            compositeControl,
+            CheckBox(),
+            RadioButton("a"),
+            Switch(),
+            Slider(),
+            RangeSlider(),
+            Select(),
+            ComboBox(),
+            TextField(),
+            ScrollView(),
+            TabContainer(),
+            Tab(),
+            Toolbar(),
+            CollapsiblePanel("Section"),
+            Accordion(),
+            plainContainer
+        )
+        for (comp in bootstrapDisabledOnSystem) {
+            assertFalse(
+                AestheticStylePolicy.supportsBootstrapColorOnSystemBackend(comp),
+                "Expected supportsBootstrapColorOnSystemBackend == false for ${comp::class.simpleName}"
+            )
+            assertTrue(
+                AestheticStylePolicy.supportsBootstrapColor(comp, LayoutBackendTarget.WEB),
+                "Expected WEB to support BootstrapType for ${comp::class.simpleName}"
+            )
+        }
+
+        // StyledVisualSpec backdrop-filter parsing & StyledContainer / StyledButton retention
         val sheet = CssStyleSheet.parse(
             """
             .hud-pill {
@@ -266,8 +392,8 @@ class BrowserLayoutEngineAndStylePolicyTest {
         styledContainer.applyStyleSheet(sheet)
         styledButton.addClass("hud-pill")
         styledButton.applyStyleSheet(sheet)
-        textBubble.addClass("hud-pill")
-        textBubble.applyStyleSheet(sheet)
+        glassOverlay.addClass("hud-pill")
+        glassOverlay.applyStyleSheet(sheet)
 
         val containerSpec = styledContainer.resolveVisualSpec()
         assertEquals(14f, containerSpec.backdropBlurPx)
@@ -276,11 +402,17 @@ class BrowserLayoutEngineAndStylePolicyTest {
         assertEquals(16f, containerSpec.boxShadowBlurPx)
         assertEquals(RgbaColor(15, 23, 42, 0.72f), containerSpec.backgroundColor)
 
-        // TextBubble extends StyledContainer so resolveVisualSpec() must strip backdrop-filter
-        val bubbleSpec = textBubble.resolveVisualSpec()
-        assertNull(bubbleSpec.backdropBlurPx)
-        assertNull(bubbleSpec.backdropFilter)
-        assertNotNull(bubbleSpec.backgroundColor)
+        val buttonSpec = styledButton.resolveBaseVisualSpec()
+        assertEquals(14f, buttonSpec.backdropBlurPx)
+        assertTrue(buttonSpec.hasBackdropBlur)
+        assertTrue(buttonSpec.hasBackdropFilter)
+
+        // All StyledContainer instances (even with custom classPrefix) retain backdrop-filter across all 9 backends
+        val overlaySpec = glassOverlay.resolveVisualSpec()
+        assertEquals(14f, overlaySpec.backdropBlurPx)
+        assertTrue(overlaySpec.hasBackdropBlur)
+        assertTrue(overlaySpec.hasBackdropFilter)
+        assertNotNull(overlaySpec.backgroundColor)
 
         for (target in LayoutBackendTarget.entries) {
             val targetSpec = containerSpec.forBackend(target)

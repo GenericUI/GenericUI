@@ -10,17 +10,19 @@ data class CompiledSelectorSegment(
     val pseudoClass: String? = null,
     val pseudoClasses: Set<String> = if (pseudoClass != null) setOf(pseudoClass) else emptySet(),
     val combinatorToLeft: CssCombinator? = null,
-    val combinatorToNext: CssCombinator? = null
+    val combinatorToNext: CssCombinator? = null,
+    val excludedClasses: Set<String> = emptySet(),
+    val excludedPseudoClasses: Set<String> = emptySet(),
+    val excludedTags: Set<String> = emptySet(),
+    val excludedIds: Set<String> = emptySet(),
+    val unmatchable: Boolean = false
 ) {
     companion object {
         fun parseChain(selector: String): List<CompiledSelectorSegment> {
-            val cleaned = selector
-                .replace(CssRule.NOT_DISABLED_REGEX, "")
-                .replace(CssRule.NOT_PSEUDO_REGEX, "")
-                .trim()
+            val cleaned = selector.trim()
             if (cleaned.isEmpty()) return emptyList()
 
-            val tokens = tokenizeSelectorChain(cleaned)
+            val tokens = CssRule.splitChainPreservingParens(cleaned)
             if (tokens.isEmpty()) return emptyList()
 
             val segments = mutableListOf<CompiledSelectorSegment>()
@@ -52,61 +54,21 @@ data class CompiledSelectorSegment(
             return segments
         }
 
-        private fun tokenizeSelectorChain(selector: String): List<String> {
-            val normalized = selector
-                .replace(">", " > ")
-                .replace("+", " + ")
-                .replace("~", " ~ ")
-            return normalized.split(Regex("\\s+")).filter { it.isNotEmpty() }
-        }
-
         private fun parseCompoundSegment(raw: String, combinator: CssCombinator?): CompiledSelectorSegment {
-            var working = raw
-                .replace(CssRule.NOT_DISABLED_REGEX, "")
-                .replace(CssRule.NOT_PSEUDO_REGEX, "")
-                .trim()
-            var pseudo: String? = null
-            if (CssRule.DISABLED_ATTR_REGEX.containsMatchIn(working)) {
-                pseudo = "disabled"
-                working = working.replace(CssRule.DISABLED_ATTR_REGEX, "").trim()
-            }
-            val colonIdx = working.indexOf(':')
-            if (colonIdx >= 0) {
-                val extractedPseudo = working.substring(colonIdx + 1).trim().lowercase().takeIf { it.isNotEmpty() }
-                if (extractedPseudo != null) {
-                    pseudo = extractedPseudo
-                }
-                working = working.substring(0, colonIdx).trim()
-            }
-            working = working.replace(Regex("\\[[^]]*]"), "").trim()
-
-            var tagName: String? = null
-            var id: String? = null
-            val classes = linkedSetOf<String>()
-
-            val firstClass = working.indexOf('.')
-            val firstId = working.indexOf('#')
-            val firstSpecial = listOf(firstClass, firstId).filter { it >= 0 }.minOrNull() ?: working.length
-            if (firstSpecial > 0) {
-                val rawTag = working.substring(0, firstSpecial).trim()
-                if (rawTag.isNotEmpty() && rawTag != "*") {
-                    tagName = rawTag.lowercase()
-                }
-            }
-
-            for (idMatch in Regex("#([a-zA-Z0-9_-]+)").findAll(working)) {
-                id = idMatch.groupValues[1]
-            }
-            for (classMatch in Regex("\\.([a-zA-Z0-9_-]+)").findAll(working)) {
-                classes.add(classMatch.groupValues[1])
-            }
-
+            val parsed = CssRule.parseCompoundToken(raw)
+            val pseudo = CssRule.selectPrimaryPseudoClass(parsed.positivePseudos)
             return CompiledSelectorSegment(
-                tagName = tagName,
-                id = id,
-                classes = classes,
+                tagName = parsed.tagName,
+                id = parsed.ids.lastOrNull(),
+                classes = parsed.classes,
                 pseudoClass = pseudo,
-                combinatorToNext = combinator
+                pseudoClasses = parsed.positivePseudos,
+                combinatorToNext = combinator,
+                excludedClasses = parsed.excludedClasses,
+                excludedPseudoClasses = parsed.excludedPseudos,
+                excludedTags = parsed.excludedTags,
+                excludedIds = parsed.excludedIds,
+                unmatchable = parsed.positiveToken.isEmpty()
             )
         }
     }

@@ -268,7 +268,7 @@ object GenericUiVariantResolver {
         val candidate = when (targetScope) {
             GenericUiVariantScope.WINDOWS ->
                 desktop.windowsIcon.ifBlank { desktop.icon }.ifBlank { resources.icon }
-            GenericUiVariantScope.GTK, GenericUiVariantScope.QT, GenericUiVariantScope.LINUX_COMMON ->
+            GenericUiVariantScope.GTK, GenericUiVariantScope.KDE, GenericUiVariantScope.LINUX_COMMON ->
                 desktop.linuxIcon.ifBlank { desktop.icon }.ifBlank { resources.icon }
             GenericUiVariantScope.WEB ->
                 desktop.webIcon.ifBlank { desktop.icon }.ifBlank { resources.icon }

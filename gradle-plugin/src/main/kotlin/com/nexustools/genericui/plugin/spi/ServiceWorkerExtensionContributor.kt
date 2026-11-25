@@ -25,10 +25,16 @@ object ServiceWorkerExtensionContributor : GenericUiExtensionContributor {
     const val SERVICE_WORKER_DSL_MODULE_PATH: String = ":extensions:system:serviceworker:dsl"
     const val OPTION_AUTOSTART: String = "serviceWorker.autostart"
     const val OPTION_TRAY_ICON: String = "serviceWorker.trayIcon"
+    const val OPTION_MACOS_TRAY_ICON: String = "serviceWorker.macosTrayIcon"
+    const val OPTION_MAC_LOCAL_NETWORK_DESC: String = "serviceWorker.macLocalNetworkUsageDescription"
+    const val OPTION_MAC_BONJOUR_SERVICES: String = "serviceWorker.macBonjourServices"
     const val OPTION_OPEN_WINDOW_ON_LAUNCH: String = "serviceWorker.openWindowOnLaunch"
     const val OPTION_ANDROID_FGS_TYPE: String = "serviceWorker.androidForegroundServiceType"
     const val OPTION_ANDROID_SPECIAL_USE_SUBTYPE: String = "serviceWorker.androidSpecialUseFgsSubtype"
     const val OPTION_ENABLED_BACKENDS: String = "genericui.enabledBackends"
+    const val OPTION_RESOURCES_ENABLED: String = "genericui.resourcesEnabled"
+    const val OPTION_RESOURCE_PACKAGE: String = "genericui.resourcePackageName"
+    const val OPTION_SCHEMA_ENABLED: String = "genericui.schemaEnabled"
     const val OPTION_REGISTRAR_PACKAGE: String = "serviceWorkerRegistrarPackage"
     const val DEFAULT_REGISTRAR_PACKAGE: String = "com.nexustools.genericui.generated"
 
@@ -36,7 +42,7 @@ object ServiceWorkerExtensionContributor : GenericUiExtensionContributor {
         GenericUiVariantScope.WINDOWS,
         GenericUiVariantScope.MACOS,
         GenericUiVariantScope.GTK,
-        GenericUiVariantScope.QT,
+        GenericUiVariantScope.KDE,
         GenericUiVariantScope.SWING
     )
 
@@ -219,6 +225,7 @@ object ServiceWorkerExtensionContributor : GenericUiExtensionContributor {
             hasWorker = true,
             swingWorkerMainClass = ""
         )
+        val androidInitStmts = resolveFragmentMetadataStatements(context, GenericUiVariantScope.ANDROID)
         val generatedFiles = mutableListOf<ExtensionGeneratedSource>()
         generatedFiles.add(
             ExtensionGeneratedSource(
@@ -227,7 +234,8 @@ object ServiceWorkerExtensionContributor : GenericUiExtensionContributor {
                     manifestPkg = manifestPkg,
                     registrarPkg = registrarPkg,
                     workerQualifiedName = worker.qualifiedName,
-                    optionsExpr = optionsExpr
+                    optionsExpr = optionsExpr,
+                    initStatements = androidInitStmts
                 )
             )
         )
@@ -287,19 +295,22 @@ object ServiceWorkerExtensionContributor : GenericUiExtensionContributor {
             GenericUiVariantScope.WINDOWS,
             GenericUiVariantScope.MACOS,
             GenericUiVariantScope.GTK,
-            GenericUiVariantScope.QT
+            GenericUiVariantScope.KDE
         )
+        val desktopInitStmts = resolveDesktopInitStatements(context)
         val hasAnyNativeDesktopWorker = nativeDesktopScopes.any { it in resolvedByScope }
         if (hasAnyNativeDesktopWorker) {
             secondaryExes.add(
                 SecondaryDesktopExecutableContribution(
                     binaryBaseName = "serviceworker",
                     entryPointFqn = "$genPkg.mainServiceWorker",
-                    windowsSubsystem = "windows"
+                    windowsSubsystem = "windows",
+                    macosExtraLinkerOpts = listOf("-Wl,-rpath,@executable_path/../../../../Frameworks")
                 )
             )
             for (scope in nativeDesktopScopes) {
                 val worker = resolvedByScope[scope] ?: continue
+                val scopeInitStmts = desktopInitStmts + resolveFragmentMetadataStatements(context, scope)
                 generatedSources.add(
                     ExtensionGeneratedSource(
                         relativeFilePath = "$pkgDir/Generated${scope.id.replaceFirstChar { it.uppercaseChar() }}ServiceWorkerMain.kt",
@@ -309,7 +320,8 @@ object ServiceWorkerExtensionContributor : GenericUiExtensionContributor {
                             scope = scope,
                             workerQualifiedName = worker.qualifiedName,
                             optionsExpr = buildServiceWorkerOptionsExpr(context, hasWorker = true, swingWorkerMainClass = ""),
-                            mainBaseName = context.baseName
+                            mainBaseName = context.baseName,
+                            initStatements = scopeInitStmts
                         ),
                         targetScope = scope
                     )
@@ -319,6 +331,7 @@ object ServiceWorkerExtensionContributor : GenericUiExtensionContributor {
 
         val swingWorker = resolvedByScope[GenericUiVariantScope.SWING]
         if (swingWorker != null) {
+            val swingInitStmts = desktopInitStmts + resolveFragmentMetadataStatements(context, GenericUiVariantScope.SWING)
             generatedSources.add(
                 ExtensionGeneratedSource(
                     relativeFilePath = "$pkgDir/GeneratedSwingServiceWorkerMain.kt",
@@ -331,7 +344,8 @@ object ServiceWorkerExtensionContributor : GenericUiExtensionContributor {
                             hasWorker = true,
                             swingWorkerMainClass = "$genPkg.GeneratedSwingServiceWorkerMain"
                         ),
-                        mainBaseName = context.baseName
+                        mainBaseName = context.baseName,
+                        initStatements = swingInitStmts
                     ),
                     targetScope = GenericUiVariantScope.SWING
                 )
@@ -351,10 +365,28 @@ object ServiceWorkerExtensionContributor : GenericUiExtensionContributor {
             emptyList()
         }
 
+        val macPlistEntries = buildMap<String, Any> {
+            put("LSMultipleInstancesProhibited", true)
+            val localNet = context.extensionOptions[OPTION_MAC_LOCAL_NETWORK_DESC]?.trim()?.takeIf { it.isNotEmpty() }
+            if (localNet != null) {
+                put("NSLocalNetworkUsageDescription", localNet)
+            }
+            val bonjour = context.extensionOptions[OPTION_MAC_BONJOUR_SERVICES]
+                ?.split(',')
+                ?.map { it.trim() }
+                ?.filter { it.isNotEmpty() }
+                ?.distinct()
+                .orEmpty()
+            if (bonjour.isNotEmpty()) {
+                put("NSBonjourServices", bonjour)
+            }
+        }
+
         return DesktopExtensionContribution(
             secondaryExecutables = secondaryExes,
             autostartEntries = autostartEntries,
-            generatedSources = generatedSources
+            generatedSources = generatedSources,
+            macosInfoPlistEntries = macPlistEntries
         )
     }
 
@@ -598,6 +630,7 @@ object ServiceWorkerExtensionContributor : GenericUiExtensionContributor {
         val autostart = context.extensionOptions[OPTION_AUTOSTART]?.toBooleanStrictOrNull() ?: false
         val openWindowOnLaunch = context.extensionOptions[OPTION_OPEN_WINDOW_ON_LAUNCH]?.toBooleanStrictOrNull() ?: true
         val trayIcon = context.extensionOptions[OPTION_TRAY_ICON]?.trim()?.takeIf { it.isNotEmpty() }
+        val macosTrayIcon = context.extensionOptions[OPTION_MACOS_TRAY_ICON]?.trim()?.takeIf { it.isNotEmpty() }
         val fgsType = context.extensionOptions[OPTION_ANDROID_FGS_TYPE]?.trim()?.takeIf { it.isNotEmpty() } ?: "specialUse"
         val specialSubtype = context.extensionOptions[OPTION_ANDROID_SPECIAL_USE_SUBTYPE]?.trim()
             ?.takeIf { it.isNotEmpty() } ?: "GenericUI background ServiceWorker execution"
@@ -611,15 +644,23 @@ object ServiceWorkerExtensionContributor : GenericUiExtensionContributor {
             "androidForegroundServiceType = ${quoteKotlin(fgsType)}, " +
             "androidSpecialUseFgsSubtype = ${quoteKotlin(specialSubtype)}, " +
             "hasWorker = $hasWorker, " +
-            "swingWorkerMainClass = ${quoteKotlin(swingWorkerMainClass)})"
+            "swingWorkerMainClass = ${quoteKotlin(swingWorkerMainClass)}, " +
+            "macosTrayIcon = ${macosTrayIcon?.let { quoteKotlin(it) } ?: "null"})"
     }
 
     private fun buildAndroidServiceSource(
         manifestPkg: String,
         registrarPkg: String,
         workerQualifiedName: String,
-        optionsExpr: String
-    ): String = """package $manifestPkg
+        optionsExpr: String,
+        initStatements: List<String> = emptyList()
+    ): String {
+        val initBlock = if (initStatements.isEmpty()) {
+            ""
+        } else {
+            initStatements.joinToString("\n") { "        $it" } + "\n"
+        }
+        return """package $manifestPkg
 
 import android.app.Service
 import android.content.Intent
@@ -630,7 +671,7 @@ open class GeneratedAndroidServiceWorkerService : Service() {
     override fun onCreate() {
         super.onCreate()
         $registrarPkg.GeneratedServiceWorkerCodecRegistrar.registerAll()
-        com.nexustools.genericui.ext.serviceworker.ServiceWorkerExtension.install($optionsExpr)
+${initBlock}        com.nexustools.genericui.ext.serviceworker.ServiceWorkerExtension.install($optionsExpr)
         com.nexustools.genericui.ext.serviceworker.ServiceWorkerExtension.registerWorkerFactory { $workerQualifiedName() }
         com.nexustools.genericui.ext.serviceworker.AndroidServiceWorkerController.updateOptions($optionsExpr)
         com.nexustools.genericui.ext.serviceworker.AndroidServiceWorkerController.onServiceCreated(this) { $workerQualifiedName() }
@@ -648,6 +689,7 @@ open class GeneratedAndroidServiceWorkerService : Service() {
     }
 }
 """
+    }
 
     private fun buildAndroidBootReceiverSource(manifestPkg: String): String = """package $manifestPkg
 
@@ -669,13 +711,73 @@ open class GeneratedAndroidServiceWorkerBootReceiver : BroadcastReceiver() {
 }
 """
 
+    private fun resolveDesktopInitStatements(context: ExtensionBuildContext): List<String> = buildList {
+        val resourcesEnabled = context.extensionOptions[OPTION_RESOURCES_ENABLED]?.toBooleanStrictOrNull() ?: false
+        val resPkg = context.extensionOptions[OPTION_RESOURCE_PACKAGE]?.trim().orEmpty()
+        if (resourcesEnabled && resPkg.isNotEmpty()) {
+            add("$resPkg.GeneratedResourceRegistry.ensureInitialized()")
+        }
+        val schemaEnabled = SchemaExtensionContributor.SCHEMA_MODULE_PATH in context.enabledExtensionModulePaths ||
+            (context.extensionOptions[OPTION_SCHEMA_ENABLED]?.toBooleanStrictOrNull() == true)
+        if (schemaEnabled) {
+            val schemaPkg = SchemaExtensionContributor.resolveRegistrarPackage(context)
+            add("$schemaPkg.GeneratedSchemaRegistrar.ensureRegistered()")
+        }
+    }
+
+    private fun resolveFragmentMetadataStatements(
+        context: ExtensionBuildContext,
+        scope: GenericUiVariantScope
+    ): List<String> {
+        val matching = context.discoveredFragments
+            .filter { frag ->
+                !frag.isApplicationClass &&
+                    (frag.targets.isEmpty() || frag.targets.any { it.matchesBackend(scope) })
+            }
+            .distinctBy { it.qualifiedName }
+            .sortedBy { it.qualifiedName }
+
+        val mainCandidates = matching.filter { it.isMainFragment }
+        val winningMainQName: String? = if (mainCandidates.isEmpty()) {
+            null
+        } else {
+            val maxRank = mainCandidates.maxOf { frag ->
+                val targets = frag.targets.ifEmpty { listOf(GenericUiVariantScope.COMMON) }
+                targets.filter { it.matchesBackend(scope) }.maxOfOrNull { it.specificityRank } ?: -1
+            }
+            val winners = mainCandidates.filter { frag ->
+                val targets = frag.targets.ifEmpty { listOf(GenericUiVariantScope.COMMON) }
+                (targets.filter { it.matchesBackend(scope) }.maxOfOrNull { it.specificityRank } ?: -1) == maxRank
+            }
+            if (winners.size == 1) winners.single().qualifiedName else null
+        }
+
+        return matching.map { frag ->
+            val isMain = if (winningMainQName != null) {
+                frag.qualifiedName == winningMainQName
+            } else {
+                frag.isMainFragment
+            }
+            val effectiveDialog = if (isMain || frag.isMainFragment) false else frag.dialog
+            "com.nexustools.genericui.component.fragment.FragmentRegistry.registerMetadata(" +
+                "fragmentClass = ${frag.qualifiedName}::class, " +
+                "fragmentId = ${quoteKotlin(frag.qualifiedName)}, " +
+                "route = ${quoteKotlin(frag.route.trim())}, " +
+                "label = ${quoteKotlin(frag.label.trim())}, " +
+                "isMainFragment = $isMain, " +
+                "multipleWindows = ${frag.multipleWindows}, " +
+                "dialog = $effectiveDialog)"
+        }
+    }
+
     private fun buildNativeDesktopServiceWorkerMainSource(
         genPkg: String,
         registrarPkg: String,
         scope: GenericUiVariantScope,
         workerQualifiedName: String,
         optionsExpr: String,
-        mainBaseName: String
+        mainBaseName: String,
+        initStatements: List<String> = emptyList()
     ): String {
         val (backendInitCode, eventLoopCode, stopLoopCode) = when (scope) {
             GenericUiVariantScope.WINDOWS -> Triple(
@@ -701,21 +803,26 @@ open class GeneratedAndroidServiceWorkerBootReceiver : BroadcastReceiver() {
                 "            com.nexustools.genericui.gtk.GtkNativeWindowHost.runEventLoop()",
                 "            com.nexustools.genericui.gtk.GtkNativeWindowHost.terminateEventLoop()"
             )
-            GenericUiVariantScope.QT -> Triple(
-                """            com.nexustools.genericui.qt.QtApplicationNativeImpl.installQtThemeDetector()
-            com.nexustools.genericui.qt.QtApplicationNativeImpl.interactiveQtGuiEnabled = true
-            com.nexustools.genericui.core.GenericUI.initialize(com.nexustools.genericui.qt.QtNativeFactory())
-            com.nexustools.genericui.qt.QtNativeWindowHost.prepareEventLoop()""",
-                "            com.nexustools.genericui.qt.QtNativeWindowHost.runEventLoop()",
-                "            com.nexustools.genericui.qt.QtNativeWindowHost.terminateEventLoop()"
+            GenericUiVariantScope.KDE -> Triple(
+                """            com.nexustools.genericui.kde.KdeApplicationNativeImpl.installKdeThemeDetector()
+            com.nexustools.genericui.kde.KdeApplicationNativeImpl.interactiveKdeGuiEnabled = true
+            com.nexustools.genericui.core.GenericUI.initialize(com.nexustools.genericui.kde.KdeNativeFactory())
+            com.nexustools.genericui.kde.KdeNativeWindowHost.prepareEventLoop()""",
+                "            com.nexustools.genericui.kde.KdeNativeWindowHost.runEventLoop()",
+                "            com.nexustools.genericui.kde.KdeNativeWindowHost.terminateEventLoop()"
             )
             else -> Triple("", "", "")
         }
 
+        val initBlock = if (initStatements.isEmpty()) {
+            ""
+        } else {
+            initStatements.joinToString("\n") { "    $it" } + "\n"
+        }
         return """package $genPkg
 
 fun mainServiceWorker(args: Array<String>) {
-    $registrarPkg.GeneratedServiceWorkerCodecRegistrar.registerAll()
+${initBlock}    $registrarPkg.GeneratedServiceWorkerCodecRegistrar.registerAll()
     com.nexustools.genericui.ext.serviceworker.ServiceWorkerExtension.configure($optionsExpr)
     com.nexustools.genericui.ext.serviceworker.ServiceWorkerExtension.runDesktopWorkerMain(
         args = args,
@@ -740,13 +847,20 @@ $stopLoopCode
         registrarPkg: String,
         workerQualifiedName: String,
         optionsExpr: String,
-        mainBaseName: String
-    ): String = """@file:JvmName("GeneratedSwingServiceWorkerMain")
+        mainBaseName: String,
+        initStatements: List<String> = emptyList()
+    ): String {
+        val initBlock = if (initStatements.isEmpty()) {
+            ""
+        } else {
+            initStatements.joinToString("\n") { "    $it" } + "\n"
+        }
+        return """@file:JvmName("GeneratedSwingServiceWorkerMain")
 
 package $genPkg
 
 fun main(args: Array<String>) {
-    $registrarPkg.GeneratedServiceWorkerCodecRegistrar.registerAll()
+${initBlock}    $registrarPkg.GeneratedServiceWorkerCodecRegistrar.registerAll()
     com.nexustools.genericui.ext.serviceworker.ServiceWorkerExtension.configure($optionsExpr)
     var swingApp: com.nexustools.genericui.nativeimpl.shell.ApplicationNativeImpl<*>? = null
     com.nexustools.genericui.ext.serviceworker.ServiceWorkerExtension.runDesktopWorkerMain(
@@ -769,6 +883,7 @@ fun main(args: Array<String>) {
     )
 }
 """
+    }
 
     private fun quoteKotlin(value: String): String {
         val escaped = value

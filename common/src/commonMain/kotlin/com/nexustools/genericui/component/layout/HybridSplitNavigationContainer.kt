@@ -4,6 +4,9 @@ import com.nexustools.genericui.component.navigation.BottomNavigationBar
 import com.nexustools.genericui.component.tabs.ButtonTab
 import com.nexustools.genericui.component.tabs.TabContainer
 import com.nexustools.genericui.core.AbstractComponent
+import com.nexustools.genericui.core.NativeFactory
+import com.nexustools.genericui.core.NativeImpl
+import com.nexustools.genericui.style.css.CssStyleSheet
 import com.nexustools.genericui.window.WindowConfiguration
 import kotlin.math.min
 
@@ -109,4 +112,47 @@ open class HybridSplitNavigationContainer(
     ) = layout.updateViewport(viewportWidthDp, viewportHeightDp, smallestScreenWidthDp)
 
     fun applyWindowConfiguration(config: WindowConfiguration) = layout.applyWindowConfiguration(config)
+
+    override fun ensureNativeImpl(): NativeImpl<*>? {
+        val wasInitialized = (nativeImpl != null && nativeImplInitialized)
+        val impl = super.ensureNativeImpl() ?: return null
+        if (!wasInitialized || layout.hasUnwarmedInactiveSections()) {
+            layout.onHostNativeRealized()
+        }
+        return impl
+    }
+
+    override fun applyStyleSheet(styleSheet: CssStyleSheet, viewportWidthPx: Int) {
+        super.applyStyleSheet(styleSheet, viewportWidthPx)
+        if (!children.contains(layout.contentHost)) {
+            layout.applyStyleSheetToInactiveSections(styleSheet, viewportWidthPx)
+        }
+    }
+
+    override fun applyStyleSheetWalk(
+        styleSheet: CssStyleSheet,
+        viewportWidthPx: Int,
+        walkSheet: CssStyleSheet,
+        activeFactory: NativeFactory?,
+        isDark: Boolean,
+        mediaBucket: Int,
+        refOldWidthPx: Int,
+        mediaMode: Int,
+        targetClasses: Set<String>,
+        targetIds: Set<String>,
+        targetTags: Set<String>,
+        targetAncestorClasses: Set<String>,
+        targetAncestorIds: Set<String>,
+        targetAncestorTags: Set<String>,
+        inInvalidatedAncestorSubtree: Boolean
+    ) {
+        super.applyStyleSheetWalk(
+            styleSheet, viewportWidthPx, walkSheet, activeFactory, isDark,
+            mediaBucket, refOldWidthPx, mediaMode, targetClasses, targetIds, targetTags,
+            targetAncestorClasses, targetAncestorIds, targetAncestorTags, inInvalidatedAncestorSubtree
+        )
+        if (!children.contains(layout.contentHost)) {
+            layout.applyStyleSheetToInactiveSections(styleSheet, viewportWidthPx)
+        }
+    }
 }

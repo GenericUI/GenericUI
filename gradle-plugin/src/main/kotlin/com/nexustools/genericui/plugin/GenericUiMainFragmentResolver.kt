@@ -64,7 +64,7 @@ object GenericUiMainFragmentResolver {
         }
 
         val winningFragment = winners.single().fragment
-        validateNoArgConstructor(winningFragment)
+        validateFragment(winningFragment)
         return winningFragment
     }
 
@@ -80,7 +80,7 @@ object GenericUiMainFragmentResolver {
             !fragment.isApplicationClass && fragment.targets.any { it.matchesBackend(targetBackend) }
         }
         for (fragment in applicable) {
-            validateNoArgConstructor(fragment)
+            validateFragment(fragment)
         }
         return applicable
     }
@@ -132,11 +132,17 @@ object GenericUiMainFragmentResolver {
             )
         }
         val winner = winners.single().fragment
-        validateNoArgConstructor(winner)
+        validateFragment(winner)
         return winner
     }
 
-    private fun validateNoArgConstructor(fragment: GenericUiDiscoveredFragment) {
+    private fun validateFragment(fragment: GenericUiDiscoveredFragment) {
+        if (fragment.hasIllegalMainDialogFlag) {
+            throw IllegalStateException(
+                "@MainAppFragment class '${fragment.qualifiedName}' must not declare 'dialog': " +
+                    "the 'dialog' flag is only supported on @AppFragment, not @MainAppFragment."
+            )
+        }
         if (!fragment.hasNoArgConstructor) {
             val annotationLabel = when {
                 fragment.isApplicationClass -> "@AppApplication"

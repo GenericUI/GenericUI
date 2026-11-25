@@ -93,6 +93,54 @@ data class LayoutStyleSnapshot(
     val layerBottomPx: Int? = null
 ) {
     companion object {
+        private val WHITESPACE_REGEX = Regex("\\s+")
+        private val PX_NUMBER_REGEX = Regex("(\\d+(?:\\.\\d+)?)px")
+
+        private fun isAsciiFloatToken(s: String): Boolean {
+            val len = s.length
+            if (len == 0) return false
+            var i = 0
+            if (s[0] == '+' || s[0] == '-') {
+                if (len == 1) return false
+                i = 1
+            }
+            var digits = false
+            var dot = false
+            var exp = false
+            while (i < len) {
+                val c = s[i]
+                when {
+                    c in '0'..'9' -> digits = true
+                    c == '.' && !dot && !exp -> dot = true
+                    (c == 'e' || c == 'E') && digits && !exp -> {
+                        exp = true
+                        digits = false
+                        if (i + 1 < len && (s[i + 1] == '+' || s[i + 1] == '-')) i++
+                    }
+                    else -> return false
+                }
+                i++
+            }
+            return digits
+        }
+
+        private fun safeToFloatOrNull(raw: String?): Float? {
+            val s = raw?.trim() ?: return null
+            return if (isAsciiFloatToken(s)) s.toFloatOrNull() else null
+        }
+
+        private fun safeToIntOrNull(raw: String?): Int? {
+            val s = raw?.trim() ?: return null
+            val len = s.length
+            if (len == 0) return null
+            var i = if (s[0] == '+' || s[0] == '-') 1 else 0
+            if (i >= len) return null
+            while (i < len) {
+                if (s[i] !in '0'..'9') return null
+                i++
+            }
+            return s.toIntOrNull()
+        }
         private val CALC_PERCENT_PX_REGEX = Regex(
             """calc\(\s*(-?\d+(?:\.\d+)?)%\s*([+-])\s*(-?\d+(?:\.\d+)?)\s*(?:px)?\s*\)""",
             RegexOption.IGNORE_CASE
@@ -101,11 +149,135 @@ data class LayoutStyleSnapshot(
             """(translate3d|translateX|translateY|translate)\(\s*([^)]+)\s*\)""",
             RegexOption.IGNORE_CASE
         )
-        private val COL_SPAN_REGEX = Regex("""^col(?:-(sm|md|lg|xl|xxl))?-(\d{1,2})$""", RegexOption.IGNORE_CASE)
-        private val COL_AUTO_REGEX = Regex("""^col(?:-(sm|md|lg|xl|xxl))?$""", RegexOption.IGNORE_CASE)
-        private val DISPLAY_RESPONSIVE_REGEX = Regex(
-            """^d-(?:(sm|md|lg|xl|xxl)-)?(none|inline|inline-block|block|grid|flex|inline-flex)$""",
-            RegexOption.IGNORE_CASE
+        private fun splitAsciiWhitespace(raw: String): List<String> {
+            val out = ArrayList<String>(4)
+            var start = -1
+            for (i in raw.indices) {
+                if (raw[i] <= ' ') {
+                    if (start >= 0) {
+                        out.add(raw.substring(start, i))
+                        start = -1
+                    }
+                } else if (start < 0) {
+                    start = i
+                }
+            }
+            if (start >= 0) {
+                out.add(raw.substring(start))
+            }
+            return out
+        }
+
+        private fun matchBreakpointPrefix(cls: String, offset: Int): Pair<String, Int>? {
+            val rem = cls.length - offset
+            return when {
+                rem >= 3 && cls.startsWith("sm-", offset, ignoreCase = true) -> "sm" to (offset + 3)
+                rem >= 3 && cls.startsWith("md-", offset, ignoreCase = true) -> "md" to (offset + 3)
+                rem >= 3 && cls.startsWith("lg-", offset, ignoreCase = true) -> "lg" to (offset + 3)
+                rem >= 3 && cls.startsWith("xl-", offset, ignoreCase = true) -> "xl" to (offset + 3)
+                rem >= 4 && cls.startsWith("xxl-", offset, ignoreCase = true) -> "xxl" to (offset + 4)
+                else -> null
+            }
+        }
+
+        private fun parseResponsiveDisplayClass(cls: String): Pair<String?, CssDisplay>? {
+            if (cls.length < 6 || !cls.startsWith("d-", ignoreCase = true)) return null
+            val bpMatch = matchBreakpointPrefix(cls, 2)
+            val bp = bpMatch?.first
+            val valOffset = bpMatch?.second ?: 2
+            val valLen = cls.length - valOffset
+            val display = when (valLen) {
+                4 -> when {
+                    cls.regionMatches(valOffset, "none", 0, 4, ignoreCase = true) -> CssDisplay.NONE
+                    cls.regionMatches(valOffset, "grid", 0, 4, ignoreCase = true) -> CssDisplay.GRID
+                    cls.regionMatches(valOffset, "flex", 0, 4, ignoreCase = true) -> CssDisplay.FLEX
+                    else -> null
+                }
+                5 -> if (cls.regionMatches(valOffset, "block", 0, 5, ignoreCase = true)) CssDisplay.BLOCK else null
+                6 -> if (cls.regionMatches(valOffset, "inline", 0, 6, ignoreCase = true)) CssDisplay.INLINE else null
+                11 -> if (cls.regionMatches(valOffset, "inline-flex", 0, 11, ignoreCase = true)) CssDisplay.INLINE_FLEX else null
+                12 -> if (cls.regionMatches(valOffset, "inline-block", 0, 12, ignoreCase = true)) CssDisplay.INLINE_BLOCK else null
+                else -> null
+            } ?: return null
+            return bp to display
+        }
+
+        private fun parseColSpanClass(cls: String): Pair<String?, Int>? {
+            if (cls.length < 5 || !cls.startsWith("col-", ignoreCase = true)) return null
+            val bpMatch = matchBreakpointPrefix(cls, 4)
+            val bp = bpMatch?.first
+            val digitOffset = bpMatch?.second ?: 4
+            val digitLen = cls.length - digitOffset
+            if (digitLen !in 1..2) return null
+            val d0 = cls[digitOffset]
+            if (d0 !in '0'..'9') return null
+            val value = if (digitLen == 1) {
+                d0 - '0'
+            } else {
+                val d1 = cls[digitOffset + 1]
+                if (d1 !in '0'..'9') return null
+                (d0 - '0') * 10 + (d1 - '0')
+            }
+            return bp to value.coerceIn(1, 12)
+        }
+
+        private fun parseColAutoBreakpoint(cls: String): String? {
+            if (cls.length == 3) {
+                return if (cls.equals("col", ignoreCase = true)) "" else null
+            }
+            if (!cls.startsWith("col-", ignoreCase = true)) return null
+            return when (cls.length) {
+                6 -> when {
+                    cls.regionMatches(4, "sm", 0, 2, ignoreCase = true) -> "sm"
+                    cls.regionMatches(4, "md", 0, 2, ignoreCase = true) -> "md"
+                    cls.regionMatches(4, "lg", 0, 2, ignoreCase = true) -> "lg"
+                    cls.regionMatches(4, "xl", 0, 2, ignoreCase = true) -> "xl"
+                    else -> null
+                }
+                7 -> if (cls.regionMatches(4, "xxl", 0, 3, ignoreCase = true)) "xxl" else null
+                else -> null
+            }
+        }
+        private val CONTAINER_LIKE_TAGS: Set<String> = setOf(
+            "div",
+            "container",
+            "styledcontainer",
+            "styled-container",
+            "vstack",
+            "hstack",
+            "flexbox",
+            "columnlayout",
+            "column",
+            "row",
+            "aspectratiocontainer",
+            "aspect-ratio-container",
+            "layeredcontainer",
+            "layered-container",
+            "hybridcolumnlayout",
+            "hybrid-column-layout",
+            "hybridsplitnavigationlayout",
+            "hybrid-split-navigation-layout",
+            "tabcontainer",
+            "tab-container",
+            "composite",
+            "styledcomponent",
+            "styled-component",
+            "styledslider",
+            "styled-slider",
+            "card",
+            "alert",
+            "navbar",
+            "bottomnavigationbar",
+            "scrollview",
+            "lazylist",
+            "lazygrid"
+        )
+        private val FULL_WIDTH_DEFAULT_TAGS: Set<String> = setOf(
+            "navbar",
+            "bottomnavigationbar",
+            "bottom-navigation-bar",
+            "aspectratiocontainer",
+            "aspect-ratio-container"
         )
 
         private fun matchesBreakpoint(bp: String?, viewportWidthPx: Int): Boolean = when (bp?.lowercase()) {
@@ -158,10 +330,10 @@ data class LayoutStyleSnapshot(
         private fun applyTranslateToken(token: String?, isX: Boolean, out: FloatArray) {
             val t = token?.trim()?.takeIf { it.isNotEmpty() } ?: return
             if (t.endsWith("%")) {
-                val pct = t.removeSuffix("%").trim().toFloatOrNull() ?: return
+                val pct = safeToFloatOrNull(t.removeSuffix("%")) ?: return
                 if (isX) out[0] += pct else out[1] += pct
             } else {
-                val num = t.removeSuffix("px").trim().toFloatOrNull() ?: return
+                val num = safeToFloatOrNull(t.removeSuffix("px")) ?: return
                 if (isX) out[2] += num else out[3] += num
             }
         }
@@ -171,15 +343,15 @@ data class LayoutStyleSnapshot(
             if (cleaned.equals("auto", ignoreCase = true)) return null
             if ('/' in cleaned) {
                 val parts = cleaned.split('/')
-                val w = parts.getOrNull(0)?.trim()?.toFloatOrNull()
-                val h = parts.getOrNull(1)?.trim()?.toFloatOrNull()
+                val w = safeToFloatOrNull(parts.getOrNull(0))
+                val h = safeToFloatOrNull(parts.getOrNull(1))
                 if (w != null && h != null && w > 0f && h > 0f) return w / h
             }
-            return cleaned.toFloatOrNull()?.takeIf { it > 0f }
+            return safeToFloatOrNull(cleaned)?.takeIf { it > 0f }
         }
 
         private fun parseBsAspectRatioVar(rawPercent: String?): Float? {
-            val cleaned = rawPercent?.trim()?.removeSuffix("%")?.trim()?.toFloatOrNull() ?: return null
+            val cleaned = safeToFloatOrNull(rawPercent?.trim()?.removeSuffix("%")) ?: return null
             if (cleaned <= 0f) return null
             return 100f / cleaned
         }
@@ -191,16 +363,16 @@ data class LayoutStyleSnapshot(
                 "auto" -> return Triple(1f, 1f, CssLength.AUTO)
                 "initial" -> return Triple(0f, 1f, CssLength.AUTO)
             }
-            val tokens = cleaned.split(Regex("\\s+")).filter { it.isNotEmpty() }
+            val tokens = splitAsciiWhitespace(cleaned)
             return when (tokens.size) {
                 1 -> {
-                    val num = tokens[0].toFloatOrNull()
+                    val num = safeToFloatOrNull(tokens[0])
                     if (num != null) Triple(num, 1f, CssLength.percent(0f))
                     else CssLength.parse(tokens[0])?.let { Triple(1f, 1f, it) }
                 }
                 2 -> {
-                    val grow = tokens[0].toFloatOrNull() ?: 0f
-                    val secondNum = tokens[1].toFloatOrNull()
+                    val grow = safeToFloatOrNull(tokens[0]) ?: 0f
+                    val secondNum = safeToFloatOrNull(tokens[1])
                     if (secondNum != null && !tokens[1].endsWith("px") && !tokens[1].endsWith("%")) {
                         Triple(grow, secondNum, CssLength.percent(0f))
                     } else {
@@ -208,43 +380,15 @@ data class LayoutStyleSnapshot(
                     }
                 }
                 else -> {
-                    val grow = tokens[0].toFloatOrNull() ?: 0f
-                    val shrink = tokens[1].toFloatOrNull() ?: 1f
+                    val grow = safeToFloatOrNull(tokens[0]) ?: 0f
+                    val shrink = safeToFloatOrNull(tokens[1]) ?: 1f
                     val basis = CssLength.parse(tokens[2])
                     Triple(grow, shrink, basis)
                 }
             }
         }
 
-        private fun isContainerLikeTag(normalizedTag: String): Boolean = normalizedTag in setOf(
-            "div",
-            "container",
-            "styledcontainer",
-            "styled-container",
-            "vstack",
-            "hstack",
-            "flexbox",
-            "columnlayout",
-            "column",
-            "row",
-            "aspectratiocontainer",
-            "aspect-ratio-container",
-            "layeredcontainer",
-            "layered-container",
-            "hybridcolumnlayout",
-            "hybrid-column-layout",
-            "hybridsplitnavigationlayout",
-            "hybrid-split-navigation-layout",
-            "tabcontainer",
-            "tab-container",
-            "card",
-            "alert",
-            "navbar",
-            "bottomnavigationbar",
-            "scrollview",
-            "lazylist",
-            "lazygrid"
-        )
+        private fun isContainerLikeTag(normalizedTag: String): Boolean = normalizedTag in CONTAINER_LIKE_TAGS
 
         fun fromComponent(
             component: AbstractComponent,
@@ -253,10 +397,10 @@ data class LayoutStyleSnapshot(
         ): LayoutStyleSnapshot {
             val bootstrap = component.getBootstrap()
             val compStyle = component.getStyle()
-            val computed = component.computedStyle
+            val computed = if (component.computedStyle != null) component.resolveEffectiveStyle() else null
             val allClasses = LinkedHashSet<String>()
             if (component.componentClassPrefix.isNotBlank()) {
-                allClasses.addAll(component.componentClassPrefix.trim().split(Regex("\\s+")).filter { it.isNotEmpty() })
+                allClasses.addAll(splitAsciiWhitespace(component.componentClassPrefix))
             }
             allClasses.addAll(bootstrap.toEnumClassSet(component.componentClassPrefix))
             allClasses.addAll(component.getClasses())
@@ -362,6 +506,7 @@ data class LayoutStyleSnapshot(
                 }
                 is LayeredContainer -> {
                     allClasses.add("gui-layered-container")
+                    if (!styleProps.containsKey("position")) styleProps["position"] = "relative"
                 }
                 is VStack -> {
                     allClasses.add("d-flex")
@@ -416,11 +561,25 @@ data class LayoutStyleSnapshot(
             viewportHeightPx: Int = 800
         ): LayoutStyleSnapshot {
             val normalizedTag = tagName.trim().lowercase().removePrefix("genericui:")
-            val normalizedClasses = classes
-                .flatMap { it.trim().split(Regex("\\s+")) }
-                .map { it.trim().lowercase() }
-                .filter { it.isNotEmpty() }
-                .toSet()
+            val normalizedClasses = LinkedHashSet<String>(classes.size * 2)
+            for (rawCls in classes) {
+                val trimmed = rawCls.trim()
+                if (trimmed.isEmpty()) continue
+                var hasWs = false
+                for (ch in trimmed) {
+                    if (ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r') {
+                        hasWs = true
+                        break
+                    }
+                }
+                if (!hasWs) {
+                    normalizedClasses.add(trimmed.lowercase())
+                } else {
+                    for (tok in trimmed.split(WHITESPACE_REGEX)) {
+                        if (tok.isNotEmpty()) normalizedClasses.add(tok.lowercase())
+                    }
+                }
+            }
 
             val normalizedStyle = linkedMapOf<String, String>()
             for ((k, v) in styleProps) {
@@ -466,7 +625,9 @@ data class LayoutStyleSnapshot(
             var bestColBpRank = -1
             var isGridAutoCol = false
             var position = if (normalizedTag == "aspectratiocontainer" || normalizedTag == "aspect-ratio-container" ||
-                normalizedTag == "layeredcontainer" || normalizedTag == "layered-container"
+                normalizedTag == "layeredcontainer" || normalizedTag == "layered-container" ||
+                "gui-layered-container" in normalizedClasses ||
+                attributes["isLayeredHost"]?.equals("true", ignoreCase = true) == true
             ) {
                 CssPosition.RELATIVE
             } else {
@@ -479,14 +640,7 @@ data class LayoutStyleSnapshot(
             var flexShrink = 1f
             var flexBasis: CssLength? = null
             var aspectRatio: Float? = null
-            var widthLength: CssLength? = if (normalizedTag in setOf(
-                    "navbar",
-                    "bottomnavigationbar",
-                    "bottom-navigation-bar",
-                    "aspectratiocontainer",
-                    "aspect-ratio-container"
-                )
-            ) {
+            var widthLength: CssLength? = if (normalizedTag in FULL_WIDTH_DEFAULT_TAGS) {
                 CssLength.percent(100f)
             } else {
                 null
@@ -513,45 +667,38 @@ data class LayoutStyleSnapshot(
             // 2. Scan Bootstrap & utility classes
             var bestDisplayBpRank = -1
             for (cls in normalizedClasses) {
-                val dispMatch = DISPLAY_RESPONSIVE_REGEX.matchEntire(cls)
+                val dispMatch = parseResponsiveDisplayClass(cls)
                 if (dispMatch != null) {
-                    val bp = dispMatch.groupValues[1].takeIf { it.isNotEmpty() }
+                    val bp = dispMatch.first
                     val rank = breakpointRank(bp)
                     if (matchesBreakpoint(bp, viewportWidthPx) && rank >= bestDisplayBpRank) {
                         bestDisplayBpRank = rank
-                        display = when (dispMatch.groupValues[2].lowercase()) {
-                            "none" -> CssDisplay.NONE
-                            "inline" -> CssDisplay.INLINE
-                            "inline-block" -> CssDisplay.INLINE_BLOCK
-                            "block" -> CssDisplay.BLOCK
-                            "grid" -> CssDisplay.GRID
-                            "flex" -> CssDisplay.FLEX
-                            "inline-flex" -> CssDisplay.INLINE_FLEX
-                            else -> display
+                        display = dispMatch.second
+                    }
+                    continue
+                }
+
+                if (cls.startsWith("col", ignoreCase = true)) {
+                    val colSpanMatch = parseColSpanClass(cls)
+                    if (colSpanMatch != null) {
+                        val bp = colSpanMatch.first
+                        val rank = breakpointRank(bp)
+                        val span = colSpanMatch.second
+                        if (matchesBreakpoint(bp, viewportWidthPx) && rank >= bestColBpRank) {
+                            bestColBpRank = rank
+                            gridColSpan = span
                         }
+                        continue
                     }
-                    continue
-                }
 
-                val colSpanMatch = COL_SPAN_REGEX.matchEntire(cls)
-                if (colSpanMatch != null) {
-                    val bp = colSpanMatch.groupValues[1].takeIf { it.isNotEmpty() }
-                    val rank = breakpointRank(bp)
-                    val span = colSpanMatch.groupValues[2].toIntOrNull()?.coerceIn(1, 12)
-                    if (span != null && matchesBreakpoint(bp, viewportWidthPx) && rank >= bestColBpRank) {
-                        bestColBpRank = rank
-                        gridColSpan = span
+                    val colAutoBp = parseColAutoBreakpoint(cls)
+                    if (colAutoBp != null) {
+                        val bp = colAutoBp.takeIf { it.isNotEmpty() }
+                        if (matchesBreakpoint(bp, viewportWidthPx)) {
+                            isGridAutoCol = true
+                        }
+                        continue
                     }
-                    continue
-                }
-
-                val colAutoMatch = COL_AUTO_REGEX.matchEntire(cls)
-                if (colAutoMatch != null) {
-                    val bp = colAutoMatch.groupValues[1].takeIf { it.isNotEmpty() }
-                    if (matchesBreakpoint(bp, viewportWidthPx)) {
-                        isGridAutoCol = true
-                    }
-                    continue
                 }
 
                 when (cls) {
@@ -790,17 +937,17 @@ data class LayoutStyleSnapshot(
                 flexShrink = s
                 flexBasis = b
             }
-            normalizedStyle["flex-grow"]?.toFloatOrNull()?.let { flexGrow = it }
-            normalizedStyle["flex-shrink"]?.toFloatOrNull()?.let { flexShrink = it }
+            safeToFloatOrNull(normalizedStyle["flex-grow"])?.let { flexGrow = it }
+            safeToFloatOrNull(normalizedStyle["flex-shrink"])?.let { flexShrink = it }
             normalizedStyle["flex-basis"]?.let { raw ->
                 CssLength.parse(raw)?.let { flexBasis = it }
             }
-            attributes["flexGrow"]?.toFloatOrNull()?.let { flexGrow = it }
-            attributes["flexShrink"]?.toFloatOrNull()?.let { flexShrink = it }
+            safeToFloatOrNull(attributes["flexGrow"])?.let { flexGrow = it }
+            safeToFloatOrNull(attributes["flexShrink"])?.let { flexShrink = it }
             attributes["flexBasis"]?.let { raw -> CssLength.parse(raw)?.let { flexBasis = it } }
 
             normalizedStyle["gap"]?.let { raw ->
-                val parts = raw.split(Regex("\\s+")).filter { it.isNotEmpty() }
+                val parts = splitAsciiWhitespace(raw)
                 val r = CssLength.parse(parts.getOrNull(0))?.resolvePx(viewportWidthPx = viewportWidthPx.toFloat(), viewportHeightPx = viewportHeightPx.toFloat())?.roundToInt()
                 val c = CssLength.parse(parts.getOrNull(1) ?: parts.getOrNull(0))?.resolvePx(viewportWidthPx = viewportWidthPx.toFloat(), viewportHeightPx = viewportHeightPx.toFloat())?.roundToInt()
                 if (r != null) rowGapPx = r
@@ -812,14 +959,14 @@ data class LayoutStyleSnapshot(
             normalizedStyle["column-gap"]?.let { raw ->
                 CssLength.parse(raw)?.resolvePx(viewportWidthPx = viewportWidthPx.toFloat(), viewportHeightPx = viewportHeightPx.toFloat())?.roundToInt()?.let { columnGapPx = it }
             }
-            attributes["gapPx"]?.toIntOrNull()?.let {
+            safeToIntOrNull(attributes["gapPx"])?.let {
                 rowGapPx = it
                 columnGapPx = it
             }
 
             parseBsAspectRatioVar(normalizedStyle["--bs-aspect-ratio"])?.let { aspectRatio = it }
             parseAspectRatioValue(normalizedStyle["aspect-ratio"])?.let { aspectRatio = it }
-            attributes["aspectRatio"]?.toFloatOrNull()?.takeIf { it > 0f }?.let { aspectRatio = it }
+            safeToFloatOrNull(attributes["aspectRatio"])?.takeIf { it > 0f }?.let { aspectRatio = it }
 
             normalizedStyle["width"]?.let { raw -> CssLength.parse(raw)?.let { widthLength = it } }
             normalizedStyle["height"]?.let { raw -> CssLength.parse(raw)?.let { heightLength = it } }
@@ -839,7 +986,7 @@ data class LayoutStyleSnapshot(
 
             // Margin from CSS
             normalizedStyle["margin"]?.let { raw ->
-                val parts = raw.split(Regex("\\s+")).filter { it.isNotEmpty() }.map { CssLength.parse(it) }
+                val parts = raw.split(WHITESPACE_REGEX).filter { it.isNotEmpty() }.map { CssLength.parse(it) }
                 when (parts.size) {
                     1 -> { marTop = parts[0]; marRight = parts[0]; marBottom = parts[0]; marLeft = parts[0] }
                     2 -> { marTop = parts[0]; marBottom = parts[0]; marRight = parts[1]; marLeft = parts[1] }
@@ -855,7 +1002,7 @@ data class LayoutStyleSnapshot(
             // Border widths from CSS
             val borderBase = CssLength.parse(normalizedStyle["border-width"])?.resolvePx()?.roundToInt()
                 ?: normalizedStyle["border"]?.let { raw ->
-                    Regex("(\\d+(?:\\.\\d+)?)px").find(raw)?.groupValues?.getOrNull(1)?.toFloatOrNull()?.roundToInt()
+                    safeToFloatOrNull(PX_NUMBER_REGEX.find(raw)?.groupValues?.getOrNull(1))?.roundToInt()
                 } ?: 0
             val borderTop = CssLength.parse(normalizedStyle["border-top-width"])?.resolvePx()?.roundToInt() ?: borderBase
             val borderRight = CssLength.parse(normalizedStyle["border-right-width"])?.resolvePx()?.roundToInt() ?: borderBase
@@ -891,9 +1038,9 @@ data class LayoutStyleSnapshot(
             var translateXPx = transforms[2] + calcLeftOffsetPx
             var translateYPx = transforms[3] + calcTopOffsetPx
 
-            val zIndex = normalizedStyle["z-index"]?.toIntOrNull()
-                ?: attributes["layerZIndex"]?.toIntOrNull()
-                ?: attributes["zIndex"]?.toIntOrNull()
+            val zIndex = safeToIntOrNull(normalizedStyle["z-index"])
+                ?: safeToIntOrNull(attributes["layerZIndex"])
+                ?: safeToIntOrNull(attributes["zIndex"])
                 ?: 0
 
             // Layer metadata attributes (LayeredContainer / Desktop widget layer attributes)
@@ -908,20 +1055,20 @@ data class LayoutStyleSnapshot(
             val layerAlignment = attributes["layerAlignment"]?.takeIf { it.isNotBlank() }?.let { raw ->
                 LayerAlignment.entries.firstOrNull { it.name.equals(raw.trim(), ignoreCase = true) }
             }
-            val layerOffsetXPx = attributes["layerOffsetXPx"]?.toIntOrNull()
-                ?: attributes["offsetXPx"]?.toIntOrNull()
+            val layerOffsetXPx = safeToIntOrNull(attributes["layerOffsetXPx"])
+                ?: safeToIntOrNull(attributes["offsetXPx"])
                 ?: 0
-            val layerOffsetYPx = attributes["layerOffsetYPx"]?.toIntOrNull()
-                ?: attributes["offsetYPx"]?.toIntOrNull()
+            val layerOffsetYPx = safeToIntOrNull(attributes["layerOffsetYPx"])
+                ?: safeToIntOrNull(attributes["offsetYPx"])
                 ?: 0
-            val layerLeftPercent = attributes["layerLeftPercent"]?.toFloatOrNull()
-                ?: attributes["leftPercent"]?.toFloatOrNull()
-            val layerTopPercent = attributes["layerTopPercent"]?.toFloatOrNull()
-                ?: attributes["topPercent"]?.toFloatOrNull()
-            val layerRightPx = attributes["layerRightPx"]?.toIntOrNull()
-                ?: attributes["rightPx"]?.toIntOrNull()
-            val layerBottomPx = attributes["layerBottomPx"]?.toIntOrNull()
-                ?: attributes["bottomPx"]?.toIntOrNull()
+            val layerLeftPercent = safeToFloatOrNull(attributes["layerLeftPercent"])
+                ?: safeToFloatOrNull(attributes["leftPercent"])
+            val layerTopPercent = safeToFloatOrNull(attributes["layerTopPercent"])
+                ?: safeToFloatOrNull(attributes["topPercent"])
+            val layerRightPx = safeToIntOrNull(attributes["layerRightPx"])
+                ?: safeToIntOrNull(attributes["rightPx"])
+            val layerBottomPx = safeToIntOrNull(attributes["layerBottomPx"])
+                ?: safeToIntOrNull(attributes["bottomPx"])
 
             if (layerRole != null && position == CssPosition.STATIC) {
                 position = CssPosition.ABSOLUTE

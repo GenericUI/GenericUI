@@ -11,7 +11,7 @@ import com.nexustools.genericui.resources.ResourceID
  * ([onCloseRequested]), used inside [TabContainer] and [FragmentTabContainer] for IDE editors,
  * studio document tabs, and browser-style tabs.
  *
- * Translates directly to each platform's native closeable tab widget (`QTabBar` close button on `:qt`,
+ * Translates directly to each platform's native closeable tab widget (`QTabBar` close button on `:kde`,
  * `AdwTabPage` / `GtkNotebook` close button on `:gtk`, `NSTabViewItem` close `NSButton` on `:macos`,
  * `WC_TABCONTROL` close button on `:windows`, `JTabbedPane` tab component with native close `JButton` on `:swing`,
  * closeable `TabLayout.Tab` on `:android`, `UIButton` close action on `:ios`, and `.btn-close` on `:web`).

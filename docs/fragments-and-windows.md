@@ -17,16 +17,16 @@ In GenericUI's single-`commonMain` architecture, `Fragment` subclasses are annot
 
 | `AppTarget` Entry | Scope ID | `specificityRank` | Matching `BackendTarget`s |
 | :--- | :--- | :---: | :--- |
-| `AppTarget.COMMON` | `"common"` | `0` | All 9 backends (`Windows`, `MacOS`, `Gtk`, `Qt`, `Swing`, `Android`, `IOS`, `IPadOS`, `Web`) |
-| `AppTarget.SYSTEM_COMMON` | `"systemCommon"` | `1` | All 8 OS/system backends (`Windows`, `MacOS`, `Gtk`, `Qt`, `Swing`, `Android`, `IOS`, `IPadOS`) |
+| `AppTarget.COMMON` | `"common"` | `0` | All 9 backends (`Windows`, `MacOS`, `Gtk`, `Kde`, `Swing`, `Android`, `IOS`, `IPadOS`, `Web`) |
+| `AppTarget.SYSTEM_COMMON` | `"systemCommon"` | `1` | All 8 OS/system backends (`Windows`, `MacOS`, `Gtk`, `Kde`, `Swing`, `Android`, `IOS`, `IPadOS`) |
 | `AppTarget.APPLE_COMMON` | `"appleCommon"` | `2` | All 3 Apple Darwin targets (`MacOS`, `IOS`, `IPadOS`) |
 | `AppTarget.JVM_COMMON` | `"jvmCommon"` | `2` | Both JVM targets (`Swing`, `Android`) |
-| `AppTarget.DESKTOP_COMMON` | `"desktopCommon"` | `3` | All 5 desktop backends (`Windows`, `MacOS`, `Gtk`, `Qt`, `Swing`) |
+| `AppTarget.DESKTOP_COMMON` | `"desktopCommon"` | `3` | All 5 desktop backends (`Windows`, `MacOS`, `Gtk`, `Kde`, `Swing`) |
 | `AppTarget.MOBILE_COMMON` | `"mobileCommon"` | `3` | All 3 mobile backends (`Android`, `IOS`, `IPadOS`) |
-| `AppTarget.NATIVE_DESKTOP_COMMON` | `"nativeDesktopCommon"` | `4` | All 4 native desktop backends (`Windows`, `MacOS`, `Gtk`, `Qt`) |
-| `AppTarget.LINUX_COMMON` | `"linuxCommon"` | `5` | Both Linux desktop backends (`Gtk`, `Qt`) |
+| `AppTarget.NATIVE_DESKTOP_COMMON` | `"nativeDesktopCommon"` | `4` | All 4 native desktop backends (`Windows`, `MacOS`, `Gtk`, `Kde`) |
+| `AppTarget.LINUX_COMMON` | `"linuxCommon"` | `5` | Both Linux desktop backends (`Gtk`, `Kde`) |
 | `AppTarget.IOS_COMMON` | `"iosCommon"` | `5` | Both Apple UIKit mobile targets (`IOS`, `IPadOS`) |
-| `WINDOWS`, `MACOS`, `GTK`, `QT`, `SWING`, `ANDROID`, `IOS`, `IPADOS`, `WEB` | Concrete ID | `6` | That exact single `BackendTarget` |
+| `WINDOWS`, `MACOS`, `GTK`, `KDE`, `SWING`, `ANDROID`, `IOS`, `IPADOS`, `WEB` | Concrete ID | `6` | That exact single `BackendTarget` |
 
 For every enabled backend target, `genericuiValidateApp` resolves `@MainAppFragment` along its specificity chain (failing immediately if two candidates tie at highest specificity or none match):
 
@@ -34,7 +34,7 @@ For every enabled backend target, `genericuiValidateApp` resolves `@MainAppFragm
 | :--- | :--- |
 | **`Windows`** | `WINDOWS (6)` $\rightarrow$ `NATIVE_DESKTOP_COMMON (4)` $\rightarrow$ `DESKTOP_COMMON (3)` $\rightarrow$ `SYSTEM_COMMON (1)` $\rightarrow$ `COMMON (0)` |
 | **`MacOS`** | `MACOS (6)` $\rightarrow$ `NATIVE_DESKTOP_COMMON (4)` $\rightarrow$ `DESKTOP_COMMON (3)` $\rightarrow$ `APPLE_COMMON (2)` $\rightarrow$ `SYSTEM_COMMON (1)` $\rightarrow$ `COMMON (0)` |
-| **`Gtk` / `Qt`** | `GTK / QT (6)` $\rightarrow$ `LINUX_COMMON (5)` $\rightarrow$ `NATIVE_DESKTOP_COMMON (4)` $\rightarrow$ `DESKTOP_COMMON (3)` $\rightarrow$ `SYSTEM_COMMON (1)` $\rightarrow$ `COMMON (0)` |
+| **`Gtk` / `Kde`** | `GTK / KDE (6)` $\rightarrow$ `LINUX_COMMON (5)` $\rightarrow$ `NATIVE_DESKTOP_COMMON (4)` $\rightarrow$ `DESKTOP_COMMON (3)` $\rightarrow$ `SYSTEM_COMMON (1)` $\rightarrow$ `COMMON (0)` |
 | **`Swing`** | `SWING (6)` $\rightarrow$ `DESKTOP_COMMON (3)` $\rightarrow$ `JVM_COMMON (2)` $\rightarrow$ `SYSTEM_COMMON (1)` $\rightarrow$ `COMMON (0)` |
 | **`Android`** | `ANDROID (6)` $\rightarrow$ `MOBILE_COMMON (3)` $\rightarrow$ `JVM_COMMON (2)` $\rightarrow$ `SYSTEM_COMMON (1)` $\rightarrow$ `COMMON (0)` |
 | **`IOS`** | `IOS (6)` $\rightarrow$ `IOS_COMMON (5)` $\rightarrow$ `MOBILE_COMMON (3)` $\rightarrow$ `APPLE_COMMON (2)` $\rightarrow$ `SYSTEM_COMMON (1)` $\rightarrow$ `COMMON (0)` |
@@ -67,7 +67,7 @@ Both `IFragment`, `IWindow`, and `IApplication` support `launchFragment(fragment
 
 [`IWindow`](../common/src/commonMain/kotlin/com/nexustools/genericui/window/IWindow.kt) exposes floating z-order control across desktop and multi-window targets:
 - `val isAlwaysOnTop: Boolean` — returns whether the window stays pinned above normal application windows.
-- `fun setAlwaysOnTop(alwaysOnTop: Boolean)` — enables or disables floating z-order (`HWND_TOPMOST` / `HWND_NOTOPMOST` on Windows, `NSFloatingWindowLevel` / `NSNormalWindowLevel` on macOS, `UIWindowLevelAlert` / `UIWindowLevelNormal` on UIKit iPadOS/iOS, `gtk_window` / `Qt::WindowStaysOnTopHint`, and `Window.setAlwaysOnTop` on Swing).
+- `fun setAlwaysOnTop(alwaysOnTop: Boolean)` — enables or disables floating z-order (`HWND_TOPMOST` / `HWND_NOTOPMOST` on Windows, `NSFloatingWindowLevel` / `NSNormalWindowLevel` on macOS, `UIWindowLevelAlert` / `UIWindowLevelNormal` on UIKit iPadOS/iOS, `gtk_window` / KDE `WindowStaysOnTopHint`, and `Window.setAlwaysOnTop` on Swing).
 - **Defaults**: Standard [`Window`](../common/src/commonMain/kotlin/com/nexustools/genericui/component/shell/Window.kt) instances default to `isAlwaysOnTop = false` (configurable in `build.gradle.kts` via `window { alwaysOnTop = true }`), whereas [`PanelWindow`](../common/src/commonMain/kotlin/com/nexustools/genericui/component/dock/PanelWindow.kt) overrides **`isAlwaysOnTop = true`**, calls `setAlwaysOnTop(true)` during initialization, and sets `isAlwaysOnTopOfOwner = true`.
 
 ### 4.2 Client-Viewport Aspect Ratio Lock (`aspectRatio`, Normal Windowed Mode Only)
@@ -77,7 +77,7 @@ Both `IFragment`, `IWindow`, and `IApplication` support `launchFragment(fragment
 - `fun setAspectRatio(aspectRatio: Double?)` (`null` clears the constraint; positive finite values are validated by `WindowAspectRatioHelper.validateAspectRatio`)
 - `fun setAspectRatio(widthRatio: Int, heightRatio: Int)` (convenience overload, e.g. `window.setAspectRatio(16, 9)` or Gradle `window { aspectRatio(16, 9) }`)
 - **Strict Windowed-Only Enforcement (`WindowState.NORMAL && !isFullscreen()`)**:
-  1. When `window.windowState == WindowState.NORMAL && !window.isFullscreen()`, calls to `setWindowSize` / native drag-resizes clamp the **client viewport dimensions** via `WindowAspectRatioHelper.clampClientSize` / `enforceResizeDelta` and pass `aspectRatio` to `WindowNativeImpl.setAspectRatio(...)` (`WM_SIZING` client-rect adjustment on Windows, `NSWindow.contentAspectRatio` on macOS, X11/GTK/Qt geometry hints, `JComponent` / content size on Swing, `UIWindowScene` `sizeRestrictions` on Stage Manager iPadOS).
+  1. When `window.windowState == WindowState.NORMAL && !window.isFullscreen()`, calls to `setWindowSize` / native drag-resizes clamp the **client viewport dimensions** via `WindowAspectRatioHelper.clampClientSize` / `enforceResizeDelta` and pass `aspectRatio` to `WindowNativeImpl.setAspectRatio(...)` (`WM_SIZING` client-rect adjustment on Windows, `NSWindow.contentAspectRatio` on macOS, X11/GTK/KDE geometry hints, `JComponent` / content size on Swing, `UIWindowScene` `sizeRestrictions` on Stage Manager iPadOS).
   2. When transitioning to **maximized (`WindowState.MAXIMIZED`)** or **fullscreen (`isFullscreen() == true`)**, `Window` leaves fullscreen/maximized dimensions **completely unconstrained** and clears native aspect enforcement (`winImpl.setAspectRatio(null)`) so displays fill edge-to-edge without letterboxing bugs.
   3. Upon **unmaximizing or exiting fullscreen** back into `WindowState.NORMAL`, `Window` restores `lastWindowedNormalSize` and re-clamps it cleanly to `aspectRatio` before notifying `WindowNativeImpl`.
 
@@ -85,7 +85,7 @@ Both `IFragment`, `IWindow`, and `IApplication` support `launchFragment(fragment
 
 | Platform | Neither `TitleBar` nor `MenuBar` Set | `TitleBar` Only | `MenuBar` Only | Both `TitleBar` and `MenuBar` Set |
 | :--- | :--- | :--- | :--- | :--- |
-| **Desktop (`:desktop` Win/GTK/Qt/Swing)** | Native OS window titlebar (`isTitleBarRequired = true`). | Native/custom titlebar with embedded leading/center/trailing components. | Native titlebar + `MenuBar`. | Native/custom titlebar + `MenuBar` (embedded when `embedMenuBar = true`). |
+| **Desktop (`:desktop` Win/GTK/KDE/Swing)** | Native OS window titlebar (`isTitleBarRequired = true`). | Native/custom titlebar with embedded leading/center/trailing components. | Native titlebar + `MenuBar`. | Native/custom titlebar + `MenuBar` (embedded when `embedMenuBar = true`). |
 | **macOS (`:desktop` `macosMain`)** | Native `NSWindow` titlebar (`isTitleBarRequired = true`). | `NSWindow` / `NSToolbar` with custom titlebar items. | Global macOS top-of-screen `NSApplication.mainMenu`. | `NSWindow` titlebar + global macOS `NSApplication.mainMenu`. |
 | **Android & iPhone iOS (`:mobile`)** | **No navbar added to view hierarchy.** | `MaterialToolbar` / native navbar with title & items. | Navbar with menu button/dropdown on the right. | Single navbar combining title and menu dropdown. |
 | **iPadOS (`:mobile` `ipados/`)** | **No navbar added to view hierarchy.** | Inline UIKit navbar/titlebar (`titleBarRendersAsNavbar = true`). | Global iPadOS native menu bar (`UIMenuSystem.mainSystem`). | Inline `TitleBar` navbar + native `UIMenuSystem.mainSystem` menus. |
@@ -108,6 +108,6 @@ Both `IFragment`, `IWindow`, and `IApplication` support `launchFragment(fragment
 
 ## 6. Styling, Global Stylesheets, `TabbedFragment`, & Hybrid Fragment Helpers
 
-- **Component Styling**: Use `component.getBootstrap()` ([`ComponentBootstrap`](../common/src/commonMain/kotlin/com/nexustools/genericui/style/bootstrap/ComponentBootstrap.kt)) and `component.getStyle()` ([`ComponentStyle`](../common/src/commonMain/kotlin/com/nexustools/genericui/style/css/ComponentStyle.kt)), or `style { ... }` / `bootstrap { ... }` / `important { ... }` when `:extensions:ui:dsl` is enabled. On system backends, opt into custom aesthetic styling and 9-backend `backdropFilter` / `setBackdropBlur(...)` frosted-glass blur using `StyledContainer` or `StyledButton` (`AestheticStylePolicy`, explicitly excluding `TextBubble`).
+- **Component Styling**: Use `component.getBootstrap()` ([`ComponentBootstrap`](../common/src/commonMain/kotlin/com/nexustools/genericui/style/bootstrap/ComponentBootstrap.kt)) and `component.getStyle()` ([`ComponentStyle`](../common/src/commonMain/kotlin/com/nexustools/genericui/style/css/ComponentStyle.kt)), or `style { ... }` / `bootstrap { ... }` / `important { ... }` when `:extensions:ui:dsl` is enabled. On system backends, opt into custom aesthetic styling and 9-backend `backdropFilter` / `setBackdropBlur(...)` frosted-glass blur using `StyledContainer` or `StyledButton` (`AestheticStylePolicy` applies uniformly across all `StyledContainer` and `StyledButton` instances).
 - **Application-Level Stylesheets**: Global stylesheet registration (`addStyleSheet` / `removeStyleSheet`) lives on `IApplication` (only `:extensions:ui:alien`'s [`IAlien`](../extensions/ui/alien/src/commonMain/kotlin/com/nexustools/genericui/ext/alien/IAlien.kt) subclasses maintain per-Alien stylesheet cascades).
 - **Multi-Tab & Responsive Helpers**: [`TabbedFragment`](../common/src/commonMain/kotlin/com/nexustools/genericui/component/fragment/helper/TabbedFragment.kt) (`TabbedChromeMode.AUTO` switching between desktop tabs $\ge 600\text{dp}$ and compact `[N]` mobile pill switcher $< 600\text{dp}$) plus all 7 helpers in [**`layouts-and-helpers.md`**](./layouts-and-helpers.md).

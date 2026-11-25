@@ -23,7 +23,7 @@ import javax.swing.event.DocumentListener
 
 /**
  * Interactive Swing/IntelliJ IDEA configuration panel with grouped checkboxes for selecting
- * `GenericUI` target backends (`windows`, `macos`, `gtk`, `qt`, `swing`, `android`, `ios`, `ipados`, `web`),
+ * `GenericUI` target backends (`windows`, `macos`, `gtk`, `kde`, `swing`, `android`, `ios`, `ipados`, `web`),
  * quick-select preset buttons (`All Except Swing`, `Desktop Only (No Swing)`, `Mobile Only`, `Apple Only`, `Select All`, `Clear All`),
  * 19 categorized first-party extension checkboxes (Graphics, Physics, Game & Input, Media, UI) with automatic
  * transitive dependency resolution, starter project template selector, `:tests` (`JestElectricRunner`) toggle,
@@ -370,12 +370,12 @@ class GenericUiTargetCheckboxPanel(
     fun isExtensionSelected(extension: GenericUiExtensionModule): Boolean =
         extensionCheckboxes.getValue(extension).isSelected
 
-    /** Preset action: checks all backends EXCEPT Swing (`windows`, `macos`, `gtk`, `qt`, `android`, `ios`, `ipados`, `web`). */
+    /** Preset action: checks all backends EXCEPT Swing (`windows`, `macos`, `gtk`, `kde`, `android`, `ios`, `ipados`, `web`). */
     fun selectAllExceptSwing() {
         setSelectedBackends(GenericUiTargetBackend.allExceptSwingSet())
     }
 
-    /** Preset action: checks only the 4 native Desktop backends (`windows`, `macos`, `gtk`, `qt`), leaving `swing`, `android`, `ios`, `ipados`, and `web` unchecked. */
+    /** Preset action: checks only the 4 native Desktop backends (`windows`, `macos`, `gtk`, `kde`), leaving `swing`, `android`, `ios`, `ipados`, and `web` unchecked. */
     fun selectDesktopExceptSwing() {
         setSelectedBackends(GenericUiTargetBackend.desktopExceptSwingSet())
     }

@@ -268,8 +268,10 @@ open class Button(
         text = if (text.isEmpty()) this else text + this
     }
 
-    override fun applyComputedStyle(style: ComputedStyle) {
-        super.applyComputedStyle(style)
+    override val supportsFocus: Boolean
+        get() = true
+
+    internal override fun onComputedStyleChanged(previous: ComputedStyle?, current: ComputedStyle) {
         image?.onThemeChanged()
     }
 

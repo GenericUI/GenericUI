@@ -10,7 +10,7 @@ import com.nexustools.genericui.core.NativeImpl
  * and [com.nexustools.genericui.component.tabs.FragmentTabContainer].
  *
  * Uses the genuine native tab widget on each backend (`JTabbedPane` on `:swing`, `WC_TABCONTROL` on `:windows`,
- * `QTabWidget` on `:qt`, `NSTabView` on `:macos`, `AdwTabView`/`GtkNotebook` on `:gtk`, `TabLayout` on `:android`,
+ * `QTabWidget` on `:kde`, `NSTabView` on `:macos`, `AdwTabView`/`GtkNotebook` on `:gtk`, `TabLayout` on `:android`,
  * `UITabBar` on `:ios`, and `.nav-tabs` + `.tab-pane.fade` on `:web`), translating each [TabNativeImpl]
  * into the platform's native tab header component.
  */

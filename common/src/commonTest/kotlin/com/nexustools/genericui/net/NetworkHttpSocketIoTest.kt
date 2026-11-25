@@ -1,14 +1,61 @@
 package com.nexustools.genericui.net
 
 import com.nexustools.genericui.core.GenericUI
+import com.nexustools.genericui.core.NativeFactory
+import com.nexustools.genericui.enums.system.BackendTarget
 import com.nexustools.genericui.io.ByteBuffer
 import com.nexustools.genericui.io.Readable
 import com.nexustools.genericui.io.Stream
 import com.nexustools.genericui.io.Writable
+import com.nexustools.genericui.nativeimpl.action.ButtonNativeImpl
+import com.nexustools.genericui.nativeimpl.action.DropdownNativeImpl
+import com.nexustools.genericui.nativeimpl.action.StyledButtonNativeImpl
+import com.nexustools.genericui.nativeimpl.content.ImageNativeImpl
+import com.nexustools.genericui.nativeimpl.content.TableNativeImpl
+import com.nexustools.genericui.nativeimpl.dialog.DialogWindowNativeImpl
+import com.nexustools.genericui.nativeimpl.dialog.FileBrowserDialogNativeImpl
+import com.nexustools.genericui.nativeimpl.dialog.StandardDialogsNativeImpl
+import com.nexustools.genericui.nativeimpl.dock.DockAreaNativeImpl
+import com.nexustools.genericui.nativeimpl.dock.DockGroupNativeImpl
+import com.nexustools.genericui.nativeimpl.dock.DockPanelNativeImpl
+import com.nexustools.genericui.nativeimpl.dock.DockWindowNativeImpl
+import com.nexustools.genericui.nativeimpl.dock.DockWorkspaceNativeImpl
+import com.nexustools.genericui.nativeimpl.dock.ToolPaletteNativeImpl
+import com.nexustools.genericui.nativeimpl.document.BookContainerNativeImpl
+import com.nexustools.genericui.nativeimpl.feedback.ProgressBarNativeImpl
+import com.nexustools.genericui.nativeimpl.feedback.SpinnerNativeImpl
+import com.nexustools.genericui.nativeimpl.form.CheckboxNativeImpl
+import com.nexustools.genericui.nativeimpl.form.RangeSliderNativeImpl
+import com.nexustools.genericui.nativeimpl.form.SelectNativeImpl
+import com.nexustools.genericui.nativeimpl.form.TextInputNativeImpl
+import com.nexustools.genericui.nativeimpl.layout.ContainerNativeImpl
+import com.nexustools.genericui.nativeimpl.layout.DividerNativeImpl
+import com.nexustools.genericui.nativeimpl.layout.ScrollViewNativeImpl
+import com.nexustools.genericui.nativeimpl.layout.StyledContainerNativeImpl
+import com.nexustools.genericui.nativeimpl.lazy.LazyGridNativeImpl
+import com.nexustools.genericui.nativeimpl.lazy.LazyListNativeImpl
+import com.nexustools.genericui.nativeimpl.lazy.TreeViewNativeImpl
+import com.nexustools.genericui.nativeimpl.navigation.BottomNavigationBarNativeImpl
+import com.nexustools.genericui.nativeimpl.navigation.NavbarNativeImpl
 import com.nexustools.genericui.nativeimpl.net.DefaultHttpClientNativeImpl
 import com.nexustools.genericui.nativeimpl.net.DefaultTcpSocketNativeImpl
 import com.nexustools.genericui.nativeimpl.net.DefaultUdpSocketNativeImpl
 import com.nexustools.genericui.nativeimpl.net.DefaultWebSocketNativeImpl
+import com.nexustools.genericui.nativeimpl.overlay.PopoverNativeImpl
+import com.nexustools.genericui.nativeimpl.shell.ApplicationNativeImpl
+import com.nexustools.genericui.nativeimpl.shell.ContextMenuNativeImpl
+import com.nexustools.genericui.nativeimpl.shell.MenuBarNativeImpl
+import com.nexustools.genericui.nativeimpl.shell.MenuItemNativeImpl
+import com.nexustools.genericui.nativeimpl.shell.MenuNativeImpl
+import com.nexustools.genericui.nativeimpl.shell.WindowNativeImpl
+import com.nexustools.genericui.nativeimpl.system.NetworkMonitorNativeImpl
+import com.nexustools.genericui.nativeimpl.system.NotificationManagerNativeImpl
+import com.nexustools.genericui.nativeimpl.system.PermissionManagerNativeImpl
+import com.nexustools.genericui.nativeimpl.system.SystemTrayNativeImpl
+import com.nexustools.genericui.nativeimpl.tabs.TabContainerNativeImpl
+import com.nexustools.genericui.nativeimpl.tabs.TabNativeImpl
+import com.nexustools.genericui.nativeimpl.typography.MarkdownViewNativeImpl
+import com.nexustools.genericui.nativeimpl.typography.TextNativeImpl
 import com.nexustools.genericui.net.http.HttpClient
 import com.nexustools.genericui.net.http.HttpConnection
 import com.nexustools.genericui.net.http.HttpMethod
@@ -33,6 +80,63 @@ import kotlin.test.assertTrue
 
 class NetworkHttpSocketIoTest {
 
+    private class FakeLoopbackSocketFactory : NativeFactory {
+        private fun unsupported(): Nothing = throw UnsupportedOperationException("Unused in NetworkHttpSocketIoTest")
+        override val backendTarget: BackendTarget = BackendTarget.Swing
+        override fun createApplication(): ApplicationNativeImpl<*> = unsupported()
+        override fun createWindow(): WindowNativeImpl<*> = unsupported()
+        override fun createMenuBar(): MenuBarNativeImpl<*> = unsupported()
+        override fun createMenu(): MenuNativeImpl<*> = unsupported()
+        override fun createMenuItem(checkable: Boolean, radio: Boolean): MenuItemNativeImpl<*> = unsupported()
+        override fun createContextMenu(): ContextMenuNativeImpl<*> = unsupported()
+        override fun createDockWorkspace(): DockWorkspaceNativeImpl<*> = unsupported()
+        override fun createDockArea(): DockAreaNativeImpl<*> = unsupported()
+        override fun createDockGroup(): DockGroupNativeImpl<*> = unsupported()
+        override fun createDockPanel(): DockPanelNativeImpl<*> = unsupported()
+        override fun createDockWindow(): DockWindowNativeImpl<*> = unsupported()
+        override fun createToolPalette(): ToolPaletteNativeImpl<*> = unsupported()
+        override fun createContainer(classPrefix: String): ContainerNativeImpl<*> = unsupported()
+        override fun createStyledContainer(classPrefix: String, tagName: String): StyledContainerNativeImpl<*> = unsupported()
+        override fun createStyledComponent(
+            classPrefix: String,
+            tagName: String
+        ): com.nexustools.genericui.nativeimpl.surface.StyledComponentNativeImpl<*> = unsupported()
+        override fun createBookContainer(): BookContainerNativeImpl<*> = unsupported()
+        override fun createScrollView(): ScrollViewNativeImpl<*> = unsupported()
+        override fun createDivider(): DividerNativeImpl<*> = unsupported()
+        override fun createText(tagName: String, classPrefix: String): TextNativeImpl<*> = unsupported()
+        override fun createMarkdownView(): MarkdownViewNativeImpl<*> = unsupported()
+        override fun createImage(): ImageNativeImpl<*> = unsupported()
+        override fun createTable(): TableNativeImpl<*> = unsupported()
+        override fun createButton(classPrefix: String): ButtonNativeImpl<*> = unsupported()
+        override fun createStyledButton(classPrefix: String): StyledButtonNativeImpl<*> = unsupported()
+        override fun createDropdown(): DropdownNativeImpl<*> = unsupported()
+        override fun createTextInput(multiline: Boolean): TextInputNativeImpl<*> = unsupported()
+        override fun createSelect(): SelectNativeImpl<*> = unsupported()
+        override fun createCheckbox(switchStyle: Boolean, radioStyle: Boolean): CheckboxNativeImpl<*> = unsupported()
+        override fun createRangeSlider(): RangeSliderNativeImpl<*> = unsupported()
+        override fun createTab(closable: Boolean): TabNativeImpl<*> = unsupported()
+        override fun createTabContainer(): TabContainerNativeImpl<*> = unsupported()
+        override fun createNavbar(): NavbarNativeImpl<*> = unsupported()
+        override fun createBottomNavigationBar(): BottomNavigationBarNativeImpl<*> = unsupported()
+        override fun createProgressBar(): ProgressBarNativeImpl<*> = unsupported()
+        override fun createSpinner(): SpinnerNativeImpl<*> = unsupported()
+        override fun createPopover(): PopoverNativeImpl<*> = unsupported()
+        override fun createDialogWindow(): DialogWindowNativeImpl<*> = unsupported()
+        override fun createFileBrowserDialog(): FileBrowserDialogNativeImpl = unsupported()
+        override fun createStandardDialogs(): StandardDialogsNativeImpl = unsupported()
+        override fun createLazyList(): LazyListNativeImpl<*> = unsupported()
+        override fun createLazyGrid(): LazyGridNativeImpl<*> = unsupported()
+        override fun createTreeView(): TreeViewNativeImpl<*> = unsupported()
+        override fun createPermissionManager(): PermissionManagerNativeImpl = unsupported()
+        override fun createSystemTray(): SystemTrayNativeImpl = unsupported()
+        override fun createNotificationManager(): NotificationManagerNativeImpl = unsupported()
+        override fun createNetworkMonitor(): NetworkMonitorNativeImpl = unsupported()
+        override fun supportsTcp(): Boolean = true
+        override fun supportsUdp(): Boolean = true
+        override fun supportsMulticastUdp(): Boolean = true
+    }
+
     @AfterTest
     fun tearDown() {
         DefaultTcpSocketNativeImpl.clearLoopbackServers()
@@ -55,80 +159,92 @@ class NetworkHttpSocketIoTest {
 
     @Test
     fun testTcpSocketStreamLoopbackAndServerHandler() = runSuspendTest {
-        val echoSocket = Network.openTcpSocket("127.0.0.1", 9001)
-        assertIs<Stream>(echoSocket)
-        assertTrue(echoSocket.isConnected)
-        assertEquals("127.0.0.1", echoSocket.remoteHost)
-        assertEquals(9001, echoSocket.remotePort)
-        assertTrue(echoSocket.localPort > 0)
+        val savedFactory = GenericUI.activeFactory
+        GenericUI.initialize(FakeLoopbackSocketFactory())
+        try {
+            val echoSocket = Network.openTcpSocket("127.0.0.1", 9001)
+            assertIs<Stream>(echoSocket)
+            assertTrue(echoSocket.isConnected)
+            assertEquals("127.0.0.1", echoSocket.remoteHost)
+            assertEquals(9001, echoSocket.remotePort)
+            assertTrue(echoSocket.localPort > 0)
 
-        assertTrue(echoSocket.writeText("hello-tcp"))
-        echoSocket.flush()
-        assertEquals("hello-tcp", echoSocket.readText())
+            assertTrue(echoSocket.writeText("hello-tcp"))
+            echoSocket.flush()
+            assertEquals("hello-tcp", echoSocket.readText())
 
-        val outBuf = ByteBuffer.allocate(8).putIntBE(0x12345678).putIntBE(0x0ABCDEF0).flip()
-        assertTrue(echoSocket.write(outBuf))
-        echoSocket.flush()
-        val inBuf = echoSocket.readBuffer()
-        assertNotNull(inBuf)
-        assertEquals(0x12345678, inBuf.getIntBE())
-        assertEquals(0x0ABCDEF0, inBuf.getIntBE())
-        echoSocket.close()
-        assertFalse(echoSocket.isConnected)
-        echoSocket.dispose()
+            val outBuf = ByteBuffer.allocate(8).putIntBE(0x12345678).putIntBE(0x0ABCDEF0).flip()
+            assertTrue(echoSocket.write(outBuf))
+            echoSocket.flush()
+            val inBuf = echoSocket.readBuffer()
+            assertNotNull(inBuf)
+            assertEquals(0x12345678, inBuf.getIntBE())
+            assertEquals(0x0ABCDEF0, inBuf.getIntBE())
+            echoSocket.close()
+            assertFalse(echoSocket.isConnected)
+            echoSocket.dispose()
 
-        DefaultTcpSocketNativeImpl.registerLoopbackServer(
-            port = 9002,
-            greeting = "WELCOME\n".encodeToByteArray()
-        ) { requestBytes ->
-            val cmd = ByteBuffer.wrap(requestBytes).toString().trim()
-            "REPLY:$cmd".encodeToByteArray()
+            DefaultTcpSocketNativeImpl.registerLoopbackServer(
+                port = 9002,
+                greeting = "WELCOME\n".encodeToByteArray()
+            ) { requestBytes ->
+                val cmd = ByteBuffer.wrap(requestBytes).toString().trim()
+                "REPLY:$cmd".encodeToByteArray()
+            }
+
+            val rpcSocket = Network.openTcpSocket()
+            assertTrue(rpcSocket.connect("localhost", 9002))
+            assertEquals("WELCOME\n", rpcSocket.readText())
+            assertTrue(rpcSocket.writeLine("STATUS"))
+            rpcSocket.flush()
+            assertEquals("REPLY:STATUS", rpcSocket.readText())
+            rpcSocket.dispose()
+        } finally {
+            GenericUI.activeFactory = savedFactory
         }
-
-        val rpcSocket = Network.openTcpSocket()
-        assertTrue(rpcSocket.connect("localhost", 9002))
-        assertEquals("WELCOME\n", rpcSocket.readText())
-        assertTrue(rpcSocket.writeLine("STATUS"))
-        rpcSocket.flush()
-        assertEquals("REPLY:STATUS", rpcSocket.readText())
-        rpcSocket.dispose()
     }
 
     @Test
     fun testUdpSocketStreamLoopbackAndMulticast() = runSuspendTest {
-        val receiver = Network.openUdpSocket("127.0.0.1", 0)
-        val sender = Network.openUdpSocket("127.0.0.1", 0)
-        assertIs<Stream>(receiver)
-        assertIs<Stream>(sender)
-        assertTrue(receiver.isBound)
-        assertTrue(receiver.localPort > 0)
+        val savedFactory = GenericUI.activeFactory
+        GenericUI.initialize(FakeLoopbackSocketFactory())
+        try {
+            val receiver = Network.openUdpSocket("127.0.0.1", 0)
+            val sender = Network.openUdpSocket("127.0.0.1", 0)
+            assertIs<Stream>(receiver)
+            assertIs<Stream>(sender)
+            assertTrue(receiver.isBound)
+            assertTrue(receiver.localPort > 0)
 
-        val sentBytes = sender.sendText("udp-ping", "127.0.0.1", receiver.localPort)
-        assertEquals(8, sentBytes)
+            val sentBytes = sender.sendText("udp-ping", "127.0.0.1", receiver.localPort)
+            assertEquals(8, sentBytes)
 
-        val datagram = receiver.receive()
-        assertNotNull(datagram)
-        assertEquals("udp-ping", datagram.text)
-        assertEquals("127.0.0.1", datagram.remoteAddress)
-        assertEquals(sender.localPort, datagram.remotePort)
+            val datagram = receiver.receive()
+            assertNotNull(datagram)
+            assertEquals("udp-ping", datagram.text)
+            assertEquals("127.0.0.1", datagram.remoteAddress)
+            assertEquals(sender.localPort, datagram.remotePort)
 
-        val binaryPayload = ByteBuffer.allocate(4).putIntBE(424242).flip()
-        assertEquals(4, sender.send(binaryPayload, "127.0.0.1", receiver.localPort))
-        val binaryDatagram = receiver.receive()
-        assertNotNull(binaryDatagram)
-        assertEquals(424242, binaryDatagram.buffer.getIntBE())
+            val binaryPayload = ByteBuffer.allocate(4).putIntBE(424242).flip()
+            assertEquals(4, sender.send(binaryPayload, "127.0.0.1", receiver.localPort))
+            val binaryDatagram = receiver.receive()
+            assertNotNull(binaryDatagram)
+            assertEquals(424242, binaryDatagram.buffer.getIntBE())
 
-        assertTrue(receiver.joinMulticastGroup("239.255.0.1"))
-        sender.sendText("multicast-hello", "239.255.0.1", receiver.localPort)
-        val multicastDatagram = receiver.receive()
-        assertNotNull(multicastDatagram)
-        assertEquals("multicast-hello", multicastDatagram.text)
-        assertTrue(receiver.leaveMulticastGroup("239.255.0.1"))
+            assertTrue(receiver.joinMulticastGroup("239.255.0.1"))
+            sender.sendText("multicast-hello", "239.255.0.1", receiver.localPort)
+            val multicastDatagram = receiver.receive()
+            assertNotNull(multicastDatagram)
+            assertEquals("multicast-hello", multicastDatagram.text)
+            assertTrue(receiver.leaveMulticastGroup("239.255.0.1"))
 
-        sender.close()
-        receiver.close()
-        sender.dispose()
-        receiver.dispose()
+            sender.close()
+            receiver.close()
+            sender.dispose()
+            receiver.dispose()
+        } finally {
+            GenericUI.activeFactory = savedFactory
+        }
     }
 
     @Test

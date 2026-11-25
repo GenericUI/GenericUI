@@ -132,16 +132,53 @@ object ModuleResGenerator {
         val file: File
     )
 
-    fun computeExtensionModuleByte(category: String, extension: String): Int {
+    fun computeExtensionModuleByte(
+        category: String,
+        extension: String,
+        extensionsRootDir: File? = null
+    ): Int {
         val normalizedKey = "${category.trim().lowercase()}:${extension.trim().lowercase()}"
-        var hash = 0x811C9DC5.toInt()
-        for (ch in normalizedKey) {
-            hash = hash xor ch.code
-            hash *= 0x01000193
+        fun fnvOffset(key: String): Int {
+            var hash = 0x811C9DC5.toInt()
+            for (ch in key) {
+                hash = hash xor ch.code
+                hash *= 0x01000193
+            }
+            val span = (0x7D - 0x60) + 1
+            return 0x60 + ((hash and 0x7FFF_FFFF) % span)
         }
-        val span = (0x7D - 0x60) + 1
-        val offset = (hash and 0x7FFF_FFFF) % span
-        return 0x60 + offset
+        val root = extensionsRootDir ?: return fnvOffset(normalizedKey)
+        if (!root.isDirectory) return fnvOffset(normalizedKey)
+        val allKeys = root.listFiles()
+            ?.asSequence()
+            ?.filter { it.isDirectory }
+            ?.flatMap { catDir ->
+                catDir.listFiles()
+                    ?.asSequence()
+                    ?.filter { it.isDirectory && File(it, "build.gradle.kts").isFile }
+                    ?.map { extDir -> "${catDir.name.trim().lowercase()}:${extDir.name.trim().lowercase()}" }
+                    ?: emptySequence()
+            }
+            ?.distinct()
+            ?.sorted()
+            ?.toList()
+            ?: emptyList()
+        if (allKeys.isEmpty() || normalizedKey !in allKeys) {
+            return fnvOffset(normalizedKey)
+        }
+        val assigned = linkedMapOf<String, Int>()
+        val used = linkedSetOf<Int>()
+        for (key in allKeys) {
+            var candidate = fnvOffset(key)
+            var attempts = 0
+            while (candidate in used && attempts < 30) {
+                candidate = 0x60 + (((candidate - 0x60) + 1) % 30)
+                attempts++
+            }
+            used.add(candidate)
+            assigned[key] = candidate
+        }
+        return assigned[normalizedKey] ?: fnvOffset(normalizedKey)
     }
 
     fun discoverExtensionPackagePrefix(projectDir: File, extCategory: String, extName: String): String {
@@ -241,13 +278,111 @@ object ModuleResGenerator {
         append('"')
     }
 
+    private fun resolveModuleThemeSassImports(
+        file: File,
+        visited: MutableSet<String> = mutableSetOf()
+    ): String {
+        val raw = file.readText(Charsets.UTF_8)
+        val importRegex = Regex("""@(?:import|use)\s+["']([^"']+)["'](?:\s+as\s+[^;]+)?\s*;""")
+        return importRegex.replace(raw) { match ->
+            val importTarget = match.groupValues[1].trim()
+            if (importTarget.startsWith("http://") || importTarget.startsWith("https://") || importTarget.endsWith(".css")) {
+                match.value
+            } else {
+                val parentDir = file.parentFile ?: return@replace ""
+                val candidates = listOf(
+                    File(parentDir, importTarget),
+                    File(parentDir, "$importTarget.scss"),
+                    File(parentDir, "$importTarget.sass"),
+                    File(parentDir, "_$importTarget.scss"),
+                    File(parentDir, "_$importTarget.sass"),
+                    File(parentDir, "_$importTarget")
+                )
+                val resolved = candidates.firstOrNull { it.exists() && it.isFile }
+                if (resolved != null && visited.add(resolved.canonicalPath)) {
+                    resolveModuleThemeSassImports(resolved, visited)
+                } else {
+                    ""
+                }
+            }
+        }
+    }
+
+    private fun escapeModuleKotlinStringExpr(rawText: String): String {
+        if (rawText.length <= 32768) {
+            return escapeModuleKotlinStr(rawText)
+        }
+        return buildString {
+            append("buildString { ")
+            var offset = 0
+            while (offset < rawText.length) {
+                val end = (offset + 16384).coerceAtMost(rawText.length)
+                append("append(")
+                append(escapeModuleKotlinStr(rawText.substring(offset, end)))
+                append("); ")
+                offset = end
+            }
+            append("}")
+        }
+    }
+
     fun copyKlibMetadata(out: File, metaRoot: File) {
-        val srcMeta = File(metaRoot, "META-INF/genericui/module-resources")
-        if (out.isDirectory && srcMeta.isDirectory) {
-            val destMeta = File(out, "default/resources/META-INF/genericui/module-resources")
-            destMeta.mkdirs()
-            srcMeta.listFiles()?.filter { it.isFile }?.forEach { file ->
-                file.copyTo(File(destMeta, file.name), overwrite = true)
+        val metaSubdirs = listOf(
+            "META-INF/genericui/module-resources",
+            "META-INF/genericui/themes"
+        )
+        val filesToCopy = mutableListOf<Pair<String, File>>()
+        for (sub in metaSubdirs) {
+            val srcDir = File(metaRoot, sub)
+            if (srcDir.isDirectory) {
+                srcDir.walkTopDown()
+                    .filter { it.isFile }
+                    .sortedBy { it.relativeTo(metaRoot).invariantSeparatorsPath }
+                    .forEach { file ->
+                        val rel = file.relativeTo(metaRoot).invariantSeparatorsPath.trimStart('/')
+                        filesToCopy.add("default/resources/$rel" to file)
+                    }
+            }
+        }
+        if (filesToCopy.isEmpty()) return
+
+        if (out.isDirectory) {
+            for ((entryRel, srcFile) in filesToCopy) {
+                val destFile = File(out, entryRel)
+                destFile.parentFile?.mkdirs()
+                srcFile.copyTo(destFile, overwrite = true)
+            }
+        } else if (out.isFile && (out.extension.equals("klib", ignoreCase = true) || out.extension.equals("zip", ignoreCase = true))) {
+            val overridePaths = filesToCopy.associate { (entryRel, srcFile) -> entryRel to srcFile }
+            val tempOut = File(out.parentFile, "${out.name}.tmp.${System.nanoTime()}")
+            try {
+                java.util.zip.ZipFile(out).use { zipIn ->
+                    java.util.zip.ZipOutputStream(tempOut.outputStream().buffered()).use { zipOut ->
+                        val existingEntries = zipIn.entries()
+                        while (existingEntries.hasMoreElements()) {
+                            val entry = existingEntries.nextElement()
+                            val normName = entry.name.replace('\\', '/').trimStart('/')
+                            if (normName in overridePaths) continue
+                            val cloned = java.util.zip.ZipEntry(entry.name)
+                            if (entry.time >= 0) cloned.time = entry.time
+                            zipOut.putNextEntry(cloned)
+                            if (!entry.isDirectory) {
+                                zipIn.getInputStream(entry).use { it.copyTo(zipOut) }
+                            }
+                            zipOut.closeEntry()
+                        }
+                        for ((entryRel, srcFile) in filesToCopy) {
+                            zipOut.putNextEntry(java.util.zip.ZipEntry(entryRel))
+                            srcFile.inputStream().use { it.copyTo(zipOut) }
+                            zipOut.closeEntry()
+                        }
+                    }
+                }
+                if (tempOut.exists() && tempOut.length() > 0L) {
+                    tempOut.copyTo(out, overwrite = true)
+                }
+            } finally {
+                tempOut.delete()
             }
         }
     }
@@ -277,9 +412,11 @@ object ModuleResGenerator {
         val styleExts = setOf("scss", "sass", "css")
 
         val classified = mutableListOf<RawClassified>()
+        val rawThemeChunks = mutableListOf<String>()
         for (file in files) {
             val relPath = file.relativeTo(resSourceDir).invariantSeparatorsPath
             val parentLower = file.parentFile?.name?.lowercase() ?: ""
+            val topDirLower = relPath.substringBefore('/', "").lowercase()
             val ext = file.extension.lowercase()
             val baseIdent = sanitizeModuleResIdent(file.nameWithoutExtension)
             if (baseIdent.isEmpty()) continue
@@ -289,8 +426,19 @@ object ModuleResGenerator {
                         classified.add(RawClassified("drawable", "DRAWABLE", 0x01, baseIdent, ext, relPath, file))
                     }
                 }
-                parentLower in setOf("styles", "style", "css", "scss", "sass") && ext in styleExts && !file.name.startsWith("_") -> {
-                    classified.add(RawClassified("style", "STYLE", 0x0C, baseIdent, ext, relPath, file))
+                (parentLower in setOf("styles", "style", "css", "scss", "sass") ||
+                    topDirLower in setOf("styles", "style", "css", "scss", "sass") ||
+                    file.parentFile == resSourceDir) && ext in styleExts && !file.name.startsWith("_") -> {
+                    if (file.nameWithoutExtension.equals("theme", ignoreCase = true)) {
+                        // Library modules (:common, :extensions:*) MUST NEVER compile theme.scss or emit R.style.theme;
+                        // ship raw uncompiled theme templates inside META-INF metadata for consumer apps only.
+                        val rawTheme = resolveModuleThemeSassImports(file, mutableSetOf(file.canonicalPath)).trim()
+                        if (rawTheme.isNotEmpty()) {
+                            rawThemeChunks.add("/* Theme Template: $scopeId ($relPath) */\n$rawTheme")
+                        }
+                    } else {
+                        classified.add(RawClassified("style", "STYLE", 0x0C, baseIdent, ext, relPath, file))
+                    }
                 }
                 parentLower == "raw" || parentLower == "scripts" -> {
                     classified.add(RawClassified("raw", "RAW", 0x07, baseIdent, ext, relPath, file))
@@ -491,6 +639,15 @@ object ModuleResGenerator {
                     "font" -> {
                         appendLine("        table.registerFont($idExpr, ${escapeModuleKotlinStr(e.canonicalRelPath)})")
                     }
+                    "style" -> {
+                        val b64 = e.base64Data
+                        if (b64 != null) {
+                            val rawText = java.util.Base64.getDecoder().decode(b64).toString(Charsets.UTF_8)
+                            appendLine("        table.registerStyle($idExpr, ${escapeModuleKotlinStringExpr(rawText)})")
+                        } else {
+                            appendLine("        table.registerResourceId($idExpr)")
+                        }
+                    }
                     "raw", "xml" -> {
                         val b64 = e.base64Data
                         if (e.format in setOf("txt", "json", "xml", "svg", "css", "scss", "js") && b64 != null) {
@@ -512,6 +669,16 @@ object ModuleResGenerator {
             appendLine("    }")
             appendLine("}")
         }, Charsets.UTF_8)
+
+        val combinedRawThemeScss = rawThemeChunks.joinToString("\n\n").trim()
+        val themeScssBase64 = if (combinedRawThemeScss.isNotEmpty()) {
+            val themeTemplateFile = File(metaRoot, "META-INF/genericui/themes/$scopeId.scss")
+            themeTemplateFile.parentFile?.mkdirs()
+            themeTemplateFile.writeText(combinedRawThemeScss + "\n", Charsets.UTF_8)
+            java.util.Base64.getEncoder().encodeToString(combinedRawThemeScss.toByteArray(Charsets.UTF_8))
+        } else {
+            ""
+        }
 
         val manifestFile = File(metaRoot, "META-INF/genericui/module-resources/$scopeId.json")
         manifestFile.parentFile.mkdirs()
@@ -551,6 +718,9 @@ object ModuleResGenerator {
             appendLine("  \"moduleGroupId\": ${escapeModuleJsonStr(moduleGroupId)},")
             appendLine("  \"scopePrefix\": ${escapeModuleJsonStr(scopePrefix)},")
             appendLine("  \"package\": ${escapeModuleJsonStr(packageName)},")
+            if (themeScssBase64.isNotEmpty()) {
+                appendLine("  \"themeScssBase64\": ${escapeModuleJsonStr(themeScssBase64)},")
+            }
             appendLine("  \"entries\": [")
             entryLines.forEachIndexed { idx, line ->
                 val comma = if (idx < entryLines.lastIndex) "," else ""
@@ -587,7 +757,7 @@ subprojects {
     } else {
         val extCat = pathSegments[1].lowercase()
         val extName = pathSegments[2].lowercase()
-        moduleByte = ModuleResGenerator.computeExtensionModuleByte(extCat, extName)
+        moduleByte = ModuleResGenerator.computeExtensionModuleByte(extCat, extName, rootProject.file("extensions"))
         scopeId = "genericui-ext-$extCat-$extName"
         moduleGroupId = "genericui-ext-$extName"
         scopePrefix = "gui/ext/$extCat/$extName"
@@ -607,7 +777,7 @@ subprojects {
         inputs.property("moduleGroupId", moduleGroupId)
         inputs.property("scopePrefix", scopePrefix)
         inputs.property("packageName", packageName)
-        inputs.property("generatorVersion", "v2-property-R")
+        inputs.property("generatorVersion", "v3-raw-theme-templates")
         outputs.dir(ktGenDir)
         outputs.dir(metaGenDir)
 

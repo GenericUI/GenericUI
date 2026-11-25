@@ -32,6 +32,8 @@ data class CssEdgeLengths(
     }
 
     companion object {
+        private val IMPORTANT_REGEX = Regex("!\\s*important", RegexOption.IGNORE_CASE)
+        private val WHITESPACE_REGEX = Regex("\\s+")
         val ZERO = all(CssLength.ZERO)
 
         fun all(length: CssLength): CssEdgeLengths =
@@ -59,11 +61,11 @@ data class CssEdgeLengths(
 
         fun parse(raw: String?): CssEdgeLengths? {
             val cleaned = raw
-                ?.replace(Regex("!\\s*important", RegexOption.IGNORE_CASE), "")
+                ?.replace(IMPORTANT_REGEX, "")
                 ?.trim()
                 ?.takeIf { it.isNotEmpty() }
                 ?: return null
-            val parts = cleaned.split(Regex("\\s+")).mapNotNull { CssLength.parse(it) }
+            val parts = cleaned.split(WHITESPACE_REGEX).mapNotNull { CssLength.parse(it) }
             return when (parts.size) {
                 1 -> all(parts[0])
                 2 -> symmetric(parts[0], parts[1])

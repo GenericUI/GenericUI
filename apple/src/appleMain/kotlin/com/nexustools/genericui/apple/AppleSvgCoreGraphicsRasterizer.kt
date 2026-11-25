@@ -36,12 +36,14 @@ import platform.CoreGraphics.CGContextRestoreGState
 import platform.CoreGraphics.CGContextRotateCTM
 import platform.CoreGraphics.CGContextSaveGState
 import platform.CoreGraphics.CGContextScaleCTM
+import platform.CoreGraphics.CGContextSetAllowsAntialiasing
 import platform.CoreGraphics.CGContextSetAlpha
 import platform.CoreGraphics.CGContextSetLineCap
 import platform.CoreGraphics.CGContextSetLineWidth
 import platform.CoreGraphics.CGContextSetLineJoin
 import platform.CoreGraphics.CGContextSetRGBFillColor
 import platform.CoreGraphics.CGContextSetRGBStrokeColor
+import platform.CoreGraphics.CGContextSetShouldAntialias
 import platform.CoreGraphics.CGContextStrokePath
 import platform.CoreGraphics.CGContextTranslateCTM
 import platform.CoreGraphics.CGImageAlphaInfo
@@ -108,6 +110,8 @@ object AppleSvgCoreGraphicsRasterizer {
 
         try {
             CGContextSaveGState(ctx)
+            CGContextSetAllowsAntialiasing(ctx, options.antialiasing)
+            CGContextSetShouldAntialias(ctx, options.antialiasing)
             // Flip CGBitmapContext user-space to SVG top-left coordinates.
             CGContextTranslateCTM(ctx, 0.0, dstHeight.toDouble())
             CGContextScaleCTM(ctx, 1.0, -1.0)

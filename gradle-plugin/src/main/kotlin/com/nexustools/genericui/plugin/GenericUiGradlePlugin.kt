@@ -131,6 +131,28 @@ class GenericUiGradlePlugin : Plugin<Project> {
             })
             minify.set(project.provider { extension.styles.minify })
             includeBootstrapVariables.set(project.provider { extension.styles.includeBootstrapVariables })
+            consumerApplicationMode.set(project.provider { !isGenericUiLibraryModule(project) })
+            themeColor.set(project.provider {
+                resolveVariantWithProjectFallbacksStatic(project, extension, GenericUiVariantScope.COMMON).themeColor
+            })
+            themeMode.set(project.provider {
+                resolveVariantWithProjectFallbacksStatic(project, extension, GenericUiVariantScope.COMMON).themeMode
+            })
+            lightThemeColors.set(project.provider {
+                resolveVariantWithProjectFallbacksStatic(project, extension, GenericUiVariantScope.COMMON).lightThemeColors
+            })
+            darkThemeColors.set(project.provider {
+                resolveVariantWithProjectFallbacksStatic(project, extension, GenericUiVariantScope.COMMON).darkThemeColors
+            })
+            upstreamResourceManifestPaths.set(project.provider {
+                resolveUpstreamThemeAndManifestPaths(project, extension)
+            })
+            upstreamResourceClasspath.from(project.provider {
+                resolveUpstreamResourceClasspathFiles(project)
+            })
+            spiThemeScssChunks.set(project.provider {
+                collectSpiThemeScssChunks(project, extension)
+            })
             val resolvedSrcDir = resolveStylesSourceDir(project, extension.styles.sourceDir)
             if (resolvedSrcDir != null) {
                 sourceDirectory.set(resolvedSrcDir)
@@ -198,6 +220,10 @@ class GenericUiGradlePlugin : Plugin<Project> {
             })
             trayIconPath.set(project.provider {
                 extension.extensions.serviceWorkerConfig.trayIcon?.trim().orEmpty()
+            })
+            macosTrayIconPath.set(project.provider {
+                extension.extensions.serviceWorkerConfig.macosTrayIcon?.trim()?.takeIf { it.isNotEmpty() }
+                    ?: extension.application.desktop.macosTrayIcon.trim()
             })
             macIconPath.set(project.provider {
                 val resolved = GenericUiVariantResolver.resolve(extension, GenericUiVariantScope.MACOS)
@@ -404,6 +430,7 @@ class GenericUiGradlePlugin : Plugin<Project> {
                             .filter {
                                 it.isFile &&
                                     !it.name.startsWith("_") &&
+                                    !it.nameWithoutExtension.equals("theme", ignoreCase = true) &&
                                     it.extension.lowercase() in setOf("scss", "sass", "css")
                             }
                             .sortedBy { it.relativeTo(stylesDir).invariantSeparatorsPath }
@@ -415,6 +442,9 @@ class GenericUiGradlePlugin : Plugin<Project> {
                     }
                     fqns.toList()
                 }
+            })
+            themeStyleSheetObjectFqn.set(project.provider {
+                resolveGeneratedThemeStyleSheetObjectFqn(project, extension)
             })
             generateVisualWindowsTestHelper.set(project.provider { extension.testing.visualOnWindows })
             testingEnabled.set(project.provider { extension.testing.enabled })
@@ -535,10 +565,17 @@ class GenericUiGradlePlugin : Plugin<Project> {
                 } else {
                     val fileName = styleSheet.substringAfterLast('/').substringAfterLast('\\')
                     val stem = fileName.substringBeforeLast('.')
-                    val objName = GenericUiSassCompileTask.toPascalIdentifier(stem) + "PrecompiledStyleSheet"
+                    val objName = if (stem.equals("theme", ignoreCase = true)) {
+                        GenericUiSassCompileTask.GENERATED_THEME_STYLESHEET_OBJECT_NAME
+                    } else {
+                        GenericUiSassCompileTask.toPascalIdentifier(stem) + "PrecompiledStyleSheet"
+                    }
                     val pkg = resolveStylesKotlinPackageName(project, extension)
                     if (pkg.isNotEmpty()) "$pkg.$objName" else objName
                 }
+            })
+            themeStyleSheetObjectFqn.set(project.provider {
+                resolveGeneratedThemeStyleSheetObjectFqn(project, extension)
             })
             providerInstallers.set(project.provider {
                 val resolved = resolveAndroidVariant(project, extension)
@@ -735,7 +772,12 @@ class GenericUiGradlePlugin : Plugin<Project> {
             })
             linuxIconPath.set(project.provider {
                 extension.application.desktop.linuxIcon.trim().ifEmpty {
-                    GenericUiVariantResolver.resolve(extension, GenericUiVariantScope.GTK).iconPath.orEmpty()
+                    val linuxScope = if (!extension.backends.gtkEnabled && extension.backends.kdeEnabled) {
+                        GenericUiVariantScope.KDE
+                    } else {
+                        GenericUiVariantScope.GTK
+                    }
+                    GenericUiVariantResolver.resolve(extension, linuxScope).iconPath.orEmpty()
                 }
             })
             fallbackIconPath.set(project.provider {
@@ -751,6 +793,22 @@ class GenericUiGradlePlugin : Plugin<Project> {
             macMinimumSystemVersion.set(project.provider { extension.application.desktop.macMinimumSystemVersion })
             macCategory.set(project.provider { extension.application.desktop.macCategory })
             macHighResolutionCapable.set(project.provider { extension.application.desktop.macHighResolutionCapable })
+            macMultipleInstancesProhibited.set(project.provider { extension.application.desktop.macMultipleInstancesProhibited })
+            macLocalNetworkUsageDescription.set(project.provider {
+                extension.extensions.serviceWorkerConfig.macLocalNetworkUsageDescription?.trim()?.takeIf { it.isNotEmpty() }
+                    ?: extension.application.desktop.macLocalNetworkUsageDescription.trim()
+            })
+            macBonjourServices.set(project.provider {
+                (extension.extensions.serviceWorkerConfig.macBonjourServices +
+                    extension.application.desktop.macBonjourServices)
+                    .map { it.trim() }
+                    .filter { it.isNotEmpty() }
+                    .distinct()
+            })
+            macosTrayIconPath.set(project.provider {
+                extension.extensions.serviceWorkerConfig.macosTrayIcon?.trim()?.takeIf { it.isNotEmpty() }
+                    ?: extension.application.desktop.macosTrayIcon.trim()
+            })
             linuxCategories.set(project.provider { extension.application.desktop.linuxCategories })
             linuxStartupWmClass.set(project.provider { extension.application.desktop.linuxStartupWmClass })
             linuxTerminal.set(project.provider { extension.application.desktop.linuxTerminal })
@@ -1137,6 +1195,11 @@ class GenericUiGradlePlugin : Plugin<Project> {
                 if (resolvedAfterEval != null) {
                     sourceDirectory.set(resolvedAfterEval)
                 }
+                for (otherProj in collectTransitiveProjectDependencies(project)) {
+                    dependsOn(otherProj.tasks.matching {
+                        it.name == "generateModuleResources" || it.name == "compileGenericUiResources"
+                    })
+                }
             }
             wireExtensionAndBackendModules(project, extension)
             wireTestingModules(project, extension)
@@ -1514,45 +1577,6 @@ class GenericUiGradlePlugin : Plugin<Project> {
         )
     }
 
-    private fun findGenericUiIncludeDir(project: Project): File? {
-        runCatching {
-            for (ib in project.gradle.includedBuilds) {
-                val candidate = ib.projectDir
-                if (File(candidate, "common/src/commonMain/kotlin").isDirectory) {
-                    return candidate
-                }
-            }
-        }
-        val candidates = listOfNotNull(
-            File(project.rootProject.projectDir, "lib/GenericUI"),
-            File(project.projectDir, "lib/GenericUI"),
-            project.rootProject.projectDir.parentFile?.let { File(it, "GenericUI") }
-        )
-        return candidates.firstOrNull {
-            it.isDirectory && File(it, "common/src/commonMain/kotlin").isDirectory
-        }
-    }
-
-    private fun collectTransitiveProjectDependencies(project: Project): List<Project> {
-        val visited = linkedSetOf<Project>()
-        val queue = ArrayDeque<Project>()
-        fun enqueueFrom(src: Project) {
-            for (cfg in src.configurations.toList()) {
-                for (dep in cfg.dependencies.withType(org.gradle.api.artifacts.ProjectDependency::class.java)) {
-                    val other = project.rootProject.findProject(dep.path)
-                    if (other != null && other != project && visited.add(other)) {
-                        queue.add(other)
-                    }
-                }
-            }
-        }
-        enqueueFrom(project)
-        while (queue.isNotEmpty()) {
-            enqueueFrom(queue.removeFirst())
-        }
-        return visited.toList()
-    }
-
     private fun resolveUpstreamResourceManifestPaths(project: Project): List<String> {
         val paths = linkedSetOf<String>()
         for (otherProj in collectTransitiveProjectDependencies(project)) {
@@ -1589,39 +1613,46 @@ class GenericUiGradlePlugin : Plugin<Project> {
         return paths.toList()
     }
 
-    private fun resolveUpstreamResourceClasspathFiles(project: Project): List<File> {
-        val files = linkedSetOf<File>()
-        val ownBuildDir = runCatching { project.layout.buildDirectory.asFile.get().canonicalPath }.getOrNull()
-        val candidateConfigNames = setOf(
-            "commonMainCompileKlibClasspath",
-            "commonMainCompileDependenciesMetadata",
-            "metadataCommonMainCompileClasspath",
-            "jvmCompileClasspath",
-            "jvmRuntimeClasspath",
-            "compileClasspath",
-            "runtimeClasspath",
-            "androidCompileClasspath",
-            "jsCompileClasspath",
-            "wasmJsCompileClasspath"
-        )
-        for (cfg in project.configurations.toList()) {
-            if (!cfg.isCanBeResolved) continue
-            val matches = cfg.name in candidateConfigNames ||
-                cfg.name.endsWith("CompileKlibClasspath") ||
-                cfg.name.endsWith("CompileClasspath")
-            if (!matches) continue
-            runCatching {
-                cfg.incoming.artifactView { lenient(true) }.files.forEach { file ->
-                    if (file.exists()) {
-                        val canon = runCatching { file.canonicalPath }.getOrNull()
-                        if (ownBuildDir == null || canon == null || !canon.startsWith(ownBuildDir)) {
-                            files.add(file)
-                        }
-                    }
-                }
+    private fun isGenericUiLibraryModule(project: Project): Boolean =
+        project.path in KNOWN_GENERICUI_MODULES
+
+    private fun resolveGeneratedThemeStyleSheetObjectFqn(
+        project: Project,
+        extension: GenericUiExtension
+    ): String {
+        if (isGenericUiLibraryModule(project) || !extension.styles.compileSass || !extension.styles.precompileToKotlin) {
+            return ""
+        }
+        val stylesDir = resolveStylesSourceDir(project, extension.styles.sourceDir)
+        val hasConsumerTheme = stylesDir != null && stylesDir.isDirectory && stylesDir.walkTopDown().any {
+            it.isFile &&
+                !it.name.startsWith("_") &&
+                it.nameWithoutExtension.equals("theme", ignoreCase = true) &&
+                it.extension.lowercase() in setOf("scss", "sass", "css")
+        }
+        val hasUpstreamDepThemeSource = collectTransitiveProjectDependencies(project).any { depProj ->
+            val depRes = depProj.file("src/commonMain/resources")
+            depRes.isDirectory && depRes.walkTopDown().any {
+                it.isFile &&
+                    !it.name.startsWith("_") &&
+                    it.nameWithoutExtension.equals("theme", ignoreCase = true) &&
+                    it.extension.lowercase() in setOf("scss", "sass", "css")
             }
         }
-        return files.toList()
+        val hasSpiTheme = collectSpiThemeScssChunks(project, extension).isNotEmpty()
+        val hasManifestOrArchiveTheme = if (hasConsumerTheme || hasUpstreamDepThemeSource || hasSpiTheme) {
+            true
+        } else {
+            val sources = resolveUpstreamThemeAndManifestPaths(project, extension).map(::File) +
+                resolveUpstreamResourceClasspathFiles(project)
+            GenericUiModuleResourceManifestParser.readThemeTemplatesFromSources(sources).isNotEmpty()
+        }
+        if (!hasConsumerTheme && !hasUpstreamDepThemeSource && !hasSpiTheme && !hasManifestOrArchiveTheme) {
+            return ""
+        }
+        val pkg = resolveStylesKotlinPackageName(project, extension)
+        val objName = GenericUiSassCompileTask.GENERATED_THEME_STYLESHEET_OBJECT_NAME
+        return if (pkg.isNotEmpty()) "$pkg.$objName" else objName
     }
 
     private fun wireGeneratedSchemaKotlinSources(
@@ -1935,11 +1966,11 @@ class GenericUiGradlePlugin : Plugin<Project> {
         if (backends.macosEnabled) {
             addTestsToConfigs("macTestImplementation", "macosTestImplementation", "macosArm64TestImplementation")
         }
-        if (backends.gtkEnabled || backends.qtEnabled) {
+        if (backends.gtkEnabled || backends.kdeEnabled) {
             addTestsToConfigs(
                 "linuxTestImplementation",
                 "gtkTestImplementation",
-                "qtTestImplementation",
+                "kdeTestImplementation",
                 "linuxX64TestImplementation",
                 "linuxArm64TestImplementation"
             )
@@ -2300,7 +2331,7 @@ class GenericUiGradlePlugin : Plugin<Project> {
                     "macosMainImplementation",
                     "macosArm64MainImplementation",
                     "gtkMainImplementation",
-                    "qtMainImplementation",
+                    "kdeMainImplementation",
                     "linuxX64MainImplementation",
                     "linuxArm64MainImplementation",
                     "linuxArm32HfpMainImplementation",
@@ -2350,15 +2381,15 @@ class GenericUiGradlePlugin : Plugin<Project> {
                     "macosArm64MainImplementation",
                     "gtkImplementation",
                     "gtkMainImplementation",
-                    "qtImplementation",
-                    "qtMainImplementation",
+                    "kdeImplementation",
+                    "kdeMainImplementation",
                     "linuxX64MainImplementation",
                     "linuxArm64MainImplementation",
                     "linuxArm32HfpMainImplementation",
                     "linuxX64GtkImplementation",
                     "linuxArm64GtkImplementation",
-                    "linuxX64QtImplementation",
-                    "linuxArm64QtImplementation",
+                    "linuxX64KdeImplementation",
+                    "linuxArm64KdeImplementation",
                     "swingImplementation",
                     "swingMainImplementation",
                     "jvmMainImplementation"
@@ -2403,7 +2434,181 @@ class GenericUiGradlePlugin : Plugin<Project> {
             val enabledBackends = GenericUiGenerateLaunchersTask.enabledAllBackendScopes(extension.backends)
                 .joinToString(",") { it.id }
             merged[com.nexustools.genericui.plugin.spi.ServiceWorkerExtensionContributor.OPTION_ENABLED_BACKENDS] = enabledBackends
+            merged[com.nexustools.genericui.plugin.spi.ServiceWorkerExtensionContributor.OPTION_RESOURCES_ENABLED] =
+                extension.resources.enabled.toString()
+            val resPkg = extension.resources.packageName.trim()
+            if (resPkg.isNotEmpty()) {
+                merged[com.nexustools.genericui.plugin.spi.ServiceWorkerExtensionContributor.OPTION_RESOURCE_PACKAGE] = resPkg
+            }
+            val schemaEnabled = extension.extensions.schemaEnabled || extension.extensions.mediaEnabled
+            merged[com.nexustools.genericui.plugin.spi.ServiceWorkerExtensionContributor.OPTION_SCHEMA_ENABLED] =
+                schemaEnabled.toString()
+            if (com.nexustools.genericui.plugin.spi.ServiceWorkerExtensionContributor.OPTION_MACOS_TRAY_ICON !in merged &&
+                extension.application.desktop.macosTrayIcon.isNotBlank()
+            ) {
+                merged[com.nexustools.genericui.plugin.spi.ServiceWorkerExtensionContributor.OPTION_MACOS_TRAY_ICON] =
+                    extension.application.desktop.macosTrayIcon.trim()
+            }
+            if (com.nexustools.genericui.plugin.spi.ServiceWorkerExtensionContributor.OPTION_MAC_LOCAL_NETWORK_DESC !in merged &&
+                extension.application.desktop.macLocalNetworkUsageDescription.isNotBlank()
+            ) {
+                merged[com.nexustools.genericui.plugin.spi.ServiceWorkerExtensionContributor.OPTION_MAC_LOCAL_NETWORK_DESC] =
+                    extension.application.desktop.macLocalNetworkUsageDescription.trim()
+            }
+            if (com.nexustools.genericui.plugin.spi.ServiceWorkerExtensionContributor.OPTION_MAC_BONJOUR_SERVICES !in merged &&
+                extension.application.desktop.macBonjourServices.isNotEmpty()
+            ) {
+                val services = extension.application.desktop.macBonjourServices
+                    .map { it.trim() }
+                    .filter { it.isNotEmpty() }
+                    .distinct()
+                if (services.isNotEmpty()) {
+                    merged[com.nexustools.genericui.plugin.spi.ServiceWorkerExtensionContributor.OPTION_MAC_BONJOUR_SERVICES] =
+                        services.joinToString(",")
+                }
+            }
             return merged
+        }
+
+        internal fun findGenericUiIncludeDir(project: Project): File? {
+            runCatching {
+                for (ib in project.gradle.includedBuilds) {
+                    val candidate = ib.projectDir
+                    if (File(candidate, "common/src/commonMain/kotlin").isDirectory) {
+                        return candidate
+                    }
+                }
+            }
+            val candidates = listOfNotNull(
+                File(project.rootProject.projectDir, "lib/GenericUI"),
+                File(project.projectDir, "lib/GenericUI"),
+                project.rootProject.projectDir.parentFile?.let { File(it, "GenericUI") }
+            )
+            return candidates.firstOrNull {
+                it.isDirectory && File(it, "common/src/commonMain/kotlin").isDirectory
+            }
+        }
+
+        internal fun collectTransitiveProjectDependencies(project: Project): List<Project> {
+            val visited = linkedSetOf<Project>()
+            val queue = ArrayDeque<Project>()
+            fun enqueueFrom(src: Project) {
+                for (cfg in src.configurations.toList()) {
+                    for (dep in cfg.dependencies.withType(org.gradle.api.artifacts.ProjectDependency::class.java)) {
+                        val other = project.rootProject.findProject(dep.path)
+                        if (other != null && other != project && visited.add(other)) {
+                            queue.add(other)
+                        }
+                    }
+                }
+            }
+            enqueueFrom(project)
+            while (queue.isNotEmpty()) {
+                enqueueFrom(queue.removeFirst())
+            }
+            return visited.toList()
+        }
+
+        internal fun resolveUpstreamResourceClasspathFiles(project: Project): List<File> {
+            val files = linkedSetOf<File>()
+            val ownBuildDir = runCatching { project.layout.buildDirectory.asFile.get().canonicalPath }.getOrNull()
+            val candidateConfigNames = setOf(
+                "commonMainCompileKlibClasspath",
+                "commonMainCompileDependenciesMetadata",
+                "metadataCommonMainCompileClasspath",
+                "jvmCompileClasspath",
+                "jvmRuntimeClasspath",
+                "compileClasspath",
+                "runtimeClasspath",
+                "androidCompileClasspath",
+                "jsCompileClasspath",
+                "wasmJsCompileClasspath"
+            )
+            for (cfg in project.configurations.toList()) {
+                if (!cfg.isCanBeResolved) continue
+                val matches = cfg.name in candidateConfigNames ||
+                    cfg.name.endsWith("CompileKlib") ||
+                    cfg.name.endsWith("CompileKlibClasspath") ||
+                    cfg.name.endsWith("CompileClasspath") ||
+                    cfg.name.endsWith("DependenciesMetadata")
+                if (!matches) continue
+                runCatching {
+                    cfg.incoming.artifactView { lenient(true) }.files.forEach { file ->
+                        if (file.exists()) {
+                            val canon = runCatching { file.canonicalPath }.getOrNull()
+                            if (ownBuildDir == null || canon == null || !canon.startsWith(ownBuildDir)) {
+                                files.add(file)
+                            }
+                        }
+                    }
+                }
+            }
+            return files.toList()
+        }
+
+        internal fun collectSpiThemeScssChunks(project: Project, extension: GenericUiExtension): List<String> {
+            val enabledSet = extension.extensions.enabledExtensionModulePaths().toSet() +
+                extension.extensions.customModulePaths.toSet()
+            if (enabledSet.isEmpty()) return emptyList()
+            val commonVariant = resolveVariantWithProjectFallbacksStatic(project, extension, GenericUiVariantScope.COMMON)
+            val genPkg = GenericUiGenerateLaunchersTask.resolveGeneratedLauncherPackage(
+                extension = extension,
+                projectGroup = project.group.toString(),
+                discoveredFragments = emptyList()
+            )
+            val ctx = com.nexustools.genericui.plugin.spi.ExtensionBuildContext(
+                projectRootDir = project.projectDir,
+                projectName = project.name,
+                appId = commonVariant.appId,
+                appName = commonVariant.appName,
+                appVersion = commonVariant.appVersion,
+                baseName = extension.application.baseName.trim().ifEmpty { project.name },
+                generatedPackageName = genPkg,
+                enabledExtensionModulePaths = extension.extensions.enabledExtensionModulePaths().toSet(),
+                customExtensionModulePaths = extension.extensions.customModulePaths.toSet(),
+                extensionOptions = buildPluginExtensionOptionsStatic(extension)
+            )
+            return com.nexustools.genericui.plugin.spi.GenericUiExtensionContributorRegistry
+                .collectThemeScssContributions(ctx)
+                .map { (modPath, raw) -> "/* SPI Theme Template: $modPath */\n$raw" }
+        }
+
+        internal fun resolveUpstreamThemeAndManifestPaths(project: Project, extension: GenericUiExtension): List<String> {
+            val paths = linkedSetOf<String>()
+            for (otherProj in collectTransitiveProjectDependencies(project)) {
+                val buildDir = otherProj.layout.buildDirectory.asFile.get()
+                paths.add(
+                    File(buildDir, "generated/genericui/module-resources/resources/META-INF/genericui/module-resources")
+                        .absolutePath
+                )
+                paths.add(
+                    File(buildDir, "generated/genericui/module-resources/resources/META-INF/genericui/themes")
+                        .absolutePath
+                )
+                paths.add(
+                    File(buildDir, "generated/genericui/resources/backends/manifest/genericui-module-resources.json")
+                        .absolutePath
+                )
+            }
+            val includeDir = findGenericUiIncludeDir(project)
+            if (includeDir != null) {
+                listOf(
+                    File(includeDir, "common/build/generated/genericui/module-resources/resources/META-INF/genericui/module-resources"),
+                    File(includeDir, "common/build/generated/genericui/module-resources/resources/META-INF/genericui/themes")
+                ).filter { it.exists() }.forEach { paths.add(it.absolutePath) }
+
+                for (modPath in extension.extensions.enabledExtensionModulePaths()) {
+                    val segs = modPath.trimStart(':').split(':').filter { it.isNotEmpty() }
+                    if (segs.size >= 3 && segs[0] == "extensions") {
+                        val modRel = "${segs[0]}/${segs[1]}/${segs[2]}"
+                        listOf(
+                            File(includeDir, "$modRel/build/generated/genericui/module-resources/resources/META-INF/genericui/module-resources"),
+                            File(includeDir, "$modRel/build/generated/genericui/module-resources/resources/META-INF/genericui/themes")
+                        ).filter { it.exists() }.forEach { paths.add(it.absolutePath) }
+                    }
+                }
+            }
+            return paths.toList()
         }
 
         internal fun configureWebDistributionTaskInstance(
@@ -2529,6 +2734,15 @@ class GenericUiGradlePlugin : Plugin<Project> {
                     .map { it.trim() }
                     .filter { it.isNotEmpty() }
                     .distinct()
+            })
+            task.upstreamResourceManifestPaths.set(project.provider {
+                resolveUpstreamThemeAndManifestPaths(project, extension)
+            })
+            task.upstreamResourceClasspath.from(project.provider {
+                resolveUpstreamResourceClasspathFiles(project)
+            })
+            task.spiThemeScssChunks.set(project.provider {
+                collectSpiThemeScssChunks(project, extension)
             })
             task.buildVariant.set(variant)
             task.outputDirectory.set(project.layout.buildDirectory.dir(outputRelPath))

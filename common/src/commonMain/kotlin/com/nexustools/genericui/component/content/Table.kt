@@ -8,6 +8,9 @@ import com.nexustools.genericui.nativeimpl.content.TableNativeImpl
  * Structured data table component (`<table class="table">`).
  */
 class Table : AbstractContainer() {
+    override val supportsFocus: Boolean
+        get() = true
+
     init {
         htmlTag = "table"
     }

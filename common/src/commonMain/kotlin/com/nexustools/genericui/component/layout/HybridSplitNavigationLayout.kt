@@ -8,8 +8,10 @@ import com.nexustools.genericui.component.tabs.TabContainer
 import com.nexustools.genericui.component.tabs.TabPosition
 import com.nexustools.genericui.core.AbstractComponent
 import com.nexustools.genericui.core.AbstractContainer
+import com.nexustools.genericui.core.NativeFactory
 import com.nexustools.genericui.enums.bootstrap.DisplayMode
 import com.nexustools.genericui.enums.bootstrap.FlexDirection
+import com.nexustools.genericui.style.css.CssStyleSheet
 import com.nexustools.genericui.window.WindowConfiguration
 import kotlin.math.min
 
@@ -44,7 +46,9 @@ open class HybridSplitNavigationLayout(
         var icon: String?,
         var badge: String?,
         val content: AbstractComponent?,
-        val tab: Tab
+        val tab: Tab,
+        var staleStyleSheet: CssStyleSheet? = null,
+        var staleViewportWidthPx: Int? = null
     )
 
     private val sections = linkedMapOf<String, SectionEntry>()
@@ -64,7 +68,36 @@ open class HybridSplitNavigationLayout(
             viewportWidthPx: Int
         ) {
             super.applyStyleSheet(styleSheet, viewportWidthPx)
-            prewarmHeaderChildren()
+            if (children.any { (!it.isVisible && it.nativeImpl == null) || it.lastAppliedStyleSheet !== styleSheet }) {
+                prewarmHeaderChildren()
+            }
+        }
+
+        override fun applyStyleSheetWalk(
+            styleSheet: CssStyleSheet,
+            viewportWidthPx: Int,
+            walkSheet: CssStyleSheet,
+            activeFactory: NativeFactory?,
+            isDark: Boolean,
+            mediaBucket: Int,
+            refOldWidthPx: Int,
+            mediaMode: Int,
+            targetClasses: Set<String>,
+            targetIds: Set<String>,
+            targetTags: Set<String>,
+            targetAncestorClasses: Set<String>,
+            targetAncestorIds: Set<String>,
+            targetAncestorTags: Set<String>,
+            inInvalidatedAncestorSubtree: Boolean
+        ) {
+            super.applyStyleSheetWalk(
+                styleSheet, viewportWidthPx, walkSheet, activeFactory, isDark,
+                mediaBucket, refOldWidthPx, mediaMode, targetClasses, targetIds, targetTags,
+                targetAncestorClasses, targetAncestorIds, targetAncestorTags, inInvalidatedAncestorSubtree
+            )
+            if (children.any { (!it.isVisible && it.nativeImpl == null) || it.lastAppliedStyleSheet !== styleSheet }) {
+                prewarmHeaderChildren()
+            }
         }
     }
     val contentHost: Container = object : Container("div", "gui-split-nav-content") {
@@ -81,11 +114,65 @@ open class HybridSplitNavigationLayout(
             for (entry in sections.values) {
                 val sectionContent = entry.content ?: continue
                 if (!children.contains(sectionContent)) {
-                    sectionContent.parent = this
-                    sectionContent.applyStyleSheet(styleSheet, viewportWidthPx)
+                    if (sectionContent.parent == null) {
+                        sectionContent.parent = this
+                    }
+                    entry.staleStyleSheet = styleSheet
+                    entry.staleViewportWidthPx = viewportWidthPx
+                } else {
+                    entry.staleStyleSheet = null
+                    entry.staleViewportWidthPx = null
                 }
             }
-            prewarmInactiveSections()
+            for (entry in sections.values) {
+                val c = entry.content
+                if (c != null && !children.contains(c) && hasUnwarmedContent(c)) {
+                    prewarmSectionEntry(entry)
+                }
+            }
+        }
+
+        override fun applyStyleSheetWalk(
+            styleSheet: CssStyleSheet,
+            viewportWidthPx: Int,
+            walkSheet: CssStyleSheet,
+            activeFactory: NativeFactory?,
+            isDark: Boolean,
+            mediaBucket: Int,
+            refOldWidthPx: Int,
+            mediaMode: Int,
+            targetClasses: Set<String>,
+            targetIds: Set<String>,
+            targetTags: Set<String>,
+            targetAncestorClasses: Set<String>,
+            targetAncestorIds: Set<String>,
+            targetAncestorTags: Set<String>,
+            inInvalidatedAncestorSubtree: Boolean
+        ) {
+            super.applyStyleSheetWalk(
+                styleSheet, viewportWidthPx, walkSheet, activeFactory, isDark,
+                mediaBucket, refOldWidthPx, mediaMode, targetClasses, targetIds, targetTags,
+                targetAncestorClasses, targetAncestorIds, targetAncestorTags, inInvalidatedAncestorSubtree
+            )
+            for (entry in sections.values) {
+                val sectionContent = entry.content ?: continue
+                if (!children.contains(sectionContent)) {
+                    if (sectionContent.parent == null) {
+                        sectionContent.parent = this
+                    }
+                    entry.staleStyleSheet = styleSheet
+                    entry.staleViewportWidthPx = viewportWidthPx
+                } else {
+                    entry.staleStyleSheet = null
+                    entry.staleViewportWidthPx = null
+                }
+            }
+            for (entry in sections.values) {
+                val c = entry.content
+                if (c != null && !children.contains(c) && hasUnwarmedContent(c)) {
+                    prewarmSectionEntry(entry)
+                }
+            }
         }
     }
     val bottomNavigationBar: BottomNavigationBar = BottomNavigationBar()
@@ -308,10 +395,12 @@ open class HybridSplitNavigationLayout(
         if (content.parent == null) {
             content.parent = contentHost
         }
-        val sheet = contentHost.lastAppliedStyleSheet ?: host.lastAppliedStyleSheet
-        val vw = contentHost.lastStyleSheetViewportWidthPx
+        val sheet = entry.staleStyleSheet ?: contentHost.lastAppliedStyleSheet ?: host.lastAppliedStyleSheet
+        val vw = entry.staleViewportWidthPx ?: contentHost.lastStyleSheetViewportWidthPx
         if (sheet != null && content.lastAppliedStyleSheet !== sheet) {
             content.applyStyleSheet(sheet, vw)
+            entry.staleStyleSheet = null
+            entry.staleViewportWidthPx = null
         }
         if (content.nativeImpl == null) {
             if (!content.isVisible) {
@@ -331,6 +420,32 @@ open class HybridSplitNavigationLayout(
             val sectionContent = entry.content ?: continue
             if (!contentHost.children.contains(sectionContent)) {
                 prewarmSectionEntry(entry)
+            }
+        }
+    }
+
+    internal fun onHostNativeRealized() {
+        if (contentHost.nativeImpl != null) {
+            prewarmInactiveSections()
+        }
+    }
+
+    internal fun hasUnwarmedInactiveSections(): Boolean {
+        if (contentHost.nativeImpl == null) return false
+        return sections.values.any {
+            val c = it.content
+            c != null && !contentHost.children.contains(c) && hasUnwarmedContent(c)
+        }
+    }
+
+    internal fun applyStyleSheetToInactiveSections(styleSheet: CssStyleSheet, viewportWidthPx: Int) {
+        for (entry in sections.values) {
+            val sectionContent = entry.content ?: continue
+            if (!contentHost.children.contains(sectionContent)) {
+                if (sectionContent.parent == null) {
+                    sectionContent.parent = contentHost
+                }
+                sectionContent.applyStyleSheet(styleSheet, viewportWidthPx)
             }
         }
     }
@@ -392,6 +507,13 @@ open class HybridSplitNavigationLayout(
             }
             contentHost.addChild(sectionContent)
         }
+        val pendingSheet = entry.staleStyleSheet ?: contentHost.lastAppliedStyleSheet ?: host.lastAppliedStyleSheet
+        val pendingVw = entry.staleViewportWidthPx ?: contentHost.lastStyleSheetViewportWidthPx
+        entry.staleStyleSheet = null
+        entry.staleViewportWidthPx = null
+        if (pendingSheet != null && (sectionContent.lastAppliedStyleSheet !== pendingSheet || !sectionContent.isStyledAtViewportAndTheme(pendingVw))) {
+            sectionContent.applyStyleSheet(pendingSheet, pendingVw)
+        }
         refreshLazyListsInSubtree(sectionContent)
 
         syncActiveSelectionToBars()
@@ -401,11 +523,17 @@ open class HybridSplitNavigationLayout(
         return true
     }
 
+    private fun hasUnwarmedContent(component: AbstractComponent): Boolean {
+        if (component.nativeImpl == null) return true
+        if (component is com.nexustools.genericui.component.lazy.LazyList && component.needsViewportSync) return true
+        if (component is AbstractContainer) return component.children.any { hasUnwarmedContent(it) }
+        return false
+    }
+
     private fun refreshLazyListsInSubtree(component: AbstractComponent) {
         when (component) {
             is com.nexustools.genericui.component.lazy.LazyList -> {
-                val total = component.adapter?.getItemCount() ?: component.totalItemCount
-                if (component.loadedItemCount == 0 && total > 0) {
+                if (component.needsViewportSync) {
                     component.refreshLazyViewport()
                 }
             }

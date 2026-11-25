@@ -12,10 +12,11 @@ import com.nexustools.genericui.style.color.RgbaColor
 import com.nexustools.genericui.style.css.CssStyleSheet
 import com.nexustools.genericui.style.css.PrecompiledStyleSheet
 import com.nexustools.genericui.style.css.StyleSheetRegistry
+import com.nexustools.genericui.style.sass.SassCompiler
 
 /**
  * Global Android-like resource manager (`Resources`) providing unified access to compiled
- * `R` / `RC` / `Resource` resources across all GenericUI backends (`windows`, `macos`, `gtk`, `qt`,
+ * `R` / `RC` / `Resource` resources across all GenericUI backends (`windows`, `macos`, `gtk`, `kde`,
  * `swing`, `android`, `ios`, `web`).
  */
 object Resources {
@@ -55,11 +56,30 @@ object Resources {
             viewBoxHeight = 48f
         )
 
+    private var cachedCoreDefaultStyleSheet: CssStyleSheet? = null
+
+    /**
+     * Lazily compiles and caches `:common`'s core component structural `style.scss` (`Resource.style.style`).
+     */
+    fun coreDefaultStyleSheet(): CssStyleSheet {
+        cachedCoreDefaultStyleSheet?.let { return it }
+        GeneratedResourceRegistry.ensureInitialized(activeTable)
+        val rawScss = getRawText(Resource.style.style)
+        val compiled = if (rawScss.isNotBlank()) {
+            SassCompiler.compileToStyleSheet(rawScss)
+        } else {
+            CssStyleSheet.empty()
+        }
+        cachedCoreDefaultStyleSheet = compiled
+        return compiled
+    }
+
     private val genericUiStyleSheet: PrecompiledStyleSheet = object : PrecompiledStyleSheet {
         override val name: String = "genericui"
         override val sourcePath: String = "gui/genericui.css"
         override val cssResourcePath: String = "gui/genericui.css"
-        override val styleSheet: CssStyleSheet = CssStyleSheet.empty()
+        override val styleSheet: CssStyleSheet
+            get() = coreDefaultStyleSheet()
         override val rawCss: String = ""
     }
 

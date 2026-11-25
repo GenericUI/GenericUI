@@ -2,7 +2,6 @@ package com.nexustools.genericui.component.feedback
 
 import com.nexustools.genericui.core.AbstractComponent
 import com.nexustools.genericui.core.NativeFactory
-import com.nexustools.genericui.enums.bootstrap.BootstrapType
 import com.nexustools.genericui.nativeimpl.feedback.SpinnerNativeImpl
 
 /**
@@ -10,13 +9,8 @@ import com.nexustools.genericui.nativeimpl.feedback.SpinnerNativeImpl
  */
 class Spinner(
     var growStyle: Boolean = false,
-    var label: String? = "Loading...",
-    type: BootstrapType = BootstrapType.PRIMARY
+    var label: String? = "Loading..."
 ) : AbstractComponent(htmlTag = "genericui:spinner") {
-    init {
-        this.type = type
-    }
-
     protected override fun createNativeImpl(factory: NativeFactory): SpinnerNativeImpl<*> =
         factory.createSpinner()
 

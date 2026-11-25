@@ -15,7 +15,7 @@ import java.nio.file.LinkOption
  * Configures Kotlin Multiplatform targets, the GenericUI hierarchical sourceSet tree, native/web
  * executable binaries, and platform Development/Production build target tasks (`developmentWindows`,
  * `productionWindows`, `developmentMac`, `productionMac`, `developmentLinuxGtk`, `productionLinuxGtk`,
- * `developmentLinuxQt`, `productionLinuxQt`, `developmentSwing`, `productionSwing`,
+ * `developmentLinuxKde`, `productionLinuxKde`, `developmentSwing`, `productionSwing`,
  * `developmentAndroid`, `productionAndroid`, `developmentIos`, `productionIos`,
  * `developmentWeb`, `productionWeb`, and their CPU architecture-specific variants) so projects
  * using GenericUI can rely entirely on `genericui { ... }`.
@@ -65,7 +65,7 @@ object GenericUiMultiplatformConfigurator {
     /**
      * Configures KMP targets, GenericUI sourceSets (`common`, `commonMain`, `desktopCommon`,
      * `nativeDesktopCommon`, `windowsMain`, `macMain`, `macosMain`, `linuxCommon`, `gtkMain`,
-     * `qtMain`, `swingMain`, `mobileCommon`, `androidMain`, `iosMain`, `webMain`), executable
+     * `kdeMain`, `swingMain`, `mobileCommon`, `androidMain`, `iosMain`, `webMain`), executable
      * binaries, and Development/Production lifecycle build tasks.
      */
     fun configureMultiplatform(project: Project, extension: GenericUiExtension) {
@@ -107,13 +107,13 @@ object GenericUiMultiplatformConfigurator {
             targets.findByName("macosArm64")
         }
 
-        val linuxX64Target: Any? = if (backends.gtkEnabled || backends.qtEnabled) {
+        val linuxX64Target: Any? = if (backends.gtkEnabled || backends.kdeEnabled) {
             targets.findByName("linuxX64") ?: invokeNoArg(kmp, "linuxX64")
         } else {
             targets.findByName("linuxX64")
         }
 
-        val linuxArm64Target: Any? = if (backends.gtkEnabled || backends.qtEnabled) {
+        val linuxArm64Target: Any? = if (backends.gtkEnabled || backends.kdeEnabled) {
             targets.findByName("linuxArm64") ?: invokeNoArg(kmp, "linuxArm64")
         } else {
             targets.findByName("linuxArm64")
@@ -162,7 +162,7 @@ object GenericUiMultiplatformConfigurator {
         //     - desktopCommon (desktopCommon / desktopMain / desktopTest)
         //       - swing (swing / swingMain / swingTest)
         //       - desktopNativeCommon (desktopNativeCommon / desktopNativeMain / desktopNativeTest)
-        //         - qt, gtk, windows, mac
+        //         - kde, gtk, windows, mac
         //     - mobileCommon (mobileCommon / mobileMain / mobileTest)
         //       - android, ios
         val commonMain = ss.maybeCreate("commonMain").also {
@@ -206,13 +206,13 @@ object GenericUiMultiplatformConfigurator {
         val anyDesktop = backends.windowsEnabled ||
             backends.macosEnabled ||
             backends.gtkEnabled ||
-            backends.qtEnabled ||
+            backends.kdeEnabled ||
             backends.swingConfig.enabled
 
         val anyNativeDesktop = backends.windowsEnabled ||
             backends.macosEnabled ||
             backends.gtkEnabled ||
-            backends.qtEnabled
+            backends.kdeEnabled
 
         val anyMobile = backends.androidEnabled || backends.iosEnabled || backends.ipadosEnabled
         val anyApple = backends.macosEnabled || backends.iosEnabled || backends.ipadosEnabled
@@ -422,7 +422,7 @@ object GenericUiMultiplatformConfigurator {
             ss.findByName("macosArm64Test")?.let { dependsOnIfNotConnected(it, macosTest) }
         }
 
-        if ((backends.gtkEnabled || backends.qtEnabled) && nativeDesktopMain != null && nativeDesktopTest != null) {
+        if ((backends.gtkEnabled || backends.kdeEnabled) && nativeDesktopMain != null && nativeDesktopTest != null) {
             val linuxCommon = ss.maybeCreate("linuxCommon").also {
                 dependsOnIfNotConnected(it, nativeDesktopMain)
                 addKotlinSrcDir(it, "src/linuxCommon/kotlin")
@@ -446,8 +446,8 @@ object GenericUiMultiplatformConfigurator {
             ss.findByName("linuxArm64Test")?.let { dependsOnIfNotConnected(it, linuxTest) }
 
             val linuxTargets = listOfNotNull(linuxX64Target, linuxArm64Target)
-            val bothGtkAndQtDirsExist = File(project.projectDir, "src/gtkMain").exists() &&
-                File(project.projectDir, "src/qtMain").exists()
+            val bothGtkAndKdeDirsExist = File(project.projectDir, "src/gtkMain").exists() &&
+                File(project.projectDir, "src/kdeMain").exists()
 
             if (backends.gtkEnabled) {
                 val gtk = ss.maybeCreate("gtk").also {
@@ -476,7 +476,7 @@ object GenericUiMultiplatformConfigurator {
                         dependsOnIfNotConnected(defaultSs, gtkMain)
                     }
                 }
-                if (!bothGtkAndQtDirsExist) {
+                if (!bothGtkAndKdeDirsExist) {
                     ss.findByName("linuxX64Main")?.let { dependsOnIfNotConnected(it, gtkMain) }
                     ss.findByName("linuxArm64Main")?.let { dependsOnIfNotConnected(it, gtkMain) }
                 }
@@ -484,39 +484,39 @@ object GenericUiMultiplatformConfigurator {
                 ss.findByName("linuxArm64Test")?.let { dependsOnIfNotConnected(it, gtkTest) }
             }
 
-            if (backends.qtEnabled) {
-                val qt = ss.maybeCreate("qt").also {
+            if (backends.kdeEnabled) {
+                val kde = ss.maybeCreate("kde").also {
                     dependsOnIfNotConnected(it, linuxMain)
-                    addKotlinSrcDir(it, "src/qt/kotlin")
-                    addResourcesSrcDir(it, "src/qt/resources")
+                    addKotlinSrcDir(it, "src/kde/kotlin")
+                    addResourcesSrcDir(it, "src/kde/resources")
                 }
-                val qtMain = ss.maybeCreate("qtMain").also {
-                    dependsOnIfNotConnected(it, qt)
-                    addKotlinSrcDir(it, "src/qtMain/kotlin")
-                    addKotlinSrcDir(it, "src/qt/kotlin")
-                    addKotlinSrcDir(it, project.layout.buildDirectory.dir("generated/genericui/launchers/qt/kotlin"))
-                    addResourcesSrcDir(it, "src/qtMain/resources")
-                    addResourcesSrcDir(it, "src/qt/resources")
+                val kdeMain = ss.maybeCreate("kdeMain").also {
+                    dependsOnIfNotConnected(it, kde)
+                    addKotlinSrcDir(it, "src/kdeMain/kotlin")
+                    addKotlinSrcDir(it, "src/kde/kotlin")
+                    addKotlinSrcDir(it, project.layout.buildDirectory.dir("generated/genericui/launchers/kde/kotlin"))
+                    addResourcesSrcDir(it, "src/kdeMain/resources")
+                    addResourcesSrcDir(it, "src/kde/resources")
                 }
-                val qtTest = ss.maybeCreate("qtTest").also {
+                val kdeTest = ss.maybeCreate("kdeTest").also {
                     dependsOnIfNotConnected(it, linuxTest)
-                    addKotlinSrcDir(it, "src/qtTest/kotlin")
-                    addKotlinSrcDir(it, project.layout.buildDirectory.dir("generated/genericui/launchers/qtTest/kotlin"))
+                    addKotlinSrcDir(it, "src/kdeTest/kotlin")
+                    addKotlinSrcDir(it, project.layout.buildDirectory.dir("generated/genericui/launchers/kdeTest/kotlin"))
                 }
                 for (lt in linuxTargets) {
                     val comps = invokeNoArg(lt, "getCompilations") as? NamedDomainObjectContainer<*>
-                    val qtComp = comps?.maybeCreate("qt")
-                    val defaultSs = invokeNoArg(qtComp, "getDefaultSourceSet")
+                    val kdeComp = comps?.maybeCreate("kde")
+                    val defaultSs = invokeNoArg(kdeComp, "getDefaultSourceSet")
                     if (defaultSs != null) {
-                        dependsOnIfNotConnected(defaultSs, qtMain)
+                        dependsOnIfNotConnected(defaultSs, kdeMain)
                     }
                 }
-                if (!bothGtkAndQtDirsExist && !(hasMainAppFragment && backends.gtkEnabled)) {
-                    ss.findByName("linuxX64Main")?.let { dependsOnIfNotConnected(it, qtMain) }
-                    ss.findByName("linuxArm64Main")?.let { dependsOnIfNotConnected(it, qtMain) }
+                if (!bothGtkAndKdeDirsExist && !(hasMainAppFragment && backends.gtkEnabled)) {
+                    ss.findByName("linuxX64Main")?.let { dependsOnIfNotConnected(it, kdeMain) }
+                    ss.findByName("linuxArm64Main")?.let { dependsOnIfNotConnected(it, kdeMain) }
                 }
-                ss.findByName("linuxX64Test")?.let { dependsOnIfNotConnected(it, qtTest) }
-                ss.findByName("linuxArm64Test")?.let { dependsOnIfNotConnected(it, qtTest) }
+                ss.findByName("linuxX64Test")?.let { dependsOnIfNotConnected(it, kdeTest) }
+                ss.findByName("linuxArm64Test")?.let { dependsOnIfNotConnected(it, kdeTest) }
             }
         }
 
@@ -1027,8 +1027,8 @@ object GenericUiMultiplatformConfigurator {
                 listOf("-Wl,--export-dynamic-symbol=genericui_res_lookup_app") +
                 app.extraPosixLinkerOpts
             ).distinct()
-        val bothGtkAndQtDirsExist = File(project.projectDir, "src/gtkMain").exists() &&
-            File(project.projectDir, "src/qtMain").exists()
+        val bothGtkAndKdeDirsExist = File(project.projectDir, "src/gtkMain").exists() &&
+            File(project.projectDir, "src/kdeMain").exists()
         for (linuxTarget in linuxTargets) {
             val konanName = resolveKonanTargetName(linuxTarget)
             val (appResObj, compileTaskName) = ensurePosixAppResourcesObjectTask(
@@ -1047,7 +1047,7 @@ object GenericUiMultiplatformConfigurator {
                 linkerOptsList = targetLinuxLinkerOpts,
                 linkDependsOnTasks = targetLinuxDeps
             )
-            if (!bothGtkAndQtDirsExist) {
+            if (!bothGtkAndKdeDirsExist) {
                 for (sec in secondaryDesktopExes) {
                     val safePrefix = sanitizeBinaryNamePrefix(sec.binaryBaseName)
                     configureTargetExecutable(
@@ -1089,15 +1089,15 @@ object GenericUiMultiplatformConfigurator {
                     }
                 }
             }
-            if (extension.backends.qtEnabled) {
-                val qtComp = comps?.findByName("qt")
-                if (qtComp != null) {
+            if (extension.backends.kdeEnabled) {
+                val kdeComp = comps?.findByName("kde")
+                if (kdeComp != null) {
                     configureTargetExecutable(
                         nativeTarget = linuxTarget,
-                        namePrefix = "qt",
-                        compilationObj = qtComp,
+                        namePrefix = "kde",
+                        compilationObj = kdeComp,
                         entryPointStr = entryPointStr,
-                        baseNameStr = "$resolvedBaseName-qt",
+                        baseNameStr = "$resolvedBaseName-kde",
                         linkerOptsList = targetLinuxLinkerOpts,
                         linkDependsOnTasks = targetLinuxDeps
                     )
@@ -1106,8 +1106,8 @@ object GenericUiMultiplatformConfigurator {
                             .replaceFirstChar { it.uppercaseChar() }
                         configureTargetExecutable(
                             nativeTarget = linuxTarget,
-                            namePrefix = "qt$safeCap",
-                            compilationObj = qtComp,
+                            namePrefix = "kde$safeCap",
+                            compilationObj = kdeComp,
                             entryPointStr = sec.entryPointFqn,
                             baseNameStr = sec.binaryBaseName,
                             linkerOptsList = targetLinuxLinkerOpts + sec.linuxExtraLinkerOpts,
@@ -1427,9 +1427,9 @@ object GenericUiMultiplatformConfigurator {
      * - Linux GTK (`X32`, `X64`, `Arm32`, `Arm64` + Aggregate): `developmentLinuxGtk`, `productionLinuxGtk`,
      *   `developmentLinuxGtkX32`, `productionLinuxGtkX32`, `developmentLinuxGtkX64`, `productionLinuxGtkX64`,
      *   `developmentLinuxGtkArm32`, `productionLinuxGtkArm32`, `developmentLinuxGtkArm64`, `productionLinuxGtkArm64`
-     * - Linux Qt (`X32`, `X64`, `Arm32`, `Arm64` + Aggregate): `developmentLinuxQt`, `productionLinuxQt`,
-     *   `developmentLinuxQtX32`, `productionLinuxQtX32`, `developmentLinuxQtX64`, `productionLinuxQtX64`,
-     *   `developmentLinuxQtArm32`, `productionLinuxQtArm32`, `developmentLinuxQtArm64`, `productionLinuxQtArm64`
+     * - Linux KDE (`X32`, `X64`, `Arm32`, `Arm64` + Aggregate): `developmentLinuxKde`, `productionLinuxKde`,
+     *   `developmentLinuxKdeX32`, `productionLinuxKdeX32`, `developmentLinuxKdeX64`, `productionLinuxKdeX64`,
+     *   `developmentLinuxKdeArm32`, `productionLinuxKdeArm32`, `developmentLinuxKdeArm64`, `productionLinuxKdeArm64`
      * - Android (Pure Java/DEX Universal APK + CPU-Specific Kotlin/Native Targets `X32`, `X64`, `Arm32`, `Arm64`):
      *   `developmentAndroid`, `productionAndroid`, `developmentAndroidX32`, `productionAndroidX32`,
      *   `developmentAndroidX64`, `productionAndroidX64`, `developmentAndroidArm32`, `productionAndroidArm32`,
@@ -1555,16 +1555,22 @@ object GenericUiMultiplatformConfigurator {
         gpuEnabled: Boolean
     ) {
         val appName = extension.application.desktop.appName.trim().ifEmpty {
-            extension.application.baseName.trim().ifEmpty { project.name }
+            extension.app.name.trim().ifEmpty {
+                extension.application.baseName.trim().ifEmpty { project.name }
+            }
         }
         val baseName = extension.application.baseName.trim().ifEmpty { project.name }
         val appId = extension.application.desktop.appId.trim().ifEmpty {
-            val grp = project.group.toString().trim()
-            if (grp.isNotEmpty() && grp != "unspecified") grp else "com.nexustools.${baseName.lowercase()}"
+            extension.app.id.trim().ifEmpty {
+                val grp = project.group.toString().trim()
+                if (grp.isNotEmpty() && grp != "unspecified") grp else "com.nexustools.${baseName.lowercase()}"
+            }
         }
         val appVersion = extension.application.desktop.appVersion.trim().ifEmpty {
-            val v = project.version.toString().trim()
-            if (v.isNotEmpty() && v != "unspecified") v else "1.0.0"
+            extension.app.version.trim().ifEmpty {
+                val v = project.version.toString().trim()
+                if (v.isNotEmpty() && v != "unspecified") v else "1.0.0"
+            }
         }
 
         val appBundleDir = File(distDir, "$appName.app")
@@ -1595,9 +1601,32 @@ object GenericUiMultiplatformConfigurator {
                 }
             }
         }
-        val primaryExe = exeCandidates.firstOrNull()
+        val primaryExe = exeCandidates.firstOrNull { candidate ->
+            val candName = if (candidate.extension.equals("kexe", ignoreCase = true)) {
+                candidate.nameWithoutExtension
+            } else {
+                candidate.name
+            }
+            candName != "serviceworker"
+        } ?: exeCandidates.firstOrNull()
         val bundleExecutableName = baseName
         val targetExeFile = File(macOsDir, bundleExecutableName)
+        File(macOsDir, "serviceworker").takeIf { it.exists() }?.delete()
+
+        val swConfig = extension.extensions.serviceWorkerConfig
+        val localNetDesc = swConfig.macLocalNetworkUsageDescription?.trim()?.takeIf { it.isNotEmpty() }
+            ?: extension.application.desktop.macLocalNetworkUsageDescription.trim().takeIf { it.isNotEmpty() }
+        val bonjourServices = (swConfig.macBonjourServices + extension.application.desktop.macBonjourServices)
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .distinct()
+        val macMinSystemVersion = extension.application.desktop.macMinimumSystemVersion.trim().ifEmpty { "12.0" }
+        val macCategory = extension.application.desktop.macCategory.trim().ifEmpty { "public.app-category.utilities" }
+        val multipleInstancesProhibited = extension.application.desktop.macMultipleInstancesProhibited
+        val helpersDir = File(contentsDir, "Helpers")
+        val swHelperBundleDir = File(helpersDir, "$appName Service Worker.app")
+        var stagedServiceWorkerExe: File? = null
+
         if (primaryExe != null && primaryExe.isFile) {
             if (targetExeFile.exists()) {
                 targetExeFile.delete()
@@ -1609,7 +1638,7 @@ object GenericUiMultiplatformConfigurator {
                     runCatching { existing.delete() }
                 }
             }
-            for (secondaryExe in exeCandidates.drop(1)) {
+            for (secondaryExe in exeCandidates.filter { it != primaryExe }) {
                 if (!secondaryExe.isFile) continue
                 val secName = if (secondaryExe.extension.equals("kexe", ignoreCase = true)) {
                     secondaryExe.nameWithoutExtension
@@ -1617,9 +1646,75 @@ object GenericUiMultiplatformConfigurator {
                     secondaryExe.name
                 }
                 if (secName.isBlank() || secName == bundleExecutableName) continue
-                val targetSecondary = File(macOsDir, secName)
-                secondaryExe.copyTo(targetSecondary, overwrite = true)
-                targetSecondary.setExecutable(true, false)
+                if (secName == "serviceworker") {
+                    helpersDir.mkdirs()
+                    val swContentsDir = File(swHelperBundleDir, "Contents")
+                    val swMacOsDir = File(swContentsDir, "MacOS")
+                    val swResourcesDir = File(swContentsDir, "Resources")
+                    swMacOsDir.mkdirs()
+                    swResourcesDir.mkdirs()
+                    File(swContentsDir, "PkgInfo").writeText("APPL????", Charsets.US_ASCII)
+
+                    val targetWorkerExe = File(swMacOsDir, "serviceworker")
+                    if (targetWorkerExe.exists()) {
+                        targetWorkerExe.delete()
+                    }
+                    secondaryExe.copyTo(targetWorkerExe, overwrite = true)
+                    targetWorkerExe.setExecutable(true, false)
+                    stagedServiceWorkerExe = targetWorkerExe
+
+                    val helperLocalNetDesc = localNetDesc
+                        ?: "$appName uses local network access to discover and communicate with devices on your local network."
+                    File(swContentsDir, "Info.plist").writeText(
+                        buildString {
+                            appendLine("<?xml version=\"1.0\" encoding=\"UTF-8\"?>")
+                            appendLine("<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">")
+                            appendLine("<plist version=\"1.0\">")
+                            appendLine("<dict>")
+                            appendLine("    <key>CFBundleName</key>")
+                            appendLine("    <string>${escapePlistXml("$appName Service Worker")}</string>")
+                            appendLine("    <key>CFBundleDisplayName</key>")
+                            appendLine("    <string>${escapePlistXml("$appName Service Worker")}</string>")
+                            appendLine("    <key>CFBundleIdentifier</key>")
+                            appendLine("    <string>${escapePlistXml("$appId.serviceworker")}</string>")
+                            appendLine("    <key>CFBundleVersion</key>")
+                            appendLine("    <string>${escapePlistXml(appVersion)}</string>")
+                            appendLine("    <key>CFBundleShortVersionString</key>")
+                            appendLine("    <string>${escapePlistXml(appVersion)}</string>")
+                            appendLine("    <key>CFBundleExecutable</key>")
+                            appendLine("    <string>serviceworker</string>")
+                            appendLine("    <key>CFBundleIconFile</key>")
+                            appendLine("    <string>icon.icns</string>")
+                            appendLine("    <key>CFBundlePackageType</key>")
+                            appendLine("    <string>APPL</string>")
+                            appendLine("    <key>LSMinimumSystemVersion</key>")
+                            appendLine("    <string>${escapePlistXml(macMinSystemVersion)}</string>")
+                            appendLine("    <key>LSUIElement</key>")
+                            appendLine("    <true/>")
+                            appendLine("    <key>LSMultipleInstancesProhibited</key>")
+                            appendLine("    <${if (multipleInstancesProhibited) "true" else "false"}/>")
+                            appendLine("    <key>NSHighResolutionCapable</key>")
+                            appendLine("    <true/>")
+                            appendLine("    <key>NSLocalNetworkUsageDescription</key>")
+                            appendLine("    <string>${escapePlistXml(helperLocalNetDesc)}</string>")
+                            if (bonjourServices.isNotEmpty()) {
+                                appendLine("    <key>NSBonjourServices</key>")
+                                appendLine("    <array>")
+                                for (svc in bonjourServices) {
+                                    appendLine("        <string>${escapePlistXml(svc)}</string>")
+                                }
+                                appendLine("    </array>")
+                            }
+                            appendLine("</dict>")
+                            appendLine("</plist>")
+                        },
+                        Charsets.UTF_8
+                    )
+                } else {
+                    val targetSecondary = File(macOsDir, secName)
+                    secondaryExe.copyTo(targetSecondary, overwrite = true)
+                    targetSecondary.setExecutable(true, false)
+                }
             }
         } else {
             // Ensure Contents/MacOS/<baseName> placeholder exists when cross-building on non-macOS host
@@ -1637,6 +1732,8 @@ object GenericUiMultiplatformConfigurator {
             desktopInfoPlist.isFile -> desktopInfoPlist.copyTo(targetInfoPlist, overwrite = true)
             resourceCompilerInfoPlist.isFile -> resourceCompilerInfoPlist.copyTo(targetInfoPlist, overwrite = true)
             else -> {
+                val mainLocalNetDesc = localNetDesc
+                    ?: if (bonjourServices.isNotEmpty()) "$appName accesses devices on your local network." else null
                 targetInfoPlist.writeText(
                     buildString {
                         appendLine("<?xml version=\"1.0\" encoding=\"UTF-8\"?>")
@@ -1644,23 +1741,41 @@ object GenericUiMultiplatformConfigurator {
                         appendLine("<plist version=\"1.0\">")
                         appendLine("<dict>")
                         appendLine("    <key>CFBundleName</key>")
-                        appendLine("    <string>$appName</string>")
+                        appendLine("    <string>${escapePlistXml(appName)}</string>")
                         appendLine("    <key>CFBundleDisplayName</key>")
-                        appendLine("    <string>$appName</string>")
+                        appendLine("    <string>${escapePlistXml(appName)}</string>")
                         appendLine("    <key>CFBundleIdentifier</key>")
-                        appendLine("    <string>$appId</string>")
+                        appendLine("    <string>${escapePlistXml(appId)}</string>")
                         appendLine("    <key>CFBundleVersion</key>")
-                        appendLine("    <string>$appVersion</string>")
+                        appendLine("    <string>${escapePlistXml(appVersion)}</string>")
                         appendLine("    <key>CFBundleShortVersionString</key>")
-                        appendLine("    <string>$appVersion</string>")
+                        appendLine("    <string>${escapePlistXml(appVersion)}</string>")
                         appendLine("    <key>CFBundleExecutable</key>")
-                        appendLine("    <string>$bundleExecutableName</string>")
+                        appendLine("    <string>${escapePlistXml(bundleExecutableName)}</string>")
                         appendLine("    <key>CFBundleIconFile</key>")
                         appendLine("    <string>icon.icns</string>")
                         appendLine("    <key>CFBundlePackageType</key>")
                         appendLine("    <string>APPL</string>")
+                        appendLine("    <key>LSMinimumSystemVersion</key>")
+                        appendLine("    <string>${escapePlistXml(macMinSystemVersion)}</string>")
+                        appendLine("    <key>LSApplicationCategoryType</key>")
+                        appendLine("    <string>${escapePlistXml(macCategory)}</string>")
+                        appendLine("    <key>LSMultipleInstancesProhibited</key>")
+                        appendLine("    <${if (multipleInstancesProhibited) "true" else "false"}/>")
                         appendLine("    <key>NSHighResolutionCapable</key>")
                         appendLine("    <true/>")
+                        if (mainLocalNetDesc != null) {
+                            appendLine("    <key>NSLocalNetworkUsageDescription</key>")
+                            appendLine("    <string>${escapePlistXml(mainLocalNetDesc)}</string>")
+                        }
+                        if (bonjourServices.isNotEmpty()) {
+                            appendLine("    <key>NSBonjourServices</key>")
+                            appendLine("    <array>")
+                            for (svc in bonjourServices) {
+                                appendLine("        <string>${escapePlistXml(svc)}</string>")
+                            }
+                            appendLine("    </array>")
+                        }
                         appendLine("</dict>")
                         appendLine("</plist>")
                     },
@@ -1730,6 +1845,18 @@ object GenericUiMultiplatformConfigurator {
             val vlcMacDir = File(buildDir, "generated/genericui/nativeBundle/vlc/macos")
             if (vlcMacDir.isDirectory) {
                 copyFilteredDirectoryContents(vlcMacDir, frameworksDir, setExecutableOnBinaries = true)
+                val opusFixSrc = File(vlcMacDir, "opus_fix_plugins")
+                if (opusFixSrc.isDirectory) {
+                    for (binDir in candidateBinDirs) {
+                        if (binDir.exists() || binDir.name.contains("Executable") || binDir.name.contains("Test")) {
+                            copyFilteredDirectoryContents(
+                                opusFixSrc,
+                                File(binDir, "opus_fix_plugins"),
+                                setExecutableOnBinaries = true
+                            )
+                        }
+                    }
+                }
             }
         }
         if (gpuEnabled) {
@@ -1749,6 +1876,10 @@ object GenericUiMultiplatformConfigurator {
         val desktopIcns = File(buildDir, "generated/genericui/desktop-resources/macos/icon.icns")
         if (desktopIcns.isFile) {
             desktopIcns.copyTo(File(resourcesDir, "icon.icns"), overwrite = true)
+            if (swHelperBundleDir.isDirectory) {
+                val helperResDir = File(swHelperBundleDir, "Contents/Resources").apply { mkdirs() }
+                desktopIcns.copyTo(File(helperResDir, "icon.icns"), overwrite = true)
+            }
         }
         listOf("gui", "app", "res", "Assets.xcassets", "genericui_app_resources.c", "genericui_app_resources.o").forEach { staleName ->
             File(resourcesDir, staleName).takeIf { it.exists() }?.deleteRecursively()
@@ -1759,6 +1890,11 @@ object GenericUiMultiplatformConfigurator {
                 val icdTarget = File(resourcesDir, "vulkan/icd.d/MoltenVK_icd.json")
                 icdTarget.parentFile?.mkdirs()
                 moltenVkIcd.copyTo(icdTarget, overwrite = true)
+                if (swHelperBundleDir.isDirectory) {
+                    val helperIcdTarget = File(swHelperBundleDir, "Contents/Resources/vulkan/icd.d/MoltenVK_icd.json")
+                    helperIcdTarget.parentFile?.mkdirs()
+                    moltenVkIcd.copyTo(helperIcdTarget, overwrite = true)
+                }
             }
         }
 
@@ -1781,6 +1917,21 @@ object GenericUiMultiplatformConfigurator {
                 for (frameworkBundle in frameworkBundles) {
                     GenericUiBuildNativeSharedLibsTask.signMacBinary(frameworkBundle)
                 }
+                if (stagedServiceWorkerExe != null && stagedServiceWorkerExe.isFile) {
+                    if (isMachOBinary(stagedServiceWorkerExe)) {
+                        ensureMacBinaryHasRpath(stagedServiceWorkerExe, "@executable_path/../../../../Frameworks")
+                    }
+                    GenericUiBuildNativeSharedLibsTask.signMacBinary(
+                        stagedServiceWorkerExe,
+                        identifier = "$appId.serviceworker"
+                    )
+                    if (swHelperBundleDir.isDirectory) {
+                        GenericUiBuildNativeSharedLibsTask.signMacBinary(
+                            swHelperBundleDir,
+                            identifier = "$appId.serviceworker"
+                        )
+                    }
+                }
                 macOsDir.listFiles()?.sortedBy { it.name }?.forEach { macExe ->
                     if (macExe.isFile && !Files.isSymbolicLink(macExe.toPath())) {
                         GenericUiBuildNativeSharedLibsTask.signMacBinary(macExe)
@@ -1799,6 +1950,55 @@ object GenericUiMultiplatformConfigurator {
             }
         }
     }
+
+    private fun isMachOBinary(file: File): Boolean {
+        if (!file.isFile || file.length() < 4L) return false
+        val magic = ByteArray(4)
+        file.inputStream().use { input ->
+            if (input.read(magic) != 4) return false
+        }
+        val b0 = magic[0].toInt() and 0xFF
+        val b1 = magic[1].toInt() and 0xFF
+        val b2 = magic[2].toInt() and 0xFF
+        val b3 = magic[3].toInt() and 0xFF
+        val be = (b0 shl 24) or (b1 shl 16) or (b2 shl 8) or b3
+        val le = (b3 shl 24) or (b2 shl 16) or (b1 shl 8) or b0
+        return be == 0xFEEDFACE.toInt() ||
+            be == 0xFEEDFACF.toInt() ||
+            be == 0xCAFEBABE.toInt() ||
+            le == 0xFEEDFACE.toInt() ||
+            le == 0xFEEDFACF.toInt() ||
+            le == 0xCAFEBABE.toInt()
+    }
+
+    private fun ensureMacBinaryHasRpath(binaryFile: File, rpath: String) {
+        val existingRpaths = runCatching {
+            val otoolProc = ProcessBuilder("otool", "-l", binaryFile.absolutePath)
+                .redirectErrorStream(true)
+                .start()
+            val otoolOut = otoolProc.inputStream.bufferedReader(Charsets.UTF_8).readText()
+            otoolProc.waitFor(5, java.util.concurrent.TimeUnit.SECONDS)
+            otoolOut
+        }.getOrDefault("")
+        if (existingRpaths.contains(rpath)) {
+            return
+        }
+        runCatching {
+            val proc = ProcessBuilder("install_name_tool", "-add_rpath", rpath, binaryFile.absolutePath)
+                .redirectErrorStream(true)
+                .start()
+            proc.inputStream.bufferedReader(Charsets.UTF_8).readText()
+            proc.waitFor(5, java.util.concurrent.TimeUnit.SECONDS)
+        }
+    }
+
+    private fun escapePlistXml(value: String): String =
+        value
+            .replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replace("\"", "&quot;")
+            .replace("'", "&apos;")
 
     private fun stageLinuxNativeExtensionBundles(
         buildDir: File,
@@ -1870,9 +2070,9 @@ object GenericUiMultiplatformConfigurator {
         secondaryExecutables: List<com.nexustools.genericui.plugin.spi.SecondaryDesktopExecutableContribution>
     ): List<String> {
         if (secondaryExecutables.isEmpty()) return candidateTaskNames
-        val linkPattern = Regex("^link(Gtk|Qt)?(Debug|Release)Executable(.+)$")
+        val linkPattern = Regex("^link(Gtk|Kde)?(Debug|Release)Executable(.+)$")
         val hasToolkitSpecificPrimary = candidateTaskNames.any {
-            it.startsWith("linkGtk") || it.startsWith("linkQt")
+            it.startsWith("linkGtk") || it.startsWith("linkKde")
         }
         val expanded = mutableListOf<String>()
         for (taskName in candidateTaskNames) {
@@ -1895,9 +2095,9 @@ object GenericUiMultiplatformConfigurator {
                 } else {
                     val fallbackTask = "link$safeCap${mode}Executable$targetSuffix"
                     val gtkTask = "linkGtk$safeCap${mode}Executable$targetSuffix"
-                    val qtTask = "linkQt$safeCap${mode}Executable$targetSuffix"
+                    val kdeTask = "linkKde$safeCap${mode}Executable$targetSuffix"
                     if (!hasToolkitSpecificPrimary ||
-                        (project.tasks.findByName(gtkTask) == null && project.tasks.findByName(qtTask) == null)
+                        (project.tasks.findByName(gtkTask) == null && project.tasks.findByName(kdeTask) == null)
                     ) {
                         expanded.add(fallbackTask)
                     }
@@ -1912,7 +2112,7 @@ object GenericUiMultiplatformConfigurator {
         secondaryExecutables: List<com.nexustools.genericui.plugin.spi.SecondaryDesktopExecutableContribution>
     ): List<String> {
         if (secondaryExecutables.isEmpty()) return candidateSourceDirs
-        val dirPattern = Regex("^bin/([^/]+)/(gtk|qt)?(Debug|Release|debug|release)Executable$")
+        val dirPattern = Regex("^bin/([^/]+)/(gtk|kde)?(Debug|Release|debug|release)Executable$")
         val extraDirs = mutableListOf<String>()
         for (relDir in candidateSourceDirs) {
             val match = dirPattern.matchEntire(relDir) ?: continue
@@ -2010,7 +2210,7 @@ object GenericUiMultiplatformConfigurator {
                     }
                     val isMacDist = distRelativePath.startsWith("dist/mac/")
                     val isLinuxGtkDist = distRelativePath.startsWith("dist/linux-gtk/")
-                    val isLinuxQtDist = distRelativePath.startsWith("dist/linux-qt/")
+                    val isLinuxKdeDist = distRelativePath.startsWith("dist/linux-kde/")
                     val excludedExtensions = setOf("svg", "png", "ico", "icns", "rc", "res", "desktop", "plist", "cur")
                     val excludedNames = setOf("androidmanifest.xml", "info.plist", "cached-libraries.txt")
                     fun isExcludedNonWebDistFile(file: File): Boolean {
@@ -2019,10 +2219,10 @@ object GenericUiMultiplatformConfigurator {
                             return true
                         }
                         if (isExcludedStaticCoreLibrary(file)) return true
-                        if (isLinuxQtDist && (lowerName == "libgenericui-gtk.so" || lowerName.endsWith("-gtk.kexe"))) {
+                        if (isLinuxKdeDist && (lowerName == "libgenericui-gtk.so" || lowerName.endsWith("-gtk.kexe"))) {
                             return true
                         }
-                        if (isLinuxGtkDist && (lowerName == "libgenericui-qt.so" || lowerName.endsWith("-qt.kexe"))) {
+                        if (isLinuxGtkDist && (lowerName == "libgenericui-kde.so" || lowerName.endsWith("-kde.kexe"))) {
                             return true
                         }
                         if (file.isFile && file.extension.lowercase() in excludedExtensions) return true
@@ -2038,10 +2238,10 @@ object GenericUiMultiplatformConfigurator {
                         }
                     }
                     val resolvedSourceDirs = when {
-                        isLinuxQtDist -> {
-                            val qtOnly = expandedSourceDirs.filter { it.contains("/qt") }
-                            if (qtOnly.any { File(buildDir, it).let { d -> d.isDirectory && !d.list().isNullOrEmpty() } }) {
-                                qtOnly
+                        isLinuxKdeDist -> {
+                            val kdeOnly = expandedSourceDirs.filter { it.contains("/kde") }
+                            if (kdeOnly.any { File(buildDir, it).let { d -> d.isDirectory && !d.list().isNullOrEmpty() } }) {
+                                kdeOnly
                             } else {
                                 expandedSourceDirs
                             }
@@ -2095,13 +2295,13 @@ object GenericUiMultiplatformConfigurator {
                                         src = child,
                                         dst = target,
                                         sourceRoot = srcDir,
-                                        setExecutableOnBinaries = isLinuxGtkDist || isLinuxQtDist,
+                                        setExecutableOnBinaries = isLinuxGtkDist || isLinuxKdeDist,
                                         entryFilter = { !isExcludedNonWebDistFile(it) }
                                     )
                                 }
                             }
                         }
-                        if (isLinuxGtkDist || isLinuxQtDist) {
+                        if (isLinuxGtkDist || isLinuxKdeDist) {
                             for (sec in secondaryExes) {
                                 val kexeFile = File(distDir, "${sec.binaryBaseName}.kexe")
                                 val aliasFile = File(distDir, sec.binaryBaseName)
@@ -2144,7 +2344,7 @@ object GenericUiMultiplatformConfigurator {
                                 gpuEnabled = gpuEnabled
                             )
                         }
-                        distRelativePath.startsWith("dist/linux-gtk/") || distRelativePath.startsWith("dist/linux-qt/") -> {
+                        distRelativePath.startsWith("dist/linux-gtk/") || distRelativePath.startsWith("dist/linux-kde/") -> {
                             stageLinuxNativeExtensionBundles(
                                 buildDir = buildDir,
                                 distDir = distDir,
@@ -2471,6 +2671,55 @@ object GenericUiMultiplatformConfigurator {
             val isMacHost = System.getProperty("os.name").orEmpty().lowercase().let {
                 it.contains("mac") || it.contains("darwin")
             }
+            val macBuildDirProvider = project.layout.buildDirectory.asFile
+            project.tasks.matching {
+                (it.name.startsWith("link") && it.name.endsWith("ExecutableMacosArm64")) ||
+                    it.name in setOf(
+                        "linkDebugTestMacosArm64",
+                        "macosArm64Test"
+                    )
+            }.configureEach {
+                dependsOn(project.provider {
+                    buildList {
+                        add("prepareGenericUiDesktopResources")
+                        if (isMediaExtensionEnabled(extension)) add("bundleGenericUiVlc")
+                    }.mapNotNull { taskName -> project.tasks.findByName(taskName) }
+                })
+                doFirst {
+                    if (name == "macosArm64Test" && isMediaExtensionEnabled(extension)) {
+                        val bDir = macBuildDirProvider.get()
+                        val opusFixSrc = File(bDir, "generated/genericui/nativeBundle/vlc/macos/opus_fix_plugins")
+                        val debugTestDir = File(bDir, "bin/macosArm64/debugTest")
+                        if (opusFixSrc.isDirectory && debugTestDir.isDirectory) {
+                            copyFilteredDirectoryContents(
+                                opusFixSrc,
+                                File(debugTestDir, "opus_fix_plugins"),
+                                setExecutableOnBinaries = true
+                            )
+                        }
+                    }
+                }
+                doLast {
+                    if (name.startsWith("link") && isMediaExtensionEnabled(extension)) {
+                        val bDir = macBuildDirProvider.get()
+                        val opusFixSrc = File(bDir, "generated/genericui/nativeBundle/vlc/macos/opus_fix_plugins")
+                        if (opusFixSrc.isDirectory) {
+                            val targetBinDir = when {
+                                name.contains("Test") -> File(bDir, "bin/macosArm64/debugTest")
+                                name.contains("Release") -> File(bDir, "bin/macosArm64/releaseExecutable")
+                                else -> File(bDir, "bin/macosArm64/debugExecutable")
+                            }
+                            if (targetBinDir.isDirectory) {
+                                copyFilteredDirectoryContents(
+                                    opusFixSrc,
+                                    File(targetBinDir, "opus_fix_plugins"),
+                                    setExecutableOnBinaries = true
+                                )
+                            }
+                        }
+                    }
+                }
+            }
             registerTestTargetTask(
                 name = "testMacArm64",
                 desc = "Runs macOS Arm64 tests (macosArm64Test on macOS hosts; compiles/links test binary otherwise).",
@@ -2703,167 +2952,167 @@ object GenericUiMultiplatformConfigurator {
             )
         }
 
-        // 4. Linux Qt (X32, X64, Arm32, Arm64 + Aggregate)
-        if (backends.qtEnabled) {
+        // 4. Linux KDE (X32, X64, Arm32, Arm64 + Aggregate)
+        if (backends.kdeEnabled) {
             registerTargetTask(
-                name = "developmentLinuxQt",
-                desc = "Builds the Linux Qt (Qt6 / QPainter / QVulkanWindow) Development target into build/dist/linux-qt/x64/development.",
-                distRelativePath = "dist/linux-qt/x64/development",
+                name = "developmentLinuxKde",
+                desc = "Builds the Linux KDE (KF6 / Kirigami / QPainter / QVulkanWindow) Development target into build/dist/linux-kde/x64/development.",
+                distRelativePath = "dist/linux-kde/x64/development",
                 candidateTaskNames = listOf(
-                    "linkQtDebugExecutableLinuxX64",
-                    "linkQtDebugExecutableLinuxArm64",
-                    "compileQtKotlinLinuxX64",
-                    "compileQtKotlinLinuxArm64",
+                    "linkKdeDebugExecutableLinuxX64",
+                    "linkKdeDebugExecutableLinuxArm64",
+                    "compileKdeKotlinLinuxX64",
+                    "compileKdeKotlinLinuxArm64",
                     "linkDebugExecutableLinuxX64",
                     "compileKotlinLinuxX64"
                 ),
                 candidateSourceDirs = listOf(
-                    "bin/linuxX64/qtDebugExecutable",
+                    "bin/linuxX64/kdeDebugExecutable",
                     "bin/linuxX64/debugExecutable"
                 )
             )
             registerTargetTask(
-                name = "productionLinuxQt",
-                desc = "Builds the Linux Qt (Qt6 / QPainter / QVulkanWindow) Production target into build/dist/linux-qt/x64/production.",
-                distRelativePath = "dist/linux-qt/x64/production",
+                name = "productionLinuxKde",
+                desc = "Builds the Linux KDE (KF6 / Kirigami / QPainter / QVulkanWindow) Production target into build/dist/linux-kde/x64/production.",
+                distRelativePath = "dist/linux-kde/x64/production",
                 candidateTaskNames = listOf(
-                    "linkQtReleaseExecutableLinuxX64",
-                    "linkQtReleaseExecutableLinuxArm64",
-                    "compileQtKotlinLinuxX64",
-                    "compileQtKotlinLinuxArm64",
+                    "linkKdeReleaseExecutableLinuxX64",
+                    "linkKdeReleaseExecutableLinuxArm64",
+                    "compileKdeKotlinLinuxX64",
+                    "compileKdeKotlinLinuxArm64",
                     "linkReleaseExecutableLinuxX64",
                     "compileKotlinLinuxX64"
                 ),
                 candidateSourceDirs = listOf(
-                    "bin/linuxX64/qtReleaseExecutable",
+                    "bin/linuxX64/kdeReleaseExecutable",
                     "bin/linuxX64/releaseExecutable"
                 )
             )
             registerTargetTask(
-                name = "developmentLinuxQtX32",
-                desc = "Builds the Linux Qt x32 (Qt6 / QPainter / QVulkanWindow) Development target into build/dist/linux-qt/x32/development.",
-                distRelativePath = "dist/linux-qt/x32/development",
+                name = "developmentLinuxKdeX32",
+                desc = "Builds the Linux KDE x32 (KF6 / Kirigami / QPainter / QVulkanWindow) Development target into build/dist/linux-kde/x32/development.",
+                distRelativePath = "dist/linux-kde/x32/development",
                 candidateTaskNames = listOf(
-                    "linkQtDebugExecutableLinuxX32",
-                    "compileQtKotlinLinuxX32",
+                    "linkKdeDebugExecutableLinuxX32",
+                    "compileKdeKotlinLinuxX32",
                     "linkDebugExecutableLinuxX32",
                     "compileKotlinLinuxX32"
                 ),
                 candidateSourceDirs = listOf(
-                    "bin/linuxX32/qtDebugExecutable",
+                    "bin/linuxX32/kdeDebugExecutable",
                     "bin/linuxX32/debugExecutable"
                 )
             )
             registerTargetTask(
-                name = "productionLinuxQtX32",
-                desc = "Builds the Linux Qt x32 (Qt6 / QPainter / QVulkanWindow) Production target into build/dist/linux-qt/x32/production.",
-                distRelativePath = "dist/linux-qt/x32/production",
+                name = "productionLinuxKdeX32",
+                desc = "Builds the Linux KDE x32 (KF6 / Kirigami / QPainter / QVulkanWindow) Production target into build/dist/linux-kde/x32/production.",
+                distRelativePath = "dist/linux-kde/x32/production",
                 candidateTaskNames = listOf(
-                    "linkQtReleaseExecutableLinuxX32",
-                    "compileQtKotlinLinuxX32",
+                    "linkKdeReleaseExecutableLinuxX32",
+                    "compileKdeKotlinLinuxX32",
                     "linkReleaseExecutableLinuxX32",
                     "compileKotlinLinuxX32"
                 ),
                 candidateSourceDirs = listOf(
-                    "bin/linuxX32/qtReleaseExecutable",
+                    "bin/linuxX32/kdeReleaseExecutable",
                     "bin/linuxX32/releaseExecutable"
                 )
             )
             registerTargetTask(
-                name = "developmentLinuxQtX64",
-                desc = "Builds the Linux Qt x64 (Qt6 / QPainter / QVulkanWindow) Development target into build/dist/linux-qt/x64/development.",
-                distRelativePath = "dist/linux-qt/x64/development",
+                name = "developmentLinuxKdeX64",
+                desc = "Builds the Linux KDE x64 (KF6 / Kirigami / QPainter / QVulkanWindow) Development target into build/dist/linux-kde/x64/development.",
+                distRelativePath = "dist/linux-kde/x64/development",
                 candidateTaskNames = listOf(
-                    "linkQtDebugExecutableLinuxX64",
-                    "compileQtKotlinLinuxX64",
+                    "linkKdeDebugExecutableLinuxX64",
+                    "compileKdeKotlinLinuxX64",
                     "linkDebugExecutableLinuxX64",
                     "compileKotlinLinuxX64"
                 ),
                 candidateSourceDirs = listOf(
-                    "bin/linuxX64/qtDebugExecutable",
+                    "bin/linuxX64/kdeDebugExecutable",
                     "bin/linuxX64/debugExecutable"
                 )
             )
             registerTargetTask(
-                name = "productionLinuxQtX64",
-                desc = "Builds the Linux Qt x64 (Qt6 / QPainter / QVulkanWindow) Production target into build/dist/linux-qt/x64/production.",
-                distRelativePath = "dist/linux-qt/x64/production",
+                name = "productionLinuxKdeX64",
+                desc = "Builds the Linux KDE x64 (KF6 / Kirigami / QPainter / QVulkanWindow) Production target into build/dist/linux-kde/x64/production.",
+                distRelativePath = "dist/linux-kde/x64/production",
                 candidateTaskNames = listOf(
-                    "linkQtReleaseExecutableLinuxX64",
-                    "compileQtKotlinLinuxX64",
+                    "linkKdeReleaseExecutableLinuxX64",
+                    "compileKdeKotlinLinuxX64",
                     "linkReleaseExecutableLinuxX64",
                     "compileKotlinLinuxX64"
                 ),
                 candidateSourceDirs = listOf(
-                    "bin/linuxX64/qtReleaseExecutable",
+                    "bin/linuxX64/kdeReleaseExecutable",
                     "bin/linuxX64/releaseExecutable"
                 )
             )
             registerTargetTask(
-                name = "developmentLinuxQtArm32",
-                desc = "Builds the Linux Qt Arm32 (Qt6 / QPainter / QVulkanWindow) Development target into build/dist/linux-qt/arm32/development.",
-                distRelativePath = "dist/linux-qt/arm32/development",
+                name = "developmentLinuxKdeArm32",
+                desc = "Builds the Linux KDE Arm32 (KF6 / Kirigami / QPainter / QVulkanWindow) Development target into build/dist/linux-kde/arm32/development.",
+                distRelativePath = "dist/linux-kde/arm32/development",
                 candidateTaskNames = listOf(
-                    "linkQtDebugExecutableLinuxArm32Hfp",
-                    "compileQtKotlinLinuxArm32Hfp",
+                    "linkKdeDebugExecutableLinuxArm32Hfp",
+                    "compileKdeKotlinLinuxArm32Hfp",
                     "linkDebugExecutableLinuxArm32Hfp",
                     "compileKotlinLinuxArm32Hfp"
                 ),
                 candidateSourceDirs = listOf(
-                    "bin/linuxArm32Hfp/qtDebugExecutable",
+                    "bin/linuxArm32Hfp/kdeDebugExecutable",
                     "bin/linuxArm32Hfp/debugExecutable"
                 )
             )
             registerTargetTask(
-                name = "productionLinuxQtArm32",
-                desc = "Builds the Linux Qt Arm32 (Qt6 / QPainter / QVulkanWindow) Production target into build/dist/linux-qt/arm32/production.",
-                distRelativePath = "dist/linux-qt/arm32/production",
+                name = "productionLinuxKdeArm32",
+                desc = "Builds the Linux KDE Arm32 (KF6 / Kirigami / QPainter / QVulkanWindow) Production target into build/dist/linux-kde/arm32/production.",
+                distRelativePath = "dist/linux-kde/arm32/production",
                 candidateTaskNames = listOf(
-                    "linkQtReleaseExecutableLinuxArm32Hfp",
-                    "compileQtKotlinLinuxArm32Hfp",
+                    "linkKdeReleaseExecutableLinuxArm32Hfp",
+                    "compileKdeKotlinLinuxArm32Hfp",
                     "linkReleaseExecutableLinuxArm32Hfp",
                     "compileKotlinLinuxArm32Hfp"
                 ),
                 candidateSourceDirs = listOf(
-                    "bin/linuxArm32Hfp/qtReleaseExecutable",
+                    "bin/linuxArm32Hfp/kdeReleaseExecutable",
                     "bin/linuxArm32Hfp/releaseExecutable"
                 )
             )
             registerTargetTask(
-                name = "developmentLinuxQtArm64",
-                desc = "Builds the Linux Qt Arm64 (Qt6 / QPainter / QVulkanWindow) Development target into build/dist/linux-qt/arm64/development.",
-                distRelativePath = "dist/linux-qt/arm64/development",
+                name = "developmentLinuxKdeArm64",
+                desc = "Builds the Linux KDE Arm64 (KF6 / Kirigami / QPainter / QVulkanWindow) Development target into build/dist/linux-kde/arm64/development.",
+                distRelativePath = "dist/linux-kde/arm64/development",
                 candidateTaskNames = listOf(
-                    "linkQtDebugExecutableLinuxArm64",
-                    "compileQtKotlinLinuxArm64",
+                    "linkKdeDebugExecutableLinuxArm64",
+                    "compileKdeKotlinLinuxArm64",
                     "linkDebugExecutableLinuxArm64",
                     "compileKotlinLinuxArm64"
                 ),
                 candidateSourceDirs = listOf(
-                    "bin/linuxArm64/qtDebugExecutable",
+                    "bin/linuxArm64/kdeDebugExecutable",
                     "bin/linuxArm64/debugExecutable"
                 )
             )
             registerTargetTask(
-                name = "productionLinuxQtArm64",
-                desc = "Builds the Linux Qt Arm64 (Qt6 / QPainter / QVulkanWindow) Production target into build/dist/linux-qt/arm64/production.",
-                distRelativePath = "dist/linux-qt/arm64/production",
+                name = "productionLinuxKdeArm64",
+                desc = "Builds the Linux KDE Arm64 (KF6 / Kirigami / QPainter / QVulkanWindow) Production target into build/dist/linux-kde/arm64/production.",
+                distRelativePath = "dist/linux-kde/arm64/production",
                 candidateTaskNames = listOf(
-                    "linkQtReleaseExecutableLinuxArm64",
-                    "compileQtKotlinLinuxArm64",
+                    "linkKdeReleaseExecutableLinuxArm64",
+                    "compileKdeKotlinLinuxArm64",
                     "linkReleaseExecutableLinuxArm64",
                     "compileKotlinLinuxArm64"
                 ),
                 candidateSourceDirs = listOf(
-                    "bin/linuxArm64/qtReleaseExecutable",
+                    "bin/linuxArm64/kdeReleaseExecutable",
                     "bin/linuxArm64/releaseExecutable"
                 )
             )
 
             val isLinuxHost = System.getProperty("os.name").orEmpty().lowercase().contains("linux")
             registerTestTargetTask(
-                name = "testLinuxQtX64",
-                desc = "Runs Linux Qt x64 tests (linuxX64Test on Linux hosts; compiles/links test binary otherwise).",
+                name = "testLinuxKdeX64",
+                desc = "Runs Linux KDE x64 tests (linuxX64Test on Linux hosts; compiles/links test binary otherwise).",
                 candidateTaskNames = buildList {
                     add("compileTestKotlinLinuxX64")
                     add("linkDebugTestLinuxX64")
@@ -2871,8 +3120,8 @@ object GenericUiMultiplatformConfigurator {
                 }
             )
             registerTestTargetTask(
-                name = "testLinuxQtArm64",
-                desc = "Runs Linux Qt Arm64 tests.",
+                name = "testLinuxKdeArm64",
+                desc = "Runs Linux KDE Arm64 tests.",
                 candidateTaskNames = listOf(
                     "compileTestKotlinLinuxArm64",
                     "linkDebugTestLinuxArm64",
@@ -2880,42 +3129,42 @@ object GenericUiMultiplatformConfigurator {
                 )
             )
             registerTestTargetTask(
-                name = "testLinuxQtX32",
-                desc = "Verifies Linux Qt x32 test compilation and readiness.",
+                name = "testLinuxKdeX32",
+                desc = "Verifies Linux KDE x32 test compilation and readiness.",
                 candidateTaskNames = listOf(
                     "compileTestKotlinLinuxX32",
                     "compileTestKotlinLinuxX64",
-                    "developmentLinuxQtX32"
+                    "developmentLinuxKdeX32"
                 )
             )
             registerTestTargetTask(
-                name = "testLinuxQtArm32",
-                desc = "Verifies Linux Qt Arm32 test compilation and readiness.",
+                name = "testLinuxKdeArm32",
+                desc = "Verifies Linux KDE Arm32 test compilation and readiness.",
                 candidateTaskNames = listOf(
                     "compileTestKotlinLinuxArm32Hfp",
                     "compileTestKotlinLinuxArm64",
-                    "developmentLinuxQtArm32"
+                    "developmentLinuxKdeArm32"
                 )
             )
             registerTestTargetTask(
-                name = "testLinuxQt",
-                desc = "Runs the Linux Qt test suite (delegates to testLinuxQtX64).",
-                candidateTaskNames = listOf("testLinuxQtX64")
+                name = "testLinuxKde",
+                desc = "Runs the Linux KDE test suite (delegates to testLinuxKdeX64).",
+                candidateTaskNames = listOf("testLinuxKdeX64")
             )
             registerTestTargetTask(
-                name = "testQt",
-                desc = "Runs the Linux Qt test suite (delegates to testLinuxQt).",
-                candidateTaskNames = listOf("testLinuxQt")
+                name = "testKde",
+                desc = "Runs the Linux KDE test suite (delegates to testLinuxKde).",
+                candidateTaskNames = listOf("testLinuxKde")
             )
         }
 
-        if (backends.gtkEnabled || backends.qtEnabled) {
+        if (backends.gtkEnabled || backends.kdeEnabled) {
             registerTestTargetTask(
                 name = "testLinux",
-                desc = "Runs all enabled Linux backend test suites (GTK and/or Qt).",
+                desc = "Runs all enabled Linux backend test suites (GTK and/or KDE).",
                 candidateTaskNames = buildList {
                     if (backends.gtkEnabled) add("testLinuxGtk")
-                    if (backends.qtEnabled) add("testLinuxQt")
+                    if (backends.kdeEnabled) add("testLinuxKde")
                 }
             )
         }

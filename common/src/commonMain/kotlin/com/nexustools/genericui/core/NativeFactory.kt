@@ -4,6 +4,8 @@ import com.nexustools.genericui.component.layout.DefaultLayoutFactory
 import com.nexustools.genericui.component.layout.LayoutFactory
 import com.nexustools.genericui.enums.bootstrap.BootstrapType
 import com.nexustools.genericui.enums.system.BackendTarget
+import com.nexustools.genericui.exception.RawSocketUnsupportedException
+import com.nexustools.genericui.exception.UnsupportedBackendCapabilityException
 import com.nexustools.genericui.geometry.Rect
 import com.nexustools.genericui.window.MainWindowSavedState
 import com.nexustools.genericui.nativeimpl.action.ButtonNativeImpl
@@ -41,6 +43,7 @@ import com.nexustools.genericui.nativeimpl.tabs.TabContainerNativeImpl
 import com.nexustools.genericui.nativeimpl.tabs.TabNativeImpl
 import com.nexustools.genericui.nativeimpl.overlay.PopoverNativeImpl
 import com.nexustools.genericui.nativeimpl.shell.*
+import com.nexustools.genericui.nativeimpl.surface.StyledComponentNativeImpl
 import com.nexustools.genericui.nativeimpl.system.*
 import com.nexustools.genericui.nativeimpl.typography.MarkdownViewNativeImpl
 import com.nexustools.genericui.nativeimpl.typography.TextNativeImpl
@@ -48,7 +51,7 @@ import com.nexustools.genericui.threading.DefaultUiThreadDispatcherNativeImpl
 import com.nexustools.genericui.threading.UiThreadDispatcherNativeImpl
 
 /**
- * Abstract factory interface implemented by all 8 platform backends (`:qt`, `:gtk`, `:windows`, `:macos`,
+ * Abstract factory interface implemented by all 8 platform backends (`:kde`, `:gtk`, `:windows`, `:macos`,
  * `:swing`, `:android`, `:ios`, `:web`).
  *
  * Components only request their `NativeImpl` from [NativeFactory] when they are connected to a visible
@@ -67,6 +70,9 @@ interface NativeFactory {
         get() = false
 
     val supportsMultipleWindows: Boolean
+        get() = true
+
+    val supportsDialogWindows: Boolean
         get() = true
 
     val supportsToolModalWindows: Boolean
@@ -196,6 +202,13 @@ interface NativeFactory {
         classPrefix: String = "styled-container",
         tagName: String = "genericui:styled-container"
     ): StyledContainerNativeImpl<*>
+    fun createStyledComponent(
+        classPrefix: String = "styled-component",
+        tagName: String = "genericui:styled-component"
+    ): StyledComponentNativeImpl<*> = throw UnsupportedBackendCapabilityException(
+        capability = "createStyledComponent",
+        backendName = backendName
+    )
     fun createBookContainer(): BookContainerNativeImpl<*>
     fun createScrollView(): ScrollViewNativeImpl<*>
     fun createScrollView(tagName: String): ScrollViewNativeImpl<*> = createScrollView()
@@ -238,6 +251,7 @@ interface NativeFactory {
     // System Services & Async I/O / Database
     fun createUiThreadDispatcher(): UiThreadDispatcherNativeImpl = DefaultUiThreadDispatcherNativeImpl()
     fun createUiTimerScheduler(): UiTimerNativeImpl = DefaultUiTimerNativeImpl()
+    fun createAnimationScheduler(): AnimationNativeImpl = DefaultAnimationNativeImpl()
     fun createPermissionManager(): PermissionManagerNativeImpl
     fun createSystemTray(): SystemTrayNativeImpl
     fun createNotificationManager(): NotificationManagerNativeImpl
@@ -271,13 +285,13 @@ interface NativeFactory {
     fun supportsMulticastUdp(): Boolean = supportsUdp()
     fun createTcpSocket(): TcpSocketNativeImpl {
         if (!supportsTcp()) {
-            throw UnsupportedOperationException("Raw TCP sockets are not supported on backend '$backendName'.")
+            throw RawSocketUnsupportedException("tcp", backendTarget.displayName)
         }
         return com.nexustools.genericui.nativeimpl.net.DefaultTcpSocketNativeImpl()
     }
     fun createUdpSocket(): UdpSocketNativeImpl {
         if (!supportsUdp()) {
-            throw UnsupportedOperationException("Raw UDP sockets are not supported on backend '$backendName'.")
+            throw RawSocketUnsupportedException("udp", backendTarget.displayName)
         }
         return com.nexustools.genericui.nativeimpl.net.DefaultUdpSocketNativeImpl()
     }

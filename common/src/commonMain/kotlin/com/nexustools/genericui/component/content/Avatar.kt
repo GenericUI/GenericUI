@@ -1,6 +1,5 @@
 package com.nexustools.genericui.component.content
 
-import com.nexustools.genericui.enums.bootstrap.BorderRadiusStyle
 import com.nexustools.genericui.enums.ui.ObjectFit
 
 /**
@@ -13,9 +12,9 @@ class Avatar(
 ) : ImageView(sourceUrl = imageUrl, objectFit = ObjectFit.COVER) {
     init {
         htmlTag = "genericui:avatar"
+        addClass("avatar")
         this.fallbackText = initialsFallback
         this.widthPx = sizePx
         this.heightPx = sizePx
-        this.borderRadiusStyle = BorderRadiusStyle.CIRCLE
     }
 }

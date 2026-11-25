@@ -2,16 +2,17 @@ package com.nexustools.genericui.component.action
 
 import com.nexustools.genericui.core.AbstractContainer
 import com.nexustools.genericui.core.NativeFactory
-import com.nexustools.genericui.enums.bootstrap.BootstrapType
 import com.nexustools.genericui.nativeimpl.action.DropdownNativeImpl
 
 /**
  * Dropdown menu button (`<div class="dropdown">`).
  */
 open class DropdownButton(
-    label: String = "",
-    type: BootstrapType = BootstrapType.PRIMARY
+    label: String = ""
 ) : AbstractContainer() {
+    override val supportsFocus: Boolean
+        get() = true
+
     var label: String = label
         set(value) {
             field = value
@@ -25,7 +26,6 @@ open class DropdownButton(
 
     init {
         htmlTag = "genericui:dropdownbutton"
-        this.type = type
     }
 
     fun addItem(id: String, title: String): DropdownButton = apply {

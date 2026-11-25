@@ -12,7 +12,7 @@ import org.gradle.api.Action
  *     - desktopCommon (desktopCommon / desktopMain, desktopTest)
  *       - swing (swing / swingMain, swingTest -> jvmMain)
  *       - desktopNativeCommon (desktopNativeCommon / desktopNativeMain, desktopNativeTest)
- *         - qt, gtk, windows, mac (qt / qtMain, gtk / gtkMain, linuxCommon / linuxMain, windows / windowsMain, mac / macMain / macosMain)
+ *         - kde, gtk, windows, mac (kde / kdeMain, gtk / gtkMain, linuxCommon / linuxMain, windows / windowsMain, mac / macMain / macosMain)
  *     - mobileCommon (mobileCommon / mobileMain, mobileTest)
  *       - android, ios (android / androidMain, ios / iosMain)
  * ```
@@ -76,9 +76,9 @@ open class GenericUiSourceSetsConfig {
     val gtkMain: GenericUiSourceSetSpec get() = gtk
     val gtkTest: GenericUiSourceSetSpec = GenericUiSourceSetSpec("gtkTest")
 
-    val qt: GenericUiSourceSetSpec = GenericUiSourceSetSpec("qtMain")
-    val qtMain: GenericUiSourceSetSpec get() = qt
-    val qtTest: GenericUiSourceSetSpec = GenericUiSourceSetSpec("qtTest")
+    val kde: GenericUiSourceSetSpec = GenericUiSourceSetSpec("kdeMain")
+    val kdeMain: GenericUiSourceSetSpec get() = kde
+    val kdeTest: GenericUiSourceSetSpec = GenericUiSourceSetSpec("kdeTest")
 
     val mobileCommon: GenericUiSourceSetSpec = GenericUiSourceSetSpec("mobileCommon")
     val mobileMain: GenericUiSourceSetSpec get() = mobileCommon
@@ -154,9 +154,9 @@ open class GenericUiSourceSetsConfig {
     fun gtkMain(action: Action<in GenericUiSourceSetSpec>) = action.execute(gtk)
     fun gtkTest(action: Action<in GenericUiSourceSetSpec>) = action.execute(gtkTest)
 
-    fun qt(action: Action<in GenericUiSourceSetSpec>) = action.execute(qt)
-    fun qtMain(action: Action<in GenericUiSourceSetSpec>) = action.execute(qt)
-    fun qtTest(action: Action<in GenericUiSourceSetSpec>) = action.execute(qtTest)
+    fun kde(action: Action<in GenericUiSourceSetSpec>) = action.execute(kde)
+    fun kdeMain(action: Action<in GenericUiSourceSetSpec>) = action.execute(kde)
+    fun kdeTest(action: Action<in GenericUiSourceSetSpec>) = action.execute(kdeTest)
 
     fun mobileCommon(action: Action<in GenericUiSourceSetSpec>) = action.execute(mobileCommon)
     fun mobileMain(action: Action<in GenericUiSourceSetSpec>) = action.execute(mobileCommon)
@@ -218,8 +218,8 @@ open class GenericUiSourceSetsConfig {
             "linuxtest" -> linuxTest
             "gtk", "gtkmain" -> gtk
             "gtktest" -> gtkTest
-            "qt", "qtmain" -> qt
-            "qttest" -> qtTest
+            "kde", "kdemain" -> kde
+            "kdetest" -> kdeTest
             "mobile", "mobilemain", "mobilecommon" -> mobileCommon
             "mobiletest" -> mobileTest
             "android", "androidmain" -> android
@@ -260,8 +260,8 @@ open class GenericUiSourceSetsConfig {
         linuxTest,
         gtk,
         gtkTest,
-        qt,
-        qtTest,
+        kde,
+        kdeTest,
         mobileCommon,
         mobileTest,
         android,

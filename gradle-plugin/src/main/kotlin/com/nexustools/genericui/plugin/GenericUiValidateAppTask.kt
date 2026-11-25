@@ -159,8 +159,14 @@ abstract class GenericUiValidateAppTask : DefaultTask() {
         ): List<String> {
             val mainFragments = discoveredFragments.filter { it.isMainFragment && !it.isApplicationClass }
 
-            // Validate constructors of all discovered fragments/applications immediately
+            // Validate constructors and annotation flags of all discovered fragments/applications immediately
             for (fragment in discoveredFragments) {
+                if (fragment.hasIllegalMainDialogFlag) {
+                    throw IllegalStateException(
+                        "@MainAppFragment class '${fragment.qualifiedName}' must not declare 'dialog': " +
+                            "the 'dialog' flag is only supported on @AppFragment, not @MainAppFragment."
+                    )
+                }
                 if (!fragment.hasNoArgConstructor) {
                     val annotationLabel = when {
                         fragment.isApplicationClass -> "@AppApplication"

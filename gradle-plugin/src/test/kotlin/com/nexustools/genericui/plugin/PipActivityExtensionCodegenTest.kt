@@ -328,7 +328,7 @@ class PipActivityExtensionCodegenTest {
             GenericUiVariantScope.WINDOWS to "com.nexustools.genericui.ext.pip.windows.WindowsPipProvider.register()",
             GenericUiVariantScope.MACOS to "com.nexustools.genericui.ext.pip.macos.MacosPipProvider.register()",
             GenericUiVariantScope.GTK to "com.nexustools.genericui.ext.pip.gtk.GtkPipProvider.register()",
-            GenericUiVariantScope.QT to "com.nexustools.genericui.ext.pip.qt.QtPipProvider.register()",
+            GenericUiVariantScope.KDE to "com.nexustools.genericui.ext.pip.kde.KdePipProvider.register()",
             GenericUiVariantScope.LINUX_COMMON to "com.nexustools.genericui.ext.pip.desktop.DesktopPipProvider.register()",
             GenericUiVariantScope.NATIVE_DESKTOP_COMMON to "com.nexustools.genericui.ext.pip.desktop.DesktopPipProvider.register()",
             GenericUiVariantScope.DESKTOP_COMMON to "com.nexustools.genericui.ext.pip.desktop.DesktopPipProvider.register()",

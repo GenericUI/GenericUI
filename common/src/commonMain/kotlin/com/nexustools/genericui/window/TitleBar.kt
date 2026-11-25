@@ -67,7 +67,50 @@ class TitleBar(
         return this
     }
 
+    internal fun replaceComponents(
+        leading: List<AbstractComponent>,
+        center: List<AbstractComponent>,
+        trailing: List<AbstractComponent>
+    ): Boolean {
+        fun listsMatch(current: List<AbstractComponent>, next: List<AbstractComponent>): Boolean {
+            if (current.size != next.size) return false
+            for (i in current.indices) {
+                if (current[i] !== next[i] || current[i].mountedInTitleBar != activeHostEmbedsComponents) {
+                    return false
+                }
+            }
+            return true
+        }
+        if (listsMatch(_leadingComponents, leading) &&
+            listsMatch(_centerComponents, center) &&
+            listsMatch(_trailingComponents, trailing)
+        ) {
+            return false
+        }
+        markEmbeddedComponentsMounted(false)
+        _leadingComponents.clear()
+        _centerComponents.clear()
+        _trailingComponents.clear()
+        for (c in leading) {
+            c.mountedInTitleBar = activeHostEmbedsComponents
+            _leadingComponents.add(c)
+        }
+        for (c in center) {
+            c.mountedInTitleBar = activeHostEmbedsComponents
+            _centerComponents.add(c)
+        }
+        for (c in trailing) {
+            c.mountedInTitleBar = activeHostEmbedsComponents
+            _trailingComponents.add(c)
+        }
+        onInstructionsChanged?.invoke()
+        return true
+    }
+
     fun clearComponents() {
+        if (_leadingComponents.isEmpty() && _centerComponents.isEmpty() && _trailingComponents.isEmpty()) {
+            return
+        }
         markEmbeddedComponentsMounted(false)
         _leadingComponents.clear()
         _centerComponents.clear()

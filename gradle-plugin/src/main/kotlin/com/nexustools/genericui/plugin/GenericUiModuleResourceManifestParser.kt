@@ -53,6 +53,11 @@ object GenericUiModuleResourceManifestParser {
         }
     }
 
+    data class ThemeTemplate(
+        val scopeId: String,
+        val rawScss: String
+    )
+
     data class ModuleManifest(
         val schemaVersion: Int,
         val scopeId: String,
@@ -60,8 +65,113 @@ object GenericUiModuleResourceManifestParser {
         val moduleGroupId: String,
         val scopePrefix: String,
         val packageName: String,
-        val entries: List<ManifestEntry>
+        val entries: List<ManifestEntry>,
+        val themeScssText: String? = null
     )
+
+    fun readThemeTemplatesFromSources(sources: Collection<File>): List<ThemeTemplate> {
+        val byScope = linkedMapOf<String, String>()
+        fun recordTemplate(scopeId: String, rawScss: String) {
+            val cleanScope = scopeId.trim().ifEmpty { "genericui-upstream" }
+            val trimmed = rawScss.trim()
+            if (trimmed.isNotEmpty() && cleanScope !in byScope) {
+                byScope[cleanScope] = trimmed
+            }
+        }
+
+        val themeExtensions = setOf("scss", "sass", "css")
+        for (source in sources) {
+            if (!source.exists()) continue
+            when {
+                source.isFile && source.extension.lowercase(Locale.US) in themeExtensions -> {
+                    recordTemplate(source.nameWithoutExtension, source.readText(Charsets.UTF_8))
+                }
+                source.isFile && source.extension.equals("json", ignoreCase = true) -> {
+                    parseJsonManifest(source.readText(Charsets.UTF_8))?.let { m ->
+                        m.themeScssText?.let { recordTemplate(m.scopeId, it) }
+                    }
+                }
+                source.isFile && (
+                    source.extension.equals("jar", ignoreCase = true) ||
+                        source.extension.equals("klib", ignoreCase = true) ||
+                        source.extension.equals("zip", ignoreCase = true)
+                    ) -> {
+                    runCatching {
+                        ZipFile(source).use { zip ->
+                            val entries = zip.entries()
+                            val themeEntries = mutableListOf<Pair<String, String>>()
+                            val manifestEntries = mutableListOf<ModuleManifest>()
+                            while (entries.hasMoreElements()) {
+                                val entry = entries.nextElement()
+                                if (entry.isDirectory) continue
+                                val norm = entry.name.replace('\\', '/').trimStart('/')
+                                val themeRel = when {
+                                    norm.startsWith("META-INF/genericui/themes/") ->
+                                        norm.removePrefix("META-INF/genericui/themes/")
+                                    norm.startsWith("default/resources/META-INF/genericui/themes/") ->
+                                        norm.removePrefix("default/resources/META-INF/genericui/themes/")
+                                    else -> null
+                                }
+                                if (themeRel != null && !themeRel.contains('/') &&
+                                    themeRel.substringAfterLast('.', "").lowercase(Locale.US) in themeExtensions
+                                ) {
+                                    val scope = themeRel.substringBeforeLast('.')
+                                    val txt = zip.getInputStream(entry).bufferedReader(Charsets.UTF_8).readText()
+                                    themeEntries.add(scope to txt)
+                                } else {
+                                    val isJson = (
+                                        norm.startsWith("META-INF/genericui/module-resources/") ||
+                                            norm.startsWith("default/resources/META-INF/genericui/module-resources/") ||
+                                            norm == "META-INF/genericui-module-resources.json"
+                                        ) && norm.endsWith(".json", ignoreCase = true)
+                                    if (isJson) {
+                                        val jsonText = zip.getInputStream(entry).bufferedReader(Charsets.UTF_8).readText()
+                                        parseJsonManifest(jsonText)?.let { manifestEntries.add(it) }
+                                    }
+                                }
+                            }
+                            themeEntries.sortedBy { it.first }.forEach { (scope, txt) ->
+                                recordTemplate(scope, txt)
+                            }
+                            manifestEntries.sortedBy { it.scopeId }.forEach { m ->
+                                m.themeScssText?.let { recordTemplate(m.scopeId, it) }
+                            }
+                        }
+                    }
+                }
+                source.isDirectory -> {
+                    val themeDirs = listOfNotNull(
+                        File(source, "META-INF/genericui/themes"),
+                        File(source, "default/resources/META-INF/genericui/themes"),
+                        source.parentFile?.let { File(it, "themes") },
+                        source.takeIf { it.name == "themes" }
+                    ).filter { it.isDirectory }
+                    for (tDir in themeDirs) {
+                        tDir.listFiles()
+                            ?.filter { it.isFile && it.extension.lowercase(Locale.US) in themeExtensions }
+                            ?.sortedBy { it.name }
+                            ?.forEach { f ->
+                                recordTemplate(f.nameWithoutExtension, f.readText(Charsets.UTF_8))
+                            }
+                    }
+                    readFromDirectory(source).sortedBy { it.scopeId }.forEach { m ->
+                        m.themeScssText?.let { recordTemplate(m.scopeId, it) }
+                    }
+                }
+            }
+        }
+
+        // Canonical cascade ordering: :common first, then extensions sorted by scopeId
+        return byScope.entries
+            .sortedWith(compareBy<Map.Entry<String, String>> {
+                when {
+                    it.key == "genericui-common" -> 0
+                    it.key.startsWith("genericui-ext-") -> 1
+                    else -> 2
+                }
+            }.thenBy { it.key })
+            .map { ThemeTemplate(scopeId = it.key, rawScss = it.value) }
+    }
 
     fun readManifestsFromSources(sources: Collection<File>): List<ModuleManifest> {
         val result = mutableListOf<ModuleManifest>()
@@ -71,21 +181,24 @@ object GenericUiModuleResourceManifestParser {
             when {
                 source.isFile && source.extension.equals("json", ignoreCase = true) -> {
                     parseJsonManifest(source.readText(Charsets.UTF_8))?.let { m ->
-                        if (seenKeys.add("${m.scopeId}|${m.packageName}|${m.entries.size}")) {
+                        val key = "${m.scopeId}|${m.packageName}|${m.entries.size}|${m.themeScssText?.hashCode() ?: 0}"
+                        if (seenKeys.add(key)) {
                             result.add(m)
                         }
                     }
                 }
                 source.isFile && (source.extension.equals("jar", ignoreCase = true) || source.extension.equals("klib", ignoreCase = true) || source.extension.equals("zip", ignoreCase = true)) -> {
                     readFromZipArchive(source).forEach { m ->
-                        if (seenKeys.add("${m.scopeId}|${m.packageName}|${m.entries.size}")) {
+                        val key = "${m.scopeId}|${m.packageName}|${m.entries.size}|${m.themeScssText?.hashCode() ?: 0}"
+                        if (seenKeys.add(key)) {
                             result.add(m)
                         }
                     }
                 }
                 source.isDirectory -> {
                     readFromDirectory(source).forEach { m ->
-                        if (seenKeys.add("${m.scopeId}|${m.packageName}|${m.entries.size}")) {
+                        val key = "${m.scopeId}|${m.packageName}|${m.entries.size}|${m.themeScssText?.hashCode() ?: 0}"
+                        if (seenKeys.add(key)) {
                             result.add(m)
                         }
                     }
@@ -208,6 +321,12 @@ object GenericUiModuleResourceManifestParser {
             ?: inferScopePrefix(pkgName, moduleByte)
         val scopeId = headerStrings["scopeId"]?.takeIf { it.isNotEmpty() }
             ?: moduleGroupId.ifEmpty { pkgName.ifEmpty { "genericui-upstream" } }
+        val themeScssB64 = headerStrings["themeScssBase64"].orEmpty()
+        val themeScssText = if (themeScssB64.isNotEmpty()) {
+            runCatching { String(Base64.getDecoder().decode(themeScssB64), Charsets.UTF_8) }.getOrNull()
+        } else {
+            null
+        }
 
         val parsedEntries = ArrayList<ManifestEntry>(entryObjects.size)
 
@@ -281,7 +400,8 @@ object GenericUiModuleResourceManifestParser {
             moduleGroupId = moduleGroupId,
             scopePrefix = scopePrefix,
             packageName = pkgName,
-            entries = parsedEntries
+            entries = parsedEntries,
+            themeScssText = themeScssText
         )
     }
 

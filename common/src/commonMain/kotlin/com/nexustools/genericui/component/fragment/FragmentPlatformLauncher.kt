@@ -1,6 +1,5 @@
 package com.nexustools.genericui.component.fragment
 
-import com.nexustools.genericui.enums.fragment.FragmentLaunchMode
 import com.nexustools.genericui.window.IWindow
 import kotlin.reflect.KClass
 
@@ -15,7 +14,9 @@ fun interface FragmentPlatformLauncher {
      *
      * @param fragmentClass the [IFragment] implementation being launched.
      * @param launchArgs the launch arguments to deliver to the new fragment's `onCreate`.
-     * @param launchMode how the fragment should be presented relative to [sourceWindow].
+     * @param openAdditionalWindow `true` when opening [fragmentClass] in a separate top-level window.
+     * @param clearTask `true` when clearing the navigation stack before showing [fragmentClass].
+     * @param isDialog `true` when [fragmentClass] metadata marks it as a dialog fragment (`dialog = true`).
      * @param sourceWindow the window the launch originated from, if known.
      * @return `true` if the platform fully handled the launch (the coordinator then performs no
      *   in-process mounting), `false` to fall back to the default [FragmentLaunchCoordinator] behavior.
@@ -23,7 +24,9 @@ fun interface FragmentPlatformLauncher {
     fun launch(
         fragmentClass: KClass<out IFragment>,
         launchArgs: FragmentBundle?,
-        launchMode: FragmentLaunchMode,
+        openAdditionalWindow: Boolean,
+        clearTask: Boolean,
+        isDialog: Boolean,
         sourceWindow: IWindow?
     ): Boolean
 }

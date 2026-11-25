@@ -8,7 +8,7 @@ import com.nexustools.genericui.core.Disposable
  * Native backend contract for [com.nexustools.genericui.component.system.PreferenceStore].
  *
  * Each platform backend stores preference keys using its native per-key mechanism:
- * - **Windows / Linux (`:desktop:windows`, `:desktop:gtk`, `:desktop:qt`)**: `<configDir>/<appName>/<key>.bson` encoded with [com.nexustools.genericui.util.BinaryJson].
+ * - **Windows / Linux (`:desktop:windows`, `:desktop:gtk`, `:desktop:kde`)**: `<configDir>/<appName>/<key>.bson` encoded with [com.nexustools.genericui.util.BinaryJson].
  * - **macOS / iOS (`:desktop:macos`, `:mobile:ios`)**: `<configDir>/<appName>/<key>.plist` encoded with [com.nexustools.genericui.util.BinaryPlist] (`bplist00`).
  * - **Swing (`:desktop:swing`)**: `<configDir>/<appName>/<key>.plist` (`BinaryPlist` on macOS) or `<configDir>/<appName>/<key>.bson` (`BinaryJson` on Windows/Linux) + Java NIO `WatchService`.
  * - **Android (`:mobile:android`)**: `android.content.SharedPreferences` (`context.getSharedPreferences(appName, Context.MODE_PRIVATE)`) + `OnSharedPreferenceChangeListener`.

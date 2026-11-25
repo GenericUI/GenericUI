@@ -3,6 +3,8 @@ package com.nexustools.genericui.component.dialog
 import com.nexustools.genericui.component.shell.Window
 import com.nexustools.genericui.core.GenericUI
 import com.nexustools.genericui.enums.dialog.FileBrowserMode
+import com.nexustools.genericui.exception.DirectorySelectionUnsupportedException
+import com.nexustools.genericui.exception.NativeUninitializedException
 import com.nexustools.genericui.io.FileSystem
 import com.nexustools.genericui.io.Readable
 import com.nexustools.genericui.io.Writable
@@ -55,19 +57,23 @@ open class FileBrowserDialog(
 
     /**
      * Opens the native file or folder browser and delivers the result or cancellation to [callback].
+     *
+     * @throws NativeUninitializedException if no [NativeFactory] is initialized.
+     * @throws DirectorySelectionUnsupportedException if [mode] is [FileBrowserMode.SELECT_FOLDER] on a backend
+     *   where [NativeFactory.supportsDirectorySelection] is `false`.
      */
     fun show(ownerWindow: Window? = null, callback: FileBrowserCallback) {
         val factory = ownerWindow?.activeFactory ?: GenericUI.activeFactory
-        val request = toRequest()
-        if (factory != null) {
-            factory.createFileBrowserDialog().showFileBrowser(
-                parentWindow = ownerWindow?.nativeImpl as? WindowNativeImpl<*>,
-                request = request,
-                callback = callback
-            )
-        } else {
-            callback.onCancelled()
+            ?: throw NativeUninitializedException("FileBrowserDialog", "show")
+        if (mode == FileBrowserMode.SELECT_FOLDER && !factory.supportsDirectorySelection) {
+            throw DirectorySelectionUnsupportedException(factory.backendTarget.displayName)
         }
+        val request = toRequest()
+        factory.createFileBrowserDialog().showFileBrowser(
+            parentWindow = ownerWindow?.nativeImpl as? WindowNativeImpl<*>,
+            request = request,
+            callback = callback
+        )
     }
 
     /**

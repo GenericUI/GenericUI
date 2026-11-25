@@ -123,7 +123,7 @@ class Phase2CodegenAndAndroidTasksTest {
         assertTrue(validationReport.contains("backend.android.mainFragment=com.example.studio.MobileMainFragment"))
         assertTrue(validationReport.contains("backend.ios.mainFragment=com.example.studio.MobileMainFragment"))
 
-        // 2. Generate launchers for Windows, macOS, GTK, Qt, Swing, iOS, Web
+        // 2. Generate launchers for Windows, macOS, GTK, KDE, Swing, iOS, Web
         val launchersTask = project.tasks.getByName("generateGenericUiLaunchers") as GenericUiGenerateLaunchersTask
         launchersTask.generateLaunchers()
         val launchersRoot = launchersTask.outputDirectory.get().asFile
@@ -147,6 +147,16 @@ class Phase2CodegenAndAndroidTasksTest {
         val swingDescriptor = File(launchersRoot, "swing/kotlin/com/example/studio/generated/GeneratedSwingAppDescriptor.kt")
         assertTrue(swingDescriptor.isFile, "Expected GeneratedSwingAppDescriptor.kt")
         assertTrue(swingDescriptor.readText().contains("applicationFactory = { _: com.nexustools.genericui.component.fragment.FragmentBundle? -> com.example.studio.StudioApplication() }"))
+
+        val kdeDescriptor = File(launchersRoot, "kde/kotlin/com/example/studio/generated/GeneratedKdeAppDescriptor.kt")
+        val kdeMain = File(launchersRoot, "kde/kotlin/com/example/studio/generated/GeneratedKdeLauncherMain.kt")
+        val kdeBootstrap = File(launchersRoot, "kdeTest/kotlin/com/example/studio/generated/GeneratedKdeTestBootstrap.kt")
+        assertTrue(kdeDescriptor.isFile, "Expected GeneratedKdeAppDescriptor.kt")
+        assertTrue(kdeMain.isFile, "Expected GeneratedKdeLauncherMain.kt")
+        assertTrue(kdeBootstrap.isFile, "Expected GeneratedKdeTestBootstrap.kt")
+        assertTrue(kdeDescriptor.readText().contains("KdeMediaControlsProvider.register()"))
+        assertTrue(kdeMain.readText().contains("com.nexustools.genericui.kde.KdeLauncher.launch(args, GeneratedKdeAppDescriptor.create())"))
+        assertTrue(kdeBootstrap.readText().contains("KdeJestElectricBootstrap.installIfEnabled()"))
 
         val webDescriptor = File(launchersRoot, "web/kotlin/com/example/studio/generated/GeneratedWebAppDescriptor.kt")
         val webMain = File(launchersRoot, "web/kotlin/com/example/studio/generated/GeneratedWebLauncherMain.kt")

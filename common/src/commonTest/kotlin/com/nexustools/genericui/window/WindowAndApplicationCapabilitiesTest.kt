@@ -17,10 +17,56 @@ import com.nexustools.genericui.component.shell.IApplication
 import com.nexustools.genericui.component.shell.MdiContainer
 import com.nexustools.genericui.component.shell.MdiWindow
 import com.nexustools.genericui.component.shell.Window
+import com.nexustools.genericui.core.GenericUI
+import com.nexustools.genericui.core.NativeFactory
 import com.nexustools.genericui.enums.dock.DockPosition
-import com.nexustools.genericui.enums.fragment.FragmentLaunchMode
 import com.nexustools.genericui.enums.system.AppTarget
 import com.nexustools.genericui.enums.system.BackendTarget
+import com.nexustools.genericui.nativeimpl.action.ButtonNativeImpl
+import com.nexustools.genericui.nativeimpl.action.DropdownNativeImpl
+import com.nexustools.genericui.nativeimpl.action.StyledButtonNativeImpl
+import com.nexustools.genericui.nativeimpl.content.ImageNativeImpl
+import com.nexustools.genericui.nativeimpl.content.TableNativeImpl
+import com.nexustools.genericui.nativeimpl.dialog.DialogWindowNativeImpl
+import com.nexustools.genericui.nativeimpl.dialog.FileBrowserDialogNativeImpl
+import com.nexustools.genericui.nativeimpl.dialog.StandardDialogsNativeImpl
+import com.nexustools.genericui.nativeimpl.dock.DockAreaNativeImpl
+import com.nexustools.genericui.nativeimpl.dock.DockGroupNativeImpl
+import com.nexustools.genericui.nativeimpl.dock.DockPanelNativeImpl
+import com.nexustools.genericui.nativeimpl.dock.DockWindowNativeImpl
+import com.nexustools.genericui.nativeimpl.dock.DockWorkspaceNativeImpl
+import com.nexustools.genericui.nativeimpl.dock.ToolPaletteNativeImpl
+import com.nexustools.genericui.nativeimpl.document.BookContainerNativeImpl
+import com.nexustools.genericui.nativeimpl.feedback.ProgressBarNativeImpl
+import com.nexustools.genericui.nativeimpl.feedback.SpinnerNativeImpl
+import com.nexustools.genericui.nativeimpl.form.CheckboxNativeImpl
+import com.nexustools.genericui.nativeimpl.form.RangeSliderNativeImpl
+import com.nexustools.genericui.nativeimpl.form.SelectNativeImpl
+import com.nexustools.genericui.nativeimpl.form.TextInputNativeImpl
+import com.nexustools.genericui.nativeimpl.layout.ContainerNativeImpl
+import com.nexustools.genericui.nativeimpl.layout.DividerNativeImpl
+import com.nexustools.genericui.nativeimpl.layout.ScrollViewNativeImpl
+import com.nexustools.genericui.nativeimpl.layout.StyledContainerNativeImpl
+import com.nexustools.genericui.nativeimpl.lazy.LazyGridNativeImpl
+import com.nexustools.genericui.nativeimpl.lazy.LazyListNativeImpl
+import com.nexustools.genericui.nativeimpl.lazy.TreeViewNativeImpl
+import com.nexustools.genericui.nativeimpl.navigation.BottomNavigationBarNativeImpl
+import com.nexustools.genericui.nativeimpl.navigation.NavbarNativeImpl
+import com.nexustools.genericui.nativeimpl.overlay.PopoverNativeImpl
+import com.nexustools.genericui.nativeimpl.shell.ApplicationNativeImpl
+import com.nexustools.genericui.nativeimpl.shell.ContextMenuNativeImpl
+import com.nexustools.genericui.nativeimpl.shell.MenuBarNativeImpl
+import com.nexustools.genericui.nativeimpl.shell.MenuItemNativeImpl
+import com.nexustools.genericui.nativeimpl.shell.MenuNativeImpl
+import com.nexustools.genericui.nativeimpl.shell.WindowNativeImpl
+import com.nexustools.genericui.nativeimpl.system.NetworkMonitorNativeImpl
+import com.nexustools.genericui.nativeimpl.system.NotificationManagerNativeImpl
+import com.nexustools.genericui.nativeimpl.system.PermissionManagerNativeImpl
+import com.nexustools.genericui.nativeimpl.system.SystemTrayNativeImpl
+import com.nexustools.genericui.nativeimpl.tabs.TabContainerNativeImpl
+import com.nexustools.genericui.nativeimpl.tabs.TabNativeImpl
+import com.nexustools.genericui.nativeimpl.typography.MarkdownViewNativeImpl
+import com.nexustools.genericui.nativeimpl.typography.TextNativeImpl
 import com.nexustools.genericui.style.color.RgbaColor
 import com.nexustools.genericui.style.css.CssFilter
 import com.nexustools.genericui.style.css.CssLength
@@ -68,7 +114,7 @@ class WindowAndApplicationCapabilitiesTest {
         assertFalse(BackendTarget.Windows.isBrowser)
 
         assertTrue(BackendTarget.Gtk.isLinux)
-        assertTrue(BackendTarget.Qt.isLinux)
+        assertTrue(BackendTarget.Kde.isLinux)
         assertTrue(BackendTarget.Swing.isDesktop)
         assertFalse(BackendTarget.Swing.isNativeDesktop)
         assertTrue(BackendTarget.Swing.isJvm)
@@ -104,17 +150,19 @@ class WindowAndApplicationCapabilitiesTest {
         assertEquals("windows", BackendTarget.Windows.id)
         assertEquals("macos", BackendTarget.MacOS.id)
         assertEquals("gtk", BackendTarget.Gtk.id)
-        assertEquals("qt", BackendTarget.Qt.id)
+        assertEquals("kde", BackendTarget.Kde.id)
         assertEquals("swing", BackendTarget.Swing.id)
         assertEquals("android", BackendTarget.Android.id)
         assertEquals("ios", BackendTarget.IOS.id)
         assertEquals("ipados", BackendTarget.IPadOS.id)
         assertEquals("web", BackendTarget.Web.id)
 
+        assertEquals(BackendTarget.Kde, BackendTarget.fromId("kde"))
         assertEquals(BackendTarget.IPadOS, BackendTarget.fromId("ipados"))
         assertEquals(BackendTarget.IPadOS, BackendTarget.fromId("  IPadOS "))
         assertEquals(BackendTarget.IOS, BackendTarget.fromId("ios"))
         assertEquals(BackendTarget.MacOS, BackendTarget.fromId("macos"))
+        assertNull(BackendTarget.fromId("qt"))
         assertNull(BackendTarget.fromId("unknown-target"))
         assertNull(BackendTarget.fromId(null))
     }
@@ -132,8 +180,20 @@ class WindowAndApplicationCapabilitiesTest {
         assertEquals(5, AppTarget.IOS_COMMON.specificityRank)
         assertEquals(6, AppTarget.IPADOS.specificityRank)
 
+        assertEquals(AppTarget.KDE, AppTarget.fromBackendTarget(BackendTarget.Kde))
         assertEquals(AppTarget.IPADOS, AppTarget.fromBackendTarget(BackendTarget.IPadOS))
 
+        assertEquals(
+            listOf(
+                AppTarget.KDE,
+                AppTarget.LINUX_COMMON,
+                AppTarget.NATIVE_DESKTOP_COMMON,
+                AppTarget.DESKTOP_COMMON,
+                AppTarget.SYSTEM_COMMON,
+                AppTarget.COMMON
+            ),
+            AppTarget.specificityChainFor(BackendTarget.Kde)
+        )
         assertEquals(
             listOf(
                 AppTarget.GTK,
@@ -234,17 +294,22 @@ class WindowAndApplicationCapabilitiesTest {
         assertEquals(BackendTarget.IPadOS, LayoutBackendTarget.IPADOS.toBackendTarget())
         assertEquals(LayoutBackendTarget.IPADOS, LayoutBackendTarget.fromBackendTarget(BackendTarget.IPadOS))
         assertEquals(LayoutBackendTarget.IPADOS, LayoutBackendTarget.fromId("ipados"))
+        assertEquals(BackendTarget.Kde, LayoutBackendTarget.KDE.toBackendTarget())
+        assertEquals(LayoutBackendTarget.KDE, LayoutBackendTarget.fromBackendTarget(BackendTarget.Kde))
+        assertEquals(LayoutBackendTarget.KDE, LayoutBackendTarget.fromId("kde"))
+        assertNull(LayoutBackendTarget.fromId("qt"))
 
         val styled = StyledContainer()
         val styledButton = com.nexustools.genericui.component.action.StyledButton("Go")
-        val textBubble = com.nexustools.genericui.component.surface.TextBubble("Hi")
         val regularButton = Button("Ok")
         for (target in LayoutBackendTarget.entries) {
             assertTrue(AestheticStylePolicy.supportsBackdropFilterBlur(styled, target))
             assertTrue(AestheticStylePolicy.supportsBackdropFilterBlur(styledButton, target))
-            assertFalse(AestheticStylePolicy.supportsBackdropFilterBlur(textBubble, target))
             assertFalse(AestheticStylePolicy.supportsBackdropFilterBlur(regularButton, target))
         }
+        styled.setBackdropBlur(12)
+        assertEquals(12f, styled.backdropFilter?.blur?.resolvePx())
+        assertEquals(12f, styled.resolveVisualSpec().backdropBlurPx)
         assertTrue(AestheticStylePolicy.supportsBackdropFilterBlur(styled, BackendTarget.IPadOS))
         assertTrue(AestheticStylePolicy.supportsBackdropFilterBlur(styled, BackendTarget.Windows))
         assertTrue(AestheticStylePolicy.supportsBackdropFilterBlur(styledButton, BackendTarget.IPadOS))
@@ -333,34 +398,101 @@ class WindowAndApplicationCapabilitiesTest {
         assertTrue(dockBtn.mountedInTitleBar)
     }
 
+    private class MinimalCapabilitiesNativeFactory : NativeFactory {
+        private fun unsupported(): Nothing = throw UnsupportedOperationException("Unused in test")
+        override val backendTarget: BackendTarget = BackendTarget.Swing
+        override fun createApplication(): ApplicationNativeImpl<*> = unsupported()
+        override fun createWindow(): WindowNativeImpl<*> = unsupported()
+        override fun createMenuBar(): MenuBarNativeImpl<*> = unsupported()
+        override fun createMenu(): MenuNativeImpl<*> = unsupported()
+        override fun createMenuItem(checkable: Boolean, radio: Boolean): MenuItemNativeImpl<*> = unsupported()
+        override fun createContextMenu(): ContextMenuNativeImpl<*> = unsupported()
+        override fun createDockWorkspace(): DockWorkspaceNativeImpl<*> = unsupported()
+        override fun createDockArea(): DockAreaNativeImpl<*> = unsupported()
+        override fun createDockGroup(): DockGroupNativeImpl<*> = unsupported()
+        override fun createDockPanel(): DockPanelNativeImpl<*> = unsupported()
+        override fun createDockWindow(): DockWindowNativeImpl<*> = unsupported()
+        override fun createToolPalette(): ToolPaletteNativeImpl<*> = unsupported()
+        override fun createContainer(classPrefix: String): ContainerNativeImpl<*> = unsupported()
+        override fun createStyledContainer(classPrefix: String, tagName: String): StyledContainerNativeImpl<*> = unsupported()
+        override fun createStyledComponent(
+            classPrefix: String,
+            tagName: String
+        ): com.nexustools.genericui.nativeimpl.surface.StyledComponentNativeImpl<*> = unsupported()
+        override fun createBookContainer(): BookContainerNativeImpl<*> = unsupported()
+        override fun createScrollView(): ScrollViewNativeImpl<*> = unsupported()
+        override fun createDivider(): DividerNativeImpl<*> = unsupported()
+        override fun createText(tagName: String, classPrefix: String): TextNativeImpl<*> = unsupported()
+        override fun createMarkdownView(): MarkdownViewNativeImpl<*> = unsupported()
+        override fun createImage(): ImageNativeImpl<*> = unsupported()
+        override fun createTable(): TableNativeImpl<*> = unsupported()
+        override fun createButton(classPrefix: String): ButtonNativeImpl<*> = unsupported()
+        override fun createStyledButton(classPrefix: String): StyledButtonNativeImpl<*> = unsupported()
+        override fun createDropdown(): DropdownNativeImpl<*> = unsupported()
+        override fun createTextInput(multiline: Boolean): TextInputNativeImpl<*> = unsupported()
+        override fun createSelect(): SelectNativeImpl<*> = unsupported()
+        override fun createCheckbox(switchStyle: Boolean, radioStyle: Boolean): CheckboxNativeImpl<*> = unsupported()
+        override fun createRangeSlider(): RangeSliderNativeImpl<*> = unsupported()
+        override fun createTab(closable: Boolean): TabNativeImpl<*> = unsupported()
+        override fun createTabContainer(): TabContainerNativeImpl<*> = unsupported()
+        override fun createNavbar(): NavbarNativeImpl<*> = unsupported()
+        override fun createBottomNavigationBar(): BottomNavigationBarNativeImpl<*> = unsupported()
+        override fun createProgressBar(): ProgressBarNativeImpl<*> = unsupported()
+        override fun createSpinner(): SpinnerNativeImpl<*> = unsupported()
+        override fun createPopover(): PopoverNativeImpl<*> = unsupported()
+        override fun createDialogWindow(): DialogWindowNativeImpl<*> = unsupported()
+        override fun createFileBrowserDialog(): FileBrowserDialogNativeImpl = unsupported()
+        override fun createStandardDialogs(): StandardDialogsNativeImpl = unsupported()
+        override fun createLazyList(): LazyListNativeImpl<*> = unsupported()
+        override fun createLazyGrid(): LazyGridNativeImpl<*> = unsupported()
+        override fun createTreeView(): TreeViewNativeImpl<*> = unsupported()
+        override fun createPermissionManager(): PermissionManagerNativeImpl = unsupported()
+        override fun createSystemTray(): SystemTrayNativeImpl = unsupported()
+        override fun createNotificationManager(): NotificationManagerNativeImpl = unsupported()
+        override fun createNetworkMonitor(): NetworkMonitorNativeImpl = object : NetworkMonitorNativeImpl {
+            override var isDisposed: Boolean = false
+            override fun dispose() { isDisposed = true }
+            override fun isOnline(): Boolean = true
+            override fun setOnConnectivityChanged(listener: ((Boolean) -> Unit)?) {}
+        }
+        override fun supportsTcp(): Boolean = false
+        override fun supportsUdp(): Boolean = false
+    }
+
     @Test
     fun testIApplicationAndIFragmentLifecycleWithLaunchCoordinator() {
-        FragmentRegistry.register(SampleMainFragment::class) { SampleMainFragment() }
-        FragmentRegistry.register(SampleDetailFragment::class) { SampleDetailFragment() }
+        val prevFactory = GenericUI.activeFactory
+        try {
+            GenericUI.initialize(MinimalCapabilitiesNativeFactory())
+            FragmentRegistry.register(SampleMainFragment::class) { SampleMainFragment() }
+            FragmentRegistry.register(SampleDetailFragment::class) { SampleDetailFragment() }
 
-        val cliBundle = FragmentBundle.fromCommandLineArgs(listOf("--mode=test"))
-        val mainFrag = SampleMainFragment().apply {
-            arguments = cliBundle
+            val cliBundle = FragmentBundle.fromCommandLineArgs(listOf("--mode=test"))
+            val mainFrag = SampleMainFragment().apply {
+                arguments = cliBundle
+            }
+            val app = FragmentApplication(initialFragment = mainFrag, title = "TestApp")
+            val iApp: IApplication = app
+            assertEquals("TestApp", iApp.mainIWindow.getTitle())
+            assertSame(mainFrag, app.currentFragment)
+            assertNotNull(mainFrag.createdBundle)
+            assertTrue(mainFrag.createdBundle!!.hasCommandLineArgs())
+            assertEquals(listOf("--mode=test"), mainFrag.createdBundle!!.getCommandLineArgs())
+
+            val detail: SampleDetailFragment = mainFrag.startFragment<SampleDetailFragment>(
+                launchArgs = FragmentBundle.of("tab" to "layers"),
+                addToBackStack = true
+            )
+            assertSame(detail, app.currentFragment)
+            assertEquals("layers", detail.arguments?.getString("tab"))
+            assertTrue(app.canGoBack)
+
+            assertTrue(detail.finishFragment())
+            assertSame(mainFrag, app.currentFragment)
+            app.dispose()
+        } finally {
+            GenericUI.resetForTests()
+            GenericUI.activeFactory = prevFactory
         }
-        val app = FragmentApplication(initialFragment = mainFrag, title = "TestApp")
-        val iApp: IApplication = app
-        assertEquals("TestApp", iApp.mainIWindow.getTitle())
-        assertSame(mainFrag, app.currentFragment)
-        assertNotNull(mainFrag.createdBundle)
-        assertTrue(mainFrag.createdBundle!!.hasCommandLineArgs())
-        assertEquals(listOf("--mode=test"), mainFrag.createdBundle!!.getCommandLineArgs())
-
-        val detail: SampleDetailFragment = mainFrag.launchFragment<SampleDetailFragment>(
-            fragmentClass = SampleDetailFragment::class,
-            launchArgs = FragmentBundle.of("tab" to "layers"),
-            addToBackStack = true,
-            launchMode = FragmentLaunchMode.SAME_WINDOW
-        )
-        assertSame(detail, app.currentFragment)
-        assertEquals("layers", detail.arguments?.getString("tab"))
-        assertTrue(app.canGoBack)
-
-        assertTrue(detail.finishFragment())
-        assertSame(mainFrag, app.currentFragment)
     }
 }

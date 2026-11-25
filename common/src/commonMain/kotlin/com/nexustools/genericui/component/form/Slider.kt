@@ -13,6 +13,9 @@ open class Slider(
     max: Double = 100.0,
     step: Double = 1.0
 ) : AbstractComponent(htmlTag = "input") {
+    override val supportsFocus: Boolean
+        get() = true
+
     var min: Double = min
         set(newVal) {
             field = newVal

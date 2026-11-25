@@ -22,7 +22,7 @@ class Wave0AResourceIDAndExtensionRegistryTest {
     }
 
     @Test
-    fun `resource ID derives three-tier group id, nativeResourceKey, canonicalRelativePath, and flatName`() {
+    fun `resource ID derives three-tier group id nativeResourceKey canonicalRelativePath and flatName`() {
         val coreLoading = ResourceID(0x7e010001, ResourceType.DRAWABLE, "loading", "drawable/loading.svg")
         assertEquals("genericui", coreLoading.nativeLibraryGroupId)
         assertEquals("drawable_loading_svg", coreLoading.nativeResourceKey)
@@ -58,7 +58,7 @@ class Wave0AResourceIDAndExtensionRegistryTest {
     }
 
     @Test
-    fun `extension registry dispatches prepare, run, and shutdown hooks in registration order`() {
+    fun `extension registry dispatches prepare run and shutdown hooks in registration order`() {
         val events = mutableListOf<String>()
         val hook = object : ApplicationLifecycleExtensionHook {
             override fun onBeforeAppPrepare(descriptor: GenericUiAppDescriptor) {

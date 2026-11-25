@@ -3,13 +3,16 @@ package com.nexustools.genericui.window
 import com.nexustools.genericui.component.fragment.FragmentBundle
 import com.nexustools.genericui.component.fragment.FragmentContainer
 import com.nexustools.genericui.component.fragment.FragmentLaunchCoordinator
+import com.nexustools.genericui.component.fragment.FragmentRegistry
 import com.nexustools.genericui.component.fragment.IFragment
 import com.nexustools.genericui.component.layout.Container
+import com.nexustools.genericui.core.AbstractComponent
 import com.nexustools.genericui.core.Disposable
+import com.nexustools.genericui.core.GenericUI
 import com.nexustools.genericui.core.NativeFactory
-import com.nexustools.genericui.enums.fragment.FragmentLaunchMode
 import com.nexustools.genericui.enums.window.DisplayCutoutMode
 import com.nexustools.genericui.enums.window.WindowState
+import com.nexustools.genericui.exception.NativeUninitializedException
 import com.nexustools.genericui.geometry.Rect
 import com.nexustools.genericui.geometry.Size
 import kotlin.reflect.KClass
@@ -147,44 +150,92 @@ interface IWindow : Disposable {
     val activeFragment: IFragment?
         get() = fragmentContainer?.currentFragment as? IFragment
 
+    /** `true` if the active backend allows opening multiple concurrent top-level windows. */
+    val supportsMultipleWindows: Boolean
+        get() {
+            val factory = (this as? AbstractComponent)?.resolveActiveFactory()
+                ?: GenericUI.activeFactory
+                ?: throw NativeUninitializedException("IWindow", "supportsMultipleWindows")
+            return factory.supportsMultipleWindows
+        }
+
+    /** `true` if the active backend supports floating/modal dialog windows. */
+    val supportsDialogWindows: Boolean
+        get() {
+            val factory = (this as? AbstractComponent)?.resolveActiveFactory()
+                ?: GenericUI.activeFactory
+                ?: throw NativeUninitializedException("IWindow", "supportsDialogWindows")
+            return factory.supportsDialogWindows
+        }
+
+    /** `true` if the active backend AND [fragmentClass]'s metadata allow opening another window. */
+    fun canOpenAdditionalWindow(fragmentClass: KClass<out IFragment>): Boolean {
+        val factory = (this as? AbstractComponent)?.resolveActiveFactory()
+            ?: GenericUI.activeFactory
+            ?: throw NativeUninitializedException("IWindow", "canOpenAdditionalWindow")
+        return factory.supportsMultipleWindows &&
+            !FragmentRegistry.isDialogFragment(fragmentClass) &&
+            FragmentRegistry.supportsMultipleWindows(fragmentClass)
+    }
+
     /**
-     * Instantiates [fragmentClass] (via [com.nexustools.genericui.component.fragment.FragmentRegistry]),
-     * provides [launchArgs] to [IFragment.onCreate], and mounts the fragment according to [launchMode]
-     * (by default into this window's [FragmentContainer], creating it if not already present),
-     * synchronizing the fragment's [TitleBar], `MenuBar`, `Navbar`, and fullscreen state with the window.
+     * Instantiates [fragmentClass] (via [FragmentRegistry]), delivers [launchArgs] to [IFragment.onCreate],
+     * and starts it inside this window (or opens an additional window / dialog window according to
+     * [openAdditionalWindow] and [FragmentRegistry] metadata).
      */
-    fun <T : IFragment> launchFragment(
+    fun <T : IFragment> startFragment(
         fragmentClass: KClass<T>,
         launchArgs: FragmentBundle? = null,
+        openAdditionalWindow: Boolean = false,
         addToBackStack: Boolean = true,
-        launchMode: FragmentLaunchMode = FragmentLaunchMode.SAME_WINDOW
-    ): T = FragmentLaunchCoordinator.launch(
+        clearTask: Boolean = false
+    ): T = FragmentLaunchCoordinator.start(
         sourceWindow = this,
         sourceFragment = null,
         fragmentClass = fragmentClass,
         launchArgs = launchArgs,
+        openAdditionalWindow = openAdditionalWindow,
         addToBackStack = addToBackStack,
-        launchMode = launchMode,
+        clearTask = clearTask,
         targetWindow = null
     )
 
     /**
-     * Launches an already-constructed [fragment] instance according to [launchMode], passing [launchArgs]
-     * (when non-null, assigned to [IFragment.arguments]) to [IFragment.onCreate] and synchronizing its
-     * window chrome with the hosting window.
+     * Convenience overload packing key-value pairs into a [FragmentBundle] via [FragmentBundle.of].
      */
-    fun <T : IFragment> launchFragment(
+    fun <T : IFragment> startFragment(
+        fragmentClass: KClass<T>,
+        firstArg: Pair<String, Any?>,
+        vararg extraArgs: Pair<String, Any?>,
+        openAdditionalWindow: Boolean = false,
+        addToBackStack: Boolean = true,
+        clearTask: Boolean = false
+    ): T = startFragment(
+        fragmentClass = fragmentClass,
+        launchArgs = FragmentBundle.of(firstArg, *extraArgs),
+        openAdditionalWindow = openAdditionalWindow,
+        addToBackStack = addToBackStack,
+        clearTask = clearTask
+    )
+
+    /**
+     * Starts an already-constructed [fragment] instance, delivering [launchArgs] (when non-null) to
+     * [IFragment.onCreate] and presenting it in this window or a new window/dialog.
+     */
+    fun <T : IFragment> startFragment(
         fragment: T,
         launchArgs: FragmentBundle? = null,
+        openAdditionalWindow: Boolean = false,
         addToBackStack: Boolean = true,
-        launchMode: FragmentLaunchMode = FragmentLaunchMode.SAME_WINDOW
-    ): T = FragmentLaunchCoordinator.launch(
+        clearTask: Boolean = false
+    ): T = FragmentLaunchCoordinator.start(
         sourceWindow = this,
         sourceFragment = null,
         fragment = fragment,
         launchArgs = launchArgs,
+        openAdditionalWindow = openAdditionalWindow,
         addToBackStack = addToBackStack,
-        launchMode = launchMode,
+        clearTask = clearTask,
         targetWindow = null
     )
 
@@ -198,5 +249,42 @@ interface IWindow : Disposable {
     fun setOnWindowResize(listener: ((WindowConfiguration) -> Unit)?)
     fun setOnWindowStateChanged(listener: ((WindowState) -> Unit)?) {}
     fun setOnWindowFocusChanged(listener: ((Boolean) -> Unit)?)
+    fun addOnWindowFocusChanged(listener: (Boolean) -> Unit) {}
+    fun removeOnWindowFocusChanged(listener: (Boolean) -> Unit) {}
     fun setOnWindowCloseRequested(listener: (() -> Boolean)?)
+    fun addOnWindowTitleChanged(listener: (String) -> Unit) {}
+    fun removeOnWindowTitleChanged(listener: (String) -> Unit) {}
 }
+
+/** Reified convenience for [IWindow.canOpenAdditionalWindow]. */
+inline fun <reified T : IFragment> IWindow.canOpenAdditionalWindow(): Boolean =
+    canOpenAdditionalWindow(T::class)
+
+/** Reified convenience for [IWindow.startFragment]. */
+inline fun <reified T : IFragment> IWindow.startFragment(
+    launchArgs: FragmentBundle? = null,
+    openAdditionalWindow: Boolean = false,
+    addToBackStack: Boolean = true,
+    clearTask: Boolean = false
+): T = startFragment(
+    fragmentClass = T::class,
+    launchArgs = launchArgs,
+    openAdditionalWindow = openAdditionalWindow,
+    addToBackStack = addToBackStack,
+    clearTask = clearTask
+)
+
+/** Reified convenience for [IWindow.startFragment] with key-value pair arguments. */
+inline fun <reified T : IFragment> IWindow.startFragment(
+    firstArg: Pair<String, Any?>,
+    vararg extraArgs: Pair<String, Any?>,
+    openAdditionalWindow: Boolean = false,
+    addToBackStack: Boolean = true,
+    clearTask: Boolean = false
+): T = startFragment(
+    fragmentClass = T::class,
+    launchArgs = FragmentBundle.of(firstArg, *extraArgs),
+    openAdditionalWindow = openAdditionalWindow,
+    addToBackStack = addToBackStack,
+    clearTask = clearTask
+)

@@ -8,7 +8,7 @@ import com.nexustools.genericui.resources.ResourceID
  * Translated automatically by the GenericUI Gradle plugin for each backend:
  * - **Windows (`:desktop:windows`)**: Win32 `.rc` resource + GDI vector path / DIBits renderer
  * - **macOS / iOS (`:desktop:macos`, `:mobile:ios`)**: `.imageset` bundle asset + CoreGraphics vector/bitmap
- * - **Linux GTK / Qt (`:desktop:gtk`, `:desktop:qt`)**: `gresource.xml` / `.qrc` resource
+ * - **Linux GTK / KDE (`:desktop:gtk`, `:desktop:kde`)**: `gresource.xml` / `.qrc` resource
  * - **Android (`:mobile:android`)**: Android VectorDrawable XML (`res/drawable/<name>.xml`) or bitmap
  * - **Web (`:web`) & Swing (`:desktop:swing`)**: Inline `<svg>` / data URI or classpath resource
  */

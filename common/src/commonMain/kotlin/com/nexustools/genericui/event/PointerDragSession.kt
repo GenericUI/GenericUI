@@ -2,6 +2,7 @@ package com.nexustools.genericui.event
 
 import com.nexustools.genericui.core.AbstractComponent
 import com.nexustools.genericui.core.Disposable
+import com.nexustools.genericui.style.css.CssCursorValue
 
 /**
  * Represents an active global pointer drag operation initiated on [target] via [PointerDragManager].
@@ -9,9 +10,12 @@ import com.nexustools.genericui.core.Disposable
  * bounds are routed to [onDragMove] and [onDragEnd].
  */
 class PointerDragSession internal constructor(
-    val target: AbstractComponent,
+    val target: AbstractComponent?,
     val initialEvent: PointerEvent,
     val pointerId: Int = initialEvent.pointerId,
+    val kind: PointerDragKind = PointerDragKind.COMPONENT,
+    val lockedCursor: CssCursorValue? = null,
+    val lockCursor: Boolean = true,
     internal val onDragMove: (PointerEvent) -> Unit,
     internal val onDragEnd: (event: PointerEvent, cancelled: Boolean) -> Unit
 ) : Disposable {

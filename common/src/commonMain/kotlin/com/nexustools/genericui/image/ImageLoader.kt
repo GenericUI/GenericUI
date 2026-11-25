@@ -44,7 +44,7 @@ import kotlinx.coroutines.withContext
  * - `:web`: Creates an invisible `HTMLImageElement` (`<img style="display: none">`), sets `src`, and watches
  *   `onload` / checks `complete` so `:web` properly simulates and executes asynchronous image loading.
  * - `:macos` / `:ios`: Apple `ImageIO` (`CGImageSource` / `CGImageDestination`) on coroutine worker threads.
- * - `:windows` / `:gtk` / `:qt` (`:desktop`): Native OS loaders (`WIC`, `GdkPixbuf`, `QImage`) +
+ * - `:windows` / `:gtk` / `:kde` (`:desktop`): Native OS loaders (`WIC`, `GdkPixbuf`, `QImage`) +
  *   `libjpeg` ([LibJpegCodec]), `libpng` ([LibPngCodec]), and `libwebp` ([LibWebpCodec]) on coroutine worker threads.
  *
  * Resizing uses antialiased area-averaging + bilinear interpolation by default ([ImageDecodeOptions.antialiasing] == `true`).

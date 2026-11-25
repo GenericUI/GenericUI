@@ -17,6 +17,9 @@ open class TextField(
     override val isTextInputComponent: Boolean
         get() = true
 
+    override val supportsFocus: Boolean
+        get() = true
+
     init {
         ignoreKeyEventsWhenTypingInTextInput = false
     }

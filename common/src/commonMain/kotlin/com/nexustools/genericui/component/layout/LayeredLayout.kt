@@ -39,6 +39,7 @@ open class LayeredLayout(
 
     internal fun syncHostStyle() {
         host.addClass("gui-layered-container")
+        host.setAttribute("isLayeredHost", "true")
         val parent = host.parent
         val isAspectRatioChild = parent is AspectRatioContainer || parent?.hasClass("ratio") == true
         val isLayeredChild = parent is LayeredContainer || host.hasClass("gui-layer-item")
@@ -74,9 +75,6 @@ open class LayeredLayout(
                 host.getStyle().setHeight(CssLength.PERCENT_100)
             }
         } else {
-            if (currentPos == null || currentPos == CssPosition.STATIC) {
-                host.getStyle().setPosition(CssPosition.RELATIVE)
-            }
             if (host.getStyle().getWidth() == null) {
                 host.getStyle().setWidth(CssLength.PERCENT_100)
             }
@@ -193,8 +191,9 @@ open class LayeredLayout(
             child.getStyle().setPointerEvents(CssPointerEvents.NONE)
         } else {
             child.removeClass("gui-layer-pass-through")
-            child.pointerEventsEnabled = true
-            child.getStyle().setPointerEvents(CssPointerEvents.AUTO)
+            if (child.getStyle().getPointerEvents() != null) {
+                child.getStyle().setPointerEvents(null)
+            }
         }
 
         if (constraint.sizingMode == LayerSizingMode.FILL) {

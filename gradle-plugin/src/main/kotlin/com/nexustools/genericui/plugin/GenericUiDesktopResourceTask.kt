@@ -102,6 +102,22 @@ abstract class GenericUiDesktopResourceTask : DefaultTask() {
     abstract val macHighResolutionCapable: Property<Boolean>
 
     @get:Input
+    @get:Optional
+    abstract val macMultipleInstancesProhibited: Property<Boolean>
+
+    @get:Input
+    @get:Optional
+    abstract val macLocalNetworkUsageDescription: Property<String>
+
+    @get:Input
+    @get:Optional
+    abstract val macBonjourServices: ListProperty<String>
+
+    @get:Input
+    @get:Optional
+    abstract val macosTrayIconPath: Property<String>
+
+    @get:Input
     abstract val linuxCategories: Property<String>
 
     @get:Input
@@ -263,6 +279,27 @@ abstract class GenericUiDesktopResourceTask : DefaultTask() {
         if (macTraySource != null && macTraySource.isFile && macTraySource.extension.equals("svg", ignoreCase = true)) {
             macTraySource.copyTo(File(macDir, "tray_icon.svg"), overwrite = true)
         }
+        val explicitMacosTrayPath = macosTrayIconPath.orNull?.trim()?.takeIf { it.isNotEmpty() }
+            ?: extensionOptions.getOrElse(emptyMap())["serviceWorker.macosTrayIcon"]?.trim()?.takeIf { it.isNotEmpty() }
+        val explicitMacosTrayFile = if (explicitMacosTrayPath != null) {
+            resolveIconFile(rootDir, explicitMacosTrayPath, null, emptyList())
+        } else {
+            null
+        }
+        if (explicitMacosTrayFile != null && explicitMacosTrayFile.isFile) {
+            GenericUiDefaultIconProvider.ensurePngFromSourceOrDefault(
+                sourceIconFile = explicitMacosTrayFile,
+                projectRootDir = rootDir,
+                outputDir = macDir,
+                fileName = "macos_tray_icon.png",
+                wrapInAppleTile = false,
+                fullBleedSquare = false,
+                requestedSizeOverride = 64
+            )
+            if (explicitMacosTrayFile.extension.equals("svg", ignoreCase = true)) {
+                explicitMacosTrayFile.copyTo(File(macDir, "macos_tray_icon.svg"), overwrite = true)
+            }
+        }
         val macIcnsFile = GenericUiDefaultIconProvider.ensureAppleIcnsFromSourceOrDefault(
             sourceIconFile = rawMacCandidate ?: primaryFallbackCandidate,
             projectRootDir = rootDir,
@@ -397,6 +434,19 @@ abstract class GenericUiDesktopResourceTask : DefaultTask() {
         }
         val infoPlistFile = File(macDir, "Info.plist")
         val macIconName = if (macIcnsFile.exists()) macIcnsFile.name else (macIconFile?.name ?: "icon.icns")
+        val extOpts = extensionOptions.getOrElse(emptyMap())
+        val bonjourServices = buildList {
+            addAll(macBonjourServices.getOrElse(emptyList()))
+            extOpts["serviceWorker.macBonjourServices"]?.split(',')?.let { addAll(it) }
+        }.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+        val localNetworkDesc = macLocalNetworkUsageDescription.orNull?.trim()?.takeIf { it.isNotEmpty() }
+            ?: extOpts["serviceWorker.macLocalNetworkUsageDescription"]?.trim()?.takeIf { it.isNotEmpty() }
+            ?: if (bonjourServices.isNotEmpty()) {
+                "$resolvedAppName accesses devices on your local network."
+            } else {
+                null
+            }
+        val prohibitMultipleInstances = macMultipleInstancesProhibited.getOrElse(true)
         infoPlistFile.writeText(
             buildString {
                 appendLine("<?xml version=\"1.0\" encoding=\"UTF-8\"?>")
@@ -423,10 +473,24 @@ abstract class GenericUiDesktopResourceTask : DefaultTask() {
                 appendLine("    <string>${escapeXml(macMinimumSystemVersion.getOrElse("12.0"))}</string>")
                 appendLine("    <key>LSApplicationCategoryType</key>")
                 appendLine("    <string>${escapeXml(macCategory.getOrElse("public.app-category.utilities"))}</string>")
+                appendLine("    <key>LSMultipleInstancesProhibited</key>")
+                appendLine("    <${if (prohibitMultipleInstances) "true" else "false"}/>")
                 appendLine("    <key>NSHighResolutionCapable</key>")
                 appendLine("    <${if (macHighResolutionCapable.getOrElse(true)) "true" else "false"}/>")
                 appendLine("    <key>NSHumanReadableCopyright</key>")
                 appendLine("    <string>${escapeXml(resolvedCopyright)}</string>")
+                if (localNetworkDesc != null) {
+                    appendLine("    <key>NSLocalNetworkUsageDescription</key>")
+                    appendLine("    <string>${escapeXml(localNetworkDesc)}</string>")
+                }
+                if (bonjourServices.isNotEmpty()) {
+                    appendLine("    <key>NSBonjourServices</key>")
+                    appendLine("    <array>")
+                    for (svc in bonjourServices) {
+                        appendLine("        <string>${escapeXml(svc)}</string>")
+                    }
+                    appendLine("    </array>")
+                }
                 if (resolvedThemeColor != null) {
                     appendLine("    <key>NSAccentColorName</key>")
                     appendLine("    <string>AccentColor</string>")
@@ -490,10 +554,12 @@ abstract class GenericUiDesktopResourceTask : DefaultTask() {
                 .flatMap { it.autostartEntries }
             if (autostartEntries.isNotEmpty()) {
                 val autostartRoot = File(outDir, "autostart").apply { mkdirs() }
+                val linuxAutostartDir = File(autostartRoot, "linux").apply { mkdirs() }
+                val macosAutostartDir = File(autostartRoot, "macos").apply { mkdirs() }
                 for (entry in autostartEntries) {
                     val safeId = entry.identifier.replace(Regex("[^A-Za-z0-9._-]"), "_")
                     val execLine = if (entry.arguments.isEmpty()) entry.executableName else "${entry.executableName} ${entry.arguments.joinToString(" ")}"
-                    File(File(autostartRoot, "linux").apply { mkdirs() }, "$safeId.desktop").writeText(
+                    File(linuxAutostartDir, "$safeId.desktop").writeText(
                         buildString {
                             appendLine("[Desktop Entry]")
                             appendLine("Type=Application")
@@ -503,18 +569,28 @@ abstract class GenericUiDesktopResourceTask : DefaultTask() {
                         },
                         Charsets.UTF_8
                     )
-                    File(File(autostartRoot, "macos").apply { mkdirs() }, "$safeId.plist").writeText(
+                    val macProgramPath = if (entry.executableName == "serviceworker") {
+                        "/Applications/$resolvedAppName.app/Contents/Helpers/$resolvedAppName Service Worker.app/Contents/MacOS/serviceworker"
+                    } else {
+                        entry.executableName
+                    }
+                    File(macosAutostartDir, "$safeId.plist").writeText(
                         buildString {
                             appendLine("""<?xml version="1.0" encoding="UTF-8"?>""")
                             appendLine("""<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">""")
                             appendLine("""<plist version="1.0"><dict>""")
                             appendLine("""    <key>Label</key><string>${escapeXml(entry.identifier)}</string>""")
                             appendLine("""    <key>ProgramArguments</key><array>""")
-                            appendLine("""        <string>${escapeXml(entry.executableName)}</string>""")
+                            appendLine("""        <string>${escapeXml(macProgramPath)}</string>""")
                             for (arg in entry.arguments) {
                                 appendLine("""        <string>${escapeXml(arg)}</string>""")
                             }
                             appendLine("""    </array>""")
+                            appendLine("""    <key>MachServices</key>""")
+                            appendLine("""    <dict>""")
+                            appendLine("""        <key>${escapeXml(entry.identifier)}</key>""")
+                            appendLine("""        <true/>""")
+                            appendLine("""    </dict>""")
                             appendLine("""    <key>RunAtLoad</key>${if (entry.runAtStartup) "<true/>" else "<false/>"}""")
                             appendLine("""</dict></plist>""")
                         },

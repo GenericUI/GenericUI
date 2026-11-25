@@ -35,6 +35,10 @@ abstract class VlcNativeBundleTask : DefaultTask() {
     @get:Optional
     abstract val enableVlcHardwareDecode: Property<Boolean>
 
+    @get:Input
+    val opusFixPluginSourceDigest: String
+        get() = GenericUiVlcOpusFixPluginSource.C_SOURCE.hashCode().toString()
+
     @get:OutputDirectory
     abstract val outputDirectory: DirectoryProperty
 
@@ -47,7 +51,9 @@ abstract class VlcNativeBundleTask : DefaultTask() {
                 true
             } else {
                 val out = outputDirectory.get().asFile
-                val isWindowsHost = System.getProperty("os.name").orEmpty().lowercase().contains("win")
+                val osName = System.getProperty("os.name").orEmpty().lowercase()
+                val isWindowsHost = osName.contains("win")
+                val isMacHost = osName.contains("mac") || osName.contains("darwin")
                 val macSymlinksValid = isWindowsHost || (
                     Files.isRegularFile(File(out, "macos/libvlc.5.dylib").toPath(), LinkOption.NOFOLLOW_LINKS) &&
                         Files.isSymbolicLink(File(out, "macos/libvlc.dylib").toPath()) &&
@@ -66,19 +72,39 @@ abstract class VlcNativeBundleTask : DefaultTask() {
                 } else {
                     true
                 }
+                val macOpusFixValid = if (isMacHost) {
+                    File(out, "macos/plugins/${GenericUiVlcOpusFixPluginSource.PLUGIN_STEM}.dylib").isFile &&
+                        File(out, "macos/opus_fix_plugins/${GenericUiVlcOpusFixPluginSource.PLUGIN_STEM}.dylib").isFile
+                } else {
+                    true
+                }
+                val winOpusFixValid = if (canCompileWindowsOpusFixDll()) {
+                    File(out, "windows/plugins/codec/${GenericUiVlcOpusFixPluginSource.PLUGIN_STEM}.dll").isFile &&
+                        File(out, "windows/opus_fix_plugins/${GenericUiVlcOpusFixPluginSource.PLUGIN_STEM}.dll").isFile
+                } else {
+                    true
+                }
+                val linuxOpusFixValid = expectedLinuxOpusFixPluginNames().all { pluginName ->
+                    File(out, "linux/plugins/codec/$pluginName").isFile &&
+                        File(out, "linux/opus_fix_plugins/$pluginName").isFile
+                }
                 val macPlugins = File(out, "macos/plugins")
                 val hostMacPlugins = File("/Applications/VLC.app/Contents/MacOS/plugins")
                 val basePropsValid = File(out, "vlc-runtime.properties").isFile
+                val baseAllValid = basePropsValid &&
+                    macSymlinksValid &&
+                    linuxSymlinksValid &&
+                    winPluginsValid &&
+                    macOpusFixValid &&
+                    winOpusFixValid &&
+                    linuxOpusFixValid
                 if (hostMacPlugins.isDirectory) {
-                    basePropsValid &&
-                        macSymlinksValid &&
-                        linuxSymlinksValid &&
-                        winPluginsValid &&
+                    baseAllValid &&
                         File(out, "macos/libvlccore.dylib").isFile &&
                         File(out, "macos/libvlc.dylib").isFile &&
                         (macPlugins.listFiles()?.any { it.isFile && it.name.endsWith(".dylib") } == true)
                 } else {
-                    basePropsValid && macSymlinksValid && linuxSymlinksValid && winPluginsValid
+                    baseAllValid
                 }
             }
         }
@@ -134,6 +160,7 @@ abstract class VlcNativeBundleTask : DefaultTask() {
             compileOrWriteWindowsVlcStubDlls(winOutDir, dstLibVlcCore, dstLibVlc)
             ensureMinimalPluginsDir(dstPluginsDir)
         }
+        stageWindowsOpusFixPlugin(winOutDir)
     }
 
     private fun stageMacosVlc(macOutDir: File) {
@@ -188,6 +215,7 @@ abstract class VlcNativeBundleTask : DefaultTask() {
             createOrUpdateSymlinkOrCopy(dstLibVlcUnversioned, "libvlc.5.dylib", dstLibVlc)
             ensureMinimalPluginsDir(dstPluginsDir)
         }
+        stageMacosOpusFixPlugin(macOutDir)
     }
 
     private fun stageLinuxVlc(linuxOutDir: File) {
@@ -242,6 +270,7 @@ abstract class VlcNativeBundleTask : DefaultTask() {
             createOrUpdateSymlinkOrCopy(dstLibVlcUnversioned, "libvlc.so.5", dstLibVlc)
             ensureMinimalPluginsDir(dstPluginsDir)
         }
+        stageLinuxOpusFixPlugins(linuxOutDir)
     }
 
     companion object {
@@ -811,6 +840,294 @@ abstract class VlcNativeBundleTask : DefaultTask() {
             buf.putLong(104, 256L) // p_memsz
             buf.putLong(112, 0x1000L) // p_align
             target.writeBytes(buf.array())
+        }
+
+        private fun isWindowsHost(): Boolean =
+            System.getProperty("os.name").orEmpty().lowercase().contains("win")
+
+        private fun isMacHost(): Boolean =
+            System.getProperty("os.name").orEmpty().lowercase().let {
+                it.contains("mac") || it.contains("darwin")
+            }
+
+        private fun isLinuxHost(): Boolean =
+            System.getProperty("os.name").orEmpty().lowercase().contains("linux")
+
+        private fun findRunnableOnPath(vararg names: String): File? {
+            val pathEnv = System.getenv("PATH").orEmpty()
+            for (entry in pathEnv.split(File.pathSeparator)) {
+                val trimmed = entry.trim()
+                if (trimmed.isEmpty()) continue
+                for (name in names) {
+                    val candidate = File(trimmed, name)
+                    if (candidate.isFile && candidate.canExecute()) {
+                        return candidate
+                    }
+                }
+            }
+            return null
+        }
+
+        private fun findKonanDependenciesDir(): File? {
+            val userHome = System.getProperty("user.home").orEmpty()
+            return File(userHome, ".konan/dependencies").takeIf { it.isDirectory }
+        }
+
+        private fun findKonanLlvmClangExecutable(): File? {
+            val deps = findKonanDependenciesDir() ?: return null
+            val exeName = if (isWindowsHost()) "clang.exe" else "clang"
+            val llvmDirs = deps.listFiles { f ->
+                f.isDirectory && f.name.startsWith("llvm-")
+            }?.sortedByDescending { it.name }.orEmpty()
+            for (dir in llvmDirs) {
+                val clang = File(dir, "bin/$exeName")
+                if (clang.isFile && clang.canExecute()) return clang
+            }
+            return null
+        }
+
+        private fun findKonanMinGwSysrootDir(): File? {
+            val deps = findKonanDependenciesDir() ?: return null
+            return deps.listFiles { f ->
+                f.isDirectory &&
+                    f.name.startsWith("msys2-mingw-w64-x86_64") &&
+                    File(f, "x86_64-w64-mingw32/include").isDirectory &&
+                    File(f, "x86_64-w64-mingw32/lib").isDirectory
+            }?.sortedByDescending { it.name }?.firstOrNull()
+        }
+
+        private fun findKonanLinuxGccToolchainDir(archPrefix: String): File? {
+            val deps = findKonanDependenciesDir() ?: return null
+            return deps.listFiles { f ->
+                f.isDirectory &&
+                    f.name.startsWith("$archPrefix-unknown-linux-gnu-gcc") &&
+                    File(f, "$archPrefix-unknown-linux-gnu/sysroot/usr/include").isDirectory
+            }?.sortedByDescending { it.name }?.firstOrNull()
+        }
+
+        private fun findRunnableMinGwGcc(): File? {
+            if (isWindowsHost()) {
+                return findMinGwGccExecutable()
+            }
+            return findRunnableOnPath("x86_64-w64-mingw32-gcc")
+        }
+
+        private fun findRunnableHostLinuxCompiler(): File? {
+            if (!isLinuxHost()) return null
+            return listOf("/usr/bin/gcc", "/usr/local/bin/gcc", "/usr/bin/clang", "/usr/local/bin/clang")
+                .map(::File)
+                .firstOrNull { it.isFile && it.canExecute() }
+                ?: findRunnableOnPath("gcc", "clang")
+        }
+
+        internal fun canCompileWindowsOpusFixDll(): Boolean =
+            findRunnableMinGwGcc() != null ||
+                (findKonanLlvmClangExecutable() != null && findKonanMinGwSysrootDir() != null)
+
+        internal fun expectedLinuxOpusFixPluginNames(): List<String> {
+            val clang = findKonanLlvmClangExecutable()
+            val hasX64Sysroot = clang != null && findKonanLinuxGccToolchainDir("x86_64") != null
+            val hasArm64Sysroot = clang != null && findKonanLinuxGccToolchainDir("aarch64") != null
+            val hostLinuxCompiler = findRunnableHostLinuxCompiler()
+            val hostArch = System.getProperty("os.arch").orEmpty().lowercase()
+            val names = mutableListOf<String>()
+            if (hasX64Sysroot || (hostLinuxCompiler != null && (hostArch.contains("amd64") || hostArch.contains("x86_64")))) {
+                names.add("libgenericui_opus_fix_x64_plugin.so")
+            }
+            if (hasArm64Sysroot || (hostLinuxCompiler != null && (hostArch.contains("aarch64") || hostArch.contains("arm64")))) {
+                names.add("libgenericui_opus_fix_arm64_plugin.so")
+            }
+            return names
+        }
+
+        private fun compileCWithProcess(
+            command: List<String>,
+            targetFile: File,
+            extraPathDir: File? = null
+        ): Boolean {
+            targetFile.parentFile?.mkdirs()
+            GenericUiSymlinkPreservingCopy.deletePathNoFollow(targetFile.toPath())
+            val ok = runCatching {
+                val pb = ProcessBuilder(command).redirectErrorStream(true)
+                if (extraPathDir != null) {
+                    pb.environment()["PATH"] = "${extraPathDir.absolutePath}${File.pathSeparator}${System.getenv("PATH").orEmpty()}"
+                }
+                val proc = pb.start()
+                proc.inputStream.bufferedReader(Charsets.UTF_8).readText()
+                proc.waitFor() == 0 && targetFile.isFile && targetFile.length() > 0L
+            }.getOrDefault(false)
+            if (!ok) {
+                runCatching { targetFile.delete() }
+            }
+            return ok
+        }
+
+        private fun publishOpusFixPluginCopies(
+            compiledSource: File,
+            vararg destinationFiles: File
+        ) {
+            for (dest in destinationFiles) {
+                dest.parentFile?.mkdirs()
+                GenericUiSymlinkPreservingCopy.copyRegularFileNoFollowDst(
+                    src = compiledSource,
+                    dst = dest,
+                    setExecutableOnBinaries = true
+                )
+            }
+        }
+
+        private fun stageMacosOpusFixPlugin(macOutDir: File) {
+            if (!isMacHost()) return
+            val pluginFileName = "${GenericUiVlcOpusFixPluginSource.PLUGIN_STEM}.dylib"
+            val dstPluginsFile = File(macOutDir, "plugins/$pluginFileName")
+            val dstStandaloneFile = File(macOutDir, "opus_fix_plugins/$pluginFileName")
+            val srcFile = File(macOutDir, ".genericui_opus_fix.c")
+            val tmpOut = File(macOutDir, ".${pluginFileName}.tmp")
+            srcFile.writeText(GenericUiVlcOpusFixPluginSource.C_SOURCE, Charsets.UTF_8)
+            try {
+                val clang = File("/usr/bin/xcrun").takeIf { it.isFile }?.let { "xcrun" }
+                val baseArgs = if (clang != null) listOf("xcrun", "clang") else listOfNotNull(findKonanLlvmClangExecutable()?.absolutePath ?: findRunnableOnPath("clang")?.absolutePath)
+                if (baseArgs.isEmpty()) return
+
+                val universalArgs = baseArgs + listOf(
+                    "-arch", "arm64", "-arch", "x86_64",
+                    "-dynamiclib", "-O2", "-std=c11",
+                    "-install_name", "@rpath/$pluginFileName",
+                    srcFile.absolutePath, "-o", tmpOut.absolutePath
+                )
+                val hostArch = System.getProperty("os.arch").orEmpty().lowercase().let {
+                    if (it.contains("aarch64") || it.contains("arm64")) "arm64" else "x86_64"
+                }
+                val singleArchArgs = baseArgs + listOf(
+                    "-arch", hostArch,
+                    "-dynamiclib", "-O2", "-std=c11",
+                    "-install_name", "@rpath/$pluginFileName",
+                    srcFile.absolutePath, "-o", tmpOut.absolutePath
+                )
+                if (compileCWithProcess(universalArgs, tmpOut) || compileCWithProcess(singleArchArgs, tmpOut)) {
+                    publishOpusFixPluginCopies(tmpOut, dstPluginsFile, dstStandaloneFile)
+                }
+            } finally {
+                tmpOut.delete()
+                srcFile.delete()
+            }
+        }
+
+        private fun stageWindowsOpusFixPlugin(winOutDir: File) {
+            val pluginFileName = "${GenericUiVlcOpusFixPluginSource.PLUGIN_STEM}.dll"
+            val dstCodecFile = File(winOutDir, "plugins/codec/$pluginFileName")
+            val dstStandaloneFile = File(winOutDir, "opus_fix_plugins/$pluginFileName")
+            val srcFile = File(winOutDir, ".genericui_opus_fix.c")
+            val tmpOut = File(winOutDir, ".${pluginFileName}.tmp")
+            srcFile.writeText(GenericUiVlcOpusFixPluginSource.C_SOURCE, Charsets.UTF_8)
+            try {
+                var compiled = false
+                val mingwGcc = findRunnableMinGwGcc()
+                if (mingwGcc != null) {
+                    compiled = compileCWithProcess(
+                        command = listOf(
+                            mingwGcc.absolutePath,
+                            "-shared", "-O2", "-std=c11", "-s", "-static-libgcc",
+                            srcFile.absolutePath, "-o", tmpOut.absolutePath
+                        ),
+                        targetFile = tmpOut,
+                        extraPathDir = mingwGcc.parentFile
+                    )
+                }
+                if (!compiled) {
+                    val clang = findKonanLlvmClangExecutable()
+                    val sysroot = findKonanMinGwSysrootDir()
+                    if (clang != null && sysroot != null) {
+                        compiled = compileCWithProcess(
+                            command = listOf(
+                                clang.absolutePath,
+                                "--target=x86_64-w64-mingw32",
+                                "--sysroot=${sysroot.absolutePath}",
+                                "-isystem", File(sysroot, "x86_64-w64-mingw32/include").absolutePath,
+                                "-L", File(sysroot, "x86_64-w64-mingw32/lib").absolutePath,
+                                "-fuse-ld=lld",
+                                "-shared", "-O2", "-std=c11",
+                                srcFile.absolutePath, "-o", tmpOut.absolutePath,
+                                "-lkernel32"
+                            ),
+                            targetFile = tmpOut
+                        )
+                    }
+                }
+                if (compiled) {
+                    publishOpusFixPluginCopies(tmpOut, dstCodecFile, dstStandaloneFile)
+                }
+            } finally {
+                tmpOut.delete()
+                srcFile.delete()
+            }
+        }
+
+        private fun stageLinuxOpusFixPlugins(linuxOutDir: File) {
+            val srcFile = File(linuxOutDir, ".genericui_opus_fix.c")
+            srcFile.writeText(GenericUiVlcOpusFixPluginSource.C_SOURCE, Charsets.UTF_8)
+            val konanClang = findKonanLlvmClangExecutable()
+            val hostLinuxCompiler = findRunnableHostLinuxCompiler()
+            val hostArch = System.getProperty("os.arch").orEmpty().lowercase()
+
+            val targets = listOf(
+                Triple(
+                    "libgenericui_opus_fix_x64_plugin.so",
+                    "x86_64",
+                    hostLinuxCompiler != null && (hostArch.contains("amd64") || hostArch.contains("x86_64"))
+                ),
+                Triple(
+                    "libgenericui_opus_fix_arm64_plugin.so",
+                    "aarch64",
+                    hostLinuxCompiler != null && (hostArch.contains("aarch64") || hostArch.contains("arm64"))
+                )
+            )
+
+            try {
+                for ((fileName, archPrefix, allowNativeHostCompiler) in targets) {
+                    val tmpOut = File(linuxOutDir, ".${fileName}.tmp")
+                    var compiled = false
+                    val toolchainDir = if (konanClang != null) findKonanLinuxGccToolchainDir(archPrefix) else null
+                    if (konanClang != null && toolchainDir != null) {
+                        val targetTriple = "$archPrefix-unknown-linux-gnu"
+                        val sysrootDir = File(toolchainDir, "$targetTriple/sysroot")
+                        compiled = compileCWithProcess(
+                            command = listOf(
+                                konanClang.absolutePath,
+                                "--target=$targetTriple",
+                                "--sysroot=${sysrootDir.absolutePath}",
+                                "--gcc-toolchain=${toolchainDir.absolutePath}",
+                                "-fuse-ld=lld",
+                                "-shared", "-fPIC", "-O2", "-std=c11",
+                                srcFile.absolutePath, "-o", tmpOut.absolutePath,
+                                "-ldl", "-lpthread"
+                            ),
+                            targetFile = tmpOut
+                        )
+                    }
+                    if (!compiled && allowNativeHostCompiler && hostLinuxCompiler != null) {
+                        compiled = compileCWithProcess(
+                            command = listOf(
+                                hostLinuxCompiler.absolutePath,
+                                "-shared", "-fPIC", "-O2", "-std=c11", "-s",
+                                srcFile.absolutePath, "-o", tmpOut.absolutePath,
+                                "-ldl", "-lpthread"
+                            ),
+                            targetFile = tmpOut
+                        )
+                    }
+                    if (compiled) {
+                        publishOpusFixPluginCopies(
+                            tmpOut,
+                            File(linuxOutDir, "plugins/codec/$fileName"),
+                            File(linuxOutDir, "opus_fix_plugins/$fileName")
+                        )
+                    }
+                    tmpOut.delete()
+                }
+            } finally {
+                srcFile.delete()
+            }
         }
     }
 }

@@ -3,7 +3,7 @@ package com.nexustools.genericui.enums.css
 import com.nexustools.genericui.style.css.CssValue
 
 /**
- * Standard CSS measurement units and keywords (`px`, `%`, `rem`, `em`, `vw`, `vh`, `vmin`, `vmax`, `pt`, `dp`, `auto`, `none`).
+ * Standard CSS measurement units and keywords (`px`, `%`, `rem`, `em`, `vw`, `vh`, `vmin`, `vmax`, `pt`, `dp`, unitless `NUMBER`, `auto`, `none`).
  */
 enum class CssUnit(val symbol: String) : CssValue {
     PX("px"),
@@ -16,6 +16,7 @@ enum class CssUnit(val symbol: String) : CssValue {
     VMAX("vmax"),
     PT("pt"),
     DP("px"),
+    NUMBER(""),
     AUTO("auto"),
     NONE("none");
 
@@ -26,7 +27,7 @@ enum class CssUnit(val symbol: String) : CssValue {
 
     companion object {
         fun fromCss(raw: String?): CssUnit? {
-            val cleaned = raw?.trim()?.lowercase() ?: return null
+            val cleaned = raw?.trim()?.lowercase()?.takeIf { it.isNotEmpty() } ?: return null
             if (cleaned == "dp") return DP
             return entries.firstOrNull { it.symbol.equals(cleaned, ignoreCase = true) }
         }

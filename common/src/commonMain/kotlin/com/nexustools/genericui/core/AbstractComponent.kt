@@ -1,7 +1,9 @@
 package com.nexustools.genericui.core
 
+import com.nexustools.genericui.component.composite.Composite
 import com.nexustools.genericui.component.shell.ContextMenu
 import com.nexustools.genericui.enums.bootstrap.*
+import com.nexustools.genericui.enums.system.BackendTarget
 import com.nexustools.genericui.enums.window.DisplayCutoutMode
 import com.nexustools.genericui.event.InputFocusManager
 import com.nexustools.genericui.event.KeyEvent
@@ -20,6 +22,7 @@ import com.nexustools.genericui.style.css.ComputedStyle
 import com.nexustools.genericui.style.css.CssCursorValue
 import com.nexustools.genericui.style.css.CssLength
 import com.nexustools.genericui.style.css.CssProperty
+import com.nexustools.genericui.style.css.CssRule
 import com.nexustools.genericui.style.css.CssStyleSheet
 import com.nexustools.genericui.style.css.PrecompiledStyleSheet
 import com.nexustools.genericui.style.gradient.Gradient.Gradient
@@ -27,6 +30,9 @@ import com.nexustools.genericui.style.mapper.BootstrapClassMapper
 import com.nexustools.genericui.style.mapper.BootstrapStyleSnapshot
 import com.nexustools.genericui.style.transition.CssTransitionController
 import com.nexustools.genericui.threading.GenericUiThreading
+import com.nexustools.genericui.threading.PlatformReentrantLock
+import com.nexustools.genericui.threading.withLock
+import kotlin.concurrent.Volatile
 
 /**
  * Base class for all GenericUI components (`AbstractComponent`).
@@ -44,9 +50,11 @@ abstract class AbstractComponent(
 
     private val initialHtmlTag: String = htmlTag.trim().ifEmpty { "genericui:component" }
     internal var lastAppliedStyleSheet: CssStyleSheet? = null
+    internal var scopedStyleSheet: CssStyleSheet? = null
     internal var lastStyleSheetViewportWidthPx: Int = 1280
     private var lastStyleSheetMediaBucket: Int = Int.MIN_VALUE
     private var lastStyleSheetDarkTheme: Boolean? = null
+    private var lastStyleSheetBackendTarget: BackendTarget? = null
     private var cachedSheetBaseStyle: ComputedStyle? = null
     var cachedSheetHasMediaRules: Boolean = true
     var cachedSelectorClasses: LinkedHashSet<String>? = null
@@ -56,39 +64,145 @@ abstract class AbstractComponent(
         cachedSheetBaseStyle = null
         cachedSheetHasMediaRules = true
         cachedSelectorClasses = null
+        invalidateDescendantSheetBaseStyles(
+            wholeSubtree = true,
+            clearSelectorClasses = true,
+            targetClasses = emptySet(),
+            targetIds = emptySet(),
+            targetTags = emptySet()
+        )
+    }
+
+    internal fun hasCachedSheetBaseStyle(): Boolean = cachedSheetBaseStyle != null
+
+    internal fun collectSelectorClassSnapshot(): Set<String> {
+        cachedSelectorClasses?.let { return it }
+        val classes = LinkedHashSet<String>()
+        classes.addAll(styleSnapshot.customClasses)
+        classes.addAll(getBootstrap().toEnumClassSet(componentClassPrefix))
+        if (componentClassPrefix.isNotBlank()) {
+            for (prefixTok in splitClassTokens(componentClassPrefix)) {
+                classes.add(prefixTok)
+            }
+        }
+        cachedSelectorClasses = classes
+        return classes
+    }
+
+    private fun matchesInvalidationTargets(
+        targetClasses: Set<String>,
+        targetIds: Set<String>,
+        targetTags: Set<String>,
+        isDark: Boolean = false
+    ): Boolean {
+        if (targetIds.isNotEmpty() && id != null && id in targetIds) return true
+        val normalizedTag = if (targetTags.isNotEmpty() || (isDark && "bs-theme-dark" in targetClasses)) {
+            CssRule.normalizeSelectorTag(htmlTag.ifEmpty { "genericui:component" })
+        } else {
+            ""
+        }
+        if (targetTags.isNotEmpty() && normalizedTag in targetTags) return true
+        if (targetClasses.isNotEmpty()) {
+            if (isDark && "bs-theme-dark" in targetClasses && normalizedTag == "genericui:app") {
+                return true
+            }
+            val allClasses = collectSelectorClassSnapshot()
+            for (tc in targetClasses) {
+                if (tc in allClasses) return true
+            }
+        }
+        return false
+    }
+
+    private fun invalidateDescendantSheetBaseStyles(
+        wholeSubtree: Boolean,
+        clearSelectorClasses: Boolean,
+        targetClasses: Set<String>,
+        targetIds: Set<String>,
+        targetTags: Set<String>
+    ) {
         if (this is AbstractContainer) {
             var i = 0
             while (i < children.size) {
-                children.getOrNull(i)?.invalidateCachedSheetBaseStyle()
+                children.getOrNull(i)?.invalidateSubtreeForAncestorChange(
+                    wholeSubtree,
+                    clearSelectorClasses,
+                    targetClasses,
+                    targetIds,
+                    targetTags
+                )
+                i++
+            }
+        }
+        if (this is Composite) {
+            val compChildren = internalCompositeChildren()
+            var i = 0
+            while (i < compChildren.size) {
+                compChildren.getOrNull(i)?.invalidateSubtreeForAncestorChange(
+                    wholeSubtree,
+                    clearSelectorClasses,
+                    targetClasses,
+                    targetIds,
+                    targetTags
+                )
                 i++
             }
         }
     }
 
-    internal fun invalidateCachedSheetBaseStyleForClasses(changedClasses: List<String>) {
-        cachedSelectorClasses = null
-        val sheet = lastAppliedStyleSheet
-        if (sheet == null) {
-            invalidateCachedSheetBaseStyle()
-            return
+    private fun invalidateSubtreeForAncestorChange(
+        wholeSubtree: Boolean,
+        clearSelectorClasses: Boolean,
+        targetClasses: Set<String>,
+        targetIds: Set<String>,
+        targetTags: Set<String>
+    ) {
+        if (clearSelectorClasses) {
+            cachedSelectorClasses = null
         }
-        var affectsSelf = false
-        var affectsDescendants = false
-        for (cls in changedClasses) {
-            if (sheet.isClassReferencedInSubject(cls)) affectsSelf = true
-            if (sheet.isClassReferencedInAncestor(cls)) affectsDescendants = true
-        }
-        if (affectsSelf || affectsDescendants) {
+        if (wholeSubtree || matchesInvalidationTargets(targetClasses, targetIds, targetTags)) {
             cachedSheetBaseStyle = null
             cachedSheetHasMediaRules = true
         }
-        if (affectsDescendants && this is AbstractContainer) {
-            var i = 0
-            while (i < children.size) {
-                children.getOrNull(i)?.invalidateCachedSheetBaseStyle()
-                i++
-            }
+        invalidateDescendantSheetBaseStyles(
+            wholeSubtree,
+            clearSelectorClasses,
+            targetClasses,
+            targetIds,
+            targetTags
+        )
+    }
+
+    internal fun resolveEffectiveAncestorStyleSheet(): CssStyleSheet? {
+        lastAppliedStyleSheet?.let { return it }
+        var cur = parent
+        while (cur != null) {
+            cur.lastAppliedStyleSheet?.let { return it }
+            cur = cur.parent
         }
+        return null
+    }
+
+    /**
+     * Resolves the media-query breakpoint bucket for [viewportWidthPx] against the active stylesheet,
+     * returning `null` if no stylesheet has been applied to this component or its ancestors yet.
+     */
+    fun resolveActiveMediaQueryBucket(viewportWidthPx: Int): Int? =
+        resolveEffectiveAncestorStyleSheet()?.resolveMediaQueryBucket(viewportWidthPx)
+
+    fun isStyledForCurrentTheme(): Boolean {
+        if (lastAppliedStyleSheet == null) return false
+        val isDark = com.nexustools.genericui.component.shell.Application.current?.getResolvedTheme() ==
+            com.nexustools.genericui.enums.ui.ThemeMode.DARK
+        return lastStyleSheetDarkTheme == isDark
+    }
+
+    fun isStyledAtViewportAndTheme(viewportWidthPx: Int): Boolean {
+        val sheet = lastAppliedStyleSheet ?: return false
+        val isDark = com.nexustools.genericui.component.shell.Application.current?.getResolvedTheme() ==
+            com.nexustools.genericui.enums.ui.ThemeMode.DARK
+        if (lastStyleSheetDarkTheme != isDark) return false
+        return lastStyleSheetMediaBucket == sheet.resolveMediaQueryBucket(viewportWidthPx)
     }
 
     private fun resolveOrGetCachedSheetBaseStyle(): ComputedStyle? {
@@ -121,7 +235,11 @@ abstract class AbstractComponent(
             nativeImpl?.setAttribute("id", value)
         }
     var parent: AbstractComponent? = null
-        internal set
+        internal set(value) {
+            if (field === value) return
+            field = value
+            recomputeInheritedFocusableFromParent()
+        }
 
     /**
      * `true` when this component is currently mounted inside a [com.nexustools.genericui.window.TitleBar]'s
@@ -132,7 +250,15 @@ abstract class AbstractComponent(
     var mountedInTitleBar: Boolean = false
 
     @PublishedApi
+    @Volatile
     internal var nativeImpl: NativeImpl<*>? = null
+
+    @Volatile
+    internal var nativeImplInitialized: Boolean = false
+
+    private val nativeRealizeLock: PlatformReentrantLock = PlatformReentrantLock()
+    private val attributesLock: PlatformReentrantLock = PlatformReentrantLock()
+    private var inInitialEnsureAttach: Boolean = false
 
     open val activeFactory: NativeFactory?
         get() = resolveActiveFactory()
@@ -165,9 +291,16 @@ abstract class AbstractComponent(
     // Lightweight pre-attachment Kotlin state
     private var visibleState: Boolean = true
     private var enabledState: Boolean = true
+    private var lastAppliedEnabledForComputedStyle: Boolean = true
     private var hoveredState: Boolean = false
     private var focusedState: Boolean = false
+    private var focusableState: Boolean = true
+    internal var inheritedFocusableState: Boolean = true
     private var activePressedState: Boolean = false
+    private var suppressVisualResyncOnComputedStyleChange: Boolean = false
+
+    open val supportsFocus: Boolean
+        get() = false
     private var opacityState: Float = 1.0f
     private var tooltipTextState: String? = null
     private val customAttributesState: MutableMap<String, String> = linkedMapOf()
@@ -219,6 +352,8 @@ abstract class AbstractComponent(
         private set
     private var computedStyleState: ComputedStyle? = null
     val transitionController: CssTransitionController = CssTransitionController(this)
+    private val activeAnimationsLock = PlatformReentrantLock()
+    private val activeAnimations = mutableSetOf<com.nexustools.genericui.animation.AnimationHandle>()
 
     val isTransitioning: Boolean
         get() = transitionController.isTransitioning
@@ -236,10 +371,13 @@ abstract class AbstractComponent(
     )
 
     open val acceptsTypographyComponentStyles: Boolean
-        get() = false
+        get() = com.nexustools.genericui.style.policy.AestheticStylePolicy.isExplicitlyStyledComponent(this)
 
     open val acceptsAestheticSkinComponentStyles: Boolean
-        get() = false
+        get() = com.nexustools.genericui.style.policy.AestheticStylePolicy.isExplicitlyStyledComponent(this)
+
+    open val acceptsCssFilterComponentStyles: Boolean
+        get() = acceptsAestheticSkinComponentStyles
 
     open fun isHostedInCustomStyleEngine(): Boolean {
         val factory = resolveActiveFactory() ?: GenericUI.activeFactory
@@ -276,7 +414,8 @@ abstract class AbstractComponent(
         return if (filterSystem) {
             componentStyleInstance.copyFilteredForSystemComponent(
                 allowTypography = acceptsTypographyComponentStyles,
-                allowAestheticSkin = acceptsAestheticSkinComponentStyles
+                allowAestheticSkin = acceptsAestheticSkinComponentStyles,
+                allowFilter = acceptsCssFilterComponentStyles
             )
         } else {
             componentStyleInstance
@@ -292,7 +431,8 @@ abstract class AbstractComponent(
         val sheetBase = if (filterSystem && rawSheetBase != null) {
             rawSheetBase.copyFilteredForSystemComponent(
                 allowTypography = acceptsTypographyComponentStyles,
-                allowAestheticSkin = acceptsAestheticSkinComponentStyles
+                allowAestheticSkin = acceptsAestheticSkinComponentStyles,
+                allowFilter = acceptsCssFilterComponentStyles
             )
         } else {
             rawSheetBase
@@ -303,12 +443,18 @@ abstract class AbstractComponent(
         val updated = if (filterSystem) {
             updatedRaw.copyFilteredForSystemComponent(
                 allowTypography = acceptsTypographyComponentStyles,
-                allowAestheticSkin = acceptsAestheticSkinComponentStyles
+                allowAestheticSkin = acceptsAestheticSkinComponentStyles,
+                allowFilter = acceptsCssFilterComponentStyles
             )
         } else {
             updatedRaw
         }
-        applyComputedStyle(updated)
+        suppressVisualResyncOnComputedStyleChange = isPurePositionProperty(property)
+        try {
+            applyComputedStyle(updated)
+        } finally {
+            suppressVisualResyncOnComputedStyleChange = false
+        }
         runOnNativeUi {
             it.applyComponentStyle(effectiveStyle)
             if (property == CssProperty.BACKGROUND_IMAGE) {
@@ -318,6 +464,13 @@ abstract class AbstractComponent(
             }
         }
     }
+
+    private fun isPurePositionProperty(property: CssProperty): Boolean =
+        property == CssProperty.LEFT ||
+            property == CssProperty.TOP ||
+            property == CssProperty.RIGHT ||
+            property == CssProperty.BOTTOM ||
+            property == CssProperty.Z_INDEX
 
     private fun onComponentStyleChanged() {
         if (suppressComponentStyleCallback) return
@@ -332,7 +485,8 @@ abstract class AbstractComponent(
         val base = if (filterSystem && rawBase != null) {
             rawBase.copyFilteredForSystemComponent(
                 allowTypography = acceptsTypographyComponentStyles,
-                allowAestheticSkin = acceptsAestheticSkinComponentStyles
+                allowAestheticSkin = acceptsAestheticSkinComponentStyles,
+                allowFilter = acceptsCssFilterComponentStyles
             )
         } else {
             rawBase
@@ -348,6 +502,22 @@ abstract class AbstractComponent(
     }
 
     internal open fun onAfterBootstrapChanged() {}
+
+    internal open fun onComponentOpacityChanged() {}
+
+    internal open fun onComponentEnabledChanged(enabled: Boolean) {}
+
+    protected open fun onAncestorHierarchyChanged() {}
+
+    internal fun dispatchAncestorHierarchyChanged() {
+        if (isDisposed) return
+        onAncestorHierarchyChanged()
+        if (this is AbstractContainer) {
+            for (child in children) {
+                child.dispatchAncestorHierarchyChanged()
+            }
+        }
+    }
 
     private fun onComponentBootstrapChanged(bootstrap: ComponentBootstrap) {
         val nextSnapshot = bootstrap.applyToSnapshot(styleSnapshot)
@@ -373,17 +543,29 @@ abstract class AbstractComponent(
     }
 
     internal fun notifyParentCacheDirty() {
-        (parent as? AbstractContainer)?.markRenderCacheDirty()
+        var cur = parent
+        while (cur != null) {
+            if (cur is AbstractContainer) {
+                cur.markRenderCacheDirty()
+                return
+            }
+            cur = cur.parent
+        }
     }
 
     /**
-     * Steps any active CSS transitions on this component and (if this is an [AbstractContainer])
-     * recursively on all child components by [deltaMs] milliseconds.
+     * Steps any active CSS transitions on this component and (if this is an [AbstractContainer] or
+     * [Composite]) recursively on all child components by [deltaMs] milliseconds.
      */
     fun stepTransitions(deltaMs: Float) {
         transitionController.step(deltaMs)
         if (this is AbstractContainer) {
             for (child in children) {
+                child.stepTransitions(deltaMs)
+            }
+        }
+        if (this is Composite) {
+            for (child in internalCompositeChildren()) {
                 child.stepTransitions(deltaMs)
             }
         }
@@ -399,6 +581,55 @@ abstract class AbstractComponent(
                 child.finishTransitions()
             }
         }
+        if (this is Composite) {
+            for (child in internalCompositeChildren()) {
+                child.finishTransitions()
+            }
+        }
+    }
+
+    /**
+     * Runs a native/VBlank-backed eased `0f -> 1f` animation scoped to this component's lifetime
+     * (automatically cancelled on [dispose]).
+     */
+    fun animate(
+        durationMs: Int,
+        delayMs: Int = 0,
+        timingFunction: com.nexustools.genericui.style.transition.CssTimingFunction =
+            com.nexustools.genericui.style.transition.CssTimingFunction.EASE_IN_OUT,
+        onUpdate: (progress: Float) -> Unit,
+        onComplete: ((cancelled: Boolean) -> Unit)? = null
+    ): com.nexustools.genericui.animation.AnimationHandle {
+        lateinit var handle: com.nexustools.genericui.animation.AnimationHandle
+        var finishedEarly = false
+        handle = com.nexustools.genericui.animation.Animator.animate(
+            durationMs = durationMs,
+            delayMs = delayMs,
+            timingFunction = timingFunction,
+            target = nativeImpl,
+            onUpdate = onUpdate,
+            onComplete = { cancelled ->
+                finishedEarly = true
+                activeAnimationsLock.withLock { activeAnimations.remove(handle) }
+                onComplete?.invoke(cancelled)
+            }
+        )
+        if (!finishedEarly && handle.isRunning) {
+            activeAnimationsLock.withLock { activeAnimations.add(handle) }
+        }
+        return handle
+    }
+
+    fun cancelAnimations() {
+        val snapshot = activeAnimationsLock.withLock {
+            val copy = activeAnimations.toList()
+            activeAnimations.clear()
+            copy
+        }
+        for (handle in snapshot) {
+            handle.cancel()
+        }
+        transitionController.cancelAllTransitions(disposing = false)
     }
 
     // Event listeners
@@ -497,56 +728,62 @@ abstract class AbstractComponent(
     private fun syncContextMenuListener() {
         runOnNativeUi { it.setOnContextMenu(buildEffectiveContextMenuListener()) }
     }
-    var onPointerDown: ((PointerEvent) -> Unit)? = null
-        set(value) {
-            val wrapped: ((PointerEvent) -> Unit)? = if (value == null) null else { ev ->
+
+    private fun wrapPointerListener(listener: ((PointerEvent) -> Unit)?): ((PointerEvent) -> Unit)? {
+        if (listener == null) return null
+        return { ev ->
+            if (GenericUiThreading.isOnLogicThread()) {
+                listener(ev)
+            } else {
                 GenericUiThreading.runOnLogic {
-                    value(ev)
+                    listener(ev)
                 }
             }
+        }
+    }
+
+    var onPointerDown: ((PointerEvent) -> Unit)? = null
+        set(value) {
+            val wrapped = wrapPointerListener(value)
             field = wrapped
             runOnNativeUi { it.setOnPointerDown(wrapped) }
         }
     var onPointerMove: ((PointerEvent) -> Unit)? = null
         set(value) {
-            val wrapped: ((PointerEvent) -> Unit)? = if (value == null) null else { ev ->
-                GenericUiThreading.runOnLogic {
-                    value(ev)
-                }
-            }
+            val wrapped = wrapPointerListener(value)
             field = wrapped
             runOnNativeUi { it.setOnPointerMove(wrapped) }
         }
     var onPointerUp: ((PointerEvent) -> Unit)? = null
         set(value) {
-            val wrapped: ((PointerEvent) -> Unit)? = if (value == null) null else { ev ->
-                GenericUiThreading.runOnLogic {
-                    value(ev)
-                }
-            }
+            val wrapped = wrapPointerListener(value)
             field = wrapped
             runOnNativeUi { it.setOnPointerUp(wrapped) }
         }
     var onPointerEnter: ((PointerEvent) -> Unit)? = null
         set(value) {
-            val wrapped: ((PointerEvent) -> Unit)? = if (value == null) null else { ev ->
-                GenericUiThreading.runOnLogic {
-                    value(ev)
-                }
-            }
-            field = wrapped
-            runOnNativeUi { it.setOnPointerEnter(wrapped) }
+            field = wrapPointerListener(value)
+            runOnNativeUi { it.setOnPointerEnter(buildEffectivePointerEnterListener()) }
         }
     var onPointerLeave: ((PointerEvent) -> Unit)? = null
         set(value) {
-            val wrapped: ((PointerEvent) -> Unit)? = if (value == null) null else { ev ->
-                GenericUiThreading.runOnLogic {
-                    value(ev)
-                }
-            }
-            field = wrapped
-            runOnNativeUi { it.setOnPointerLeave(wrapped) }
+            field = wrapPointerListener(value)
+            runOnNativeUi { it.setOnPointerLeave(buildEffectivePointerLeaveListener()) }
         }
+
+    private fun buildEffectivePointerEnterListener(): (PointerEvent) -> Unit = { ev ->
+        GenericUiThreading.runOnLogic {
+            updateHoveredStateInternal(true, pushToNative = false)
+            onPointerEnter?.invoke(ev)
+        }
+    }
+
+    private fun buildEffectivePointerLeaveListener(): (PointerEvent) -> Unit = { ev ->
+        GenericUiThreading.runOnLogic {
+            updateHoveredStateInternal(false, pushToNative = false)
+            onPointerLeave?.invoke(ev)
+        }
+    }
     var onWheel: ((WheelEvent) -> Unit)? = null
         set(value) {
             val wrapped: ((WheelEvent) -> Unit)? = if (value == null) null else { ev ->
@@ -686,6 +923,13 @@ abstract class AbstractComponent(
 
     protected inline fun <reified T : NativeImpl<*>> typedNative(): T? = nativeImpl as? T
 
+    protected inline fun <reified T : NativeImpl<*>> requireInitializedNativeImpl(operationName: String): T {
+        val impl = nativeImpl as? T
+        if (impl != null) return impl
+        val targetName = this::class.simpleName ?: htmlTag
+        throw com.nexustools.genericui.exception.NativeUninitializedException(targetName, operationName)
+    }
+
     protected inline fun runOnNativeUi(crossinline block: (NativeImpl<*>) -> Unit) {
         val impl = nativeImpl ?: return
         if (GenericUiThreading.isOnLogicThread() && GenericUiThreading.isSplitThreadingEnabled) {
@@ -713,39 +957,74 @@ abstract class AbstractComponent(
 
     open fun ensureNativeImpl(): NativeImpl<*>? {
         if (!visibleState) return null
-        val existing = nativeImpl
-        if (existing != null) return existing
+        val fastExisting = nativeImpl
+        if (fastExisting != null && nativeImplInitialized) return fastExisting
 
-        val factory = resolveActiveFactory() ?: return null
-        val created = createNativeImpl(factory)
-        nativeImpl = created
-        created.beginBatchAttach()
-        try {
-            onAttachNative(created)
-            syncStateToNative()
-        } finally {
-            created.endBatchAttach()
+        return nativeRealizeLock.withLock {
+            if (!visibleState) return@withLock null
+            val existing = nativeImpl
+            if (existing != null) {
+                return@withLock existing
+            }
+
+            val factory = resolveActiveFactory() ?: return@withLock null
+            val created = createNativeImpl(factory)
+            nativeImplInitialized = false
+            nativeImpl = created
+            inInitialEnsureAttach = true
+            created.beginBatchAttach()
+            try {
+                onAttachNative(created)
+                syncStateToNative()
+                nativeImplInitialized = true
+            } catch (t: Throwable) {
+                if (nativeImpl === created) {
+                    nativeImpl = null
+                    nativeImplInitialized = false
+                }
+                runCatching { created.dispose() }
+                throw t
+            } finally {
+                inInitialEnsureAttach = false
+                created.endBatchAttach()
+            }
+            created
         }
-        return created
     }
 
     protected open fun syncStateToNative() {
-        // Subclasses override to push component-specific state to typedNative()
+        if (!inInitialEnsureAttach) {
+            nativeImpl?.let { syncBaseStateToNative(it) }
+        }
     }
+
+    internal fun syncStateToNativeInternal() = syncStateToNative()
 
     protected open fun resolveInitialNativeVisibility(): Boolean = visibleState
 
     protected open fun onAttachNative(impl: NativeImpl<*>) {
+        syncBaseStateToNative(impl)
+    }
+
+    protected fun syncBaseStateToNative(impl: NativeImpl<*>) {
         syncStyleSnapshotToNative(impl)
         impl.setVisible(resolveInitialNativeVisibility())
         impl.setEnabled(enabledState)
+        val effectiveFocusable = isFocusable
+        if (supportsFocus && this !is Composite) {
+            impl.setFocusable(effectiveFocusable)
+        }
         impl.setHoveredState(hoveredState)
-        impl.setFocusedState(focusedState)
+        impl.setFocusedState(if (supportsFocus && effectiveFocusable) focusedState else false)
         impl.setActivePressedState(activePressedState)
         impl.setOpacity(opacityState)
         impl.setTooltipText(tooltipTextState)
         impl.setAttribute("data-genericui-tag", htmlTag)
-        for ((attrKey, attrVal) in customAttributesState) {
+        id?.let { impl.setAttribute("id", it) }
+        val attrSnapshot = attributesLock.withLock {
+            customAttributesState.entries.map { it.key to it.value }
+        }
+        for ((attrKey, attrVal) in attrSnapshot) {
             impl.setAttribute(attrKey, attrVal)
         }
         impl.setPreferredSize(preferredSizeState)
@@ -773,7 +1052,8 @@ abstract class AbstractComponent(
             val effectiveComputed = if (filterSystem) {
                 it.copyFilteredForSystemComponent(
                     allowTypography = acceptsTypographyComponentStyles,
-                    allowAestheticSkin = acceptsAestheticSkinComponentStyles
+                    allowAestheticSkin = acceptsAestheticSkinComponentStyles,
+                    allowFilter = acceptsCssFilterComponentStyles
                 )
             } else {
                 it
@@ -792,8 +1072,8 @@ abstract class AbstractComponent(
         impl.setOnPointerDown(onPointerDown)
         impl.setOnPointerMove(onPointerMove)
         impl.setOnPointerUp(onPointerUp)
-        impl.setOnPointerEnter(onPointerEnter)
-        impl.setOnPointerLeave(onPointerLeave)
+        impl.setOnPointerEnter(buildEffectivePointerEnterListener())
+        impl.setOnPointerLeave(buildEffectivePointerLeaveListener())
         impl.setOnWheel(onWheel)
         impl.setOnKeyDown(onKeyDown)
         impl.setOnKeyUp(onKeyUp)
@@ -868,13 +1148,20 @@ abstract class AbstractComponent(
     }
 
     fun setClass(className: String) {
+        val oldCustom = styleSnapshot.customClasses
         val customSet = splitClassTokens(className).toSet()
-        if (styleSnapshot.customClasses == customSet) return
+        if (oldCustom == customSet) return
+        val changedTokens = ArrayList<String>(oldCustom.size + customSet.size).apply {
+            for (c in oldCustom) if (c !in customSet) add(c)
+            for (c in customSet) if (c !in oldCustom) add(c)
+        }
         styleSnapshot = styleSnapshot.copy(customClasses = customSet)
-        invalidateCachedSheetBaseStyle()
-        notifyParentCacheDirty()
         val joined = customSet.joinToString(" ")
-        runOnNativeUi { it.setClass(joined) }
+        handleCustomClassesChanged(changedTokens) { it.setClass(joined) }
+    }
+
+    fun setClasses(classNames: Collection<String>) {
+        setClass(classNames.joinToString(" "))
     }
 
     fun getClass(): String = styleSnapshot.customClasses.joinToString(" ")
@@ -885,12 +1172,7 @@ abstract class AbstractComponent(
         val updated = LinkedHashSet(styleSnapshot.customClasses)
         if (!updated.addAll(tokens)) return
         styleSnapshot = styleSnapshot.copy(customClasses = updated)
-        invalidateCachedSheetBaseStyleForClasses(tokens)
-        val sheet = lastAppliedStyleSheet
-        if (sheet == null || tokens.any { sheet.isClassReferencedInSubject(it) || sheet.isClassReferencedInAncestor(it) }) {
-            notifyParentCacheDirty()
-        }
-        runOnNativeUi { impl ->
+        handleCustomClassesChanged(tokens) { impl ->
             for (tok in tokens) {
                 impl.addClass(tok)
             }
@@ -913,12 +1195,7 @@ abstract class AbstractComponent(
         }
         if (!changed) return
         styleSnapshot = styleSnapshot.copy(customClasses = updated)
-        invalidateCachedSheetBaseStyleForClasses(tokens)
-        val sheet = lastAppliedStyleSheet
-        if (sheet == null || tokens.any { sheet.isClassReferencedInSubject(it) || sheet.isClassReferencedInAncestor(it) }) {
-            notifyParentCacheDirty()
-        }
-        runOnNativeUi { impl ->
+        handleCustomClassesChanged(tokens) { impl ->
             for (tok in tokens) {
                 impl.removeClass(tok)
             }
@@ -928,6 +1205,81 @@ abstract class AbstractComponent(
     fun removeClass(vararg classNames: String) {
         for (cls in classNames) {
             removeClass(cls)
+        }
+    }
+
+    fun toggleClass(className: String, force: Boolean? = null): Boolean {
+        val tokens = splitClassTokens(className)
+        if (tokens.isEmpty()) return false
+        val shouldAdd = force ?: !hasClass(className)
+        if (shouldAdd) {
+            addClass(className)
+        } else {
+            removeClass(className)
+        }
+        return shouldAdd
+    }
+
+    private fun handleCustomClassesChanged(
+        changedTokens: List<String>,
+        notifyNative: (NativeImpl<*>) -> Unit
+    ) {
+        cachedSelectorClasses = null
+        val sheet = resolveEffectiveAncestorStyleSheet()
+        if (sheet == null) {
+            invalidateCachedSheetBaseStyle()
+            notifyParentCacheDirty()
+            runOnNativeUi(notifyNative)
+            return
+        }
+
+        var affectsSelf = false
+        for (cls in changedTokens) {
+            if (sheet.isClassReferencedInSubject(cls)) {
+                affectsSelf = true
+                break
+            }
+        }
+        val targetClasses = linkedSetOf<String>()
+        val targetIds = linkedSetOf<String>()
+        val targetTags = linkedSetOf<String>()
+        val descendantMode = sheet.collectDescendantInvalidation(
+            component = this,
+            changedClasses = changedTokens,
+            outSubjectClasses = targetClasses,
+            outSubjectIds = targetIds,
+            outSubjectTags = targetTags
+        )
+        val affectsDescendants = descendantMode != CssStyleSheet.DESCENDANT_INVALIDATION_NONE
+
+        if (affectsSelf || affectsDescendants) {
+            cachedSheetBaseStyle = null
+            cachedSheetHasMediaRules = true
+        }
+        if (affectsDescendants) {
+            invalidateDescendantSheetBaseStyles(
+                wholeSubtree = descendantMode == CssStyleSheet.DESCENDANT_INVALIDATION_WHOLE_SUBTREE,
+                clearSelectorClasses = false,
+                targetClasses = targetClasses,
+                targetIds = targetIds,
+                targetTags = targetTags
+            )
+        }
+        if (affectsSelf || affectsDescendants) {
+            notifyParentCacheDirty()
+        }
+        runOnNativeUi(notifyNative)
+        if (affectsDescendants) {
+            applyStyleSheetForInvalidatedDescendants(
+                styleSheet = sheet,
+                viewportWidthPx = lastStyleSheetViewportWidthPx,
+                wholeSubtree = descendantMode == CssStyleSheet.DESCENDANT_INVALIDATION_WHOLE_SUBTREE,
+                targetClasses = targetClasses,
+                targetIds = targetIds,
+                targetTags = targetTags
+            )
+        } else if (affectsSelf) {
+            applyStyleSheetSelfOnly(sheet, lastStyleSheetViewportWidthPx)
         }
     }
 
@@ -1207,21 +1559,22 @@ abstract class AbstractComponent(
             if (hookMouseWhenPopupVisible || !value) {
                 syncPopupMouseCaptureRegistration()
             }
-            if (prevVisible == value && (!value || nativeImpl != null)) return
+            if (prevVisible == value && (!value || (nativeImpl != null && nativeImplInitialized))) return
             if (value) {
-                val wasUnrealized = (nativeImpl == null)
+                var anc = parent
+                while (anc != null) {
+                    if (anc is AbstractContainer) {
+                        anc.markChildrenReconcileDirty()
+                        break
+                    }
+                    anc = anc.parent
+                }
                 val impl = ensureNativeImpl()
                 if (impl != null) {
                     runOnNativeUi {
                         impl.setVisible(true)
-                        if (wasUnrealized) {
-                            val parentContainer = parent as? AbstractContainer
-                            val parentImpl = parentContainer?.nativeImpl as? AbstractContainerNativeImpl<*>
-                            if (parentContainer != null && parentImpl != null) {
-                                val idx = parentContainer.children.indexOf(this)
-                                parentImpl.addChildNative(impl, idx)
-                            }
-                        }
+                        (parent as? AbstractContainer)?.attachRealizedChildToNative(this, impl)
+                        (parent as? Composite)?.attachRealizedCompositeChildToNative(this, impl)
                     }
                 }
             } else {
@@ -1229,9 +1582,10 @@ abstract class AbstractComponent(
             }
         }
 
-    var isEnabled: Boolean
+    open var isEnabled: Boolean
         get() = enabledState
         set(value) {
+            val changed = enabledState != value
             enabledState = value
             if (!value) {
                 hoveredState = false
@@ -1245,21 +1599,142 @@ abstract class AbstractComponent(
                 }
             }
             runOnNativeUi { it.setEnabled(value) }
+            if (changed) {
+                invalidateCachedSheetBaseStyle()
+                resolveEffectiveAncestorStyleSheet()?.let { sheet ->
+                    applyStyleSheet(sheet, lastStyleSheetViewportWidthPx)
+                }
+                onComponentEnabledChanged(value)
+            }
         }
 
     var isHovered: Boolean
         get() = if (!enabledState) false else (nativeImpl?.isHoveredState() ?: hoveredState)
         set(value) {
-            val coerced = if (!enabledState) false else value
-            hoveredState = coerced
-            runOnNativeUi { it.setHoveredState(coerced) }
-            notifyParentCacheDirty()
+            updateHoveredStateInternal(value, pushToNative = true)
         }
 
-    var isFocused: Boolean
-        get() = if (!enabledState) false else (nativeImpl?.isFocusedState() ?: focusedState)
+    private fun updateHoveredStateInternal(value: Boolean, pushToNative: Boolean) {
+        val coerced = if (!enabledState) false else value
+        val changed = hoveredState != coerced
+        hoveredState = coerced
+        if (pushToNative) {
+            runOnNativeUi { it.setHoveredState(coerced) }
+        }
+        if (changed) {
+            invalidateDescendantsForPseudoChange(listOf("pseudo:hover"))
+        } else {
+            notifyParentCacheDirty()
+        }
+    }
+
+    private fun invalidateDescendantsForPseudoChange(changedTokens: List<String>) {
+        val sheet = resolveEffectiveAncestorStyleSheet()
+        if (sheet == null) {
+            notifyParentCacheDirty()
+            return
+        }
+        val targetClasses = linkedSetOf<String>()
+        val targetIds = linkedSetOf<String>()
+        val targetTags = linkedSetOf<String>()
+        val descendantMode = sheet.collectDescendantInvalidation(
+            component = this,
+            changedClasses = changedTokens,
+            outSubjectClasses = targetClasses,
+            outSubjectIds = targetIds,
+            outSubjectTags = targetTags
+        )
+        val affectsDescendants = descendantMode != CssStyleSheet.DESCENDANT_INVALIDATION_NONE
+        if (affectsDescendants) {
+            invalidateDescendantSheetBaseStyles(
+                wholeSubtree = descendantMode == CssStyleSheet.DESCENDANT_INVALIDATION_WHOLE_SUBTREE,
+                clearSelectorClasses = false,
+                targetClasses = targetClasses,
+                targetIds = targetIds,
+                targetTags = targetTags
+            )
+            notifyParentCacheDirty()
+            applyStyleSheetForInvalidatedDescendants(
+                styleSheet = sheet,
+                viewportWidthPx = lastStyleSheetViewportWidthPx,
+                wholeSubtree = descendantMode == CssStyleSheet.DESCENDANT_INVALIDATION_WHOLE_SUBTREE,
+                targetClasses = targetClasses,
+                targetIds = targetIds,
+                targetTags = targetTags
+            )
+        } else {
+            notifyParentCacheDirty()
+        }
+    }
+
+    @set:kotlin.jvm.JvmName("setFocusableProp")
+    var isFocusable: Boolean
+        get() = isFocusableStateInternal()
+        set(value) = setFocusable(value)
+
+    internal open fun isFocusableStateInternal(): Boolean =
+        if (supportsFocus) focusableState && inheritedFocusableState else false
+
+    open fun setFocusable(focusable: Boolean) {
+        if (!supportsFocus) return
+        if (focusableState == focusable) return
+        val prevEffective = focusableState && inheritedFocusableState
+        focusableState = focusable
+        val nextEffective = focusableState && inheritedFocusableState
+        if (prevEffective != nextEffective) {
+            onEffectiveFocusableChanged(nextEffective)
+        }
+    }
+
+    internal open fun effectiveDescendantFocusAllowed(): Boolean = inheritedFocusableState
+
+    internal open fun onEffectiveFocusableChanged(effectiveFocusable: Boolean) {
+        if (!effectiveFocusable) {
+            focusedState = false
+            InputFocusManager.onComponentFocusChanged(this, false)
+            runOnNativeUi {
+                it.setFocusedState(false)
+                it.setFocusable(false)
+            }
+            notifyParentCacheDirty()
+        } else {
+            runOnNativeUi {
+                it.setFocusable(true)
+            }
+        }
+    }
+
+    internal open fun updateInheritedFocusable(ancestorAllowsFocus: Boolean) {
+        if (!supportsFocus) {
+            inheritedFocusableState = ancestorAllowsFocus
+            return
+        }
+        val prevEffective = focusableState && inheritedFocusableState
+        inheritedFocusableState = ancestorAllowsFocus
+        val nextEffective = focusableState && inheritedFocusableState
+        if (prevEffective != nextEffective) {
+            onEffectiveFocusableChanged(nextEffective)
+        }
+    }
+
+    internal fun recomputeInheritedFocusableFromParent() {
+        val allow = parent?.effectiveDescendantFocusAllowed() ?: true
+        updateInheritedFocusable(allow)
+    }
+
+    internal open fun canAcceptFocusForIsFocused(): Boolean = supportsFocus && isFocusable
+
+    internal fun clearFocusedFromAncestorSuppression() {
+        focusedState = false
+        InputFocusManager.onComponentFocusChanged(this, false)
+        runOnNativeUi { it.setFocusedState(false) }
+        notifyParentCacheDirty()
+    }
+
+    open var isFocused: Boolean
+        get() = if (!enabledState || !canAcceptFocusForIsFocused()) false else (nativeImpl?.isFocusedState() ?: focusedState)
         set(value) {
-            val coerced = if (!enabledState) false else value
+            val coerced = if (!enabledState || !canAcceptFocusForIsFocused()) false else value
             focusedState = coerced
             InputFocusManager.onComponentFocusChanged(this, coerced)
             runOnNativeUi { it.setFocusedState(coerced) }
@@ -1294,10 +1769,34 @@ abstract class AbstractComponent(
             computedStyleState = nextStyle
             transitionController.onStyleChanged(prevStyle, nextStyle)
             runOnNativeUi {
-                it.setOpacity(opacityState)
-                it.applyComputedStyle(nextStyle)
+                if (!transitionController.hasActiveSoftwareTransition("opacity")) {
+                    it.applyComponentStyle(effectiveComponentStyle())
+                    it.setOpacity(opacityState)
+                    it.applyComputedStyle(nextStyle)
+                } else {
+                    val frameAlpha = transitionController.currentFrameState.opacity
+                    it.setOpacity(frameAlpha)
+                    it.applyComputedStyle(nextStyle.copy(opacity = frameAlpha))
+                }
+            }
+            if (!transitionController.hasActiveSoftwareTransition("opacity")) {
+                onComponentOpacityChanged()
             }
         }
+
+    val animatedOpacity: Float
+        get() = if (transitionController.hasActiveSoftwareTransition("opacity")) {
+            transitionController.currentFrameState.opacity
+        } else {
+            opacityState
+        }
+
+    internal fun applyAnimatedOpacityForTransition(value: Float) {
+        val clamped = value.coerceIn(0f, 1f)
+        runOnNativeUi {
+            it.setOpacity(clamped)
+        }
+    }
 
     var tooltipText: String?
         get() = tooltipTextState
@@ -1307,17 +1806,26 @@ abstract class AbstractComponent(
         }
 
     open fun setAttribute(name: String, value: String) {
-        if (customAttributesState[name] == value) return
-        customAttributesState[name] = value
+        val changed = attributesLock.withLock {
+            if (customAttributesState[name] == value) {
+                false
+            } else {
+                customAttributesState[name] = value
+                true
+            }
+        }
+        if (!changed) return
         runOnNativeUi { it.setAttribute(name, value) }
     }
 
-    fun getAttribute(name: String): String? = customAttributesState[name]
+    fun getAttribute(name: String): String? = attributesLock.withLock { customAttributesState[name] }
 
-    fun getAttributes(): Map<String, String> = customAttributesState.toMap()
+    fun getAttributes(): Map<String, String> = attributesLock.withLock { customAttributesState.toMap() }
 
     fun removeAttribute(name: String) {
-        customAttributesState.remove(name)
+        attributesLock.withLock {
+            customAttributesState.remove(name)
+        }
         runOnNativeUi { it.setAttribute(name, null) }
     }
 
@@ -1357,20 +1865,52 @@ abstract class AbstractComponent(
 
     open fun applyComputedStyle(style: ComputedStyle) {
         val previous = computedStyleState
-        if (previous === style || previous == style) {
+        if ((previous === style || previous == style) && lastAppliedEnabledForComputedStyle == enabledState) {
             computedStyleState = style
             return
         }
         computedStyleState = style
-        opacityState = style.opacity.coerceIn(0f, 1f)
-        if (style.transition != null) {
-            transitionController.updateTransitionCss(style.transition)
+        lastAppliedEnabledForComputedStyle = enabledState
+        val effectiveForState = if (!enabledState && style.disabledStyle != null) {
+            style.mergeWith(style.disabledStyle)
+        } else {
+            style
+        }
+        opacityState = effectiveForState.opacity.coerceIn(0f, 1f)
+        when {
+            style.transitions != null -> transitionController.updateTransitionSpecs(style.transitions)
+            style.transition != null -> transitionController.updateTransitionCss(style.transition)
+            previous?.transitions != null || previous?.transition != null -> transitionController.updateTransitionSpecs(emptyList())
         }
         transitionController.onStyleChanged(previous, style)
+        val softwareOpacityAnimating = transitionController.hasActiveSoftwareTransition("opacity")
+        val nativeOpacity = if (softwareOpacityAnimating) transitionController.currentFrameState.opacity else opacityState
         runOnNativeUi {
-            it.setOpacity(opacityState)
             it.applyComputedStyle(style)
+            it.setOpacity(nativeOpacity)
+            it.setBackgroundGradient(effectiveForState.backgroundGradient)
+            it.setCustomCursor(effectiveForState.customCursor)
         }
+        systemCssAnimationHook?.invoke(this, previous, style, lastAppliedStyleSheet)
+        if (!suppressVisualResyncOnComputedStyleChange) {
+            onComputedStyleChanged(previous, style)
+        }
+    }
+
+    internal open fun onComputedStyleChanged(previous: ComputedStyle?, current: ComputedStyle) {}
+
+    internal fun applyCssAnimationFrameInternal(animatedStyle: ComputedStyle) {
+        computedStyleState = animatedStyle
+        val effectiveAlpha = animatedStyle.opacity.coerceIn(0f, 1f)
+        opacityState = effectiveAlpha
+        runOnNativeUi {
+            it.applyComputedStyle(animatedStyle)
+            it.setOpacity(effectiveAlpha)
+            it.setBackgroundGradient(animatedStyle.backgroundGradient)
+            it.setCustomCursor(animatedStyle.customCursor)
+        }
+        onComponentOpacityChanged()
+        notifyParentCacheDirty()
     }
 
     val computedStyle: ComputedStyle?
@@ -1606,7 +2146,7 @@ abstract class AbstractComponent(
         }
 
     var pointerEventsEnabled: Boolean
-        get() = computedStyleState?.pointerEventsEnabled ?: true
+        get() = if (computedStyleState != null) resolveEffectiveStyle().pointerEventsEnabled else true
         set(value) {
             suppressComponentStyleCallback = true
             try {
@@ -1683,52 +2223,329 @@ abstract class AbstractComponent(
             runOnNativeUi { it.applyComponentStyle(effectiveComponentStyle()) }
         }
 
-    /**
-     * Resolves and applies [styleSheet] rules to this component and (if this is an [AbstractContainer])
-     * recursively to all child components.
-     */
-    open fun applyStyleSheet(styleSheet: CssStyleSheet, viewportWidthPx: Int = 1280) {
+    private fun resolveEffectiveStyleSheetForSelf(styleSheet: CssStyleSheet): CssStyleSheet {
+        val localScoped = scopedStyleSheet
+        return if (localScoped != null && localScoped !== styleSheet) {
+            CssStyleSheet(
+                rules = styleSheet.rules + localScoped.rules,
+                keyframes = styleSheet.keyframes + localScoped.keyframes,
+                isPrecompiled = false
+            )
+        } else {
+            styleSheet
+        }
+    }
+
+    private fun resolveActiveStyleBackendTarget(activeFactory: NativeFactory?): BackendTarget =
+        com.nexustools.genericui.style.css.BackendStyleMask.resolveRuntimeBackendTarget(
+            com.nexustools.genericui.component.shell.Application.current?.backendTarget,
+            activeFactory?.backendTarget
+        )
+
+    private fun applyStyleSheetSelfResolved(
+        effectiveSheet: CssStyleSheet,
+        viewportWidthPx: Int,
+        mediaBucket: Int,
+        isDark: Boolean,
+        activeFactory: NativeFactory?
+    ) {
+        lastAppliedStyleSheet = effectiveSheet
+        lastStyleSheetViewportWidthPx = viewportWidthPx
+        lastStyleSheetMediaBucket = mediaBucket
+        lastStyleSheetDarkTheme = isDark
+        lastStyleSheetBackendTarget = resolveActiveStyleBackendTarget(activeFactory)
+        val rawResolved = effectiveSheet.resolveSheetStyleForComponent(this, viewportWidthPx = viewportWidthPx)
+        cachedSheetBaseStyle = rawResolved
+        val filterSystem = shouldFilterAestheticStylesForSystemBackend(activeFactory)
+        val resolved = if (filterSystem) {
+            rawResolved.copyFilteredForSystemComponent(
+                allowTypography = acceptsTypographyComponentStyles,
+                allowAestheticSkin = acceptsAestheticSkinComponentStyles,
+                allowFilter = acceptsCssFilterComponentStyles
+            )
+        } else {
+            rawResolved
+        }
+        val effectiveStyle = effectiveComponentStyle(filterSystem)
+        val effective = if (effectiveStyle.isEmpty()) {
+            resolved
+        } else {
+            effectiveStyle.toComputedStyle(resolved)
+        }
+        applyComputedStyle(effective)
+    }
+
+    private fun applyStyleSheetSelfOnly(styleSheet: CssStyleSheet, viewportWidthPx: Int = 1280): CssStyleSheet? {
         val activeFactory = resolveActiveFactory() ?: GenericUI.activeFactory
-        if (activeFactory != null && !activeFactory.isStyleSheetEngineEnabled) return
-        val mediaBucket = styleSheet.resolveMediaQueryBucket(viewportWidthPx)
+        if (activeFactory != null && !activeFactory.isStyleSheetEngineEnabled) return null
+        val effectiveSheet = resolveEffectiveStyleSheetForSelf(styleSheet)
+        val mediaBucket = effectiveSheet.resolveMediaQueryBucket(viewportWidthPx)
         val isDark = com.nexustools.genericui.component.shell.Application.current?.getResolvedTheme() ==
             com.nexustools.genericui.enums.ui.ThemeMode.DARK
-        if (lastAppliedStyleSheet !== styleSheet ||
+        val activeBackend = resolveActiveStyleBackendTarget(activeFactory)
+        if (lastAppliedStyleSheet !== effectiveSheet ||
             cachedSheetBaseStyle == null ||
             lastStyleSheetDarkTheme != isDark ||
+            lastStyleSheetBackendTarget != activeBackend ||
             (lastStyleSheetMediaBucket != mediaBucket && cachedSheetHasMediaRules)
         ) {
-            lastAppliedStyleSheet = styleSheet
-            lastStyleSheetViewportWidthPx = viewportWidthPx
-            lastStyleSheetMediaBucket = mediaBucket
-            lastStyleSheetDarkTheme = isDark
-            val rawResolved = styleSheet.resolveSheetStyleForComponent(this, viewportWidthPx = viewportWidthPx)
-            cachedSheetBaseStyle = rawResolved
-            val filterSystem = shouldFilterAestheticStylesForSystemBackend(activeFactory)
-            val resolved = if (filterSystem) {
-                rawResolved.copyFilteredForSystemComponent(
-                    allowTypography = acceptsTypographyComponentStyles,
-                    allowAestheticSkin = acceptsAestheticSkinComponentStyles
-                )
-            } else {
-                rawResolved
-            }
-            val effectiveStyle = effectiveComponentStyle(filterSystem)
-            val effective = if (effectiveStyle.isEmpty()) {
-                resolved
-            } else {
-                effectiveStyle.toComputedStyle(resolved)
-            }
-            applyComputedStyle(effective)
+            applyStyleSheetSelfResolved(effectiveSheet, viewportWidthPx, mediaBucket, isDark, activeFactory)
         } else {
             lastStyleSheetViewportWidthPx = viewportWidthPx
             lastStyleSheetMediaBucket = mediaBucket
         }
+        return effectiveSheet
+    }
+
+    private fun applyStyleSheetForInvalidatedDescendants(
+        styleSheet: CssStyleSheet,
+        viewportWidthPx: Int,
+        wholeSubtree: Boolean,
+        targetClasses: Set<String>,
+        targetIds: Set<String>,
+        targetTags: Set<String>
+    ) {
+        val effectiveSheet = applyStyleSheetSelfOnly(styleSheet, viewportWidthPx) ?: return
+        walkDescendantsForInvalidatedStyleSheet(
+            effectiveSheet = effectiveSheet,
+            viewportWidthPx = viewportWidthPx,
+            wholeSubtree = wholeSubtree,
+            targetClasses = targetClasses,
+            targetIds = targetIds,
+            targetTags = targetTags
+        )
+    }
+
+    private fun walkDescendantsForInvalidatedStyleSheet(
+        effectiveSheet: CssStyleSheet,
+        viewportWidthPx: Int,
+        wholeSubtree: Boolean,
+        targetClasses: Set<String>,
+        targetIds: Set<String>,
+        targetTags: Set<String>
+    ) {
         if (this is AbstractContainer) {
-            for (child in children) {
-                child.applyStyleSheet(styleSheet, viewportWidthPx)
+            var i = 0
+            while (i < children.size) {
+                children.getOrNull(i)?.applyStyleSheetIfInvalidated(
+                    styleSheet = effectiveSheet,
+                    viewportWidthPx = viewportWidthPx,
+                    wholeSubtree = wholeSubtree,
+                    targetClasses = targetClasses,
+                    targetIds = targetIds,
+                    targetTags = targetTags
+                )
+                i++
             }
         }
+        if (this is Composite) {
+            val compChildren = internalCompositeChildren()
+            var i = 0
+            while (i < compChildren.size) {
+                compChildren.getOrNull(i)?.applyStyleSheetIfInvalidated(
+                    styleSheet = effectiveSheet,
+                    viewportWidthPx = viewportWidthPx,
+                    wholeSubtree = wholeSubtree,
+                    targetClasses = targetClasses,
+                    targetIds = targetIds,
+                    targetTags = targetTags
+                )
+                i++
+            }
+        }
+    }
+
+    private fun applyStyleSheetIfInvalidated(
+        styleSheet: CssStyleSheet,
+        viewportWidthPx: Int,
+        wholeSubtree: Boolean,
+        targetClasses: Set<String>,
+        targetIds: Set<String>,
+        targetTags: Set<String>
+    ) {
+        val nextEffectiveSheet = if (wholeSubtree || cachedSheetBaseStyle == null || matchesInvalidationTargets(targetClasses, targetIds, targetTags)) {
+            applyStyleSheetSelfOnly(styleSheet, viewportWidthPx) ?: return
+        } else {
+            val activeFactory = resolveActiveFactory() ?: GenericUI.activeFactory
+            if (activeFactory != null && !activeFactory.isStyleSheetEngineEnabled) return
+            resolveEffectiveStyleSheetForSelf(styleSheet)
+        }
+        walkDescendantsForInvalidatedStyleSheet(
+            effectiveSheet = nextEffectiveSheet,
+            viewportWidthPx = viewportWidthPx,
+            wholeSubtree = wholeSubtree,
+            targetClasses = targetClasses,
+            targetIds = targetIds,
+            targetTags = targetTags
+        )
+    }
+
+    internal open fun applyStyleSheetWalk(
+        styleSheet: CssStyleSheet,
+        viewportWidthPx: Int,
+        walkSheet: CssStyleSheet,
+        activeFactory: NativeFactory?,
+        isDark: Boolean,
+        mediaBucket: Int,
+        refOldWidthPx: Int,
+        mediaMode: Int,
+        targetClasses: Set<String>,
+        targetIds: Set<String>,
+        targetTags: Set<String>,
+        targetAncestorClasses: Set<String> = emptySet(),
+        targetAncestorIds: Set<String> = emptySet(),
+        targetAncestorTags: Set<String> = emptySet(),
+        inInvalidatedAncestorSubtree: Boolean = false
+    ) {
+        if (scopedStyleSheet == null && styleSheet === walkSheet) {
+            val activeBackend = resolveActiveStyleBackendTarget(activeFactory)
+            if (lastAppliedStyleSheet === walkSheet &&
+                cachedSheetBaseStyle != null &&
+                lastStyleSheetDarkTheme == isDark &&
+                lastStyleSheetBackendTarget == activeBackend
+            ) {
+                if (lastStyleSheetMediaBucket == mediaBucket) {
+                    lastStyleSheetViewportWidthPx = viewportWidthPx
+                } else if (lastStyleSheetViewportWidthPx == refOldWidthPx &&
+                    mediaMode != CssStyleSheet.DESCENDANT_INVALIDATION_WHOLE_SUBTREE
+                ) {
+                    if (mediaMode == CssStyleSheet.DESCENDANT_INVALIDATION_NONE ||
+                        (!inInvalidatedAncestorSubtree && !matchesInvalidationTargets(targetClasses, targetIds, targetTags, isDark))
+                    ) {
+                        lastStyleSheetViewportWidthPx = viewportWidthPx
+                        lastStyleSheetMediaBucket = mediaBucket
+                    } else {
+                        applyStyleSheetSelfResolved(walkSheet, viewportWidthPx, mediaBucket, isDark, activeFactory)
+                    }
+                } else if (!cachedSheetHasMediaRules) {
+                    lastStyleSheetViewportWidthPx = viewportWidthPx
+                    lastStyleSheetMediaBucket = mediaBucket
+                } else {
+                    applyStyleSheetSelfResolved(walkSheet, viewportWidthPx, mediaBucket, isDark, activeFactory)
+                }
+            } else {
+                applyStyleSheetSelfResolved(walkSheet, viewportWidthPx, mediaBucket, isDark, activeFactory)
+            }
+            val nextInInvalidatedAncestorSubtree = inInvalidatedAncestorSubtree ||
+                (mediaMode == CssStyleSheet.DESCENDANT_INVALIDATION_TARGETED &&
+                    matchesInvalidationTargets(targetAncestorClasses, targetAncestorIds, targetAncestorTags, isDark))
+            if (this is AbstractContainer) {
+                var i = 0
+                while (i < children.size) {
+                    children.getOrNull(i)?.applyStyleSheetWalk(
+                        styleSheet = walkSheet,
+                        viewportWidthPx = viewportWidthPx,
+                        walkSheet = walkSheet,
+                        activeFactory = activeFactory,
+                        isDark = isDark,
+                        mediaBucket = mediaBucket,
+                        refOldWidthPx = refOldWidthPx,
+                        mediaMode = mediaMode,
+                        targetClasses = targetClasses,
+                        targetIds = targetIds,
+                        targetTags = targetTags,
+                        targetAncestorClasses = targetAncestorClasses,
+                        targetAncestorIds = targetAncestorIds,
+                        targetAncestorTags = targetAncestorTags,
+                        inInvalidatedAncestorSubtree = nextInInvalidatedAncestorSubtree
+                    )
+                    i++
+                }
+            }
+            if (this is Composite) {
+                val compChildren = internalCompositeChildren()
+                var i = 0
+                while (i < compChildren.size) {
+                    compChildren.getOrNull(i)?.applyStyleSheetWalk(
+                        styleSheet = walkSheet,
+                        viewportWidthPx = viewportWidthPx,
+                        walkSheet = walkSheet,
+                        activeFactory = activeFactory,
+                        isDark = isDark,
+                        mediaBucket = mediaBucket,
+                        refOldWidthPx = refOldWidthPx,
+                        mediaMode = mediaMode,
+                        targetClasses = targetClasses,
+                        targetIds = targetIds,
+                        targetTags = targetTags,
+                        targetAncestorClasses = targetAncestorClasses,
+                        targetAncestorIds = targetAncestorIds,
+                        targetAncestorTags = targetAncestorTags,
+                        inInvalidatedAncestorSubtree = nextInInvalidatedAncestorSubtree
+                    )
+                    i++
+                }
+            }
+        } else {
+            val effectiveSheet = applyStyleSheetSelfOnly(styleSheet, viewportWidthPx) ?: return
+            if (this is AbstractContainer) {
+                for (child in children) {
+                    child.applyStyleSheet(effectiveSheet, viewportWidthPx)
+                }
+            }
+            if (this is Composite) {
+                for (child in internalCompositeChildren()) {
+                    child.applyStyleSheet(effectiveSheet, viewportWidthPx)
+                }
+            }
+        }
+    }
+
+    /**
+     * Resolves and applies [styleSheet] rules to this component and (if this is an [AbstractContainer]
+     * or [Composite]) recursively to all child components.
+     */
+    open fun applyStyleSheet(styleSheet: CssStyleSheet, viewportWidthPx: Int = 1280) {
+        val activeFactory = resolveActiveFactory() ?: GenericUI.activeFactory
+        if (activeFactory != null && !activeFactory.isStyleSheetEngineEnabled) return
+        val isDark = com.nexustools.genericui.component.shell.Application.current?.getResolvedTheme() ==
+            com.nexustools.genericui.enums.ui.ThemeMode.DARK
+        val mediaBucket = styleSheet.resolveMediaQueryBucket(viewportWidthPx)
+        val activeBackend = resolveActiveStyleBackendTarget(activeFactory)
+        val refOldWidthPx = if (lastAppliedStyleSheet === styleSheet &&
+            lastStyleSheetDarkTheme == isDark &&
+            lastStyleSheetBackendTarget == activeBackend
+        ) {
+            lastStyleSheetViewportWidthPx
+        } else {
+            -1
+        }
+        val targetClasses = linkedSetOf<String>()
+        val targetIds = linkedSetOf<String>()
+        val targetTags = linkedSetOf<String>()
+        val targetAncestorClasses = linkedSetOf<String>()
+        val targetAncestorIds = linkedSetOf<String>()
+        val targetAncestorTags = linkedSetOf<String>()
+        val mediaMode = if (refOldWidthPx > 0 && refOldWidthPx != viewportWidthPx && lastStyleSheetMediaBucket != mediaBucket) {
+            styleSheet.collectMediaInvalidation(
+                oldViewportWidthPx = refOldWidthPx,
+                newViewportWidthPx = viewportWidthPx,
+                outSubjectClasses = targetClasses,
+                outSubjectIds = targetIds,
+                outSubjectTags = targetTags,
+                outAncestorClasses = targetAncestorClasses,
+                outAncestorIds = targetAncestorIds,
+                outAncestorTags = targetAncestorTags
+            )
+        } else {
+            CssStyleSheet.DESCENDANT_INVALIDATION_NONE
+        }
+        applyStyleSheetWalk(
+            styleSheet = styleSheet,
+            viewportWidthPx = viewportWidthPx,
+            walkSheet = styleSheet,
+            activeFactory = activeFactory,
+            isDark = isDark,
+            mediaBucket = mediaBucket,
+            refOldWidthPx = refOldWidthPx,
+            mediaMode = mediaMode,
+            targetClasses = targetClasses,
+            targetIds = targetIds,
+            targetTags = targetTags,
+            targetAncestorClasses = targetAncestorClasses,
+            targetAncestorIds = targetAncestorIds,
+            targetAncestorTags = targetAncestorTags
+        )
     }
 
     /**
@@ -1901,7 +2718,24 @@ abstract class AbstractComponent(
         PopupMouseCaptureManager.unregisterPopup(this)
         InputFocusManager.onComponentFocusChanged(this, false)
         clearAllTimers()
-        nativeImpl?.dispose()
-        nativeImpl = null
+        cancelAnimations()
+        transitionController.cancelAllTransitions(disposing = true)
+        systemCssAnimationDisposeHook?.invoke(this)
+        nativeRealizeLock.withLock {
+            nativeImplInitialized = false
+            nativeImpl?.dispose()
+            nativeImpl = null
+        }
+    }
+
+    companion object {
+        internal var systemCssAnimationHook: ((
+            component: AbstractComponent,
+            previous: ComputedStyle?,
+            current: ComputedStyle,
+            sheet: CssStyleSheet?
+        ) -> Unit)? = null
+
+        internal var systemCssAnimationDisposeHook: ((component: AbstractComponent) -> Unit)? = null
     }
 }

@@ -1,0 +1,430 @@
+/*
+ * GenericUI Consumer Theme Template Stylesheet (`theme.scss`)
+ *
+ * Consumes palette variables emitted from consumer `genericui { theme { ... } }`
+ * configuration (`$primary`, `$secondary`, `$accent`, `$background`, `$surface`,
+ * `$surface-elevated`, `$text`, `$text-primary`, `$text-secondary`, `$text-muted`,
+ * `$border`, `$success`, `$danger`, `$error`, `$warning`, `$info`, `$light`,
+ * `$dark`, `$on-primary`).
+ *
+ * Kept as a raw template in `:common` and compiled strictly in consumer
+ * applications so `:common` stays library-generic.
+ */
+
+$primary: #0d6efd !default;
+$secondary: #6c757d !default;
+$accent: #0d6efd !default;
+$success: #198754 !default;
+$danger: #dc3545 !default;
+$error: #dc3545 !default;
+$warning: #ffc107 !default;
+$info: #0dcaf0 !default;
+$light: #f8f9fa !default;
+$dark: #212529 !default;
+$background: #ffffff !default;
+$surface: #f8f9fa !default;
+$surface-elevated: #ffffff !default;
+$text: #212529 !default;
+$text-primary: #212529 !default;
+$text-secondary: #6c757d !default;
+$text-muted: #6c757d !default;
+$border: #dee2e6 !default;
+$on-primary: #ffffff !default;
+
+/* Application & Root Surfaces */
+genericui:app,
+genericui:window,
+.genericui-window {
+    background-color: $background;
+    color: $text;
+}
+
+/* StyledSlider Consumer Theme Palette */
+genericui:styled-slider,
+.styled-slider {
+    .styled-slider-track {
+        background-color: $border;
+    }
+
+    .styled-slider-progress {
+        background-color: $accent;
+    }
+
+    .styled-slider-knob {
+        background-color: $accent;
+        border: 2px solid $surface-elevated;
+
+        &:focus,
+        &:focus-visible {
+            box-shadow: 0 0 0 4px rgba($accent, 0.4);
+        }
+    }
+
+    &:focus-within .styled-slider-knob {
+        box-shadow: 0 0 0 4px rgba($accent, 0.4);
+    }
+}
+
+/* Action Buttons & Semantic Variants */
+.btn {
+    &:focus,
+    &:focus-visible {
+        box-shadow: 0 0 0 0.25rem rgba($primary, 0.35);
+    }
+}
+
+.btn-primary,
+.btn-fab {
+    background-color: $primary;
+    border-color: $primary;
+    color: $on-primary;
+}
+
+.btn-secondary {
+    background-color: $secondary;
+    border-color: $secondary;
+    color: $on-primary;
+}
+
+.btn-success {
+    background-color: $success;
+    border-color: $success;
+    color: $on-primary;
+}
+
+.btn-danger {
+    background-color: $danger;
+    border-color: $danger;
+    color: $on-primary;
+}
+
+.btn-warning {
+    background-color: $warning;
+    border-color: $warning;
+    color: $dark;
+}
+
+.btn-info {
+    background-color: $info;
+    border-color: $info;
+    color: $dark;
+}
+
+.btn-outline-primary {
+    background-color: transparent;
+    border-color: $primary;
+    color: $primary;
+
+    &:hover {
+        background-color: $primary;
+        border-color: $primary;
+        color: $on-primary;
+    }
+}
+
+.btn-outline-secondary {
+    background-color: transparent;
+    border-color: $border;
+    color: $text;
+
+    &:hover {
+        background-color: $secondary;
+        border-color: $secondary;
+        color: $on-primary;
+    }
+}
+
+.btn-link {
+    color: $primary;
+}
+
+/* Form Controls, Checkboxes, Radios, Switches & FileDropZone */
+input,
+textarea,
+select,
+genericui:textfield,
+genericui:textarea,
+genericui:select,
+.form-control,
+.form-select {
+    background-color: $surface;
+    color: $text-primary;
+    border-color: $border;
+
+    &:focus,
+    &:focus-visible {
+        border-color: $primary;
+        box-shadow: 0 0 0 0.25rem rgba($primary, 0.35);
+    }
+
+    &.is-invalid {
+        border-color: $error;
+
+        &:focus,
+        &:focus-visible {
+            box-shadow: 0 0 0 0.25rem rgba($error, 0.35);
+        }
+    }
+}
+
+genericui:checkbox,
+genericui:radiobutton,
+genericui:switch,
+.form-check-input {
+    accent-color: $accent;
+    border-color: $border;
+
+    &:checked {
+        background-color: $accent;
+        border-color: $accent;
+    }
+
+    &:focus,
+    &:focus-visible {
+        border-color: $primary;
+        box-shadow: 0 0 0 0.25rem rgba($accent, 0.4);
+    }
+}
+
+genericui:filedropzone,
+.file-drop-zone {
+    background-color: $surface;
+    border-color: $border;
+    color: $text-muted;
+
+    &:hover,
+    &.drag-over {
+        border-color: $accent;
+        background-color: rgba($accent, 0.08);
+        color: $text-primary;
+    }
+}
+
+/* Dialogs, Modals, Dropdowns, Drawers, Popovers & Tooltips */
+genericui:dialogwindow,
+genericui:modal,
+.modal-content,
+genericui:popover,
+.popover,
+genericui:drawer,
+genericui:bottomsheet,
+.drawer,
+.bottom-sheet {
+    background-color: $surface-elevated;
+    border-color: $border;
+    color: $text;
+}
+
+.modal-header,
+.modal-footer {
+    border-color: $border;
+}
+
+genericui:dropdown,
+.dropdown-menu {
+    background-color: $surface-elevated;
+    border-color: $border;
+    color: $text;
+}
+
+.dropdown-item {
+    color: $text;
+
+    &:hover,
+    &:focus {
+        background-color: rgba($primary, 0.14);
+        color: $text;
+    }
+
+    &.active {
+        background-color: $primary;
+        color: $on-primary;
+    }
+}
+
+genericui:tooltip,
+.tooltip {
+    background-color: $surface-elevated;
+    border: 1px solid $border;
+    color: $text;
+}
+
+/* Cards, Accordions, Panels, Wells & Lists */
+genericui:card,
+.card,
+.accordion,
+.collapsible-panel,
+.panel,
+.well,
+.jumbotron {
+    background-color: $surface;
+    border-color: $border;
+    color: $text;
+}
+
+.card-header,
+.card-footer,
+.accordion-header {
+    background-color: $surface-elevated;
+    border-color: $border;
+}
+
+.list-group-item {
+    background-color: $surface;
+    border-color: $border;
+    color: $text;
+
+    &:hover {
+        background-color: $surface-elevated;
+    }
+
+    &.active {
+        background-color: $primary;
+        border-color: $primary;
+        color: $on-primary;
+    }
+}
+
+/* Tabs & Navigation */
+.nav-tabs {
+    border-bottom-color: $border;
+
+    .nav-link {
+        color: $text-secondary;
+
+        &:hover {
+            color: $text;
+            border-color: $border;
+        }
+
+        &.active {
+            background-color: $surface-elevated;
+            border-color: $border;
+            color: $primary;
+        }
+    }
+}
+
+.nav-pills .nav-link.active {
+    background-color: $primary;
+    color: $on-primary;
+}
+
+.navbar,
+.bottom-nav,
+.side-nav {
+    background-color: $surface;
+    border-color: $border;
+    color: $text;
+}
+
+/* Feedback: Progress, Spinner, Alert, Badge, Toast */
+.progress {
+    background-color: $border;
+}
+
+.progress-bar {
+    background-color: $accent;
+}
+
+.spinner-border {
+    color: $accent;
+}
+
+.alert {
+    background-color: $surface;
+    border-color: $border;
+    color: $text;
+}
+
+.alert-danger,
+.text-danger {
+    color: $error;
+}
+
+.text-muted {
+    color: $text-muted;
+}
+
+.toast {
+    background-color: $surface-elevated;
+    border-color: $border;
+    color: $text;
+}
+
+.badge.bg-primary {
+    background-color: $primary;
+    color: $on-primary;
+}
+
+.badge.bg-secondary {
+    background-color: $secondary;
+    color: $on-primary;
+}
+
+.badge.bg-danger {
+    background-color: $danger;
+    color: $on-primary;
+}
+
+.badge.bg-success {
+    background-color: $success;
+    color: $on-primary;
+}
+
+/* Dividers & Blockquotes */
+hr,
+.divider {
+    border-color: $border;
+}
+
+blockquote,
+.blockquote {
+    border-left-color: $accent;
+    color: $text-secondary;
+}
+
+/* MDI, Dock & Tables */
+.mdi-toolbar,
+.mdi-taskbar {
+    background-color: $surface;
+    border-color: $border;
+    color: $text;
+}
+
+genericui:mdidesktop,
+.mdi-desktop-surface {
+    background-color: $background;
+}
+
+genericui:mdiwindow,
+.mdi-window {
+    background-color: $surface-elevated;
+    border-color: $border;
+    color: $text;
+
+    &.active,
+    &.focused {
+        border-color: $primary;
+        box-shadow: 0 0 0 2px rgba($primary, 0.25), 0 10px 28px rgba(0, 0, 0, 0.25);
+    }
+}
+
+.mdi-window-header {
+    background-color: $surface;
+    border-bottom-color: $border;
+}
+
+.dock-workspace,
+.dock-area,
+.dock-panel,
+.dock-group {
+    background-color: $surface;
+    border-color: $border;
+    color: $text;
+}
+
+.table {
+    color: $text;
+    border-color: $border;
+}

@@ -17,7 +17,10 @@ data class GenericUiDiscoveredFragment(
     val hasNoArgConstructor: Boolean = true,
     val sourceFilePath: String = "",
     val isApplicationClass: Boolean = false,
-    val annotations: Set<String> = emptySet()
+    val annotations: Set<String> = emptySet(),
+    val multipleWindows: Boolean = false,
+    val dialog: Boolean = false,
+    val hasIllegalMainDialogFlag: Boolean = false
 ) {
     /**
      * Simple class name of the 1:1 Android `AppCompatActivity` generated for this fragment

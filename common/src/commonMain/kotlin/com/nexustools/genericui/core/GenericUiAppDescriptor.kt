@@ -2,6 +2,7 @@ package com.nexustools.genericui.core
 
 import com.nexustools.genericui.component.fragment.Fragment
 import com.nexustools.genericui.component.fragment.FragmentBundle
+import com.nexustools.genericui.component.fragment.FragmentMetadata
 import com.nexustools.genericui.component.shell.IApplication
 import com.nexustools.genericui.resources.ResourceID
 import com.nexustools.genericui.style.theme.ThemeConfig
@@ -40,5 +41,8 @@ data class GenericUiAppDescriptor(
     val windowAspectRatio: Double? = null,
     val appleIconExplicitlyProvided: Boolean = false,
     val windowSizeExplicitlySet: Boolean = (windowWidth != 1280 || windowHeight != 800),
-    val fullscreenExplicitlySet: Boolean = fullscreen
+    val fullscreenExplicitlySet: Boolean = fullscreen,
+    val fragmentIds: Map<KClass<out Fragment>, String> = emptyMap(),
+    val fragmentRoutes: Map<KClass<out Fragment>, String> = emptyMap(),
+    val fragmentMetadata: Map<KClass<out Fragment>, FragmentMetadata> = emptyMap()
 )

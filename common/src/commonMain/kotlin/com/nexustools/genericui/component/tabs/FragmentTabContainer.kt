@@ -1,5 +1,6 @@
 package com.nexustools.genericui.component.tabs
 
+import com.nexustools.genericui.animation.AnimationHandle
 import com.nexustools.genericui.component.fragment.Fragment
 import com.nexustools.genericui.component.fragment.FragmentContainer
 import com.nexustools.genericui.component.media.Image
@@ -11,6 +12,7 @@ import com.nexustools.genericui.enums.fragment.FragmentState
 import com.nexustools.genericui.nativeimpl.tabs.TabContainerNativeImpl
 import com.nexustools.genericui.nativeimpl.tabs.TabNativeImpl
 import com.nexustools.genericui.resources.ResourceID
+import com.nexustools.genericui.style.transition.CssTimingFunction
 
 /**
  * Tabbed container where each tab hosts a full-lifecycle [Fragment] inside a managed [FragmentContainer],
@@ -83,6 +85,8 @@ open class FragmentTabContainer(
             typedNative<TabContainerNativeImpl<*>>()?.setFullWidthTabsNative(value)
         }
 
+    private var activeTabFadeHandle: AnimationHandle? = null
+
     var selectedIndex: Int = 0
         set(value) {
             val clamped = value.coerceIn(0, (_entries.size - 1).coerceAtLeast(0))
@@ -103,6 +107,30 @@ open class FragmentTabContainer(
                 selectedEntry.hostContainer.ensureActiveFragmentStartedAndResumed()
             }
             typedNative<TabContainerNativeImpl<*>>()?.setSelectedTabIndex(clamped, fadeTransition)
+            activeTabFadeHandle?.cancel()
+            activeTabFadeHandle = null
+            val nativeSupportsFade = typedNative<TabContainerNativeImpl<*>>()?.supportsNativeFadeTransition == true
+            val incomingHost = selectedEntry?.hostContainer
+            if (fadeTransition && !nativeSupportsFade && previousIndex != clamped && incomingHost != null) {
+                incomingHost.opacity = 0f
+                var handle: AnimationHandle? = null
+                handle = incomingHost.animate(
+                    durationMs = 180,
+                    timingFunction = CssTimingFunction.EASE_OUT,
+                    onUpdate = { progress ->
+                        incomingHost.opacity = progress
+                    },
+                    onComplete = {
+                        incomingHost.opacity = 1f
+                        if (activeTabFadeHandle === handle) {
+                            activeTabFadeHandle = null
+                        }
+                    }
+                )
+                activeTabFadeHandle = handle
+            } else if (incomingHost != null && !nativeSupportsFade) {
+                incomingHost.opacity = 1f
+            }
             selectedEntry?.tab?.onSelected?.invoke()
             onTabSelected?.invoke(clamped)
             if (selectedEntry != null) {

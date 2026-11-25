@@ -296,8 +296,9 @@ open class MdiContainer(
         if (window.windowState == MdiWindowState.NORMAL) {
             window.normalBounds = window.windowBounds
         }
-        val surfaceW = desktopSurface.widthPx ?: desktopWidth
-        val surfaceH = desktopSurface.heightPx ?: desktopHeight
+        val surfaceBounds = desktopSurface.nativeImpl?.getBounds()
+        val surfaceW = desktopSurface.widthPx ?: surfaceBounds?.width?.takeIf { it > 0 } ?: desktopWidth
+        val surfaceH = desktopSurface.heightPx ?: surfaceBounds?.height?.takeIf { it > 0 } ?: desktopHeight
         window.isVisible = true
         window.windowState = MdiWindowState.MAXIMIZED
         window.windowBounds = Rect(0, 0, surfaceW, surfaceH)

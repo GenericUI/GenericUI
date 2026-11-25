@@ -2,14 +2,18 @@ package com.nexustools.genericui.component.shell
 
 import com.nexustools.genericui.core.AbstractComponent
 import com.nexustools.genericui.core.AbstractContainer
+import com.nexustools.genericui.core.GenericUI
 import com.nexustools.genericui.core.NativeFactory
 import com.nexustools.genericui.event.KeyShortcut
+import com.nexustools.genericui.exception.NativeUninitializedException
 import com.nexustools.genericui.nativeimpl.shell.ContextMenuNativeImpl
 
 class ContextMenu : AbstractContainer("dropdown-menu") {
     init {
         htmlTag = "genericui:contextmenu"
     }
+
+    private var boundFactory: NativeFactory? = null
 
     var isShowing: Boolean = false
         private set
@@ -19,6 +23,9 @@ class ContextMenu : AbstractContainer("dropdown-menu") {
         private set
     var lastAnchor: AbstractComponent? = null
         private set
+
+    override fun resolveActiveFactory(): NativeFactory? =
+        super.resolveActiveFactory() ?: boundFactory
 
     protected override fun createNativeImpl(factory: NativeFactory): ContextMenuNativeImpl<*> =
         factory.createContextMenu()
@@ -52,18 +59,20 @@ class ContextMenu : AbstractContainer("dropdown-menu") {
     fun addSeparator(): ContextMenu = addItem(MenuSeparator())
 
     fun showAt(anchor: AbstractComponent?, x: Int, y: Int) {
-        isShowing = true
-        lastShownX = x
-        lastShownY = y
-        lastAnchor = anchor
         val anchorFactory = anchor?.resolveActiveFactory()
         if (parent == null && anchor != null) {
             parent = anchor
         }
-        if (anchorFactory != null) {
-            val impl = ensureNativeImpl() as? ContextMenuNativeImpl<*>
-            impl?.showAt(anchor.nativeImpl, x, y)
-        }
+        val resolvedFactory = anchorFactory ?: resolveActiveFactory() ?: GenericUI.activeFactory
+            ?: throw NativeUninitializedException("ContextMenu", "showAt")
+        boundFactory = resolvedFactory
+        isShowing = true
+        lastShownX = x
+        lastShownY = y
+        lastAnchor = anchor
+        val impl = ensureNativeImpl() as? ContextMenuNativeImpl<*>
+            ?: throw NativeUninitializedException("ContextMenu", "showAt")
+        impl.showAt(anchor?.nativeImpl, x, y)
     }
 
     fun hide() {

@@ -34,7 +34,7 @@ import java.util.Properties
 import java.util.zip.ZipFile
 
 /**
- * Compiles GenericUI core, backend (`macos`, `windows`, `gtk`, `qt`), `njs`, extension, DSL, and
+ * Compiles GenericUI core, backend (`macos`, `windows`, `gtk`, `kde`), `njs`, extension, DSL, and
  * test klibs into true dynamic shared libraries (`.dylib` / `.so` / `.dll`) plus Kotlin/Native
  * monolithic cache facades for a specific native desktop target and build mode.
  *
@@ -397,7 +397,7 @@ abstract class GenericUiBuildNativeSharedLibsTask : DefaultTask() {
             val isLinux = GenericUiNativeSharedLibraryCatalog.isLinuxKonanTarget(konanTarget)
             val isMac = GenericUiNativeSharedLibraryCatalog.isMacOsKonanTarget(konanTarget)
             val isLinuxSingleBackendVariant = isLinux &&
-                (backendVariant.equals("gtk", ignoreCase = true) || backendVariant.equals("qt", ignoreCase = true))
+                (backendVariant.equals("gtk", ignoreCase = true) || backendVariant.equals("kde", ignoreCase = true))
             val dependenciesDir = File(konanDataDir, "dependencies")
             val llvmHomeDir = resolveLlvmHomeDir(konanProps, dependenciesDir, hostKonan)
 
@@ -868,23 +868,12 @@ abstract class GenericUiBuildNativeSharedLibsTask : DefaultTask() {
                         outSo = outSharedLib,
                         strip = !debuggable
                     )
-                    if (group.groupId == "genericui-gtk" || group.groupId == "genericui-qt") {
-                        val forbiddenPkg = if (group.groupId == "genericui-gtk") {
-                            "com.nexustools.genericui.qt"
-                        } else {
-                            "com.nexustools.genericui.gtk"
-                        }
-                        verifyLinuxBackendIsolation(outSharedLib, forbiddenPkg)
-                    } else if (isLinuxSingleBackendVariant &&
-                        group.groupId == GenericUiNativeSharedLibraryCatalog.TESTS_GROUP_ID
-                    ) {
-                        val forbiddenTestsPkg = if (backendVariant.equals("qt", ignoreCase = true)) {
-                            "com.nexustools.genericui.tests.gtk"
-                        } else {
-                            "com.nexustools.genericui.tests.qt"
-                        }
-                        verifyLinuxBackendIsolation(outSharedLib, forbiddenTestsPkg)
-                    }
+                    verifyLinuxSharedLibrarySymbolIsolation(
+                        groupId = group.groupId,
+                        backendVariant = backendVariant,
+                        isLinuxSingleBackendVariant = isLinuxSingleBackendVariant,
+                        soFile = outSharedLib
+                    )
                 }
                 isWindows -> {
                     val outImplib = File(implibDir, "${group.groupId}.dll.a")
@@ -973,17 +962,6 @@ abstract class GenericUiBuildNativeSharedLibsTask : DefaultTask() {
             }
         }
         return result
-    }
-
-    private fun linuxExcludedPackageForKlib(uniqueName: String, backendVariant: String): String? {
-        val isQt = backendVariant.equals("qt", ignoreCase = true)
-        return when (uniqueName) {
-            "com.nexustools.genericui:desktop" ->
-                if (isQt) "com.nexustools.genericui.gtk" else "com.nexustools.genericui.qt"
-            "com.nexustools.genericui:tests" ->
-                if (isQt) "com.nexustools.genericui.tests.gtk" else "com.nexustools.genericui.tests.qt"
-            else -> null
-        }
     }
 
     private fun selectLinuxPerFileObjects(
@@ -1160,16 +1138,6 @@ abstract class GenericUiBuildNativeSharedLibsTask : DefaultTask() {
             )
         )
         return bridgeObj
-    }
-
-    private fun verifyLinuxBackendIsolation(soFile: File, forbiddenPkg: String) {
-        val offending = readElfDefinedSymbolNames(soFile)
-            .filter { it.contains("$forbiddenPkg.") || it.contains("$forbiddenPkg/") }
-        if (offending.isNotEmpty()) {
-            throw GradleException(
-                "Backend isolation check failed for ${soFile.name}: found ${offending.size} forbidden '$forbiddenPkg' symbols (e.g. ${offending.take(5).joinToString()})"
-            )
-        }
     }
 
     private fun linkMacOsSharedLibrary(
@@ -1804,69 +1772,6 @@ abstract class GenericUiBuildNativeSharedLibsTask : DefaultTask() {
         return true
     }
 
-    private fun readElfDefinedSymbolNames(
-        elfFile: File,
-        globalFunctionsOnly: Boolean = false
-    ): List<String> {
-        val bytes = elfFile.readBytes()
-        if (bytes.size < 64) return emptyList()
-        if (bytes[0] != 0x7f.toByte() || bytes[1] != 'E'.code.toByte() ||
-            bytes[2] != 'L'.code.toByte() || bytes[3] != 'F'.code.toByte()
-        ) {
-            return emptyList()
-        }
-        if ((bytes[4].toInt() and 0xFF) != 2 || (bytes[5].toInt() and 0xFF) != 1) {
-            return emptyList() // ELF64 little-endian
-        }
-
-        val shOff = readU64LE(bytes, 40).toInt()
-        val shEntSize = readU16LE(bytes, 58)
-        val shNum = readU16LE(bytes, 60)
-        if (shOff <= 0 || shEntSize <= 0 || shNum <= 0) return emptyList()
-
-        val result = mutableListOf<String>()
-        for (s in 0 until shNum) {
-            val secPos = shOff + s * shEntSize
-            if (secPos + shEntSize > bytes.size) break
-            val shType = readU32LE(bytes, secPos + 4)
-            if (shType != 2 && shType != 11) continue // SHT_SYMTAB / SHT_DYNSYM
-
-            val symOffset = readU64LE(bytes, secPos + 24).toInt()
-            val symSize = readU64LE(bytes, secPos + 32).toInt()
-            val strSecIdx = readU32LE(bytes, secPos + 40)
-            val entSize = readU64LE(bytes, secPos + 56).toInt().coerceAtLeast(24)
-            if (strSecIdx !in 0 until shNum) continue
-
-            val strSecPos = shOff + strSecIdx * shEntSize
-            val strOffset = readU64LE(bytes, strSecPos + 24).toInt()
-            val strSize = readU64LE(bytes, strSecPos + 32).toInt()
-            val strEnd = (strOffset + strSize).coerceAtMost(bytes.size)
-
-            var pos = symOffset
-            val symEnd = (symOffset + symSize).coerceAtMost(bytes.size)
-            while (pos + entSize <= symEnd) {
-                val stName = readU32LE(bytes, pos)
-                val stInfo = bytes[pos + 4].toInt() and 0xFF
-                val stShndx = readU16LE(bytes, pos + 6)
-                val passesFilter = if (globalFunctionsOnly) {
-                    val stBind = stInfo ushr 4
-                    val stType = stInfo and 0x0F
-                    stBind != 0 && (stType == 2 || stType == 0)
-                } else {
-                    true
-                }
-                if (passesFilter && stShndx != 0 && stName > 0 && strOffset + stName < strEnd) {
-                    val name = readNullTerminatedString(bytes, strOffset + stName)
-                    if (name.isNotEmpty()) {
-                        result.add(name)
-                    }
-                }
-                pos += entSize
-            }
-        }
-        return result
-    }
-
     private fun normalizeDirectLdOptions(opts: List<String>, isMac: Boolean): List<String> {
         val out = mutableListOf<String>()
         for (opt in opts) {
@@ -2059,41 +1964,6 @@ abstract class GenericUiBuildNativeSharedLibsTask : DefaultTask() {
         return out
     }
 
-    private fun readU16LE(bytes: ByteArray, off: Int): Int =
-        (bytes[off].toInt() and 0xFF) or ((bytes[off + 1].toInt() and 0xFF) shl 8)
-
-    private fun readI16LE(bytes: ByteArray, off: Int): Int {
-        val v = readU16LE(bytes, off)
-        return if ((v and 0x8000) != 0) v or -0x10000 else v
-    }
-
-    private fun readU32LE(bytes: ByteArray, off: Int): Int =
-        (bytes[off].toInt() and 0xFF) or
-            ((bytes[off + 1].toInt() and 0xFF) shl 8) or
-            ((bytes[off + 2].toInt() and 0xFF) shl 16) or
-            ((bytes[off + 3].toInt() and 0xFF) shl 24)
-
-    private fun readU64LE(bytes: ByteArray, off: Int): Long =
-        (readU32LE(bytes, off).toLong() and 0xFFFFFFFFL) or
-            ((readU32LE(bytes, off + 4).toLong() and 0xFFFFFFFFL) shl 32)
-
-    private fun readFixedCString(bytes: ByteArray, off: Int, maxLen: Int): String {
-        var len = 0
-        while (len < maxLen && off + len < bytes.size && bytes[off + len] != 0.toByte()) {
-            len++
-        }
-        return String(bytes, off, len, Charsets.UTF_8)
-    }
-
-    private fun readNullTerminatedString(bytes: ByteArray, off: Int): String {
-        if (off < 0 || off >= bytes.size) return ""
-        var end = off
-        while (end < bytes.size && bytes[end] != 0.toByte()) {
-            end++
-        }
-        return String(bytes, off, end - off, Charsets.UTF_8)
-    }
-
     companion object {
         private const val CACHE_SCHEMA_VERSION = "v6"
         private const val EXTRA_LINKING_REGISTERED = "genericUiNativeSharedLinkingRegistered"
@@ -2102,6 +1972,154 @@ abstract class GenericUiBuildNativeSharedLibsTask : DefaultTask() {
             "^(lib)?(genericui|njs)(-[^.]+)?\\.(dylib|so|dll)$",
             RegexOption.IGNORE_CASE
         )
+
+        internal fun linuxExcludedPackageForKlib(uniqueName: String, backendVariant: String): String? {
+            val isKde = backendVariant.equals("kde", ignoreCase = true)
+            return when (uniqueName) {
+                "com.nexustools.genericui:desktop" ->
+                    if (isKde) "com.nexustools.genericui.gtk" else "com.nexustools.genericui.kde"
+                "com.nexustools.genericui:tests" ->
+                    if (isKde) "com.nexustools.genericui.tests.gtk" else "com.nexustools.genericui.tests.kde"
+                else -> null
+            }
+        }
+
+        internal fun verifyLinuxSharedLibrarySymbolIsolation(
+            groupId: String,
+            backendVariant: String,
+            isLinuxSingleBackendVariant: Boolean,
+            soFile: File
+        ) {
+            if (groupId == "genericui-gtk" || groupId == "genericui-kde") {
+                val forbiddenPkg = if (groupId == "genericui-gtk") {
+                    "com.nexustools.genericui.kde"
+                } else {
+                    "com.nexustools.genericui.gtk"
+                }
+                verifyLinuxBackendIsolation(soFile, forbiddenPkg)
+            } else if (isLinuxSingleBackendVariant &&
+                groupId == GenericUiNativeSharedLibraryCatalog.TESTS_GROUP_ID
+            ) {
+                val forbiddenTestsPkg = if (backendVariant.equals("kde", ignoreCase = true)) {
+                    "com.nexustools.genericui.tests.gtk"
+                } else {
+                    "com.nexustools.genericui.tests.kde"
+                }
+                verifyLinuxBackendIsolation(soFile, forbiddenTestsPkg)
+            }
+        }
+
+        internal fun verifyLinuxBackendIsolation(soFile: File, forbiddenPkg: String) {
+            val offending = readElfDefinedSymbolNames(soFile)
+                .filter {
+                    it.contains("$forbiddenPkg.") ||
+                        it.contains("$forbiddenPkg/") ||
+                        it.contains("$forbiddenPkg#")
+                }
+            if (offending.isNotEmpty()) {
+                throw GradleException(
+                    "Backend isolation check failed for ${soFile.name}: found ${offending.size} forbidden '$forbiddenPkg' symbols (e.g. ${offending.take(5).joinToString()})"
+                )
+            }
+        }
+
+        internal fun readElfDefinedSymbolNames(
+            elfFile: File,
+            globalFunctionsOnly: Boolean = false
+        ): List<String> {
+            val bytes = elfFile.readBytes()
+            if (bytes.size < 64) return emptyList()
+            if (bytes[0] != 0x7f.toByte() || bytes[1] != 'E'.code.toByte() ||
+                bytes[2] != 'L'.code.toByte() || bytes[3] != 'F'.code.toByte()
+            ) {
+                return emptyList()
+            }
+            if ((bytes[4].toInt() and 0xFF) != 2 || (bytes[5].toInt() and 0xFF) != 1) {
+                return emptyList() // ELF64 little-endian
+            }
+
+            val shOff = readU64LE(bytes, 40).toInt()
+            val shEntSize = readU16LE(bytes, 58)
+            val shNum = readU16LE(bytes, 60)
+            if (shOff <= 0 || shEntSize <= 0 || shNum <= 0) return emptyList()
+
+            val result = mutableListOf<String>()
+            for (s in 0 until shNum) {
+                val secPos = shOff + s * shEntSize
+                if (secPos + shEntSize > bytes.size) break
+                val shType = readU32LE(bytes, secPos + 4)
+                if (shType != 2 && shType != 11) continue // SHT_SYMTAB / SHT_DYNSYM
+
+                val symOffset = readU64LE(bytes, secPos + 24).toInt()
+                val symSize = readU64LE(bytes, secPos + 32).toInt()
+                val strSecIdx = readU32LE(bytes, secPos + 40)
+                val entSize = readU64LE(bytes, secPos + 56).toInt().coerceAtLeast(24)
+                if (strSecIdx !in 0 until shNum) continue
+
+                val strSecPos = shOff + strSecIdx * shEntSize
+                val strOffset = readU64LE(bytes, strSecPos + 24).toInt()
+                val strSize = readU64LE(bytes, strSecPos + 32).toInt()
+                val strEnd = (strOffset + strSize).coerceAtMost(bytes.size)
+
+                var pos = symOffset
+                val symEnd = (symOffset + symSize).coerceAtMost(bytes.size)
+                while (pos + entSize <= symEnd) {
+                    val stName = readU32LE(bytes, pos)
+                    val stInfo = bytes[pos + 4].toInt() and 0xFF
+                    val stShndx = readU16LE(bytes, pos + 6)
+                    val passesFilter = if (globalFunctionsOnly) {
+                        val stBind = stInfo ushr 4
+                        val stType = stInfo and 0x0F
+                        stBind != 0 && (stType == 2 || stType == 0)
+                    } else {
+                        true
+                    }
+                    if (passesFilter && stShndx != 0 && stName > 0 && strOffset + stName < strEnd) {
+                        val name = readNullTerminatedString(bytes, strOffset + stName)
+                        if (name.isNotEmpty()) {
+                            result.add(name)
+                        }
+                    }
+                    pos += entSize
+                }
+            }
+            return result
+        }
+
+        private fun readU16LE(bytes: ByteArray, off: Int): Int =
+            (bytes[off].toInt() and 0xFF) or ((bytes[off + 1].toInt() and 0xFF) shl 8)
+
+        private fun readI16LE(bytes: ByteArray, off: Int): Int {
+            val v = readU16LE(bytes, off)
+            return if ((v and 0x8000) != 0) v or -0x10000 else v
+        }
+
+        private fun readU32LE(bytes: ByteArray, off: Int): Int =
+            (bytes[off].toInt() and 0xFF) or
+                ((bytes[off + 1].toInt() and 0xFF) shl 8) or
+                ((bytes[off + 2].toInt() and 0xFF) shl 16) or
+                ((bytes[off + 3].toInt() and 0xFF) shl 24)
+
+        private fun readU64LE(bytes: ByteArray, off: Int): Long =
+            (readU32LE(bytes, off).toLong() and 0xFFFFFFFFL) or
+                ((readU32LE(bytes, off + 4).toLong() and 0xFFFFFFFFL) shl 32)
+
+        private fun readFixedCString(bytes: ByteArray, off: Int, maxLen: Int): String {
+            var len = 0
+            while (len < maxLen && off + len < bytes.size && bytes[off + len] != 0.toByte()) {
+                len++
+            }
+            return String(bytes, off, len, Charsets.UTF_8)
+        }
+
+        private fun readNullTerminatedString(bytes: ByteArray, off: Int): String {
+            if (off < 0 || off >= bytes.size) return ""
+            var end = off
+            while (end < bytes.size && bytes[end] != 0.toByte()) {
+                end++
+            }
+            return String(bytes, off, end - off, Charsets.UTF_8)
+        }
 
         private val WINDOWS_SYSTEM_LIBS = listOf(
             "gdi32",
@@ -2288,10 +2306,10 @@ abstract class GenericUiBuildNativeSharedLibsTask : DefaultTask() {
             return when {
                 GenericUiNativeSharedLibraryCatalog.isMacOsKonanTarget(targetName) -> "macos"
                 GenericUiNativeSharedLibraryCatalog.isWindowsKonanTarget(targetName) -> "windows"
-                linkTaskName.contains("Qt") || binaryName.startsWith("qt", ignoreCase = true) -> "qt"
+                linkTaskName.contains("Kde") || binaryName.startsWith("kde", ignoreCase = true) -> "kde"
                 linkTaskName.contains("Gtk") || binaryName.startsWith("gtk", ignoreCase = true) -> "gtk"
-                kindName == "TEST" && extension.backends.gtkEnabled && extension.backends.qtEnabled -> "linux"
-                !extension.backends.gtkEnabled && extension.backends.qtEnabled -> "qt"
+                kindName == "TEST" && extension.backends.gtkEnabled && extension.backends.kdeEnabled -> "linux"
+                !extension.backends.gtkEnabled && extension.backends.kdeEnabled -> "kde"
                 else -> "gtk"
             }
         }
@@ -2462,9 +2480,20 @@ abstract class GenericUiBuildNativeSharedLibsTask : DefaultTask() {
             return raw.mapNotNull { it?.toString() }
         }
 
-        internal fun signMacBinary(file: File) {
+        internal fun signMacBinary(file: File, identifier: String? = null) {
             if (Files.isSymbolicLink(file.toPath())) return
-            val pb = ProcessBuilder("codesign", "--force", "--sign", "-", file.absolutePath)
+            val cmd = buildList {
+                add("codesign")
+                add("--force")
+                add("--sign")
+                add("-")
+                if (!identifier.isNullOrBlank()) {
+                    add("--identifier")
+                    add(identifier)
+                }
+                add(file.absolutePath)
+            }
+            val pb = ProcessBuilder(cmd)
             pb.redirectErrorStream(true)
             val proc = pb.start()
             val out = proc.inputStream.bufferedReader(Charsets.UTF_8).readText()

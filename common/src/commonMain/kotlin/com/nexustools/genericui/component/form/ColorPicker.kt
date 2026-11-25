@@ -9,6 +9,10 @@ import com.nexustools.genericui.style.color.RgbaColor
 class ColorPicker(
     initialColor: RgbaColor = RgbaColor.PRIMARY_BLUE
 ) : TextField(value = initialColor.toHex()) {
+    init {
+        setAttribute("data-control-variant", "color")
+    }
+
     var selectedColor: RgbaColor = initialColor
         set(color) {
             field = color
@@ -24,5 +28,10 @@ class ColorPicker(
                 selectedColor = chosen
             }
         }
+    }
+
+    override fun syncStateToNative() {
+        setAttribute("data-control-variant", "color")
+        super.syncStateToNative()
     }
 }

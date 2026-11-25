@@ -1,5 +1,7 @@
 package com.nexustools.genericui.window
 
+import com.nexustools.genericui.enums.window.TitleBarControlsPlacement
+
 /**
  * Describes the titlebar capabilities of an [IWindow] (or [com.nexustools.genericui.component.dock.DockPanel])
  * on the active backend and operating system, including whether the titlebar is native or emulated.
@@ -66,7 +68,22 @@ data class TitleCapabilities(
      * `true` when, with both a [TitleBar] and a `MenuBar` set, a single navbar shows the title/icon on the left
      * and the menu on the right (Android / iOS / Web).
      */
-    val menuBarMergesIntoTitleNavbar: Boolean = false
+    val menuBarMergesIntoTitleNavbar: Boolean = false,
+    /**
+     * Default placement of native window controls (`LEADING` on macOS traffic lights,
+     * `TRAILING` on Windows / Linux / Swing).
+     */
+    val defaultControlsPlacement: TitleBarControlsPlacement = TitleBarControlsPlacement.TRAILING,
+    /**
+     * `true` when overlay-embedded windowed titlebars should adopt a blurred, semi-transparent
+     * backdrop fill matching the OS vibrancy aesthetic (e.g. macOS).
+     */
+    val prefersBlurredTranslucentOverlayTitleBar: Boolean = false,
+    /**
+     * `true` when the host platform renders native window controls (such as macOS traffic lights)
+     * inside the overlay titlebar region rather than GenericUI-emulated caption buttons.
+     */
+    val usesNativeOverlayTitleBarControls: Boolean = false
 ) {
     /**
      * `true` when components added to [TitleBar] (`leadingComponents`, `centerComponents`, `trailingComponents`)
@@ -110,7 +127,10 @@ data class TitleCapabilities(
             isTitleBarRequired = false,
             titleBarRendersAsNavbar = false,
             menuBarRendersAsNavbar = false,
-            menuBarMergesIntoTitleNavbar = false
+            menuBarMergesIntoTitleNavbar = false,
+            defaultControlsPlacement = TitleBarControlsPlacement.TRAILING,
+            prefersBlurredTranslucentOverlayTitleBar = false,
+            usesNativeOverlayTitleBarControls = false
         )
     }
 }

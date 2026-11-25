@@ -17,7 +17,7 @@ import com.nexustools.genericui.image.ImageSource
  * - `:web`: Browser `createImageBitmap` / `HTMLImageElement` + offscreen `<canvas>` `getImageData` / `toDataURL`
  *   ([usesBrowserManagedImageLoading] is `true` on `:web` so the browser handles image loading and HTTP caching directly).
  * - `:macos` / `:ios`: Apple `ImageIO` (`CGImageSource` / `CGImageDestination`).
- * - `:windows` / `:gtk` / `:qt` (`:desktop`): Native OS loaders (`WIC`, `GdkPixbuf`, `QImage`) + direct `libjpeg` (`libjpeg-turbo`), `libpng`, `libwebp`, and `giflib` codecs.
+ * - `:windows` / `:gtk` / `:kde` (`:desktop`): Native OS loaders (`WIC`, `GdkPixbuf`, `QImage`) + direct `libjpeg` (`libjpeg-turbo`), `libpng`, `libwebp`, and `giflib` codecs.
  */
 interface ImageCodecNativeImpl : Disposable {
     val codecBackendName: String

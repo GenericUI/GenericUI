@@ -10,6 +10,8 @@ import com.nexustools.genericui.component.layout.LayeredContainer
 import com.nexustools.genericui.component.layout.LayeredLayout
 import com.nexustools.genericui.component.navigation.Navbar
 import com.nexustools.genericui.component.typography.Label
+import com.nexustools.genericui.core.AbstractComponent
+import com.nexustools.genericui.core.NativeFactory
 import com.nexustools.genericui.enums.bootstrap.BootstrapSize
 import com.nexustools.genericui.enums.bootstrap.BootstrapType
 import com.nexustools.genericui.enums.fragment.FragmentState
@@ -250,7 +252,10 @@ open class FragmentHostFragment(
 
         val winTitle = hostSystem.resolveWindowTitle(currentFragment)
         if (winTitle.isNotBlank()) {
-            hostingWindow?.setTitle(winTitle) ?: attachedWindow?.setTitle(winTitle)
+            val targetWin = hostingWindow ?: attachedWindow
+            if (targetWin != null && targetWin.getTitle() != winTitle) {
+                targetWin.setTitle(winTitle)
+            }
         }
 
         // When the host already provides title + Back/Forward chrome (e.g. the browser on :web), the window title
@@ -273,38 +278,29 @@ open class FragmentHostFragment(
             detachFallbackNavbar()
             val tb = getTitleBar() ?: managedTitleBar ?: TitleBar()
             managedTitleBar = tb
-            tb.clearComponents()
 
+            val nextLeading = ArrayList<AbstractComponent>(2 + navigationChrome.leadingComponents.size)
             if (navigationChrome.showBackButton) {
-                backButton.mountedInTitleBar = true
-                tb.addLeading(backButton)
+                nextLeading.add(backButton)
             } else {
                 backButton.mountedInTitleBar = false
             }
-
             if (navigationChrome.showForwardButton) {
-                forwardButton.mountedInTitleBar = true
-                tb.addLeading(forwardButton)
+                nextLeading.add(forwardButton)
             } else {
                 forwardButton.mountedInTitleBar = false
             }
+            nextLeading.addAll(navigationChrome.leadingComponents)
 
-            for (comp in navigationChrome.leadingComponents) {
-                comp.mountedInTitleBar = true
-                tb.addLeading(comp)
-            }
-            for (comp in navigationChrome.centerComponents) {
-                comp.mountedInTitleBar = true
-                tb.addCenter(comp)
-            }
-            for (comp in navigationChrome.trailingComponents) {
-                comp.mountedInTitleBar = true
-                tb.addTrailing(comp)
-            }
+            val changed = tb.replaceComponents(
+                leading = nextLeading,
+                center = navigationChrome.centerComponents,
+                trailing = navigationChrome.trailingComponents
+            )
 
             if (getTitleBar() !== tb) {
                 setTitleBar(tb)
-            } else {
+            } else if (changed || attachedWindow?.getTitleBar() !== tb) {
                 syncChromeToAttachedWindow()
             }
             hostingWindow?.let { win ->
@@ -461,6 +457,31 @@ open class FragmentHostFragment(
 
     override fun applyStyleSheet(styleSheet: CssStyleSheet, viewportWidthPx: Int) {
         super.applyStyleSheet(styleSheet, viewportWidthPx)
+        hostSystem.onApplyStyleSheet(styleSheet, viewportWidthPx)
+    }
+
+    override fun applyStyleSheetWalk(
+        styleSheet: CssStyleSheet,
+        viewportWidthPx: Int,
+        walkSheet: CssStyleSheet,
+        activeFactory: NativeFactory?,
+        isDark: Boolean,
+        mediaBucket: Int,
+        refOldWidthPx: Int,
+        mediaMode: Int,
+        targetClasses: Set<String>,
+        targetIds: Set<String>,
+        targetTags: Set<String>,
+        targetAncestorClasses: Set<String>,
+        targetAncestorIds: Set<String>,
+        targetAncestorTags: Set<String>,
+        inInvalidatedAncestorSubtree: Boolean
+    ) {
+        super.applyStyleSheetWalk(
+            styleSheet, viewportWidthPx, walkSheet, activeFactory, isDark,
+            mediaBucket, refOldWidthPx, mediaMode, targetClasses, targetIds, targetTags,
+            targetAncestorClasses, targetAncestorIds, targetAncestorTags, inInvalidatedAncestorSubtree
+        )
         hostSystem.onApplyStyleSheet(styleSheet, viewportWidthPx)
     }
 

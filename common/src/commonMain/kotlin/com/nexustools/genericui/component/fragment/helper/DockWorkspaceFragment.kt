@@ -361,10 +361,12 @@ open class DockWorkspaceFragment(
             val firstPanel = panelWin.children.filterIsInstance<DockPanel>().firstOrNull() ?: panelWin.panel
             reattachPanelWindow(panelWin, firstPanel?.preferredDockPosition ?: DockPosition.RIGHT)
         }
-        for (doc in _documents) {
-            doc.detachedDocumentWindow?.removeChild(doc.content)
-            doc.detachedDocumentWindow?.close()
+        for (doc in _documents.toList()) {
+            val detachedWin = doc.detachedDocumentWindow
             doc.detachedDocumentWindow = null
+            detachedWin?.setOnWindowCloseRequested(null)
+            detachedWin?.removeChild(doc.content)
+            detachedWin?.close()
             if (documentTabContainer.tabs.none { it.tabId == doc.documentId }) {
                 documentTabContainer.addTab(
                     tab = CloseableTab(

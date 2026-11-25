@@ -10,10 +10,10 @@ import org.gradle.api.Action
  *
  * Configures Kotlin Multiplatform targets, the GenericUI sourceSet hierarchy (`common`, `commonMain`,
  * `desktopCommon`, `nativeDesktopCommon`, `windowsMain`, `macMain` / `macosMain`, `linuxCommon`,
- * `gtkMain`, `qtMain`, `swingMain`, `mobileCommon`, `androidMain`, `iosMain`, `webMain`),
+ * `gtkMain`, `kdeMain`, `swingMain`, `mobileCommon`, `androidMain`, `iosMain`, `webMain`),
  * Development/Production build target tasks (`windowsDevelopment`, `windowsProduction`,
  * `macDevelopment`, `macProduction`, `linuxDevelopmentGtk`, `linuxProductionGtk`,
- * `linuxDevelopmentQt`, `linuxProductionQt`, `swingDevelopment`, `swingProduction`,
+ * `linuxDevelopmentKde`, `linuxProductionKde`, `swingDevelopment`, `swingProduction`,
  * `androidDevelopment`, `androidProduction`, `iosDevelopment`, `iosProduction`,
  * `webDevelopment`, `webProduction`), executable binaries, SASS->CSS/Kotlin compilation, and extensions.
  */
@@ -23,7 +23,7 @@ open class GenericUiExtension {
 
     /**
      * Whether to automatically configure Kotlin Multiplatform targets, sourceSets (`webMain`, `gtkMain`,
-     * `qtMain`, `windowsMain`, `macMain`, `nativeDesktopCommon`, `desktopCommon`, `swingMain`, `mobileCommon`,
+     * `kdeMain`, `windowsMain`, `macMain`, `nativeDesktopCommon`, `desktopCommon`, `swingMain`, `mobileCommon`,
      * `androidMain`, `iosMain`, `common`), and executable binaries based on [backends] and [application].
      */
     var configureMultiplatformTargets: Boolean = true
@@ -98,8 +98,8 @@ open class GenericUiExtension {
     /** Variant scope configuration for [GenericUiVariantScope.GTK]. */
     val gtk: GenericUiVariantConfig = GenericUiVariantConfig(GenericUiVariantScope.GTK)
 
-    /** Variant scope configuration for [GenericUiVariantScope.QT]. */
-    val qt: GenericUiVariantConfig = GenericUiVariantConfig(GenericUiVariantScope.QT)
+    /** Variant scope configuration for [GenericUiVariantScope.KDE]. */
+    val kde: GenericUiVariantConfig = GenericUiVariantConfig(GenericUiVariantScope.KDE)
 
     /** Variant scope configuration for [GenericUiVariantScope.SWING]. */
     val swing: GenericUiVariantConfig = GenericUiVariantConfig(GenericUiVariantScope.SWING)
@@ -123,7 +123,7 @@ open class GenericUiExtension {
     /** Application binary entry point, executable baseName, Windows GUI subsystem, and Android namespace config. */
     val application: GenericUiApplicationConfig = GenericUiApplicationConfig()
 
-    /** Target platform backends configuration (`windows`, `macos`, `gtk`, `qt`, `swing`, `android`, `ios`, `web`). */
+    /** Target platform backends configuration (`windows`, `macos`, `gtk`, `kde`, `swing`, `android`, `ios`, `web`). */
     val backends: GenericUiBackendsConfig = GenericUiBackendsConfig(webManifest = application.desktop.webManifest)
 
     /** Desktop client build configuration, Windows/macOS/Linux application icons, window settings, and app metadata. */
@@ -134,7 +134,7 @@ open class GenericUiExtension {
     val webManifest: GenericUiWebManifestConfig
         get() = application.desktop.webManifest
 
-    /** GenericUI multiplatform sourceSets (`common`, `desktopCommon`, `nativeDesktopCommon`, `windowsMain`, `macMain`, `gtkMain`, `qtMain`, `swingMain`, `mobileCommon`, `androidMain`, `iosMain`, `webMain`). */
+    /** GenericUI multiplatform sourceSets (`common`, `desktopCommon`, `nativeDesktopCommon`, `windowsMain`, `macMain`, `gtkMain`, `kdeMain`, `swingMain`, `mobileCommon`, `androidMain`, `iosMain`, `webMain`). */
     val sourceSets: GenericUiSourceSetsConfig = GenericUiSourceSetsConfig()
 
     /** Native GPU drivers, ANGLE, MoltenVK, and Shaderc configuration. */
@@ -376,7 +376,7 @@ open class GenericUiExtension {
         onConfiguredCallback?.invoke()
     }
 
-    /** Sets the Linux GTK/Qt desktop application icon path (`.png` or `.svg`). */
+    /** Sets the Linux GTK/KDE desktop application icon path (`.png` or `.svg`). */
     fun linuxIcon(path: Any?) {
         application.linuxIcon(path)
         onConfiguredCallback?.invoke()
@@ -536,7 +536,7 @@ open class GenericUiExtension {
         onConfiguredCallback?.invoke()
     }
 
-    /** Configures Linux GTK/Qt desktop entry & packaging settings (`.png`/`.svg` icon, `.desktop` categories). */
+    /** Configures Linux GTK/KDE desktop entry & packaging settings (`.png`/`.svg` icon, `.desktop` categories). */
     fun linuxBuild(
         icon: String = application.desktop.linuxIcon,
         categories: String = application.desktop.linuxCategories
@@ -558,7 +558,7 @@ open class GenericUiExtension {
         application.bundleResource(relativePath)
     }
 
-    /** Configures GenericUI multiplatform sourceSet dependencies (`common`, `desktopCommon`, `nativeDesktopCommon`, `windowsMain`, `macMain`, `gtkMain`, `qtMain`, `swingMain`, `mobileCommon`, `androidMain`, `iosMain`, `webMain`). */
+    /** Configures GenericUI multiplatform sourceSet dependencies (`common`, `desktopCommon`, `nativeDesktopCommon`, `windowsMain`, `macMain`, `gtkMain`, `kdeMain`, `swingMain`, `mobileCommon`, `androidMain`, `iosMain`, `webMain`). */
     fun sourceSets(action: Action<in GenericUiSourceSetsConfig>) {
         onConfiguredCallback?.invoke()
         action.execute(sourceSets)
@@ -724,9 +724,9 @@ open class GenericUiExtension {
         onConfiguredCallback?.invoke()
     }
 
-    /** Configures the `qt` scope (`genericui { qt { ... } }`). */
-    fun qt(action: Action<in GenericUiVariantConfig>) {
-        action.execute(qt)
+    /** Configures the `kde` scope (`genericui { kde { ... } }`). */
+    fun kde(action: Action<in GenericUiVariantConfig>) {
+        action.execute(kde)
         onConfiguredCallback?.invoke()
     }
 
@@ -779,7 +779,7 @@ open class GenericUiExtension {
         GenericUiVariantScope.WINDOWS -> windows
         GenericUiVariantScope.MACOS -> macos
         GenericUiVariantScope.GTK -> gtk
-        GenericUiVariantScope.QT -> qt
+        GenericUiVariantScope.KDE -> kde
         GenericUiVariantScope.SWING -> swing
         GenericUiVariantScope.ANDROID -> android
         GenericUiVariantScope.IOS -> ios

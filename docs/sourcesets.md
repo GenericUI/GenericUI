@@ -26,7 +26,7 @@ common (commonMain / commonTest — rank 0)
     │       ├── macos / mac (macosMain / macMain -> macosArm64Main — rank 6)
     │       └── linuxCommon (linuxCommon / linuxMain -> linuxX64Main, linuxArm64Main — rank 5)
     │           ├── gtk (gtkMain — rank 6)
-    │           └── qt (qtMain — rank 6)
+    │           └── kde (kdeMain — rank 6)
     └── mobileCommon (mobileCommon / mobileMain — rank 3)
         ├── android (androidMain — rank 6)
         └── iosCommon (iosCommon / iosCommonMain — rank 5) [iOS iPhone + iPadOS iPad]
@@ -51,7 +51,7 @@ flowchart TD
     macos["macos (rank 6)<br/>macosArm64Main"]
     linuxCommon["linuxCommon (rank 5)<br/>linuxMain"]
     gtk["gtk (rank 6)"]
-    qt["qt (rank 6)"]
+    kde["kde (rank 6)"]
     android["android (rank 6)<br/>androidMain"]
     iosCommon["iosCommon (rank 5)<br/>UIKit shared"]
     ios["ios (rank 6)<br/>UIDeviceFamily=1"]
@@ -73,7 +73,7 @@ flowchart TD
     appleCommon --> iosCommon
     nativeDesktopCommon --> linuxCommon
     linuxCommon --> gtk
-    linuxCommon --> qt
+    linuxCommon --> kde
     mobileCommon --> android
     mobileCommon --> iosCommon
     iosCommon --> ios
@@ -90,18 +90,18 @@ flowchart TD
 | Variant Scope (`GenericUiSourceSetsConfig`) | `AppTarget` Enum (`specificityRank`) | Backing GenericUI Module / SourceSet | Consumer Source Directories (Optional except `commonMain`) | Target Scope & Purpose |
 | :--- | :--- | :--- | :--- | :--- |
 | **`common`** | `AppTarget.COMMON` (`0`) | **`:common`** | `src/commonMain/kotlin`<br/>`src/commonTest/kotlin`<br/>`src/commonMain/resources` | **100% Cross-Platform Code**: `@MainAppFragment`, `@AppFragment`, UI components, layouts, `PreferenceStore`, `Resource` access, and tests shared across all 9 backends. |
-| **`systemCommon`** | `AppTarget.SYSTEM_COMMON` (`1`) | **`:system`** | `src/systemCommon/kotlin`<br/>`src/systemMain/kotlin` | **All 8 Non-Web OS Targets**: Blink style/layout engines, pure-Kotlin system utilities, filesystem/socket logic (`Windows`, `MacOS`, `Gtk`, `Qt`, `Swing`, `Android`, `IOS`, `IPadOS`). |
-| **`appleCommon`** | `AppTarget.APPLE_COMMON` (`2`) | **`:apple`** | `src/appleMain/kotlin`<br/>`src/appleCommon/kotlin` | **All 3 Apple Darwin Targets (`MacOS`, `IOS`, `IPadOS`)**: `Foundation`, `CoreFoundation`, `Security`, `Network`, `ImageIO`, `CoreGraphics`, `UniformTypeIdentifiers`, `UserNotifications`, and `libsqlite3` shared code. |
-| **`jvmCommon`** | `AppTarget.JVM_COMMON` (`2`) | **`:jvm`** | `src/jvmCommon/kotlin` | **Both JVM Targets (`Swing` + `Android`)**: Shared Java/JDK 11 NIO, HTTP, RFC 6455 WebSockets, JDBC/SQLite, `JvmIoExecutor`, and pixel-tinting helpers. |
-| **`desktopCommon`** | `AppTarget.DESKTOP_COMMON` (`3`) | **`:desktop`** (`commonMain`) | `src/desktopCommon/kotlin`<br/>`src/desktopMain/kotlin` | **All 5 Desktop Targets (`Windows`, `MacOS`, `Gtk`, `Qt`, `Swing`)**: Multi-window workflows, desktop file browser helpers, lazy viewport engines, and system tray logic. |
+| **`systemCommon`** | `AppTarget.SYSTEM_COMMON` (`1`) | **`:system`** | `src/systemCommon/kotlin`<br/>`src/systemMain/kotlin` | **All 8 Non-Web OS Targets**: Blink style/layout engines, pure-Kotlin system utilities, filesystem/socket logic (`Windows`, `MacOS`, `Gtk`, `Kde`, `Swing`, `Android`, `IOS`, `IPadOS`). |
+| **`appleCommon`** | `AppTarget.APPLE_COMMON` (`2`) | **`:apple`** | `src/appleMain/kotlin`<br/>`src/appleCommon/kotlin` | **All 3 Apple Darwin Targets (`MacOS`, `IOS`, `IPadOS`)**: `AppleStyledSurfaceHelper`, `AppleBackdropFilterController`, `Foundation`, `CoreFoundation`, `Security`, `Network`, `ImageIO`, `CoreGraphics`, `UniformTypeIdentifiers`, `UserNotifications`, and `libsqlite3` shared code. |
+| **`jvmCommon`** | `AppTarget.JVM_COMMON` (`2`) | **`:jvm`** | `src/jvmCommon/kotlin` | **Both JVM Targets (`Swing` + `Android`)**: Shared Java/JDK 11 NIO, HTTP, RFC 6455 WebSockets, JDBC/SQLite, `JvmIoExecutor`, `JvmBackdropCapturePlanner`, and pixel-tinting helpers. |
+| **`desktopCommon`** | `AppTarget.DESKTOP_COMMON` (`3`) | **`:desktop`** (`commonMain`) | `src/desktopCommon/kotlin`<br/>`src/desktopMain/kotlin` | **All 5 Desktop Targets (`Windows`, `MacOS`, `Gtk`, `Kde`, `Swing`)**: Multi-window workflows, desktop file browser helpers, lazy viewport engines, and system tray logic. |
 | **`mobileCommon`** | `AppTarget.MOBILE_COMMON` (`3`) | **`:mobile`** (`commonMain`) | `src/mobileCommon/kotlin`<br/>`src/mobileMain/kotlin` | **All 3 Mobile Targets (`Android`, `IOS`, `IPadOS`)**: Form-factor posture detection, multi-touch gestures, fling physics, PiP controllers, and mobile lazy viewport pools. |
-| **`nativeDesktopCommon`** | `AppTarget.NATIVE_DESKTOP_COMMON` (`4`) | **`:desktop`** (`nativeDesktopMain`) | `src/nativeDesktopCommon/kotlin`<br/>`src/nativeDesktopMain/kotlin` | **All 4 Native Desktop Targets (`Windows`, `MacOS`, `Gtk`, `Qt`)**: Kotlin/Native `kotlinx.cinterop` (`CPointer`, `memScoped`), POSIX/Win32 native helpers, and multi-window dock coordination. |
-| **`linuxCommon`** | `AppTarget.LINUX_COMMON` (`5`) | **`:desktop`** (`linuxMain`) | `src/linuxCommon/kotlin`<br/>`src/linuxMain/kotlin` | **Linux Desktop Targets (`Gtk` + `Qt`)**: Shared Linux XDG config/cache/preference storage, D-Bus, and Wayland/X11 helpers. |
+| **`nativeDesktopCommon`** | `AppTarget.NATIVE_DESKTOP_COMMON` (`4`) | **`:desktop`** (`nativeDesktopMain`) | `src/nativeDesktopCommon/kotlin`<br/>`src/nativeDesktopMain/kotlin` | **All 4 Native Desktop Targets (`Windows`, `MacOS`, `Gtk`, `Kde`)**: Kotlin/Native `kotlinx.cinterop` (`CPointer`, `memScoped`), `DesktopContainerLayoutController`, `DesktopStyledWidgetDelegate`, `DesktopButtonNativeImpl`, POSIX/Win32 native helpers, and multi-window dock coordination. |
+| **`linuxCommon`** | `AppTarget.LINUX_COMMON` (`5`) | **`:desktop`** (`linuxMain`) | `src/linuxCommon/kotlin`<br/>`src/linuxMain/kotlin` | **Linux Desktop Targets (`Gtk` + `Kde`)**: Shared Linux XDG config/cache/preference storage, toolkit-agnostic `linux/style` (`LinuxStyledSurfaceHelper`, `LinuxBackdropFilterController`), ELF resources, D-Bus, and Wayland/X11 helpers. |
 | **`iosCommon`** | `AppTarget.IOS_COMMON` (`5`) | **`:mobile`** (`iosMain`) | `src/iosCommon/kotlin` | **Apple UIKit Targets (`IOS` + `IPadOS`)**: UIKit shared views, `CADisplayLink`, `UIDocumentPickerViewController`, and MoltenVK code shared between iPhone and iPad. |
-| **`windows`** | `AppTarget.WINDOWS` (`6`) | **`:desktop`** (`mingwMain`) | `src/windowsMain/kotlin` | **Windows (`mingwX64`)**: Win32 APIs, Direct2D, Google ANGLE, Vulkan. |
+| **`windows`** | `AppTarget.WINDOWS` (`6`) | **`:desktop`** (`mingwMain`) | `src/windowsMain/kotlin` | **Windows (`mingwX64`)**: Win32 child `HWND`s (`ComCtl32 v6`), Direct2D, Google ANGLE, Vulkan. |
 | **`macos`** (`mac`) | `AppTarget.MACOS` (`6`) | **`:desktop`** (`macosMain`) | `src/macosMain/kotlin`<br/>`src/macMain/kotlin` | **macOS (`macosArm64`)**: AppKit/Cocoa, system `NSMenu`, MoltenVK. |
-| **`gtk`** | `AppTarget.GTK` (`6`) | **`:desktop`** (`linuxMain`) | `src/gtkMain/kotlin` | **Linux GTK4 (`linuxX64`, `linuxArm64`)**: GTK4 / Libadwaita / Cairo. |
-| **`qt`** | `AppTarget.QT` (`6`) | **`:desktop`** (`linuxMain`) | `src/qtMain/kotlin` | **Linux Qt6 (`linuxX64`, `linuxArm64`)**: Qt6 `QWidget` / `QPainter` / `QVulkanWindow`. |
+| **`gtk`** | `AppTarget.GTK` (`6`) | **`:desktop`** (`linuxMain`) | `src/gtkMain/kotlin` | **Linux GTK4 (`linuxX64`, `linuxArm64`)**: GTK4 / Libadwaita / GSK / Cairo (`libgenericui-gtk.so`). |
+| **`kde`** | `AppTarget.KDE` (`6`) | **`:desktop`** (`linuxMain`) | `src/kdeMain/kotlin` | **Linux KDE (`linuxX64`, `linuxArm64`)**: `KF6` + `Breeze` on `Qt6` alien `QWidget*` (`libgenericui-kde.so`). |
 | **`swing`** | `AppTarget.SWING` (`6`) | **`:desktop`** (`jvmMain`) | `src/swingMain/kotlin`<br/>`src/jvmMain/kotlin` | **JVM Swing (`jvm`)**: AWT/Swing, Java2D, optional LWJGL 3 OpenGL ES & Vulkan. |
 | **`android`** | `AppTarget.ANDROID` (`6`) | **`:mobile`** (`androidMain`) | `src/androidMain/kotlin` | **Android**: Android-only code such as background `Service` subclasses (`android { services { ... } }`), MediaSession, or Cast SDK integration. |
 | **`ios`** | `AppTarget.IOS` (`6`) | **`:mobile`** (`iosMain`) | `src/iosMain/kotlin` | **iOS iPhone (`iosArm64`, `iosSimulatorArm64`; `UIDeviceFamily = 1`)**: iPhone-specific UIKit tuning. |
@@ -127,7 +127,7 @@ genericui {
     }
 
     backends {
-        all() // Enables all 9 targets including Windows, macOS, GTK, Qt, Swing, Android, iOS, iPadOS, and Web
+        all() // Enables all 9 targets including Windows, macOS, GTK, KDE, Swing, Android, iOS, iPadOS, and Web
     }
 
     sourceSets {
@@ -151,7 +151,7 @@ genericui {
             // Optional JVM 11 libraries
         }
 
-        // Shared across Windows, macOS, GTK, and Qt (excludes JVM Swing, Mobile, and Web)
+        // Shared across Windows, macOS, GTK, and KDE (excludes JVM Swing, Mobile, and Web)
         nativeDesktopCommon {
             implementation(project(":native-dsp-bridge"))
         }
@@ -191,7 +191,7 @@ import com.nexustools.genericui.component.fragment.Fragment
 import com.nexustools.genericui.component.fragment.MainAppFragment
 import com.nexustools.genericui.enums.system.AppTarget
 
-// Used on Desktop (Windows, macOS, GTK, Qt, Swing) and Web (specificity rank 0)
+// Used on Desktop (Windows, macOS, GTK, KDE, Swing) and Web (specificity rank 0)
 @MainAppFragment(targets = [AppTarget.COMMON], label = "Studio Workspace")
 class DesktopAndWebWorkspaceFragment : Fragment()
 
@@ -227,7 +227,7 @@ actual object PlatformCapabilities {
 package com.example.app
 
 actual object PlatformCapabilities {
-    // Shared across Windows, macOS, GTK, Qt, Swing, Android, iOS, and iPadOS
+    // Shared across Windows, macOS, GTK, KDE, Swing, Android, iOS, and iPadOS
     actual val hasRawSockets: Boolean = true
 }
 ```

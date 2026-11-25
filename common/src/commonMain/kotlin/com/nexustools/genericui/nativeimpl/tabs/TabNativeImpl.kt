@@ -15,7 +15,7 @@ import com.nexustools.genericui.core.NativeImpl
  * - `:windows`: Win32 `TCITEMW` inside `WC_TABCONTROLW` (`comctl32.dll`) with native close button / child `HWND`
  * - `:macos`: AppKit `NSTabViewItem` with native `NSStackView` / close `NSButton` / custom `NSView`
  * - `:gtk`: GTK 4 / Libadwaita `AdwTabPage` / `GtkNotebookPage` with native `GtkBox` + `GtkButton("window-close-symbolic")`
- * - `:qt`: Qt 6 `QTabBar` item with `QTabBar::setTabText`, `setTabToolTip`, and `setTabButton(index, QTabBar::RightSide, widget)`
+ * - `:kde`: KDE / Qt 6 `QTabBar` item with `QTabBar::setTabText`, `setTabToolTip`, and `setTabButton(index, QTabBar::RightSide, widget)`
  * - `:android`: Material `TabLayout.Tab` with `setText`, `getOrCreateBadge`, and `setCustomView`
  * - `:ios`: UIKit `UITabBarItem` / `UISegmentedControl` item with `badgeValue` and custom `UIView`
  * - `:web`: Bootstrap `<li class="nav-item"><button class="nav-link">` with `.btn-close`, `.badge`, or custom DOM child

@@ -6,6 +6,7 @@ import com.nexustools.genericui.nativeimpl.shell.ContextMenuNativeImpl
 interface SystemTrayNativeImpl : Disposable {
     val isSupported: Boolean
     fun setIcon(iconPathOrUrl: String?)
+    fun setMacosIcon(iconPathOrUrl: String?) {}
     fun setTooltip(tooltip: String?)
     fun setBadgeText(badge: String?)
     fun setContextMenu(menuImpl: ContextMenuNativeImpl<*>?)

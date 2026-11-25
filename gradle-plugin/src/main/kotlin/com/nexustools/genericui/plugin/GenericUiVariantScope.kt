@@ -22,7 +22,7 @@ enum class GenericUiVariantScope(
     WINDOWS("windows", 6, isConcreteBackend = true),
     MACOS("macos", 6, isConcreteBackend = true),
     GTK("gtk", 6, isConcreteBackend = true),
-    QT("qt", 6, isConcreteBackend = true),
+    KDE("kde", 6, isConcreteBackend = true),
     SWING("swing", 6, isConcreteBackend = true),
     ANDROID("android", 6, isConcreteBackend = true),
     IOS("ios", 6, isConcreteBackend = true),
@@ -38,7 +38,7 @@ enum class GenericUiVariantScope(
             WINDOWS,
             MACOS,
             GTK,
-            QT,
+            KDE,
             SWING,
             ANDROID,
             IOS,
@@ -71,7 +71,7 @@ enum class GenericUiVariantScope(
                 "win", "windows", "windowsmain", "mingwx64" -> WINDOWS
                 "mac", "macos", "macmain", "macosmain", "macosarm64" -> MACOS
                 "gtk", "gtkmain" -> GTK
-                "qt", "qtmain" -> QT
+                "kde", "kdemain" -> KDE
                 "swing", "swingmain" -> SWING
                 "android", "androidmain" -> ANDROID
                 "ios", "iosmain" -> IOS
@@ -104,7 +104,7 @@ enum class GenericUiVariantScope(
             WINDOWS -> listOf(COMMON, SYSTEM_COMMON, DESKTOP_COMMON, NATIVE_DESKTOP_COMMON, WINDOWS)
             MACOS -> listOf(COMMON, SYSTEM_COMMON, APPLE_COMMON, DESKTOP_COMMON, NATIVE_DESKTOP_COMMON, MACOS)
             GTK -> listOf(COMMON, SYSTEM_COMMON, DESKTOP_COMMON, NATIVE_DESKTOP_COMMON, LINUX_COMMON, GTK)
-            QT -> listOf(COMMON, SYSTEM_COMMON, DESKTOP_COMMON, NATIVE_DESKTOP_COMMON, LINUX_COMMON, QT)
+            KDE -> listOf(COMMON, SYSTEM_COMMON, DESKTOP_COMMON, NATIVE_DESKTOP_COMMON, LINUX_COMMON, KDE)
             SWING -> listOf(COMMON, SYSTEM_COMMON, JVM_COMMON, DESKTOP_COMMON, SWING)
             ANDROID -> listOf(COMMON, SYSTEM_COMMON, JVM_COMMON, MOBILE_COMMON, ANDROID)
             IOS -> listOf(COMMON, SYSTEM_COMMON, APPLE_COMMON, MOBILE_COMMON, IOS_COMMON, IOS)

@@ -12,6 +12,7 @@
         <!-- Core Base Component -->
         <element name="app" tag="genericui:app" componentClass="GenericUiApplication" category="core" display="block" role="application" description="Root GenericUI application viewport container."/>
         <element name="component" tag="genericui:component" componentClass="AbstractComponent" category="core" display="block" role="generic" description="Base GenericUI component element."/>
+        <element name="composite" tag="genericui:composite" componentClass="Composite" category="core" display="block" role="group" description="Self-contained multi-part UI component encapsulating internal styled primitives."/>
         <element name="fragment" tag="genericui:fragment" componentClass="Fragment" category="core" display="block" role="region" description="Modular lifecycle-aware UI fragment container."/>
         <element name="fragment-container" tag="genericui:fragment-container" componentClass="FragmentContainer" category="core" display="block" role="region" description="Host container mounting and transitioning Fragment instances."/>
 
@@ -63,16 +64,18 @@
 
         <!-- Layout Containers -->
         <element name="container" tag="genericui:container" componentClass="Container" category="layout" display="block" role="region" description="Responsive layout container."/>
+        <element name="styled-container" tag="genericui:styled-container" componentClass="StyledContainer" category="layout" display="block" role="group" description="Custom-styled surface and layout container."/>
         <element name="box" tag="genericui:box" componentClass="Box" category="layout" display="block" role="group" description="Single-purpose positioning and alignment box container."/>
         <element name="row" tag="genericui:row" componentClass="Row" category="layout" display="flex" role="group" description="12-column responsive Bootstrap grid row."/>
         <element name="col" tag="genericui:col" componentClass="Col" category="layout" display="block" role="group" description="Responsive grid column within a genericui:row."/>
         <element name="flexbox" tag="genericui:flexbox" componentClass="FlexBox" category="layout" display="flex" role="group" description="Configurable CSS Flexbox layout container."/>
         <element name="hstack" tag="genericui:hstack" componentClass="HStack" category="layout" display="flex" role="group" description="Horizontal flex stack layout container."/>
         <element name="vstack" tag="genericui:vstack" componentClass="VStack" category="layout" display="flex" role="group" description="Vertical flex stack layout container."/>
+        <element name="spacer" tag="genericui:spacer" componentClass="Spacer" category="layout" display="inline-block" role="presentation" description="Flexible or fixed-size layout spacing element."/>
         <element name="scrollview" tag="genericui:scrollview" componentClass="ScrollView" category="layout" display="block" role="region" description="Scrollable viewport container."/>
         <element name="stepscrollview" tag="genericui:stepscrollview" componentClass="StepScrollView" category="layout" display="block" role="region" description="Discrete step-by-step scrollable container."/>
         <element name="aspectratiocontainer" tag="genericui:aspectratiocontainer" componentClass="AspectRatioContainer" category="layout" display="block" role="group" description="Bootstrap aspect-ratio layout container (.ratio)."/>
-        <element name="layered-container" tag="genericui:layered-container" componentClass="LayeredContainer" category="layout" display="grid" role="group" description="Z-ordered multi-layer stack container where child layers share the same bounds and stack in ascending zIndex order."/>
+        <element name="layered-container" tag="genericui:layered-container" componentClass="LayeredContainer" category="layout" display="block" role="group" description="Multi-layer Z-ordered stacking container supporting full-bleed and floating corner/edge overlays."/>
 
         <!-- Lazy Virtualized Collections -->
         <element name="lazylist" tag="genericui:lazylist" componentClass="LazyList" category="lazy" display="block" role="list" description="Virtualized scrolling list mounting only visible item DOM nodes."/>
@@ -93,7 +96,7 @@
         <element name="well" tag="genericui:well" componentClass="Well" category="surface" display="block" role="region" description="Inset bordered surface container."/>
         <element name="listgroup" tag="genericui:listgroup" componentClass="ListGroup" category="surface" display="flex" role="list" description="Bordered vertical list group of interactive or static items."/>
         <element name="listgroupitem" tag="genericui:listgroupitem" componentClass="ListGroupItem" category="surface" display="block" role="listitem" description="Individual item within a genericui:listgroup."/>
-        <element name="text-bubble" tag="genericui:text-bubble" componentClass="TextBubble" category="surface" display="inline-flex" role="note" description="Styled speech/callout/subtitle text bubble surface with optional directional triangular pointer."/>
+        <element name="styled-component" tag="genericui:styled-component" componentClass="StyledComponent" category="surface" display="block" role="img" description="Stylesheet-driven non-container visual leaf component supporting full CSS styling."/>
 
         <!-- Tabs -->
         <element name="tabcontainer" tag="genericui:tabcontainer" componentClass="TabContainer" category="tabs" display="block" role="region" description="Multi-tab container with a navigation tab strip and tab content panes."/>
@@ -133,6 +136,7 @@
         <element name="radiogroup" tag="genericui:radiogroup" componentClass="RadioGroup" category="form" display="block" role="radiogroup" description="Mutually exclusive group of radio button options."/>
         <element name="compoundunitinput" tag="genericui:compoundunitinput" componentClass="CompoundUnitInput" category="form" display="flex" role="group" description="Numeric input paired with a unit selector (e.g., px, %, em, deg)."/>
         <element name="filedropzone" tag="genericui:filedropzone" componentClass="FileDropZone" category="form" display="flex" role="region" description="Drag-and-drop file upload target zone."/>
+        <element name="styled-slider" tag="genericui:styled-slider" componentClass="StyledSlider" category="form" display="block" role="slider" description="Stylesheet-driven composite range slider composing track, progress fill, and draggable knob."/>
 
         <!-- Rich Typography & Content -->
         <element name="markdownview" tag="genericui:markdownview" componentClass="MarkdownView" category="typography" display="block" role="document" description="Formatted Markdown document viewer."/>

@@ -8,7 +8,7 @@ import org.gradle.api.GradleException
 
 /**
  * Per-scope configuration block (`common`, `systemCommon`, `desktopCommon`, `nativeDesktopCommon`,
- * `linuxCommon`, `mobileCommon`, `windows`, `macos`, `gtk`, `qt`, `swing`, `android`, `ios`, `web`).
+ * `linuxCommon`, `mobileCommon`, `windows`, `macos`, `gtk`, `kde`, `swing`, `android`, `ios`, `web`).
  *
  * Values configured in more specific [GenericUiVariantScope] blocks override values from less
  * specific blocks along the specificity chain (`COMMON` -> ... -> concrete backend target).

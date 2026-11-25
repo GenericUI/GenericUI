@@ -26,7 +26,7 @@ import com.nexustools.genericui.style.transition.CssTransitionSpec
  *   `setShadow`, `setDisplay`, `setFlexDirection`, `setFlexWrap`, `setJustifyContent`, `setAlignItems`,
  *   `setAlignSelf`, `setOverflow`, `setPosition`, `setMarginAll`, `setPaddingAll`).
  *
- * Native backends (`:qt`, `:gtk`, `:windows`, `:macos`, `:swing`, `:android`, `:ios`) handle the Enums
+ * Native backends (`:kde`, `:gtk`, `:windows`, `:macos`, `:swing`, `:android`, `:ios`) handle the Enums
  * directly for maximum efficiency and synthesize `getClass()` / parse `setClass()` via [com.nexustools.genericui.style.mapper.BootstrapClassMapper],
  * while continuing to resolve custom CSS classes via [applyComputedStyle].
  * The `:web` backend applies CSS classes directly to the DOM and simulates the Enum getters/setters.
@@ -147,6 +147,9 @@ interface NativeImpl<out W> : Disposable {
 
     fun setFocusedState(focused: Boolean) {}
     fun isFocusedState(): Boolean = false
+
+    fun setFocusable(focusable: Boolean) {}
+    fun isFocusable(): Boolean = true
 
     fun setActivePressedState(active: Boolean) {}
     fun isActivePressedState(): Boolean = false

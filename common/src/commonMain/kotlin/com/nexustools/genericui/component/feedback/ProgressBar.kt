@@ -2,7 +2,6 @@ package com.nexustools.genericui.component.feedback
 
 import com.nexustools.genericui.core.AbstractComponent
 import com.nexustools.genericui.core.NativeFactory
-import com.nexustools.genericui.enums.bootstrap.BootstrapType
 import com.nexustools.genericui.nativeimpl.feedback.ProgressBarNativeImpl
 
 /**
@@ -12,21 +11,8 @@ class ProgressBar(
     progress: Float = 0f,
     indeterminate: Boolean = false,
     busy: Boolean = false,
-    label: String? = null,
-    type: BootstrapType = BootstrapType.PRIMARY
+    label: String? = null
 ) : AbstractComponent(htmlTag = "genericui:progressbar") {
-
-    constructor(
-        progress: Float,
-        indeterminate: Boolean,
-        type: BootstrapType
-    ) : this(
-        progress = progress,
-        indeterminate = indeterminate,
-        busy = false,
-        label = null,
-        type = type
-    )
 
     var progress: Float = progress.coerceIn(0f, 1f)
         set(value) {
@@ -57,7 +43,6 @@ class ProgressBar(
         }
 
     init {
-        this.type = type
         if (busy) {
             typedNative<ProgressBarNativeImpl<*>>()?.setBusy(true)
         }

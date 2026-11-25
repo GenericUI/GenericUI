@@ -643,7 +643,7 @@ class ServiceWorkerGradleAndManifestTest {
                 app.packageName = "com.example.swdist"
                 application.baseName = "swdist"
                 backends.gtkEnabled = true
-                backends.qtEnabled = true
+                backends.kdeEnabled = true
             }
             val project = ProjectBuilder.builder().withProjectDir(tempDir).build()
             listOf(
@@ -664,9 +664,9 @@ class ServiceWorkerGradleAndManifestTest {
                 "linkGtkServiceworkerDebugExecutableLinuxX64",
                 "linkDebugExecutableLinuxX64",
                 "compileKotlinLinuxX64",
-                "linkQtDebugExecutableLinuxX64",
-                "compileQtKotlinLinuxX64",
-                "linkQtServiceworkerDebugExecutableLinuxX64"
+                "linkKdeDebugExecutableLinuxX64",
+                "compileKdeKotlinLinuxX64",
+                "linkKdeServiceworkerDebugExecutableLinuxX64"
             ).forEach { name ->
                 project.tasks.register(name)
             }
@@ -688,10 +688,10 @@ class ServiceWorkerGradleAndManifestTest {
             assertTrue("linkGtkDebugExecutableLinuxX64" in gtkDeps)
             assertTrue("linkGtkServiceworkerDebugExecutableLinuxX64" in gtkDeps)
 
-            val devQt = project.tasks.getByName("developmentLinuxQt")
-            val qtDeps = devQt.taskDependencies.getDependencies(devQt).map { it.name }.toSet()
-            assertTrue("linkQtDebugExecutableLinuxX64" in qtDeps)
-            assertTrue("linkQtServiceworkerDebugExecutableLinuxX64" in qtDeps)
+            val devKde = project.tasks.getByName("developmentLinuxKde")
+            val kdeDeps = devKde.taskDependencies.getDependencies(devKde).map { it.name }.toSet()
+            assertTrue("linkKdeDebugExecutableLinuxX64" in kdeDeps)
+            assertTrue("linkKdeServiceworkerDebugExecutableLinuxX64" in kdeDeps)
 
             val buildDir = project.layout.buildDirectory.asFile.get()
             fun writeStubFile(rel: String, content: ByteArray = byteArrayOf(1, 2, 3, 4)) {
@@ -708,9 +708,9 @@ class ServiceWorkerGradleAndManifestTest {
             writeStubFile("bin/linuxX64/gtkDebugExecutable/swdist-gtk.kexe")
             writeStubFile("bin/linuxX64/gtkDebugExecutable/libgenericui-gtk.so")
             writeStubFile("bin/linuxX64/gtkServiceworkerDebugExecutable/serviceworker.kexe")
-            writeStubFile("bin/linuxX64/qtDebugExecutable/swdist-qt.kexe")
-            writeStubFile("bin/linuxX64/qtDebugExecutable/libgenericui-qt.so")
-            writeStubFile("bin/linuxX64/qtServiceworkerDebugExecutable/serviceworker.kexe")
+            writeStubFile("bin/linuxX64/kdeDebugExecutable/swdist-kde.kexe")
+            writeStubFile("bin/linuxX64/kdeDebugExecutable/libgenericui-kde.so")
+            writeStubFile("bin/linuxX64/kdeServiceworkerDebugExecutable/serviceworker.kexe")
 
             devWin.actions.forEach { it.execute(devWin) }
             val winDist = File(buildDir, "dist/windows/x64/development")
@@ -718,9 +718,23 @@ class ServiceWorkerGradleAndManifestTest {
             assertTrue(File(winDist, "serviceworker.exe").isFile)
 
             devMac.actions.forEach { it.execute(devMac) }
-            val macOsDir = File(buildDir, "dist/mac/development/SwDist.app/Contents/MacOS")
+            val macAppDir = File(buildDir, "dist/mac/development/SwDist.app")
+            val macOsDir = File(macAppDir, "Contents/MacOS")
             assertTrue(File(macOsDir, "swdist").isFile)
-            assertTrue(File(macOsDir, "serviceworker").isFile)
+            assertFalse(File(macOsDir, "serviceworker").exists(), "serviceworker must live inside nested Helpers/*.app bundle on macOS")
+            val helperBundle = File(macAppDir, "Contents/Helpers/SwDist Service Worker.app")
+            assertTrue(File(helperBundle, "Contents/MacOS/serviceworker").isFile)
+            assertTrue(File(helperBundle, "Contents/PkgInfo").isFile)
+            val helperPlist = File(helperBundle, "Contents/Info.plist").readText(Charsets.UTF_8)
+            assertTrue(helperPlist.contains("com.example.swdist.serviceworker"))
+            assertTrue(helperPlist.contains("<string>SwDist Service Worker</string>"))
+            assertTrue(helperPlist.contains("<string>serviceworker</string>"))
+            assertTrue(helperPlist.contains("<key>LSUIElement</key>"))
+            assertTrue(helperPlist.contains("<key>LSMultipleInstancesProhibited</key>"))
+            assertTrue(helperPlist.contains("<key>NSLocalNetworkUsageDescription</key>"))
+            val mainPlist = File(macAppDir, "Contents/Info.plist").readText(Charsets.UTF_8)
+            assertTrue(mainPlist.contains("<key>LSMultipleInstancesProhibited</key>"))
+            assertTrue(mainPlist.contains("<true/>"))
 
             devGtk.actions.forEach { it.execute(devGtk) }
             val gtkDist = File(buildDir, "dist/linux-gtk/x64/development")
@@ -728,11 +742,464 @@ class ServiceWorkerGradleAndManifestTest {
             assertTrue(File(gtkDist, "serviceworker.kexe").isFile)
             assertTrue(File(gtkDist, "serviceworker").isFile)
 
-            devQt.actions.forEach { it.execute(devQt) }
-            val qtDist = File(buildDir, "dist/linux-qt/x64/development")
-            assertTrue(File(qtDist, "swdist-qt.kexe").isFile)
-            assertTrue(File(qtDist, "serviceworker.kexe").isFile)
-            assertTrue(File(qtDist, "serviceworker").isFile)
+            devKde.actions.forEach { it.execute(devKde) }
+            val kdeDist = File(buildDir, "dist/linux-kde/x64/development")
+            assertTrue(File(kdeDist, "swdist-kde.kexe").isFile)
+            assertTrue(File(kdeDist, "serviceworker.kexe").isFile)
+            assertTrue(File(kdeDist, "serviceworker").isFile)
+        } finally {
+            tempDir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun serviceWorkerAndDesktopDslConfigureMacosTrayIconLocalNetworkAndBonjourServices() {
+        val extConfig = GenericUiExtensionsConfig()
+        extConfig.serviceWorker {
+            autostart = true
+            trayIcon = "icons/tray.svg"
+            macosTrayIcon("icons/macos-tray.svg")
+            macLocalNetworkUsageDescription = "Discover receivers on your local network."
+            bonjourServices("_googlecast._tcp", "_googlecast._tcp.")
+        }
+        assertEquals("icons/macos-tray.svg", extConfig.serviceWorkerConfig.macosTrayIcon)
+        assertEquals(
+            "Discover receivers on your local network.",
+            extConfig.serviceWorkerConfig.macLocalNetworkUsageDescription
+        )
+        assertEquals(
+            listOf("_googlecast._tcp", "_googlecast._tcp."),
+            extConfig.serviceWorkerConfig.macBonjourServices
+        )
+        assertEquals("icons/macos-tray.svg", extConfig.extensionOptions["serviceWorker.macosTrayIcon"])
+        assertEquals(
+            "Discover receivers on your local network.",
+            extConfig.extensionOptions["serviceWorker.macLocalNetworkUsageDescription"]
+        )
+        assertEquals(
+            "_googlecast._tcp,_googlecast._tcp.",
+            extConfig.extensionOptions["serviceWorker.macBonjourServices"]
+        )
+
+        val desktopConfig = GenericUiDesktopConfig().apply {
+            macMultipleInstancesProhibited = false
+            macosTrayIcon("icons/desktop-macos-tray.png")
+            macLocalNetworkUsageDescription = "Desktop local network usage"
+            bonjourServices("_airplay._tcp")
+        }
+        assertFalse(desktopConfig.macMultipleInstancesProhibited)
+        assertEquals("icons/desktop-macos-tray.png", desktopConfig.macosTrayIcon)
+        assertEquals("Desktop local network usage", desktopConfig.macLocalNetworkUsageDescription)
+        assertEquals(listOf("_airplay._tcp"), desktopConfig.macBonjourServices)
+    }
+
+    @Test
+    fun macosResourceCompilerEmitsMacosTrayIconKeysOnlyWhenExplicitlyConfigured() {
+        val tempRoot = Files.createTempDirectory("genericui-sw-mactray").toFile()
+        try {
+            val noOverrideDir = File(tempRoot, "no-override").apply { mkdirs() }
+            writePngFile(File(noOverrideDir, "src/commonMain/resources/app_icon.png"), 0xFF2266AA.toInt())
+            File(noOverrideDir, "src/commonMain/resources/tray.svg").writeText(
+                """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/></svg>"""
+            )
+
+            val projNoOverride = ProjectBuilder.builder().withProjectDir(noOverrideDir).build()
+            projNoOverride.pluginManager.apply("com.nexustools.genericui")
+            val extNoOverride = projNoOverride.extensions.getByType(GenericUiExtension::class.java)
+            extNoOverride.application {
+                appName = "SilhouetteApp"
+                baseName = "silhouette"
+                icons(common = "src/commonMain/resources/app_icon.png")
+            }
+            extNoOverride.backends { macos(true) }
+            extNoOverride.extensions.serviceWorker {
+                trayIcon = "src/commonMain/resources/tray.svg"
+            }
+
+            val desktopNoOverride = projNoOverride.tasks.getByName("prepareGenericUiDesktopResources") as GenericUiDesktopResourceTask
+            desktopNoOverride.generateDesktopResources()
+            val macResOut1 = desktopNoOverride.outputDirectory.get().asFile
+            assertTrue(File(macResOut1, "macos/tray_icon.png").isFile)
+            assertTrue(File(macResOut1, "macos/tray_icon.svg").isFile)
+            assertFalse(File(macResOut1, "macos/macos_tray_icon.png").exists())
+            assertFalse(File(macResOut1, "macos/macos_tray_icon.svg").exists())
+
+            val resNoOverride = projNoOverride.tasks.getByName("compileGenericUiResources") as GenericUiResourceCompilerTask
+            resNoOverride.compileResources()
+            val macCNoOverride = File(resNoOverride.backendOutputDirectory.get().asFile, "macos/genericui_app_resources.c")
+                .readText(Charsets.UTF_8)
+            assertTrue(macCNoOverride.contains("\"tray_icon_png\""))
+            assertTrue(macCNoOverride.contains("\"tray_icon_svg\""))
+            assertFalse(macCNoOverride.contains("\"macos_tray_icon_png\""))
+            assertFalse(macCNoOverride.contains("\"macos_tray_icon_svg\""))
+
+            val withOverrideDir = File(tempRoot, "with-override").apply { mkdirs() }
+            writePngFile(File(withOverrideDir, "src/commonMain/resources/app_icon.png"), 0xFF2266AA.toInt())
+            File(withOverrideDir, "src/commonMain/resources/tray.svg").writeText(
+                """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/></svg>"""
+            )
+            File(withOverrideDir, "src/commonMain/resources/macos_tray.svg").writeText(
+                """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16"/></svg>"""
+            )
+
+            val projWithOverride = ProjectBuilder.builder().withProjectDir(withOverrideDir).build()
+            projWithOverride.pluginManager.apply("com.nexustools.genericui")
+            val extWithOverride = projWithOverride.extensions.getByType(GenericUiExtension::class.java)
+            extWithOverride.application {
+                appName = "ExplicitMacTray"
+                baseName = "explicitmactray"
+                icons(common = "src/commonMain/resources/app_icon.png")
+            }
+            extWithOverride.backends { macos(true) }
+            extWithOverride.extensions.serviceWorker {
+                trayIcon = "src/commonMain/resources/tray.svg"
+                macosTrayIcon("src/commonMain/resources/macos_tray.svg")
+            }
+
+            val desktopWithOverride = projWithOverride.tasks.getByName("prepareGenericUiDesktopResources") as GenericUiDesktopResourceTask
+            desktopWithOverride.generateDesktopResources()
+            val macResOut2 = desktopWithOverride.outputDirectory.get().asFile
+            assertTrue(File(macResOut2, "macos/macos_tray_icon.png").isFile)
+            assertTrue(File(macResOut2, "macos/macos_tray_icon.svg").isFile)
+
+            val resWithOverride = projWithOverride.tasks.getByName("compileGenericUiResources") as GenericUiResourceCompilerTask
+            resWithOverride.compileResources()
+            val macCWithOverride = File(resWithOverride.backendOutputDirectory.get().asFile, "macos/genericui_app_resources.c")
+                .readText(Charsets.UTF_8)
+            assertTrue(macCWithOverride.contains("\"macos_tray_icon_png\""))
+            assertTrue(macCWithOverride.contains("\"macos_tray_icon_svg\""))
+        } finally {
+            tempRoot.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun macosInfoPlistAndNestedHelperBundleIncludeLocalNetworkAndBonjourConfiguration() {
+        val tempDir = Files.createTempDirectory("genericui-sw-mac-plist").toFile()
+        try {
+            val commonDir = File(tempDir, "src/commonMain/kotlin/com/example/cast").apply { mkdirs() }
+            File(commonDir, "CastFrag.kt").writeText(
+                """
+                package com.example.cast
+                import com.nexustools.genericui.component.fragment.Fragment
+                import com.nexustools.genericui.component.fragment.MainAppFragment
+                @MainAppFragment
+                class CastFrag : Fragment()
+                """.trimIndent()
+            )
+            File(commonDir, "CastWorker.kt").writeText(
+                """
+                package com.example.cast
+                import com.nexustools.genericui.ext.serviceworker.MainServiceWorker
+                import com.nexustools.genericui.ext.serviceworker.ServiceWorker
+                @MainServiceWorker
+                class CastWorker : ServiceWorker()
+                """.trimIndent()
+            )
+
+            val ext = createBasicAppExtension(enableServiceWorker = true).apply {
+                app.id = "com.example.castreceiver"
+                app.name = "Cast Receiver"
+                app.packageName = "com.example.cast"
+                application.baseName = "castreceiver"
+                extensions.serviceWorker {
+                    autostart = true
+                    macLocalNetworkUsageDescription = "Required for local Cast mDNS receiver discovery."
+                    bonjourServices("_googlecast._tcp", "_googlecast._tcp.")
+                }
+            }
+            val project = ProjectBuilder.builder().withProjectDir(tempDir).build()
+            listOf(
+                "genericuiValidateApp",
+                "generateGenericUiLaunchers",
+                "compileGenericUiResources",
+                "prepareGenericUiDesktopResources",
+                "bundleGenericUiAngle",
+                "bundleGenericUiVulkan",
+                "linkDebugExecutableMacosArm64",
+                "compileKotlinMacosArm64",
+                "linkServiceworkerDebugExecutableMacosArm64"
+            ).forEach { name ->
+                project.tasks.register(name)
+            }
+            GenericUiMultiplatformConfigurator.registerBuildTargetTasks(project, ext)
+
+            val buildDir = project.layout.buildDirectory.asFile.get()
+            fun writeStub(rel: String) {
+                val f = File(buildDir, rel)
+                f.parentFile?.mkdirs()
+                f.writeBytes(byteArrayOf(1, 2, 3, 4))
+            }
+            writeStub("bin/macosArm64/debugExecutable/castreceiver.kexe")
+            writeStub("bin/macosArm64/serviceworkerDebugExecutable/serviceworker.kexe")
+
+            val devMac = project.tasks.getByName("developmentMac")
+            devMac.actions.forEach { it.execute(devMac) }
+
+            val appBundle = File(buildDir, "dist/mac/development/Cast Receiver.app")
+            val mainPlist = File(appBundle, "Contents/Info.plist").readText(Charsets.UTF_8)
+            assertTrue(mainPlist.contains("<key>LSMultipleInstancesProhibited</key>"))
+            assertTrue(mainPlist.contains("<true/>"))
+            assertTrue(mainPlist.contains("<key>NSLocalNetworkUsageDescription</key>"))
+            assertTrue(mainPlist.contains("Required for local Cast mDNS receiver discovery."))
+            assertTrue(mainPlist.contains("<key>NSBonjourServices</key>"))
+            assertTrue(mainPlist.contains("<string>_googlecast._tcp</string>"))
+            assertTrue(mainPlist.contains("<string>_googlecast._tcp.</string>"))
+
+            val helperBundle = File(appBundle, "Contents/Helpers/Cast Receiver Service Worker.app")
+            assertTrue(File(helperBundle, "Contents/MacOS/serviceworker").isFile)
+            val helperPlist = File(helperBundle, "Contents/Info.plist").readText(Charsets.UTF_8)
+            assertTrue(helperPlist.contains("com.example.castreceiver.serviceworker"))
+            assertTrue(helperPlist.contains("<key>LSUIElement</key>"))
+            assertTrue(helperPlist.contains("<key>LSMultipleInstancesProhibited</key>"))
+            assertTrue(helperPlist.contains("Required for local Cast mDNS receiver discovery."))
+            assertTrue(helperPlist.contains("<string>_googlecast._tcp</string>"))
+
+            // Also verify prepareGenericUiDesktopResources emits the same keys + Helpers autostart path
+            val project2 = ProjectBuilder.builder().withProjectDir(tempDir).build()
+            val desktopOut = File(tempDir, "build/desktop-res-plist")
+            val desktopTask = project2.tasks.register("desktopPlistCheck", GenericUiDesktopResourceTask::class.java).get()
+            desktopTask.projectRootPath.set(tempDir.absolutePath)
+            desktopTask.baseName.set("castreceiver")
+            desktopTask.appName.set("Cast Receiver")
+            desktopTask.appId.set("com.example.castreceiver")
+            desktopTask.appVersion.set("1.0.0")
+            desktopTask.vendor.set("Example")
+            desktopTask.embedWindowsResources.set(false)
+            desktopTask.macMinimumSystemVersion.set("12.0")
+            desktopTask.macCategory.set("public.app-category.utilities")
+            desktopTask.macHighResolutionCapable.set(true)
+            desktopTask.linuxCategories.set("Utility;")
+            desktopTask.linuxTerminal.set(false)
+            desktopTask.customResourceEntries.set(emptyMap())
+            desktopTask.enabledExtensionModulePaths.set(ext.extensions.enabledExtensionModulePaths())
+            desktopTask.extensionOptions.set(GenericUiGradlePlugin.buildPluginExtensionOptionsStatic(ext))
+            desktopTask.outputDirectory.set(desktopOut)
+            desktopTask.generateDesktopResources()
+
+            val generatedInfoPlist = File(desktopOut, "macos/Info.plist").readText(Charsets.UTF_8)
+            assertTrue(generatedInfoPlist.contains("<key>LSMultipleInstancesProhibited</key>"))
+            assertTrue(generatedInfoPlist.contains("<key>NSLocalNetworkUsageDescription</key>"))
+            assertTrue(generatedInfoPlist.contains("<key>NSBonjourServices</key>"))
+            assertTrue(generatedInfoPlist.contains("<string>_googlecast._tcp</string>"))
+
+            val macAutostartPlist = File(desktopOut, "autostart/macos/com.example.castreceiver.serviceworker.plist")
+                .readText(Charsets.UTF_8)
+            assertTrue(
+                macAutostartPlist.contains("Contents/Helpers/Cast Receiver Service Worker.app/Contents/MacOS/serviceworker"),
+                "macOS LaunchAgent plist should target nested Service Worker.app executable"
+            )
+            assertTrue(
+                macAutostartPlist.contains("<key>MachServices</key>"),
+                "macOS LaunchAgent plist should register MachServices for XPC"
+            )
+            assertTrue(
+                macAutostartPlist.contains("<key>com.example.castreceiver.serviceworker</key>"),
+                "macOS LaunchAgent MachServices should declare entry identifier"
+            )
+            assertTrue(
+                macAutostartPlist.contains("<true/>"),
+                "macOS LaunchAgent MachServices entry should be enabled"
+            )
+
+            val linuxDesktopFile = File(
+                desktopOut,
+                "autostart/linux/com.example.castreceiver.serviceworker.desktop"
+            )
+            assertTrue(linuxDesktopFile.isFile, "Linux autostart should emit .desktop file")
+            val linuxDesktop = linuxDesktopFile.readText(Charsets.UTF_8)
+            assertTrue(linuxDesktop.contains("[Desktop Entry]"))
+            assertTrue(linuxDesktop.contains("Name=Cast Receiver"))
+            assertTrue(linuxDesktop.contains("Exec=serviceworker"))
+            assertTrue(linuxDesktop.contains("X-GNOME-Autostart-enabled=true"))
+
+            val linuxAutostartDir = File(desktopOut, "autostart/linux")
+            assertTrue(
+                linuxAutostartDir.listFiles()?.none { it.name.endsWith(".service") } == true,
+                "Linux autostart must not emit D-Bus .service files"
+            )
+        } finally {
+            tempDir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun desktopAutostartEmitsMacosMachServicesPlistAndLinuxDesktopOnly() {
+        val tempDir = Files.createTempDirectory("genericui-sw-autostart").toFile()
+        try {
+            val commonDir = File(tempDir, "src/commonMain/kotlin/com/example/numapp").apply { mkdirs() }
+            File(commonDir, "MainFrag.kt").writeText(
+                """
+                package com.example.numapp
+                import com.nexustools.genericui.component.fragment.Fragment
+                import com.nexustools.genericui.component.fragment.MainAppFragment
+                @MainAppFragment
+                class MainFrag : Fragment()
+                """.trimIndent()
+            )
+            File(commonDir, "NumWorker.kt").writeText(
+                """
+                package com.example.numapp
+                import com.nexustools.genericui.ext.serviceworker.MainServiceWorker
+                import com.nexustools.genericui.ext.serviceworker.ServiceWorker
+                @MainServiceWorker
+                class NumWorker : ServiceWorker()
+                """.trimIndent()
+            )
+
+            val ext = createBasicAppExtension(enableServiceWorker = true).apply {
+                app.id = "com.example.99-cast.app"
+                app.name = "Num Cast"
+                app.packageName = "com.example.numapp"
+                application.baseName = "numcast"
+                extensions.serviceWorker {
+                    autostart = true
+                }
+            }
+
+            val project = ProjectBuilder.builder().withProjectDir(tempDir).build()
+            val desktopOut = File(tempDir, "build/desktop-res-autostart")
+            val desktopTask = project.tasks.register("desktopAutostartCheck", GenericUiDesktopResourceTask::class.java).get()
+            desktopTask.projectRootPath.set(tempDir.absolutePath)
+            desktopTask.baseName.set("numcast")
+            desktopTask.appName.set("Num Cast")
+            desktopTask.appId.set("com.example.99-cast.app")
+            desktopTask.appVersion.set("1.0.0")
+            desktopTask.vendor.set("Example")
+            desktopTask.embedWindowsResources.set(false)
+            desktopTask.macMinimumSystemVersion.set("12.0")
+            desktopTask.macCategory.set("public.app-category.utilities")
+            desktopTask.macHighResolutionCapable.set(true)
+            desktopTask.linuxCategories.set("Utility;")
+            desktopTask.linuxTerminal.set(false)
+            desktopTask.customResourceEntries.set(emptyMap())
+            desktopTask.enabledExtensionModulePaths.set(ext.extensions.enabledExtensionModulePaths())
+            desktopTask.extensionOptions.set(GenericUiGradlePlugin.buildPluginExtensionOptionsStatic(ext))
+            desktopTask.outputDirectory.set(desktopOut)
+            desktopTask.generateDesktopResources()
+
+            val linuxAutostartDir = File(desktopOut, "autostart/linux")
+            val linuxDesktopFile = File(linuxAutostartDir, "com.example.99-cast.app.serviceworker.desktop")
+            assertTrue(linuxDesktopFile.isFile, "Expected .desktop autostart file at ${linuxDesktopFile.absolutePath}")
+            val linuxDesktopText = linuxDesktopFile.readText(Charsets.UTF_8)
+            assertTrue(linuxDesktopText.contains("[Desktop Entry]"))
+            assertTrue(linuxDesktopText.contains("Name=Num Cast"))
+            assertTrue(linuxDesktopText.contains("Exec=serviceworker"))
+            assertTrue(linuxDesktopText.contains("X-GNOME-Autostart-enabled=true"))
+            assertTrue(
+                linuxAutostartDir.listFiles()?.none { it.name.endsWith(".service") } == true,
+                "Linux autostart must not emit D-Bus .service files"
+            )
+
+            val macPlist = File(desktopOut, "autostart/macos/com.example.99-cast.app.serviceworker.plist")
+                .readText(Charsets.UTF_8)
+            val expectedMachServicesBlock = listOf(
+                "    <key>MachServices</key>",
+                "    <dict>",
+                "        <key>com.example.99-cast.app.serviceworker</key>",
+                "        <true/>",
+                "    </dict>"
+            ).joinToString("\n")
+            assertTrue(
+                macPlist.replace("\r\n", "\n").contains(expectedMachServicesBlock),
+                "macOS LaunchAgent plist missing MachServices block:\n$macPlist"
+            )
+        } finally {
+            tempDir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun generatedServiceWorkerMainsInitializeResourcesAndSchemaAndLinkHelpersRpath() {
+        val tempDir = Files.createTempDirectory("genericui-sw-init-calls").toFile()
+        try {
+            val commonDir = File(tempDir, "src/commonMain/kotlin/com/example/initapp").apply { mkdirs() }
+            File(commonDir, "MainFrag.kt").writeText(
+                """
+                package com.example.initapp
+                import com.nexustools.genericui.component.fragment.Fragment
+                import com.nexustools.genericui.component.fragment.MainAppFragment
+                @MainAppFragment
+                class MainFrag : Fragment()
+                """.trimIndent()
+            )
+            File(commonDir, "BgWorker.kt").writeText(
+                """
+                package com.example.initapp
+                import com.nexustools.genericui.ext.serviceworker.MainServiceWorker
+                import com.nexustools.genericui.ext.serviceworker.ServiceWorker
+                @MainServiceWorker
+                class BgWorker : ServiceWorker()
+                """.trimIndent()
+            )
+
+            val ext = createBasicAppExtension(enableServiceWorker = true).apply {
+                app.id = "com.example.initapp"
+                app.name = "InitApp"
+                app.packageName = "com.example.initapp"
+                application.baseName = "initapp"
+                resources.enabled = true
+                resources.packageName = "com.example.initapp.res"
+                extensions.schema(true)
+                extensions.serviceWorker {
+                    macosTrayIcon("icons/mac_tray.svg")
+                }
+            }
+
+            val launcherOut = File(tempDir, "build/launchers")
+            GenericUiGenerateLaunchersTask.generateForProject(
+                projectDir = tempDir,
+                outputRootDir = launcherOut,
+                extension = ext
+            )
+
+            val macWorkerSrc = File(launcherOut, "macos/kotlin/com/example/initapp/generated/GeneratedMacosServiceWorkerMain.kt")
+                .readText(Charsets.UTF_8)
+            assertTrue(macWorkerSrc.contains("com.example.initapp.res.GeneratedResourceRegistry.ensureInitialized()"))
+            assertTrue(macWorkerSrc.contains("com.example.initapp.generated.GeneratedSchemaRegistrar.ensureRegistered()"))
+            assertTrue(macWorkerSrc.contains("com.example.initapp.generated.GeneratedServiceWorkerCodecRegistrar.registerAll()"))
+            assertTrue(macWorkerSrc.contains("macosTrayIcon = \"icons/mac_tray.svg\""))
+            assertTrue(
+                macWorkerSrc.indexOf("GeneratedResourceRegistry.ensureInitialized()") <
+                    macWorkerSrc.indexOf("runDesktopWorkerMain")
+            )
+            assertTrue(
+                macWorkerSrc.indexOf("GeneratedSchemaRegistrar.ensureRegistered()") <
+                    macWorkerSrc.indexOf("runDesktopWorkerMain")
+            )
+
+            val swingWorkerSrc = File(launcherOut, "swing/kotlin/com/example/initapp/generated/GeneratedSwingServiceWorkerMain.kt")
+                .readText(Charsets.UTF_8)
+            assertTrue(swingWorkerSrc.contains("com.example.initapp.res.GeneratedResourceRegistry.ensureInitialized()"))
+            assertTrue(swingWorkerSrc.contains("com.example.initapp.generated.GeneratedSchemaRegistrar.ensureRegistered()"))
+            assertTrue(swingWorkerSrc.contains("com.example.initapp.generated.GeneratedServiceWorkerCodecRegistrar.registerAll()"))
+            assertTrue(swingWorkerSrc.contains("macosTrayIcon = \"icons/mac_tray.svg\""))
+
+            val extCtx = ExtensionBuildContext(
+                projectRootDir = tempDir,
+                projectName = "initapp",
+                appId = ext.app.id,
+                appName = ext.app.name,
+                appVersion = ext.app.version,
+                baseName = ext.application.baseName,
+                generatedPackageName = "com.example.initapp.generated",
+                enabledExtensionModulePaths = ext.extensions.enabledExtensionModulePaths().toSet(),
+                discoveredFragments = GenericUiFragmentScanner.scanProject(tempDir),
+                discoveredSymbols = GenericUiFragmentScanner.scanProjectSymbols(
+                    tempDir,
+                    GenericUiExtensionContributorRegistry.allAnnotationScanSpecs(
+                        ext.extensions.enabledExtensionModulePaths().toSet(),
+                        tempDir
+                    )
+                ),
+                extensionOptions = GenericUiGradlePlugin.buildPluginExtensionOptionsStatic(ext)
+            )
+            val contrib = ServiceWorkerExtensionContributor.contributeDesktop(extCtx)
+            assertNotNull(contrib)
+            assertTrue(
+                "-Wl,-rpath,@executable_path/../../../../Frameworks" in
+                    contrib.secondaryExecutables.single().macosExtraLinkerOpts
+            )
         } finally {
             tempDir.deleteRecursively()
         }

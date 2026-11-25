@@ -12,6 +12,9 @@ class TreeView<T>(
     var estimatedRowHeightPx: Float = 32f,
     overscanRows: Int = 4
 ) : AbstractComponent(htmlTag = "genericui:treeview") {
+    override val supportsFocus: Boolean
+        get() = true
+
     val viewportTracker: LazyViewportTracker = LazyViewportTracker(overscanRows)
 
     private val _rootNodes = mutableListOf<TreeNode<T>>()

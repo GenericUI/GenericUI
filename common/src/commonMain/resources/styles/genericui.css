@@ -292,75 +292,8 @@ genericui\:layered-container > *,
 .gui-layer-pass-through input,
 .gui-layer-pass-through select,
 .gui-layer-pass-through textarea,
-.gui-layer-pass-through [role="button"],
-.gui-layer-pass-through .gui-text-bubble {
+.gui-layer-pass-through [role="button"] {
     pointer-events: auto;
-}
-
-/* TextBubble (genericui:text-bubble) */
-genericui\:text-bubble,
-.gui-text-bubble {
-    display: inline-flex;
-    flex-direction: column;
-    position: relative;
-    box-sizing: border-box;
-    max-width: 100%;
-}
-
-.gui-text-bubble-label {
-    word-wrap: break-word;
-    overflow-wrap: break-word;
-}
-
-.gui-text-bubble-pointer-bottom::after,
-.gui-text-bubble-pointer-top::after,
-.gui-text-bubble-pointer-left::after,
-.gui-text-bubble-pointer-right::after {
-    content: "";
-    position: absolute;
-    width: 0;
-    height: 0;
-    pointer-events: none;
-}
-
-.gui-text-bubble-pointer-bottom::after {
-    top: 100%;
-    left: var(--gui-bubble-pointer-offset, 50%);
-    transform: translateX(-50%);
-    border-left: var(--gui-bubble-pointer-half-base, 7px) solid transparent;
-    border-right: var(--gui-bubble-pointer-half-base, 7px) solid transparent;
-    border-top: var(--gui-bubble-pointer-length, 8px) solid var(--gui-bubble-bg, #212529);
-}
-
-.gui-text-bubble-pointer-top::after {
-    bottom: 100%;
-    left: var(--gui-bubble-pointer-offset, 50%);
-    transform: translateX(-50%);
-    border-left: var(--gui-bubble-pointer-half-base, 7px) solid transparent;
-    border-right: var(--gui-bubble-pointer-half-base, 7px) solid transparent;
-    border-bottom: var(--gui-bubble-pointer-length, 8px) solid var(--gui-bubble-bg, #212529);
-}
-
-.gui-text-bubble-pointer-left::after {
-    right: 100%;
-    top: var(--gui-bubble-pointer-offset, 50%);
-    transform: translateY(-50%);
-    border-top: var(--gui-bubble-pointer-half-base, 7px) solid transparent;
-    border-bottom: var(--gui-bubble-pointer-half-base, 7px) solid transparent;
-    border-right: var(--gui-bubble-pointer-length, 8px) solid var(--gui-bubble-bg, #212529);
-}
-
-.gui-text-bubble-pointer-right::after {
-    left: 100%;
-    top: var(--gui-bubble-pointer-offset, 50%);
-    transform: translateY(-50%);
-    border-top: var(--gui-bubble-pointer-half-base, 7px) solid transparent;
-    border-bottom: var(--gui-bubble-pointer-half-base, 7px) solid transparent;
-    border-left: var(--gui-bubble-pointer-length, 8px) solid var(--gui-bubble-bg, #212529);
-}
-
-.gui-text-bubble-pointer-none::after {
-    display: none;
 }
 
 /* Flex GenericUI Custom Elements */
@@ -550,4 +483,11 @@ genericui\:progressbar.progress.genericui-progress-busy > .progress-bar.genericu
     100% {
         transform: translateX(247.3333%) scaleX(0.86);
     }
+}
+
+/* Core Hidden Visibility State */
+.hidden {
+    opacity: 0;
+    pointer-events: none;
+    cursor: none;
 }

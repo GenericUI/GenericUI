@@ -36,6 +36,9 @@ open class ImageView(
     private var suppressNativeSourceUrlSync: Boolean = false
     private var lastAppliedFilter: CssFilter? = null
 
+    override val acceptsCssFilterComponentStyles: Boolean
+        get() = true
+
     var resourceId: ResourceID? = null
         protected set
 
@@ -234,9 +237,8 @@ open class ImageView(
         typedNative<ImageNativeImpl<*>>()?.setImageBuffer(processed)
     }
 
-    override fun applyComputedStyle(style: ComputedStyle) {
-        super.applyComputedStyle(style)
-        val effectiveFilter = getStyle().getFilter() ?: style.filter
+    internal override fun onComputedStyleChanged(previous: ComputedStyle?, current: ComputedStyle) {
+        val effectiveFilter = getStyle().getFilter() ?: current.filter
         if (effectiveFilter != lastAppliedFilter) {
             lastAppliedFilter = effectiveFilter
             typedNative<ImageNativeImpl<*>>()?.setCssFilter(effectiveFilter)

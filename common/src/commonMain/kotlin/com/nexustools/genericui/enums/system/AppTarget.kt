@@ -20,7 +20,7 @@ enum class AppTarget(val id: String, val specificityRank: Int) {
     WINDOWS("windows", 6),
     MACOS("macos", 6),
     GTK("gtk", 6),
-    QT("qt", 6),
+    KDE("kde", 6),
     SWING("swing", 6),
     ANDROID("android", 6),
     IOS("ios", 6),
@@ -40,7 +40,7 @@ enum class AppTarget(val id: String, val specificityRank: Int) {
         WINDOWS -> backend == BackendTarget.Windows
         MACOS -> backend == BackendTarget.MacOS
         GTK -> backend == BackendTarget.Gtk
-        QT -> backend == BackendTarget.Qt
+        KDE -> backend == BackendTarget.Kde
         SWING -> backend == BackendTarget.Swing
         ANDROID -> backend == BackendTarget.Android
         IOS -> backend == BackendTarget.IOS
@@ -53,7 +53,7 @@ enum class AppTarget(val id: String, val specificityRank: Int) {
             BackendTarget.Windows -> WINDOWS
             BackendTarget.MacOS -> MACOS
             BackendTarget.Gtk -> GTK
-            BackendTarget.Qt -> QT
+            BackendTarget.Kde -> KDE
             BackendTarget.Swing -> SWING
             BackendTarget.Android -> ANDROID
             BackendTarget.IOS -> IOS
@@ -65,7 +65,7 @@ enum class AppTarget(val id: String, val specificityRank: Int) {
             BackendTarget.Windows -> listOf(WINDOWS, NATIVE_DESKTOP_COMMON, DESKTOP_COMMON, SYSTEM_COMMON, COMMON)
             BackendTarget.MacOS -> listOf(MACOS, NATIVE_DESKTOP_COMMON, DESKTOP_COMMON, APPLE_COMMON, SYSTEM_COMMON, COMMON)
             BackendTarget.Gtk -> listOf(GTK, LINUX_COMMON, NATIVE_DESKTOP_COMMON, DESKTOP_COMMON, SYSTEM_COMMON, COMMON)
-            BackendTarget.Qt -> listOf(QT, LINUX_COMMON, NATIVE_DESKTOP_COMMON, DESKTOP_COMMON, SYSTEM_COMMON, COMMON)
+            BackendTarget.Kde -> listOf(KDE, LINUX_COMMON, NATIVE_DESKTOP_COMMON, DESKTOP_COMMON, SYSTEM_COMMON, COMMON)
             BackendTarget.Swing -> listOf(SWING, DESKTOP_COMMON, JVM_COMMON, SYSTEM_COMMON, COMMON)
             BackendTarget.Android -> listOf(ANDROID, MOBILE_COMMON, JVM_COMMON, SYSTEM_COMMON, COMMON)
             BackendTarget.IOS -> listOf(IOS, IOS_COMMON, MOBILE_COMMON, APPLE_COMMON, SYSTEM_COMMON, COMMON)

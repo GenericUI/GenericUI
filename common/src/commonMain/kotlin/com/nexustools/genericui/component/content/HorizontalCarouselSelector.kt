@@ -6,8 +6,6 @@ import com.nexustools.genericui.component.layout.HStack
 import com.nexustools.genericui.component.layout.VStack
 import com.nexustools.genericui.enums.bootstrap.BootstrapSize
 import com.nexustools.genericui.enums.bootstrap.BootstrapType
-import com.nexustools.genericui.enums.bootstrap.OverflowBehavior
-import com.nexustools.genericui.enums.bootstrap.PositionMode
 
 /**
  * Horizontal centered carousel selector (`entries`) with `«` / `»` wrap-around navigation,
@@ -22,15 +20,10 @@ open class HorizontalCarouselSelector : VStack() {
         var scaleRatio: Float = 1.0f
     )
 
-    val viewport: Container = Container("div", "entries").apply {
-        overflowBehavior = OverflowBehavior.HIDDEN
-        positionMode = PositionMode.RELATIVE
-    }
+    val viewport: Container = Container("div", "entries")
 
     val trackTable: HStack = HStack().apply {
-        positionMode = PositionMode.RELATIVE
-        transition = "left .5s ease-in"
-        leftOffset = "0px"
+        addClass("carousel-track")
     }
 
     val controlsBar: HStack = HStack()
@@ -69,9 +62,7 @@ open class HorizontalCarouselSelector : VStack() {
     }
 
     fun addEntry(id: String, scaleRatio: Float = 1.0f, configure: (Container) -> Unit = {}): Container {
-        val entryContainer = Container("div", "blentry cursor-pointer").apply {
-            transition = "opacity .5s ease-in"
-        }
+        val entryContainer = Container("div", "blentry cursor-pointer")
         val idx = entries.size
         entryContainer.setOnClick { setActiveEntryIndex(idx) }
         configure(entryContainer)

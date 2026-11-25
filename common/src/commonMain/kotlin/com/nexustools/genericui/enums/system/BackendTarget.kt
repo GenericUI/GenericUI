@@ -4,14 +4,14 @@ package com.nexustools.genericui.enums.system
  * Identifies the active GenericUI platform backend target.
  *
  * Single-target checks use the enum value directly (e.g. `app.backendTarget == BackendTarget.Windows`,
- * `app.backendTarget == BackendTarget.Qt`, `app.backendTarget == BackendTarget.Gtk`); there are intentionally
+ * `app.backendTarget == BackendTarget.Kde`, `app.backendTarget == BackendTarget.Gtk`); there are intentionally
  * no single-target booleans such as `isWindows` / `isAndroid`.
  * Multi-backend group properties ([isSystem], [isDesktop], [isNativeDesktop], [isLinux], [isMobile],
  * [isApple], [isIosFamily], [isUnix], [isPosix], [isNative], [isJvm], [isTouchPrimary], [isBrowser])
  * test capabilities shared across multiple targets.
  */
 enum class BackendTarget(
-    /** Stable lowercase identifier (matches the backend module name, e.g. `"windows"`, `"gtk"`). */
+    /** Stable lowercase identifier (matches the backend module name, e.g. `"windows"`, `"gtk"`, `"kde"`). */
     val id: String,
     /** Human-readable backend description. */
     val displayName: String,
@@ -21,28 +21,28 @@ enum class BackendTarget(
     Windows("windows", "Windows (Win32)", "Windows"),
     MacOS("macos", "macOS (AppKit)", "macOS"),
     Gtk("gtk", "Linux (GTK4 / Libadwaita)", "Linux"),
-    Qt("qt", "Linux / Desktop (Qt6)", "Linux"),
+    Kde("kde", "Linux (KDE Plasma)", "Linux"),
     Swing("swing", "Java Swing (AWT / Java2D)", "JVM Desktop"),
     Android("android", "Android", "Android"),
     IOS("ios", "iOS (UIKit)", "iOS"),
     IPadOS("ipados", "iPadOS (UIKit)", "iPadOS"),
     Web("web", "Web (HTML5 / JS / Wasm)", "Web Browser");
 
-    /** `true` for all installed OS/system targets (`Windows`, `MacOS`, `Gtk`, `Qt`, `Swing`, `Android`, `IOS`, `IPadOS`); `false` for `Web`. */
+    /** `true` for all installed OS/system targets (`Windows`, `MacOS`, `Gtk`, `Kde`, `Swing`, `Android`, `IOS`, `IPadOS`); `false` for `Web`. */
     val isSystem: Boolean
         get() = this != Web
 
-    /** `true` for all desktop targets (`Windows`, `MacOS`, `Gtk`, `Qt`, `Swing`). */
+    /** `true` for all desktop targets (`Windows`, `MacOS`, `Gtk`, `Kde`, `Swing`). */
     val isDesktop: Boolean
-        get() = this == Windows || this == MacOS || this == Gtk || this == Qt || this == Swing
+        get() = this == Windows || this == MacOS || this == Gtk || this == Kde || this == Swing
 
-    /** `true` for native C/C++/Win32/ObjC desktop targets (`Windows`, `MacOS`, `Gtk`, `Qt`), excluding JVM `Swing`. */
+    /** `true` for native C/C++/Win32/ObjC desktop targets (`Windows`, `MacOS`, `Gtk`, `Kde`), excluding JVM `Swing`. */
     val isNativeDesktop: Boolean
-        get() = this == Windows || this == MacOS || this == Gtk || this == Qt
+        get() = this == Windows || this == MacOS || this == Gtk || this == Kde
 
-    /** `true` for Linux desktop widget toolkits (`Gtk` and `Qt`). */
+    /** `true` for Linux desktop widget toolkits (`Gtk` and `Kde`). */
     val isLinux: Boolean
-        get() = this == Gtk || this == Qt
+        get() = this == Gtk || this == Kde
 
     /** `true` for mobile targets (`Android`, `IOS`, and `IPadOS`). */
     val isMobile: Boolean
@@ -56,17 +56,17 @@ enum class BackendTarget(
     val isIosFamily: Boolean
         get() = this == IOS || this == IPadOS
 
-    /** `true` for Unix / Unix-like OS families (`MacOS`, `Gtk`, `Qt`, `Android`, `IOS`, `IPadOS`). */
+    /** `true` for Unix / Unix-like OS families (`MacOS`, `Gtk`, `Kde`, `Android`, `IOS`, `IPadOS`). */
     val isUnix: Boolean
-        get() = this == MacOS || this == Gtk || this == Qt || this == Android || this == IOS || this == IPadOS
+        get() = this == MacOS || this == Gtk || this == Kde || this == Android || this == IOS || this == IPadOS
 
-    /** `true` for Kotlin/Native POSIX-capable targets (`Windows`, `MacOS`, `Gtk`, `Qt`, `IOS`, `IPadOS`). */
+    /** `true` for Kotlin/Native POSIX-capable targets (`Windows`, `MacOS`, `Gtk`, `Kde`, `IOS`, `IPadOS`). */
     val isPosix: Boolean
-        get() = this == Windows || this == MacOS || this == Gtk || this == Qt || this == IOS || this == IPadOS
+        get() = this == Windows || this == MacOS || this == Gtk || this == Kde || this == IOS || this == IPadOS
 
-    /** `true` for ahead-of-time native binary targets (`Windows`, `MacOS`, `Gtk`, `Qt`, `IOS`, `IPadOS`). */
+    /** `true` for ahead-of-time native binary targets (`Windows`, `MacOS`, `Gtk`, `Kde`, `IOS`, `IPadOS`). */
     val isNative: Boolean
-        get() = this == Windows || this == MacOS || this == Gtk || this == Qt || this == IOS || this == IPadOS
+        get() = this == Windows || this == MacOS || this == Gtk || this == Kde || this == IOS || this == IPadOS
 
     /** `true` for JVM / ART bytecode targets (`Swing` and `Android`). */
     val isJvm: Boolean
@@ -91,7 +91,7 @@ enum class BackendTarget(
                 "windows" -> Windows
                 "macos" -> MacOS
                 "gtk" -> Gtk
-                "qt" -> Qt
+                "kde" -> Kde
                 "swing" -> Swing
                 "android" -> Android
                 "ios" -> IOS

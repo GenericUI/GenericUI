@@ -175,6 +175,18 @@ open class GenericUiDesktopConfig(
     /** Whether `NSHighResolutionCapable` is enabled in macOS `Info.plist`. */
     var macHighResolutionCapable: Boolean = true
 
+    /** Whether `LSMultipleInstancesProhibited` is enabled in macOS `Info.plist`. */
+    var macMultipleInstancesProhibited: Boolean = true
+
+    /** Optional macOS-only system tray icon path override. */
+    var macosTrayIcon: String = ""
+
+    /** Optional `NSLocalNetworkUsageDescription` for macOS `Info.plist`. */
+    var macLocalNetworkUsageDescription: String = ""
+
+    /** Optional macOS `NSBonjourServices` entries for `Info.plist`. */
+    val macBonjourServices: MutableList<String> = mutableListOf()
+
     /** Linux `.desktop` `StartupWMClass` identifier. */
     var linuxStartupWmClass: String = ""
 
@@ -198,6 +210,21 @@ open class GenericUiDesktopConfig(
     fun bundleResource(relativePath: String) {
         if (relativePath.isNotBlank()) {
             bundledResourcePaths.add(relativePath.trim())
+        }
+    }
+
+    /** Sets an explicit macOS-only system tray icon path (`String`, `File`, etc.). */
+    fun macosTrayIcon(path: Any?) {
+        this.macosTrayIcon = GenericUiAppleIconConfig.normalizeIconValue(path) ?: ""
+    }
+
+    /** Registers one or more macOS `NSBonjourServices` service type identifiers. */
+    fun bonjourServices(vararg types: String) {
+        for (raw in types) {
+            val cleaned = raw.trim()
+            if (cleaned.isNotEmpty() && cleaned !in macBonjourServices) {
+                macBonjourServices.add(cleaned)
+            }
         }
     }
 

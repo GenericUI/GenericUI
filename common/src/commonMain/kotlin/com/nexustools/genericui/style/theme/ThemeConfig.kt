@@ -79,7 +79,7 @@ data class ThemeConfig(
         }
         if (explicitOn != null) return explicitOn
         val bg = resolveBootstrapColor(type, isDark) ?: return null
-        return autoContrastForeground(bg)
+        return autoContrastForeground(bg, darkBackdrop = isDark)
     }
 
     /**
@@ -247,8 +247,40 @@ data class ThemeConfig(
     companion object {
         val DEFAULT = ThemeConfig()
 
-        fun autoContrastForeground(bg: RgbaColor): RgbaColor {
-            val luma = (bg.r * 299 + bg.g * 587 + bg.b * 114) / 1000
+        fun compositeOver(fg: RgbaColor, backdrop: RgbaColor): RgbaColor {
+            val alpha = fg.a.coerceIn(0, 255) / 255f
+            if (alpha >= 0.999f) return RgbaColor(fg.r, fg.g, fg.b, 255)
+            if (alpha <= 0.001f) return RgbaColor(backdrop.r, backdrop.g, backdrop.b, 255)
+            val inv = 1f - alpha
+            return RgbaColor(
+                r = (fg.r * alpha + backdrop.r * inv).roundToInt().coerceIn(0, 255),
+                g = (fg.g * alpha + backdrop.g * inv).roundToInt().coerceIn(0, 255),
+                b = (fg.b * alpha + backdrop.b * inv).roundToInt().coerceIn(0, 255),
+                a = 255
+            )
+        }
+
+        fun relativeLuminance(color: RgbaColor): Int =
+            (color.r * 299 + color.g * 587 + color.b * 114) / 1000
+
+        fun contrastRatio(fg: RgbaColor, bg: RgbaColor): Double {
+            fun linear(channel: Int): Double {
+                val c = channel.coerceIn(0, 255) / 255.0
+                return if (c <= 0.03928) c / 12.92 else kotlin.math.exp(2.4 * kotlin.math.ln((c + 0.055) / 1.055))
+            }
+            fun lum(col: RgbaColor): Double =
+                0.2126 * linear(col.r) + 0.7152 * linear(col.g) + 0.0722 * linear(col.b)
+            val l1 = lum(fg)
+            val l2 = lum(bg)
+            val brighter = maxOf(l1, l2)
+            val darker = minOf(l1, l2)
+            return (brighter + 0.05) / (darker + 0.05)
+        }
+
+        fun autoContrastForeground(bg: RgbaColor, darkBackdrop: Boolean = false): RgbaColor {
+            val backdrop = if (darkBackdrop) RgbaColor(18, 20, 26) else RgbaColor(255, 255, 255)
+            val effectiveBg = if (bg.a < 255) compositeOver(bg, backdrop) else bg
+            val luma = relativeLuminance(effectiveBg)
             return if (luma >= 150) RgbaColor(33, 37, 41) else RgbaColor(255, 255, 255)
         }
 

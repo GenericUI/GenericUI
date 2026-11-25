@@ -38,7 +38,7 @@ data class CssLength(
         CssUnit.PX, CssUnit.DP -> value
         CssUnit.PERCENT -> (referencePx * (value / 100f)) + secondaryPxOffset
         CssUnit.REM -> value * rootFontSizePx
-        CssUnit.EM -> value * parentFontSizePx
+        CssUnit.EM, CssUnit.NUMBER -> value * parentFontSizePx
         CssUnit.VW -> (value / 100f) * viewportWidthPx
         CssUnit.VH -> (value / 100f) * viewportHeightPx
         CssUnit.VMIN -> (value / 100f) * minOf(viewportWidthPx, viewportHeightPx)
@@ -49,6 +49,7 @@ data class CssLength(
     override fun toCssString(): String {
         if (unit == CssUnit.AUTO) return "auto"
         if (unit == CssUnit.NONE) return "none"
+        if (unit == CssUnit.NUMBER) return formatNumber(value)
         if (unit == CssUnit.PERCENT && secondaryPxOffset != 0f) {
             val op = if (secondaryPxOffset >= 0f) "+" else "-"
             val absOffset = kotlin.math.abs(secondaryPxOffset)
@@ -63,6 +64,20 @@ data class CssLength(
         val NONE = CssLength(0f, CssUnit.NONE)
         val PERCENT_100 = CssLength(100f, CssUnit.PERCENT)
         val PERCENT_50 = CssLength(50f, CssUnit.PERCENT)
+
+        private val IMPORTANT_REGEX = Regex("!\\s*important", RegexOption.IGNORE_CASE)
+        private val UNIT_CANDIDATES = arrayOf(
+            "vmin" to CssUnit.VMIN,
+            "vmax" to CssUnit.VMAX,
+            "rem" to CssUnit.REM,
+            "px" to CssUnit.PX,
+            "dp" to CssUnit.DP,
+            "em" to CssUnit.EM,
+            "vw" to CssUnit.VW,
+            "vh" to CssUnit.VH,
+            "pt" to CssUnit.PT,
+            "%" to CssUnit.PERCENT
+        )
 
         private val CALC_PERCENT_PX_REGEX = Regex(
             "^calc\\(\\s*([+-]?[0-9]*\\.?[0-9]+)%\\s*([+-])\\s*([0-9]*\\.?[0-9]+)px\\s*\\)$",
@@ -88,16 +103,37 @@ data class CssLength(
         fun vmax(value: Number): CssLength = CssLength(value.toFloat(), CssUnit.VMAX)
         fun pt(value: Number): CssLength = CssLength(value.toFloat(), CssUnit.PT)
         fun dp(value: Number): CssLength = CssLength(value.toFloat(), CssUnit.DP)
+        fun number(value: Number): CssLength = CssLength(value.toFloat(), CssUnit.NUMBER)
 
         fun fromResource(resId: ResourceID): CssLength =
             px(ResourceResolver.getDimenPx(resId))
 
+        /**
+         * Parses a CSS `line-height` value, treating bare numeric multipliers (e.g. `"1"`, `"1.38"`)
+         * as [CssUnit.NUMBER] and delegating unit-suffixed or keyword values to [parse].
+         */
+        fun parseLineHeight(raw: String?): CssLength? {
+            if (raw == null) return null
+            val stripped = if ('!' in raw) raw.replace(IMPORTANT_REGEX, "") else raw
+            val cleaned = stripped
+                .trim()
+                .lowercase()
+                .takeIf { it.isNotEmpty() }
+                ?: return null
+            val bareNum = cleaned.toFloatOrNull()
+            if (bareNum != null && bareNum.isFinite()) {
+                return CssLength(bareNum, CssUnit.NUMBER)
+            }
+            return parse(raw)
+        }
+
         fun parse(raw: String?): CssLength? {
-            val cleaned = raw
-                ?.replace(Regex("!\\s*important", RegexOption.IGNORE_CASE), "")
-                ?.trim()
-                ?.lowercase()
-                ?.takeIf { it.isNotEmpty() }
+            if (raw == null) return null
+            val stripped = if ('!' in raw) raw.replace(IMPORTANT_REGEX, "") else raw
+            val cleaned = stripped
+                .trim()
+                .lowercase()
+                .takeIf { it.isNotEmpty() }
                 ?: return null
 
             if (cleaned == "auto") return AUTO
@@ -123,19 +159,7 @@ data class CssLength(
                 }
             }
 
-            val unitCandidates = listOf(
-                "vmin" to CssUnit.VMIN,
-                "vmax" to CssUnit.VMAX,
-                "rem" to CssUnit.REM,
-                "px" to CssUnit.PX,
-                "dp" to CssUnit.DP,
-                "em" to CssUnit.EM,
-                "vw" to CssUnit.VW,
-                "vh" to CssUnit.VH,
-                "pt" to CssUnit.PT,
-                "%" to CssUnit.PERCENT
-            )
-            for ((suffix, unit) in unitCandidates) {
+            for ((suffix, unit) in UNIT_CANDIDATES) {
                 if (cleaned.endsWith(suffix)) {
                     val num = cleaned.removeSuffix(suffix).trim().toFloatOrNull() ?: return null
                     return CssLength(num, unit)

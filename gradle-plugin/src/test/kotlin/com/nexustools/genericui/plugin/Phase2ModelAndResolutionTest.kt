@@ -131,7 +131,7 @@ class Phase2ModelAndResolutionTest {
             GenericUiVariantScope.WEB,
             GenericUiVariantScope.MACOS,
             GenericUiVariantScope.GTK,
-            GenericUiVariantScope.QT,
+            GenericUiVariantScope.KDE,
             GenericUiVariantScope.SWING
         )) {
             assertEquals(

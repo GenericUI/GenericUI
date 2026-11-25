@@ -1,5 +1,7 @@
 package com.nexustools.genericui.system.style
 
+import com.nexustools.genericui.enums.system.BackendTarget
+import com.nexustools.genericui.style.css.BackendStyleMask
 import com.nexustools.genericui.style.css.CompiledStyleRule
 import com.nexustools.genericui.style.css.ComponentStyle
 
@@ -20,7 +22,8 @@ class BlinkCompiledRule(
     val sourceOrder: Int = 0,
     val mediaMinWidthPx: Int = -1,
     val mediaMaxWidthPx: Int = -1,
-    val themeFilter: Int = 0
+    val themeFilter: Int = 0,
+    val backendMask: Int = BackendStyleMask.ALL
 ) {
     val subjectAtom: BlinkSelectorAtom?
         get() = selectorAtoms.lastOrNull()
@@ -28,9 +31,17 @@ class BlinkCompiledRule(
     val subjectPseudoMask: Int
         get() = subjectAtom?.pseudoStateMask ?: 0
 
-    fun matchesMediaAndTheme(viewportWidthPx: Int, isDarkTheme: Boolean): Boolean {
+    fun matchesBackend(target: BackendTarget?): Boolean =
+        BackendStyleMask.matches(backendMask, target)
+
+    fun matchesMediaWidth(viewportWidthPx: Int): Boolean {
         if (mediaMinWidthPx >= 0 && viewportWidthPx < mediaMinWidthPx) return false
         if (mediaMaxWidthPx >= 0 && viewportWidthPx > mediaMaxWidthPx) return false
+        return true
+    }
+
+    fun matchesMediaAndTheme(viewportWidthPx: Int, isDarkTheme: Boolean): Boolean {
+        if (!matchesMediaWidth(viewportWidthPx)) return false
         if (themeFilter == THEME_LIGHT_ONLY && isDarkTheme) return false
         if (themeFilter == THEME_DARK_ONLY && !isDarkTheme) return false
         return true
@@ -55,7 +66,8 @@ class BlinkCompiledRule(
             specificity = specificity,
             mediaMinWidthPx = if (mediaMinWidthPx >= 0) mediaMinWidthPx else null,
             mediaMaxWidthPx = if (mediaMaxWidthPx >= 0) mediaMaxWidthPx else null,
-            pseudoClass = pseudoClass
+            pseudoClass = pseudoClass,
+            backendMask = backendMask
         )
     }
 
@@ -80,7 +92,8 @@ class BlinkCompiledRule(
                 sourceOrder = fallbackOrder,
                 mediaMinWidthPx = rule.mediaMinWidthPx ?: -1,
                 mediaMaxWidthPx = rule.mediaMaxWidthPx ?: -1,
-                themeFilter = THEME_ANY
+                themeFilter = THEME_ANY,
+                backendMask = rule.backendMask
             )
         }
     }

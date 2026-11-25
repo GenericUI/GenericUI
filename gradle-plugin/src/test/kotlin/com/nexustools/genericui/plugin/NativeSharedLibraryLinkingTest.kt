@@ -1,9 +1,13 @@
 package com.nexustools.genericui.plugin
 
+import org.gradle.api.GradleException
 import org.gradle.testfixtures.ProjectBuilder
 import org.jetbrains.kotlin.gradle.tasks.KotlinNativeLink
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.net.URLClassLoader
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import java.nio.file.Files
 import java.nio.file.LinkOption
 import java.nio.file.Paths
@@ -12,6 +16,7 @@ import java.util.zip.ZipFile
 import java.util.zip.ZipOutputStream
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
@@ -45,18 +50,18 @@ class NativeSharedLibraryLinkingTest {
         assertEquals("genericui", GenericUiNativeSharedLibraryCatalog.classifyKlibGroup("com.nexustools.genericui:apple", "macos_arm64", "macos"))
         assertNull(GenericUiNativeSharedLibraryCatalog.classifyKlibGroup("com.nexustools.genericui:apple", "ios_arm64", "ios"))
 
-        // Backends (strict GTK vs Qt separation on Linux; dual-backend Linux test uses genericui-linux)
+        // Backends (strict GTK vs KDE separation on Linux; dual-backend Linux test uses genericui-linux)
         assertEquals("genericui-macos", GenericUiNativeSharedLibraryCatalog.classifyKlibGroup("com.nexustools.genericui:desktop", "macos_arm64", "macos"))
         assertEquals("genericui-windows", GenericUiNativeSharedLibraryCatalog.classifyKlibGroup("com.nexustools.genericui:desktop", "mingw_x64", "windows"))
         assertEquals("genericui-gtk", GenericUiNativeSharedLibraryCatalog.classifyKlibGroup("com.nexustools.genericui:desktop", "linux_x64", "gtk"))
-        assertEquals("genericui-qt", GenericUiNativeSharedLibraryCatalog.classifyKlibGroup("com.nexustools.genericui:desktop", "linux_arm64", "qt"))
+        assertEquals("genericui-kde", GenericUiNativeSharedLibraryCatalog.classifyKlibGroup("com.nexustools.genericui:desktop", "linux_arm64", "kde"))
         assertEquals("genericui-linux", GenericUiNativeSharedLibraryCatalog.classifyKlibGroup("com.nexustools.genericui:desktop", "linux_arm64", "linux"))
 
         // NJS + extensions + DSL submodules + tests
         assertEquals("njs", GenericUiNativeSharedLibraryCatalog.classifyKlibGroup("com.nexustools.njs:njs", "macos_arm64", "macos"))
         assertEquals("genericui-ext-media", GenericUiNativeSharedLibraryCatalog.classifyKlibGroup("com.nexustools.genericui.extensions.media:media", "linux_x64", "gtk"))
         assertEquals("genericui-ext-mediacontrols", GenericUiNativeSharedLibraryCatalog.classifyKlibGroup("com.nexustools.genericui.extensions.media:mediacontrols", "mingw_x64", "windows"))
-        assertEquals("genericui-ext-canvas2d", GenericUiNativeSharedLibraryCatalog.classifyKlibGroup("com.nexustools.genericui.extensions.graphics:canvas2d", "linux_arm64", "qt"))
+        assertEquals("genericui-ext-canvas2d", GenericUiNativeSharedLibraryCatalog.classifyKlibGroup("com.nexustools.genericui.extensions.graphics:canvas2d", "linux_arm64", "kde"))
         assertEquals("genericui-ext-dsl", GenericUiNativeSharedLibraryCatalog.classifyKlibGroup("com.nexustools.genericui.extensions.ui:dsl", "macos_arm64", "macos"))
         assertEquals("genericui-ext-engine2d-dsl", GenericUiNativeSharedLibraryCatalog.classifyKlibGroup("com.nexustools.genericui.extensions.game.engine2d:dsl", "linux_x64", "gtk"))
         assertEquals("genericui-tests", GenericUiNativeSharedLibraryCatalog.classifyKlibGroup("com.nexustools.genericui:tests", "mingw_x64", "windows"))
@@ -69,7 +74,7 @@ class NativeSharedLibraryLinkingTest {
         // File naming rules (no 'lib' prefix on Windows)
         assertEquals("libgenericui.dylib", GenericUiNativeSharedLibraryCatalog.sharedLibraryFileName("genericui", "macos_arm64"))
         assertEquals("libgenericui-gtk.so", GenericUiNativeSharedLibraryCatalog.sharedLibraryFileName("genericui-gtk", "linux_x64"))
-        assertEquals("libgenericui-qt.so", GenericUiNativeSharedLibraryCatalog.sharedLibraryFileName("genericui-qt", "linux_arm64"))
+        assertEquals("libgenericui-kde.so", GenericUiNativeSharedLibraryCatalog.sharedLibraryFileName("genericui-kde", "linux_arm64"))
         assertEquals("libgenericui-linux.so", GenericUiNativeSharedLibraryCatalog.sharedLibraryFileName("genericui-linux", "linux_arm64"))
         assertEquals("genericui.dll", GenericUiNativeSharedLibraryCatalog.sharedLibraryFileName("genericui", "mingw_x64"))
         assertEquals("genericui-windows.dll", GenericUiNativeSharedLibraryCatalog.sharedLibraryFileName("genericui-windows", "mingw_x64"))
@@ -100,15 +105,15 @@ class NativeSharedLibraryLinkingTest {
             val plan = GenericUiNativeSharedLibraryCatalog.planSharedLibraries(
                 libraryFiles = listOf(consumer, media, desktop, common, atomicfu, stdlib),
                 konanTargetName = "linux_arm64",
-                backendVariant = "qt"
+                backendVariant = "kde"
             )
             assertEquals(
-                listOf("genericui", "genericui-qt", "genericui-ext-media"),
+                listOf("genericui", "genericui-kde", "genericui-ext-media"),
                 plan.groupsOrdered.map { it.groupId }
             )
             assertEquals(listOf("com.example:app"), plan.uncachedKlibs.map { it.uniqueName })
             assertEquals(
-                listOf("genericui", "genericui-qt"),
+                listOf("genericui", "genericui-kde"),
                 plan.groupsOrdered.last().upstreamGroupIds
             )
         } finally {
@@ -237,28 +242,28 @@ class NativeSharedLibraryLinkingTest {
 
             val macLink = project.tasks.getByName("linkDebugExecutableMacosArm64") as KotlinNativeLink
             val gtkLink = project.tasks.getByName("linkGtkDebugExecutableLinuxX64") as KotlinNativeLink
-            val qtLink = project.tasks.getByName("linkQtDebugExecutableLinuxX64") as KotlinNativeLink
+            val kdeLink = project.tasks.getByName("linkKdeDebugExecutableLinuxX64") as KotlinNativeLink
             val winLink = project.tasks.getByName("linkDebugExecutableMingwX64") as KotlinNativeLink
             val testLink = project.tasks.getByName("linkDebugTestMacosArm64") as KotlinNativeLink
             val iosFrameworkLink = project.tasks.getByName("linkDebugFrameworkIosArm64") as KotlinNativeLink
 
             val macSharedTask = project.tasks.getByName("buildGenericUiSharedLibsForLinkDebugExecutableMacosArm64") as GenericUiBuildNativeSharedLibsTask
             val gtkSharedTask = project.tasks.getByName("buildGenericUiSharedLibsForLinkGtkDebugExecutableLinuxX64") as GenericUiBuildNativeSharedLibsTask
-            val qtSharedTask = project.tasks.getByName("buildGenericUiSharedLibsForLinkQtDebugExecutableLinuxX64") as GenericUiBuildNativeSharedLibsTask
+            val kdeSharedTask = project.tasks.getByName("buildGenericUiSharedLibsForLinkKdeDebugExecutableLinuxX64") as GenericUiBuildNativeSharedLibsTask
             val winSharedTask = project.tasks.getByName("buildGenericUiSharedLibsForLinkDebugExecutableMingwX64") as GenericUiBuildNativeSharedLibsTask
             val testSharedTask = project.tasks.getByName("buildGenericUiSharedLibsForLinkDebugTestMacosArm64") as GenericUiBuildNativeSharedLibsTask
             val linuxTestSharedTask = project.tasks.getByName("buildGenericUiSharedLibsForLinkDebugTestLinuxX64") as GenericUiBuildNativeSharedLibsTask
 
             assertEquals("macos", macSharedTask.backendVariant.get())
             assertEquals("gtk", gtkSharedTask.backendVariant.get())
-            assertEquals("qt", qtSharedTask.backendVariant.get())
+            assertEquals("kde", kdeSharedTask.backendVariant.get())
             assertEquals("windows", winSharedTask.backendVariant.get())
             assertEquals("macos", testSharedTask.backendVariant.get())
             assertEquals("linux", linuxTestSharedTask.backendVariant.get())
 
             assertTrue(macSharedTask in macLink.taskDependencies.getDependencies(macLink))
             assertTrue(gtkSharedTask in gtkLink.taskDependencies.getDependencies(gtkLink))
-            assertTrue(qtSharedTask in qtLink.taskDependencies.getDependencies(qtLink))
+            assertTrue(kdeSharedTask in kdeLink.taskDependencies.getDependencies(kdeLink))
             assertTrue(winSharedTask in winLink.taskDependencies.getDependencies(winLink))
             assertTrue(testSharedTask in testLink.taskDependencies.getDependencies(testLink))
 
@@ -268,25 +273,218 @@ class NativeSharedLibraryLinkingTest {
                 it is GenericUiBuildNativeSharedLibsTask
             })
 
-            // Single-backend Qt-only project resolves Linux TEST variant to "qt".
-            val qtOnlyProject = ProjectBuilder.builder()
-                .withName("sample-qt-only-app")
+            // Single-backend KDE-only project resolves Linux TEST variant to "kde".
+            val kdeOnlyProject = ProjectBuilder.builder()
+                .withName("sample-kde-only-app")
                 .withProjectDir(projectDir)
                 .build()
-            qtOnlyProject.pluginManager.apply("com.nexustools.genericui")
-            val qtOnlyExt = qtOnlyProject.extensions.getByType(GenericUiExtension::class.java)
-            qtOnlyExt.application {
-                baseName = "SampleQtOnlyApp"
+            kdeOnlyProject.pluginManager.apply("com.nexustools.genericui")
+            val kdeOnlyExt = kdeOnlyProject.extensions.getByType(GenericUiExtension::class.java)
+            kdeOnlyExt.application {
+                baseName = "SampleKdeOnlyApp"
             }
-            qtOnlyExt.backends {
-                qt()
+            kdeOnlyExt.backends {
+                kde()
             }
-            (qtOnlyProject as org.gradle.api.internal.project.ProjectInternal).evaluate()
-            val qtOnlyTestTask = qtOnlyProject.tasks.getByName("buildGenericUiSharedLibsForLinkDebugTestLinuxX64") as GenericUiBuildNativeSharedLibsTask
-            assertEquals("qt", qtOnlyTestTask.backendVariant.get())
+            (kdeOnlyProject as org.gradle.api.internal.project.ProjectInternal).evaluate()
+            val kdeOnlyTestTask = kdeOnlyProject.tasks.getByName("buildGenericUiSharedLibsForLinkDebugTestLinuxX64") as GenericUiBuildNativeSharedLibsTask
+            assertEquals("kde", kdeOnlyTestTask.backendVariant.get())
         } finally {
             projectDir.deleteRecursively()
         }
+    }
+
+    @Test
+    fun `linux shared library symbol isolation enforces strict gtk vs kde separation`() {
+        assertEquals(
+            "com.nexustools.genericui.gtk",
+            GenericUiBuildNativeSharedLibsTask.linuxExcludedPackageForKlib("com.nexustools.genericui:desktop", "kde")
+        )
+        assertEquals(
+            "com.nexustools.genericui.kde",
+            GenericUiBuildNativeSharedLibsTask.linuxExcludedPackageForKlib("com.nexustools.genericui:desktop", "gtk")
+        )
+        assertEquals(
+            "com.nexustools.genericui.tests.gtk",
+            GenericUiBuildNativeSharedLibsTask.linuxExcludedPackageForKlib("com.nexustools.genericui:tests", "kde")
+        )
+        assertEquals(
+            "com.nexustools.genericui.tests.kde",
+            GenericUiBuildNativeSharedLibsTask.linuxExcludedPackageForKlib("com.nexustools.genericui:tests", "gtk")
+        )
+
+        val tempDir = Files.createTempDirectory("genericui-linux-isolation-test").toFile()
+        try {
+            val cleanGtkSo = File(tempDir, "libgenericui-gtk.so").apply {
+                writeBytes(
+                    buildMinimalElf64SharedObject(
+                        listOf("kfun:com.nexustools.genericui.gtk.GtkLauncher#launch(){}")
+                    )
+                )
+            }
+            GenericUiBuildNativeSharedLibsTask.verifyLinuxSharedLibrarySymbolIsolation(
+                groupId = "genericui-gtk",
+                backendVariant = "gtk",
+                isLinuxSingleBackendVariant = true,
+                soFile = cleanGtkSo
+            )
+
+            val leakedKdeInGtkSo = File(tempDir, "libgenericui-gtk-leaked.so").apply {
+                writeBytes(
+                    buildMinimalElf64SharedObject(
+                        listOf(
+                            "kfun:com.nexustools.genericui.gtk.GtkLauncher#launch(){}",
+                            "kfun:com.nexustools.genericui.kde.KdeLauncher#launch(){}"
+                        )
+                    )
+                )
+            }
+            val gtkFail = assertFailsWith<GradleException> {
+                GenericUiBuildNativeSharedLibsTask.verifyLinuxSharedLibrarySymbolIsolation(
+                    groupId = "genericui-gtk",
+                    backendVariant = "gtk",
+                    isLinuxSingleBackendVariant = true,
+                    soFile = leakedKdeInGtkSo
+                )
+            }
+            assertTrue(gtkFail.message.orEmpty().contains("com.nexustools.genericui.kde"))
+
+            val cleanKdeSo = File(tempDir, "libgenericui-kde.so").apply {
+                writeBytes(
+                    buildMinimalElf64SharedObject(
+                        listOf("kfun:com.nexustools.genericui.kde.KdeLauncher#launch(){}")
+                    )
+                )
+            }
+            GenericUiBuildNativeSharedLibsTask.verifyLinuxSharedLibrarySymbolIsolation(
+                groupId = "genericui-kde",
+                backendVariant = "kde",
+                isLinuxSingleBackendVariant = true,
+                soFile = cleanKdeSo
+            )
+
+            val leakedGtkInKdeSo = File(tempDir, "libgenericui-kde-leaked.so").apply {
+                writeBytes(
+                    buildMinimalElf64SharedObject(
+                        listOf(
+                            "kfun:com.nexustools.genericui.kde.KdeLauncher#launch(){}",
+                            "kfun:com.nexustools.genericui.gtk.GtkLauncher#launch(){}"
+                        )
+                    )
+                )
+            }
+            val kdeFail = assertFailsWith<GradleException> {
+                GenericUiBuildNativeSharedLibsTask.verifyLinuxSharedLibrarySymbolIsolation(
+                    groupId = "genericui-kde",
+                    backendVariant = "kde",
+                    isLinuxSingleBackendVariant = true,
+                    soFile = leakedGtkInKdeSo
+                )
+            }
+            assertTrue(kdeFail.message.orEmpty().contains("com.nexustools.genericui.gtk"))
+
+            val cleanKdeTestsSo = File(tempDir, "libgenericui-tests-kde.so").apply {
+                writeBytes(
+                    buildMinimalElf64SharedObject(
+                        listOf("kfun:com.nexustools.genericui.tests.kde.KdeJestElectricBootstrap#installIfEnabled(){}")
+                    )
+                )
+            }
+            GenericUiBuildNativeSharedLibsTask.verifyLinuxSharedLibrarySymbolIsolation(
+                groupId = GenericUiNativeSharedLibraryCatalog.TESTS_GROUP_ID,
+                backendVariant = "kde",
+                isLinuxSingleBackendVariant = true,
+                soFile = cleanKdeTestsSo
+            )
+
+            val leakedGtkTestsInKdeSo = File(tempDir, "libgenericui-tests-kde-leaked.so").apply {
+                writeBytes(
+                    buildMinimalElf64SharedObject(
+                        listOf(
+                            "kfun:com.nexustools.genericui.tests.kde.KdeJestElectricBootstrap#installIfEnabled(){}",
+                            "kfun:com.nexustools.genericui.tests.gtk.GtkJestElectricBootstrap#installIfEnabled(){}"
+                        )
+                    )
+                )
+            }
+            val testsFail = assertFailsWith<GradleException> {
+                GenericUiBuildNativeSharedLibsTask.verifyLinuxSharedLibrarySymbolIsolation(
+                    groupId = GenericUiNativeSharedLibraryCatalog.TESTS_GROUP_ID,
+                    backendVariant = "kde",
+                    isLinuxSingleBackendVariant = true,
+                    soFile = leakedGtkTestsInKdeSo
+                )
+            }
+            assertTrue(testsFail.message.orEmpty().contains("com.nexustools.genericui.tests.gtk"))
+        } finally {
+            tempDir.deleteRecursively()
+        }
+    }
+
+    private fun buildMinimalElf64SharedObject(symbolNames: List<String>): ByteArray {
+        val dynstr = ByteArrayOutputStream().apply { write(0) }
+        val symOffsets = symbolNames.map { name ->
+            val off = dynstr.size()
+            dynstr.write(name.toByteArray(Charsets.UTF_8))
+            dynstr.write(0)
+            off
+        }
+        val dynstrBytes = dynstr.toByteArray()
+
+        val symEntrySize = 24
+        val dynsymBytes = ByteArray((1 + symbolNames.size) * symEntrySize)
+        val symBuf = ByteBuffer.wrap(dynsymBytes).order(ByteOrder.LITTLE_ENDIAN)
+        for ((index, strOff) in symOffsets.withIndex()) {
+            val base = (index + 1) * symEntrySize
+            symBuf.putInt(base, strOff)
+            dynsymBytes[base + 4] = 0x12 // STB_GLOBAL | STT_FUNC
+            symBuf.putShort(base + 6, 1) // defined in section 1
+        }
+
+        val ehdrSize = 64
+        val dynstrOffset = ehdrSize
+        val dynsymOffset = dynstrOffset + dynstrBytes.size
+        val shOff = dynsymOffset + dynsymBytes.size
+        val shEntSize = 64
+        val shNum = 3
+        val totalSize = shOff + shNum * shEntSize
+
+        val out = ByteArray(totalSize)
+        out[0] = 0x7f.toByte()
+        out[1] = 'E'.code.toByte()
+        out[2] = 'L'.code.toByte()
+        out[3] = 'F'.code.toByte()
+        out[4] = 2 // ELFCLASS64
+        out[5] = 1 // ELFDATA2LSB
+        out[6] = 1 // EV_CURRENT
+
+        val buf = ByteBuffer.wrap(out).order(ByteOrder.LITTLE_ENDIAN)
+        buf.putShort(16, 3) // ET_DYN
+        buf.putShort(18, 62) // EM_X86_64
+        buf.putInt(20, 1) // EV_CURRENT
+        buf.putLong(40, shOff.toLong())
+        buf.putShort(52, ehdrSize.toShort())
+        buf.putShort(58, shEntSize.toShort())
+        buf.putShort(60, shNum.toShort())
+
+        System.arraycopy(dynstrBytes, 0, out, dynstrOffset, dynstrBytes.size)
+        System.arraycopy(dynsymBytes, 0, out, dynsymOffset, dynsymBytes.size)
+
+        // Section 1: SHT_STRTAB (3)
+        val sec1 = shOff + shEntSize
+        buf.putInt(sec1 + 4, 3)
+        buf.putLong(sec1 + 24, dynstrOffset.toLong())
+        buf.putLong(sec1 + 32, dynstrBytes.size.toLong())
+
+        // Section 2: SHT_DYNSYM (11)
+        val sec2 = shOff + 2 * shEntSize
+        buf.putInt(sec2 + 4, 11)
+        buf.putLong(sec2 + 24, dynsymOffset.toLong())
+        buf.putLong(sec2 + 32, dynsymBytes.size.toLong())
+        buf.putInt(sec2 + 40, 1) // sh_link -> .dynstr
+        buf.putLong(sec2 + 56, symEntrySize.toLong())
+
+        return out
     }
 
     @Test

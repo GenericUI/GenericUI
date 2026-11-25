@@ -170,8 +170,6 @@ abstract class AngleNativeBundleTask : DefaultTask() {
             val candidates = buildList {
                 System.getenv("GENERICUI_ANGLE_DIR")?.trim()?.takeIf { it.isNotEmpty() }?.let { add(File(it)) }
                 System.getenv("ANGLE_DIR")?.trim()?.takeIf { it.isNotEmpty() }?.let { add(File(it)) }
-                add(File("D:\\AICore\\workspace\\episode-caster\\node_modules\\nw\\nwjs-v0.116.0-win-x64"))
-                add(File("D:\\AICore\\node_modules\\nw\\nwjs-v0.115.0-win-x64"))
                 val pathEnv = System.getenv("PATH").orEmpty()
                 for (entry in pathEnv.split(File.pathSeparator)) {
                     if (entry.isNotBlank()) add(File(entry.trim()))

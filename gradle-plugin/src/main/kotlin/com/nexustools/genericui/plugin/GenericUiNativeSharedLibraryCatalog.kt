@@ -85,7 +85,7 @@ object GenericUiNativeSharedLibraryCatalog {
             konanTargetName.startsWith("mingw") -> "genericui-windows"
             konanTargetName.startsWith("linux") -> {
                 when {
-                    backendVariant.equals("qt", ignoreCase = true) -> "genericui-qt"
+                    backendVariant.equals("kde", ignoreCase = true) -> "genericui-kde"
                     backendVariant.equals("linux", ignoreCase = true) -> "genericui-linux"
                     else -> "genericui-gtk"
                 }
@@ -493,7 +493,7 @@ object GenericUiNativeSharedLibraryCatalog {
             groupId.startsWith("genericui-macos") ||
                 groupId.startsWith("genericui-windows") ||
                 groupId.startsWith("genericui-gtk") ||
-                groupId.startsWith("genericui-qt") ||
+                groupId.startsWith("genericui-kde") ||
                 groupId.startsWith("genericui-linux") -> 1
             groupId == NJS_GROUP_ID -> 2
             groupId == "genericui-ext-dsl" -> 3

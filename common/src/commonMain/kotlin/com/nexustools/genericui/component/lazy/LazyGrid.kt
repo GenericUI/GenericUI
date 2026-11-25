@@ -221,10 +221,10 @@ open class LazyGrid(
         val insertPos = runCatching { activeHolders.keys.toList() }.getOrElse { emptyList() }.count { it < index }
         activeHolders[index] = holder
         addChild(holder.itemView, insertPos)
+        holder.itemView.recomputeInheritedFocusableFromParent()
         if ((resolveActiveFactory() ?: com.nexustools.genericui.core.GenericUI.activeFactory)?.isStyleSheetEngineEnabled != false) {
-            Application.current?.getStyleSheets()?.forEach { sheet ->
-                sheet.styleSheet.applyToTree(holder.itemView)
-            }
+            val effectiveSheet = resolveEffectiveAncestorStyleSheet() ?: Application.current?.buildCombinedActiveStyleSheet()
+            effectiveSheet?.applyToTree(holder.itemView, lastStyleSheetViewportWidthPx)
         }
         return holder
     }

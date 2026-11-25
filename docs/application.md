@@ -1,7 +1,7 @@
 # GenericUI Application, `IApplication`, Theming (`ThemeMode.AUTO`), Stylesheets, & `BackendTarget` Guide
 
 > **Root Repository**: [**GenericUI (`../README.md`)**](../README.md) | **Master Docs Index**: [**`docs/README.md`**](./README.md)  
-> **Related Guides**: [iPadOS Backend (`ipados.md`)](./ipados.md) · [Shared Apple (`apple.md`)](./apple.md) · [Shared JVM (`jvm.md`)](./jvm.md) · [Fragments & Windows (`fragments-and-windows.md`)](./fragments-and-windows.md) · [Hybrid Layouts & Helpers (`layouts-and-helpers.md`)](./layouts-and-helpers.md) · [Resources (`resources.md`)](./resources.md) · [Gradle Plugin (`gradle-plugin.md`)](./gradle-plugin.md) · [Platform Backends (`backends.md`)](./backends.md) · [SourceSets (`sourcesets.md`)](./sourcesets.md)
+> **Related Guides**: [SCSS & Backend Directives (`scss-and-styling.md`)](./scss-and-styling.md) · [iPadOS Backend (`ipados.md`)](./ipados.md) · [Shared Apple (`apple.md`)](./apple.md) · [Shared JVM (`jvm.md`)](./jvm.md) · [Fragments & Windows (`fragments-and-windows.md`)](./fragments-and-windows.md) · [Hybrid Layouts & Helpers (`layouts-and-helpers.md`)](./layouts-and-helpers.md) · [Resources (`resources.md`)](./resources.md) · [Gradle Plugin (`gradle-plugin.md`)](./gradle-plugin.md) · [Platform Backends (`backends.md`)](./backends.md) · [SourceSets (`sourcesets.md`)](./sourcesets.md)
 
 This guide covers [`IApplication`](../common/src/commonMain/kotlin/com/nexustools/genericui/component/shell/IApplication.kt), [`Application`](../common/src/commonMain/kotlin/com/nexustools/genericui/component/shell/Application.kt), [`FragmentApplication`](../common/src/commonMain/kotlin/com/nexustools/genericui/component/shell/FragmentApplication.kt), [`GenericUI`](../common/src/commonMain/kotlin/com/nexustools/genericui/core/GenericUI.kt), optional custom `@AppApplication` classes, [`ThemeMode`](../common/src/commonMain/kotlin/com/nexustools/genericui/enums/ui/ThemeMode.kt) (`AUTO`, `DARK`, `LIGHT` with 9-target OS theme detection), global stylesheet management (`IApplication.addStyleSheet` / `removeStyleSheet`), [`BackendTarget`](../common/src/commonMain/kotlin/com/nexustools/genericui/enums/system/BackendTarget.kt) runtime target/group queries, and platform capability checks.
 
@@ -11,7 +11,7 @@ This guide covers [`IApplication`](../common/src/commonMain/kotlin/com/nexustool
 
 ### 1.1 Default Zero-Boilerplate Bootstrapping (`@MainAppFragment` Only)
 
-Most GenericUI applications need **only** a `@MainAppFragment`-annotated `Fragment` class in `src/commonMain/kotlin` and `genericui { app { ... } }` in `build.gradle.kts`. For every enabled backend target, the GenericUI Gradle plugin generates a `GenericUiAppDescriptor` and target launcher (`WindowsLauncher`, `MacosLauncher`, `GtkLauncher`, `QtLauncher`, `SwingLauncher`, `AndroidLauncher`, `IosLauncher`, `IpadosLauncher`, `WebLauncher`) that:
+Most GenericUI applications need **only** a `@MainAppFragment`-annotated `Fragment` class in `src/commonMain/kotlin` and `genericui { app { ... } }` in `build.gradle.kts`. For every enabled backend target, the GenericUI Gradle plugin generates a `GenericUiAppDescriptor` and target launcher (`WindowsLauncher`, `MacosLauncher`, `GtkLauncher`, `KdeLauncher`, `SwingLauncher`, `AndroidLauncher`, `IosLauncher`, `IpadosLauncher`, `WebLauncher`) that:
 1. Initializes the platform's `NativeFactory` (`GenericUI.initialize(...)`) and sets Apple icon metadata (`GenericUI.appleIconExplicitlyProvided`) so macOS wraps generic/default Dock icons inside a Chrome-style rounded white squircle automatically when no Apple-specific override (`appleIcon` / `macIcon`) was supplied.
 2. Registers all enabled extension providers automatically and dispatches [`GenericUiExtensionRegistry`](../common/src/commonMain/kotlin/com/nexustools/genericui/core/GenericUiExtensionRegistry.kt) [`ApplicationLifecycleExtensionHook`](../common/src/commonMain/kotlin/com/nexustools/genericui/core/ApplicationLifecycleExtensionHook.kt) callbacks (`onBeforeAppPrepare`, `onAppPrepared`, `onBeforeAppRun`, `onAppShutdown`).
 3. Registers the resolved `@MainAppFragment` and all matching `@AppFragment` classes in `FragmentRegistry`.
@@ -78,7 +78,7 @@ GenericUI's [`ThemeMode`](../common/src/commonMain/kotlin/com/nexustools/generic
 
 ### 2.2 Unified Cross-Platform `ThemeConfig` & `ThemeColorSet`
 
-[`ThemeConfig`](../common/src/commonMain/kotlin/com/nexustools/genericui/style/theme/ThemeConfig.kt) and [`ThemeColorSet`](../common/src/commonMain/kotlin/com/nexustools/genericui/style/theme/ThemeColorSet.kt) provide a single strongly-typed theme palette shared across Gradle build configuration (`genericui { theme { ... } }`), runtime `IApplication` APIs (`app.setThemeConfig(...)`), native control offscreen sprite tinting (`DesktopControlTintRenderUtil`, `JvmControlTintPixelUtil`, `IosControlTintRenderUtil`), Android Material XML generation, and Web CSS custom properties (`gui/genericui-theme.css` + `<style id="genericui-runtime-theme-css">`):
+[`ThemeConfig`](../common/src/commonMain/kotlin/com/nexustools/genericui/style/theme/ThemeConfig.kt) and [`ThemeColorSet`](../common/src/commonMain/kotlin/com/nexustools/genericui/style/theme/ThemeColorSet.kt) provide a single strongly-typed theme palette shared across consumer Gradle build configuration (`genericui { theme { ... } }`), runtime `IApplication` APIs (`app.setThemeConfig(...)`), raw uncompiled `:common` and extension `src/commonMain/resources/styles/theme.scss` source templates (packaged in library metadata `META-INF/genericui/themes/<scopeId>.scss` and `META-INF/genericui/module-resources/<scopeId>.json` — NEVER pre-compiled into library `.jar`/`.klib` artifacts — and extracted, substituted with consumer `build.gradle.kts` theme settings, and compiled/integrated **solely into the consumer application** as `GenericUiGeneratedThemeStyleSheet` on `:system` and `gui/genericui-theme.css` on `:web` via `compileGenericUiSass` + `GenericUiWebDistributionTask`, plus dynamically updated at runtime via `ThemeStyleSheetRegistry` using `$primary`, `$accent`, `$surface`, `rgba($accent, ...)`, etc.), native desktop and mobile `Button` tinting (`DesktopButtonNativeImpl`, `UIButtonConfiguration`, `AppCompatButton` `backgroundTintList`) and semantic surfaces (`SemanticSurfaceStyleResolver`), Swing control tinting (`SwingControlTintRenderUtil` / `JvmControlTintPixelUtil`), Android Material XML generation, and Web CSS custom properties (`<style id="genericui-runtime-theme-css">`):
 
 ```kotlin
 import com.nexustools.genericui.enums.ui.ThemeMode
@@ -130,6 +130,9 @@ app.setThemeConfig(customTheme)
 | `app.hasStyleSheet(...)` | Returns `true` if the specified stylesheet is currently active on the application. |
 | `app.getStyleSheets()` / `app.getStyleSheetPaths()` | Returns the ordered list of active `PrecompiledStyleSheet` instances or stylesheet paths. |
 
+### 3.1 Backend-Scoped SCSS `@` Directives & `BackendTarget` Matching
+Shared stylesheets added via `IApplication.addStyleSheet(...)` (including `style.scss` and consumer `theme.scss`) can scope rules directly to any `BackendTarget` or group property via `@windows`, `@macos`, `@gtk`, `@kde`, `@swing`, `@android`, `@ios`, `@ipados`, `@web`, `@system`, `@desktop`, `@native-desktop`, `@linux`, `@mobile`, `@apple`, `@ios-family`/`@uikit`, `@unix`, `@posix`, `@native`, `@jvm`, `@touch`/`@touch-primary`, `@browser`, or `@backend(...)` / `@platform(...)` / `@target(...)` boolean expressions. At runtime, `CssStyleSheet` evaluates `Application.current?.backendTarget ?: GenericUI.activeFactory?.backendTarget` against each rule's `BackendStyleMask`, while `:system`'s `BlinkRuleBucketMap.forBackend(...)` pre-partitions active rules in O(1). See [**`docs/scss-and-styling.md`**](./scss-and-styling.md).
+
 ---
 
 ## 4. `BackendTarget` (`com.nexustools.genericui.enums.system.BackendTarget`)
@@ -143,7 +146,7 @@ app.setThemeConfig(customTheme)
 | **`BackendTarget.Windows`** | `"windows"` | `"Windows (Win32)"` | `"Windows"` |
 | **`BackendTarget.MacOS`** | `"macos"` | `"macOS (AppKit)"` | `"macOS"` |
 | **`BackendTarget.Gtk`** | `"gtk"` | `"Linux (GTK4 / Libadwaita)"` | `"Linux"` |
-| **`BackendTarget.Qt`** | `"qt"` | `"Linux / Desktop (Qt6)"` | `"Linux"` |
+| **`BackendTarget.Kde`** | `"kde"` | `"Linux (KDE Plasma)"` | `"Linux"` |
 | **`BackendTarget.Swing`** | `"swing"` | `"Java Swing (AWT / Java2D)"` | `"JVM Desktop"` |
 | **`BackendTarget.Android`** | `"android"` | `"Android"` | `"Android"` |
 | **`BackendTarget.IOS`** | `"ios"` | `"iOS (UIKit)"` | `"iOS"` |
@@ -152,7 +155,7 @@ app.setThemeConfig(customTheme)
 
 ### 4.2 Multi-Backend Target Group Matrix
 
-| Group Property (on `BackendTarget` & `IApplication`) | `Windows` | `MacOS` | `Gtk` | `Qt` | `Swing` | `Android` | `IOS` | `IPadOS` | `Web` |
+| Group Property (on `BackendTarget` & `IApplication`) | `Windows` | `MacOS` | `Gtk` | `Kde` | `Swing` | `Android` | `IOS` | `IPadOS` | `Web` |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
 | **`isSystem`** (`this != Web`) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — |
 | **`isDesktop`** | ✅ | ✅ | ✅ | ✅ | ✅ | — | — | — | — |
@@ -173,7 +176,7 @@ app.setThemeConfig(customTheme)
 | Property | Type | Description |
 | :--- | :--- | :--- |
 | `mainWindow` / `mainIWindow` | `Window` / `IWindow` | The primary application window. |
-| `backendTarget` | `BackendTarget` | Active platform backend (`Windows`, `MacOS`, `Gtk`, `Qt`, `Swing`, `Android`, `IOS`, `IPadOS`, `Web`). |
+| `backendTarget` | `BackendTarget` | Active platform backend (`Windows`, `MacOS`, `Gtk`, `Kde`, `Swing`, `Android`, `IOS`, `IPadOS`, `Web`). |
 | `backendName` / `systemOsName` | `String` | Descriptive backend name from `NativeFactory.backendName` and `backendTarget.osFamilyName`. |
 | `titleCapabilities` | `TitleCapabilities` | `TitleCapabilities` of `mainWindow`. |
 | `supportsMultipleWindows` / `supportsToolModalWindows` | `Boolean` | `true` on desktop backends and **iPadOS (`BackendTarget.IPadOS`)** (`IpadosNativeFactory`); `false` on single-window iPhone `IOS`, `Android`, and `Web`. |
@@ -184,4 +187,4 @@ app.setThemeConfig(customTheme)
 | `supportsSystemTray` | `Boolean` | `true` on desktop targets (`backendTarget.isDesktop`). |
 | `supportsDirectorySelection` / `supportsDirectFileSystemAccess` | `Boolean` | `true` on all 8 system targets (`backendTarget.isSystem`). |
 | `supportsSystemThemeDetection` / `supportsThemeAccentColor` / `supportsHardwareGpuAcceleration` | `Boolean` | `true` across all 9 backends. |
-| `isOffline` / `isOnline` | `Boolean` | Live network reachability via WinINet/`INetworkListManager` (Windows), `:apple`'s `NWPathMonitor` (macOS/iOS/iPadOS), GIO `GNetworkMonitor` (GTK), Qt `QNetworkInformation` (Qt), `NetworkInterface` (Swing), `ConnectivityManager` (Android), and `navigator.onLine` (Web), with `addOfflineListener`, `removeOfflineListener`, and `setOnOfflineChanged`. |
+| `isOffline` / `isOnline` | `Boolean` | Live network reachability via WinINet/`INetworkListManager` (Windows), `:apple`'s `NWPathMonitor` (macOS/iOS/iPadOS), GIO `GNetworkMonitor` (`LinuxGioNetworkMonitorNativeImpl` for GTK & KDE), `NetworkInterface` (Swing), `ConnectivityManager` (Android), and `navigator.onLine` (Web), with `addOfflineListener`, `removeOfflineListener`, and `setOnOfflineChanged`. |

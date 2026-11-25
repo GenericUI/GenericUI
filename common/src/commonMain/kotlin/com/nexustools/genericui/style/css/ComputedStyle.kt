@@ -145,8 +145,46 @@ data class ComputedStyle(
     val activeBitmaskLow: Long = 0L,
     val activeBitmaskHigh: Long = 0L,
     val importantBitmaskLow: Long = 0L,
-    val importantBitmaskHigh: Long = 0L
+    val importantBitmaskHigh: Long = 0L,
+    val animation: String? = null,
+    val animations: List<CssAnimationSpec>? = null,
+    val animationName: String? = null,
+    val animationDuration: String? = null,
+    val animationTimingFunction: String? = null,
+    val animationDelay: String? = null,
+    val animationIterationCount: String? = null,
+    val animationDirection: String? = null,
+    val animationFillMode: String? = null,
+    val animationPlayState: String? = null
 ) {
+    val transformSpec: CssTransform?
+        get() = transform2D?.let { CssTransform.fromTransform2D(it) }
+
+    fun resolveEffectiveAnimations(): List<CssAnimationSpec> {
+        if (!animations.isNullOrEmpty() &&
+            animationName == null &&
+            animationDuration == null &&
+            animationTimingFunction == null &&
+            animationDelay == null &&
+            animationIterationCount == null &&
+            animationDirection == null &&
+            animationFillMode == null &&
+            animationPlayState == null
+        ) {
+            return animations
+        }
+        return CssAnimationSpec.resolveEffectiveSpecs(
+            animationShorthand = animation,
+            animationName = animationName,
+            animationDuration = animationDuration,
+            animationTimingFunction = animationTimingFunction,
+            animationDelay = animationDelay,
+            animationIterationCount = animationIterationCount,
+            animationDirection = animationDirection,
+            animationFillMode = animationFillMode,
+            animationPlayState = animationPlayState
+        )
+    }
     fun hasProperty(property: CssProperty): Boolean {
         val ord = property.ordinal
         return if (ord < 64) {
@@ -169,9 +207,13 @@ data class ComputedStyle(
      * Filters out aesthetic skinning (and optionally typography) properties for standard components
      * on system backends.
      */
-    fun copyFilteredForSystemComponent(allowTypography: Boolean, allowAestheticSkin: Boolean): ComputedStyle {
+    fun copyFilteredForSystemComponent(
+        allowTypography: Boolean,
+        allowAestheticSkin: Boolean,
+        allowFilter: Boolean = allowAestheticSkin
+    ): ComputedStyle {
         if (allowAestheticSkin || this === EMPTY) return this
-        val (maskLow, maskHigh) = systemFilterBitmasks(allowTypography)
+        val (maskLow, maskHigh) = systemFilterBitmasks(allowTypography, allowFilter = allowFilter)
         return ComputedStyle(
             backgroundColor = null,
             textColor = if (allowTypography) textColor else null,
@@ -233,7 +275,7 @@ data class ComputedStyle(
             opacity = opacity,
             cursor = cursor,
             customCursor = customCursor,
-            filter = null,
+            filter = if (allowFilter) filter else null,
             backdropFilter = null,
             boxShadow = null,
             boxShadowList = null,
@@ -283,15 +325,25 @@ data class ComputedStyle(
             userSelect = userSelect,
             objectFit = objectFit,
             pointerEventsEnabled = pointerEventsEnabled,
-            hoverStyle = hoverStyle?.copyFilteredForSystemComponent(allowTypography, false),
-            focusStyle = focusStyle?.copyFilteredForSystemComponent(allowTypography, false),
-            activeStyle = activeStyle?.copyFilteredForSystemComponent(allowTypography, false),
-            disabledStyle = disabledStyle?.copyFilteredForSystemComponent(allowTypography, false),
-            checkedStyle = checkedStyle?.copyFilteredForSystemComponent(allowTypography, false),
+            hoverStyle = hoverStyle?.copyFilteredForSystemComponent(allowTypography, false, allowFilter = allowFilter),
+            focusStyle = focusStyle?.copyFilteredForSystemComponent(allowTypography, false, allowFilter = allowFilter),
+            activeStyle = activeStyle?.copyFilteredForSystemComponent(allowTypography, false, allowFilter = allowFilter),
+            disabledStyle = disabledStyle?.copyFilteredForSystemComponent(allowTypography, false, allowFilter = allowFilter),
+            checkedStyle = checkedStyle?.copyFilteredForSystemComponent(allowTypography, false, allowFilter = allowFilter),
             activeBitmaskLow = activeBitmaskLow and maskLow,
             activeBitmaskHigh = activeBitmaskHigh and maskHigh,
             importantBitmaskLow = importantBitmaskLow and maskLow,
-            importantBitmaskHigh = importantBitmaskHigh and maskHigh
+            importantBitmaskHigh = importantBitmaskHigh and maskHigh,
+            animation = animation,
+            animations = animations,
+            animationName = animationName,
+            animationDuration = animationDuration,
+            animationTimingFunction = animationTimingFunction,
+            animationDelay = animationDelay,
+            animationIterationCount = animationIterationCount,
+            animationDirection = animationDirection,
+            animationFillMode = animationFillMode,
+            animationPlayState = animationPlayState
         )
     }
 
@@ -469,7 +521,17 @@ data class ComputedStyle(
             activeBitmaskLow = activeBitmaskLow or other.activeBitmaskLow,
             activeBitmaskHigh = activeBitmaskHigh or other.activeBitmaskHigh,
             importantBitmaskLow = importantBitmaskLow or other.importantBitmaskLow,
-            importantBitmaskHigh = importantBitmaskHigh or other.importantBitmaskHigh
+            importantBitmaskHigh = importantBitmaskHigh or other.importantBitmaskHigh,
+            animation = other.animation ?: animation,
+            animations = other.animations ?: animations,
+            animationName = other.animationName ?: animationName,
+            animationDuration = other.animationDuration ?: animationDuration,
+            animationTimingFunction = other.animationTimingFunction ?: animationTimingFunction,
+            animationDelay = other.animationDelay ?: animationDelay,
+            animationIterationCount = other.animationIterationCount ?: animationIterationCount,
+            animationDirection = other.animationDirection ?: animationDirection,
+            animationFillMode = other.animationFillMode ?: animationFillMode,
+            animationPlayState = other.animationPlayState ?: animationPlayState
         )
     }
 
@@ -529,7 +591,16 @@ data class ComputedStyle(
             CssProperty.OBJECT_FIT,
             CssProperty.TRANSFORM,
             CssProperty.TRANSFORM_ORIGIN,
-            CssProperty.TRANSITION
+            CssProperty.TRANSITION,
+            CssProperty.ANIMATION,
+            CssProperty.ANIMATION_NAME,
+            CssProperty.ANIMATION_DURATION,
+            CssProperty.ANIMATION_TIMING_FUNCTION,
+            CssProperty.ANIMATION_DELAY,
+            CssProperty.ANIMATION_ITERATION_COUNT,
+            CssProperty.ANIMATION_DIRECTION,
+            CssProperty.ANIMATION_FILL_MODE,
+            CssProperty.ANIMATION_PLAY_STATE
         )
 
         internal val TYPOGRAPHY_PROPERTIES = setOf(
@@ -552,6 +623,8 @@ data class ComputedStyle(
         private val LAYOUT_MASK_HIGH: Long
         private val LAYOUT_AND_TYPO_MASK_LOW: Long
         private val LAYOUT_AND_TYPO_MASK_HIGH: Long
+        private val FILTER_BIT_LOW: Long
+        private val FILTER_BIT_HIGH: Long
 
         init {
             var lLow = 0L
@@ -571,13 +644,28 @@ data class ComputedStyle(
             }
             LAYOUT_AND_TYPO_MASK_LOW = tLow
             LAYOUT_AND_TYPO_MASK_HIGH = tHigh
+
+            val filterOrd = CssProperty.FILTER.ordinal
+            if (filterOrd < 64) {
+                FILTER_BIT_LOW = 1L shl filterOrd
+                FILTER_BIT_HIGH = 0L
+            } else {
+                FILTER_BIT_LOW = 0L
+                FILTER_BIT_HIGH = 1L shl (filterOrd - 64)
+            }
         }
 
-        internal fun systemFilterBitmasks(allowTypography: Boolean): Pair<Long, Long> =
-            if (allowTypography) {
+        internal fun systemFilterBitmasks(
+            allowTypography: Boolean,
+            allowFilter: Boolean = false
+        ): Pair<Long, Long> {
+            val base = if (allowTypography) {
                 LAYOUT_AND_TYPO_MASK_LOW to LAYOUT_AND_TYPO_MASK_HIGH
             } else {
                 LAYOUT_MASK_LOW to LAYOUT_MASK_HIGH
             }
+            if (!allowFilter) return base
+            return (base.first or FILTER_BIT_LOW) to (base.second or FILTER_BIT_HIGH)
+        }
     }
 }

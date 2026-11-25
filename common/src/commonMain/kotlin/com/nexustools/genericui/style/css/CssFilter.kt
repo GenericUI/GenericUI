@@ -35,7 +35,11 @@ data class CssFilter(
      * produces pure white (`#FFFFFF`) on opaque pixels.
      */
     fun applyToRgbaBytes(rgbaBytes: ByteArray, width: Int, height: Int): ByteArray =
-        FastBackdropBlurKernel.applyColorOpsToRgbaBytes(this, rgbaBytes, width, height)
+        if (hasBlur || hasDropShadow) {
+            FastBackdropBlurKernel.applyBackdropToRgbaBytes(this, rgbaBytes, width, height)
+        } else {
+            FastBackdropBlurKernel.applyColorOpsToRgbaBytes(this, rgbaBytes, width, height)
+        }
 
     val hasBlur: Boolean
         get() = !isNone && (blur?.resolvePx()?.let { it > 0f } == true)
@@ -52,8 +56,11 @@ data class CssFilter(
                 (opacity != null && opacity != 1f)
             )
 
+    val hasDropShadow: Boolean
+        get() = !isNone && dropShadow != null && dropShadow.color.a > 0
+
     val hasActiveEffects: Boolean
-        get() = !isNone && (hasBlur || hasPixelOps)
+        get() = !isNone && (hasBlur || hasPixelOps || hasDropShadow)
 
     /**
      * Applies this [CssFilter] to an [ImageBuffer], returning a new `RGBA_8888` [ImageBuffer]
@@ -115,6 +122,36 @@ data class CssFilter(
         regionWidth = regionWidth,
         regionHeight = regionHeight,
         cornerRadiusPx = cornerRadiusPx
+    )
+
+    /**
+     * Applies this [CssFilter] in-place as a `backdrop-filter` on a rectangular (optionally rounded)
+     * region of a little-endian premultiplied `BGRA_8888` (`0xAARRGGBB`) `IntArray` framebuffer
+     * with [strideWords] words per row and optional [componentOpacity] blending.
+     */
+    fun applyBackdropToPremulBgraRegion(
+        pixels: IntArray,
+        strideWords: Int,
+        bufferWidth: Int,
+        bufferHeight: Int,
+        regionX: Int,
+        regionY: Int,
+        regionWidth: Int,
+        regionHeight: Int,
+        cornerRadiusPx: Float = 0f,
+        componentOpacity: Float = 1f
+    ): Boolean = FastBackdropBlurKernel.applyBackdropToPremulBgraRegion(
+        filter = this,
+        pixels = pixels,
+        strideWords = strideWords,
+        bufferWidth = bufferWidth,
+        bufferHeight = bufferHeight,
+        regionX = regionX,
+        regionY = regionY,
+        regionWidth = regionWidth,
+        regionHeight = regionHeight,
+        cornerRadiusPx = cornerRadiusPx,
+        componentOpacity = componentOpacity
     )
 
     /**

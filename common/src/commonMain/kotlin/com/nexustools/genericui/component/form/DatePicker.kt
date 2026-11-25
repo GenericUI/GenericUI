@@ -5,4 +5,13 @@ package com.nexustools.genericui.component.form
  */
 class DatePicker(
     isoDate: String = "2026-01-01"
-) : TextField(value = isoDate, placeholder = "YYYY-MM-DD")
+) : TextField(value = isoDate, placeholder = "YYYY-MM-DD") {
+    init {
+        setAttribute("data-control-variant", "date")
+    }
+
+    override fun syncStateToNative() {
+        setAttribute("data-control-variant", "date")
+        super.syncStateToNative()
+    }
+}

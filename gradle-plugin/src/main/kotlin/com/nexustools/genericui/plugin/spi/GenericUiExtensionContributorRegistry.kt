@@ -132,6 +132,14 @@ object GenericUiExtensionContributorRegistry {
         activeContributors(context.enabledExtensionModulePaths + context.customExtensionModulePaths, context.projectRootDir)
             .mapNotNull { it.contributeWebServiceWorker(context) }
 
+    fun collectThemeScssContributions(context: ExtensionBuildContext): List<Pair<String, String>> =
+        activeContributors(context.enabledExtensionModulePaths + context.customExtensionModulePaths, context.projectRootDir)
+            .mapNotNull { contributor ->
+                val raw = contributor.contributeThemeScss(context)?.trim()?.takeIf { it.isNotEmpty() }
+                    ?: return@mapNotNull null
+                contributor.extensionModulePath to raw
+            }
+
     fun validateActiveContributors(
         context: ExtensionBuildContext,
         symbols: List<GenericUiDiscoveredSymbol> = context.discoveredSymbols

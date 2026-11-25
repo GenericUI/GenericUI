@@ -18,5 +18,6 @@ annotation class MainAppFragment(
     val label: String = "",
     val route: String = "",
     val exported: Boolean = true,
-    val screenOrientation: String = ""
+    val screenOrientation: String = "",
+    val multipleWindows: Boolean = false
 )

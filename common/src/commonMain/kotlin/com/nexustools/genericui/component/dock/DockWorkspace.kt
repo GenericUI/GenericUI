@@ -916,6 +916,10 @@ open class DockWorkspace(
             )
             detached.getTitleBar()?.let { panelWin.setTitleBar(it) }
             _floatingWindows[detached.panelId] = panelWin
+            val ownerFactory = ownerWin?.resolveActiveFactory()
+            if (ownerWin?.isWindowShown == true && ownerFactory != null && ownerFactory.supportsToolModalWindows) {
+                panelWin.show(ownerFactory)
+            }
             ownerWin?.bringAttachedPanelWindowsToFront()
             syncCompactDrawerLayout()
         }
@@ -953,8 +957,12 @@ open class DockWorkspace(
 
     fun syncFloatingWindowsWithOwnerWindow(explicitOwner: Window? = null) {
         val ownerWin = explicitOwner ?: findOwnerWindow() ?: return
+        val ownerFactory = ownerWin.resolveActiveFactory()
         for (panelWin in _floatingWindows.values) {
             panelWin.attachToMainWindow(ownerWin)
+            if (ownerWin.isWindowShown && !panelWin.isWindowShown && ownerFactory != null && ownerFactory.supportsToolModalWindows) {
+                panelWin.show(ownerFactory)
+            }
         }
         ownerWin.bringAttachedPanelWindowsToFront()
     }

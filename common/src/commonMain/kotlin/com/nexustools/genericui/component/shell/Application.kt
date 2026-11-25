@@ -1,18 +1,25 @@
 package com.nexustools.genericui.component.shell
 
+import com.nexustools.genericui.component.composite.Composite
 import com.nexustools.genericui.component.fragment.Fragment
 import com.nexustools.genericui.component.fragment.FragmentBundle
 import com.nexustools.genericui.component.fragment.FragmentContainer
 import com.nexustools.genericui.component.fragment.FragmentHost
+import com.nexustools.genericui.component.fragment.FragmentLaunchCoordinator
 import com.nexustools.genericui.component.fragment.FragmentRegistry
+import com.nexustools.genericui.component.fragment.IFragment
 import com.nexustools.genericui.component.layout.Container
+import com.nexustools.genericui.component.layout.StyledContainer
+import com.nexustools.genericui.component.surface.StyledComponent
 import com.nexustools.genericui.component.system.PreferenceStore
 import com.nexustools.genericui.core.GenericUI
+import com.nexustools.genericui.core.GenericUiExtensionRegistry
 import com.nexustools.genericui.core.NativeFactory
 import com.nexustools.genericui.core.UiTimerScheduler
 import com.nexustools.genericui.enums.bootstrap.BootstrapType
 import com.nexustools.genericui.enums.ui.ThemeMode
 import com.nexustools.genericui.enums.window.WindowState
+import com.nexustools.genericui.exception.NativeUninitializedException
 import com.nexustools.genericui.geometry.Rect
 import com.nexustools.genericui.geometry.Size
 import com.nexustools.genericui.nativeimpl.shell.ApplicationNativeImpl
@@ -24,6 +31,7 @@ import com.nexustools.genericui.style.css.PrecompiledStyleSheet
 import com.nexustools.genericui.style.css.StyleSheetRegistry
 import com.nexustools.genericui.style.theme.SystemThemeDetector
 import com.nexustools.genericui.style.theme.ThemeConfig
+import com.nexustools.genericui.style.theme.ThemeStyleSheetRegistry
 import com.nexustools.genericui.window.IWindow
 import com.nexustools.genericui.window.MainWindowSavedState
 import com.nexustools.genericui.window.TitleBar
@@ -51,6 +59,9 @@ open class Application(
     var mainFragmentClass: KClass<out Fragment>? = null
     var mainFragmentFactory: ((FragmentBundle?) -> Fragment)? = null
     var launchArguments: FragmentBundle? = null
+    var suppressInitialMainWindowShow: Boolean = false
+    var exitWhenNoFragmentsOpen: Boolean = true
+    private var isEventLoopRunning: Boolean = false
     private var defaultMainFragmentFactory: ((Array<String>) -> Fragment)? = null
 
     private var inFragmentBundleCreate: Boolean = false
@@ -100,6 +111,59 @@ open class Application(
         fragment.application = this
         mainWindow.getOrCreateFragmentContainer().replaceFragment(fragment)
     }
+
+    private fun resolveCapabilityFactory(operationName: String): NativeFactory =
+        activeFactory
+            ?: mainWindow.ExplicitFactory
+            ?: mainWindow.resolveActiveFactory()
+            ?: GenericUI.activeFactory
+            ?: throw NativeUninitializedException("Application", operationName)
+
+    override val supportsMultipleWindows: Boolean
+        get() = resolveCapabilityFactory("supportsMultipleWindows").supportsMultipleWindows
+
+    override val supportsDialogWindows: Boolean
+        get() = resolveCapabilityFactory("supportsDialogWindows").supportsDialogWindows
+
+    override fun canOpenAdditionalWindow(fragmentClass: KClass<out IFragment>): Boolean {
+        val factory = resolveCapabilityFactory("canOpenAdditionalWindow")
+        return factory.supportsMultipleWindows &&
+            !FragmentRegistry.isDialogFragment(fragmentClass) &&
+            FragmentRegistry.supportsMultipleWindows(fragmentClass)
+    }
+
+    /** Reified convenience for [canOpenAdditionalWindow]. */
+    inline fun <reified T : IFragment> canOpenAdditionalWindow(): Boolean =
+        canOpenAdditionalWindow(T::class)
+
+    /** Reified convenience for [startFragment]. */
+    inline fun <reified T : IFragment> startFragment(
+        launchArgs: FragmentBundle? = null,
+        openAdditionalWindow: Boolean = false,
+        addToBackStack: Boolean = true,
+        clearTask: Boolean = false
+    ): T = startFragment(
+        fragmentClass = T::class,
+        launchArgs = launchArgs,
+        openAdditionalWindow = openAdditionalWindow,
+        addToBackStack = addToBackStack,
+        clearTask = clearTask
+    )
+
+    /** Reified convenience for [startFragment] with key-value pair arguments. */
+    inline fun <reified T : IFragment> startFragment(
+        firstArg: Pair<String, Any?>,
+        vararg extraArgs: Pair<String, Any?>,
+        openAdditionalWindow: Boolean = false,
+        addToBackStack: Boolean = true,
+        clearTask: Boolean = false
+    ): T = startFragment(
+        fragmentClass = T::class,
+        launchArgs = FragmentBundle.of(firstArg, *extraArgs),
+        openAdditionalWindow = openAdditionalWindow,
+        addToBackStack = addToBackStack,
+        clearTask = clearTask
+    )
 
     /**
      * Overridable routine that instantiates the default `@MainAppFragment` on Desktop targets.
@@ -215,6 +279,13 @@ open class Application(
     private var themeConfigState: ThemeConfig = GenericUI.defaultThemeConfig.let { base ->
         if (!initialThemeColor.isNullOrBlank()) base.withPrimaryAccentColor(initialThemeColor) else base
     }
+    internal var hasExplicitThemeMode: Boolean = false
+        private set
+    internal var hasExplicitThemeColor: Boolean = !initialThemeColor.isNullOrBlank()
+        private set
+    internal var hasExplicitThemeConfig: Boolean = false
+        private set
+    private var suppressExplicitThemeTracking: Boolean = false
     private val activeStyleSheets = mutableListOf<PrecompiledStyleSheet>()
     private val builtInStyleSheets = mutableListOf<PrecompiledStyleSheet>()
     private val themeChangeListeners = mutableListOf<(ThemeMode) -> Unit>()
@@ -273,8 +344,10 @@ open class Application(
             flushPendingMainWindowState()
         }
         SystemThemeDetector.addSystemThemeListener(systemThemeObserver)
-        if (GenericUI.activeFactory != null) {
-            ensureNetworkMonitor(GenericUI.activeFactory)
+        ThemeStyleSheetRegistry.onThemeStyleSheetsChanged = {
+            if (current === this) {
+                applyActiveStyleSheetsToRootContent()
+            }
         }
         if (initialContent != null) {
             if (initialContent is Fragment) {
@@ -374,6 +447,9 @@ open class Application(
     override fun getTitleBar(): TitleBar? = mainWindow.getTitleBar()
 
     override fun setThemeMode(mode: ThemeMode) {
+        if (!suppressExplicitThemeTracking) {
+            hasExplicitThemeMode = true
+        }
         themeModeState = mode
         themeConfigState = themeConfigState.withMode(mode)
         appNativeImpl?.setThemeMode(mode)
@@ -526,6 +602,7 @@ open class Application(
         val removedBuiltIn = builtInStyleSheets.remove(styleSheet)
         val removed = removedUser || removedBuiltIn
         if (removed) {
+            applyActiveStyleSheetsToRootContent()
             appNativeImpl?.removeStyleSheet(styleSheet)
             SystemThemeDetector.onStyleSheetChangedHook?.invoke(this)
         }
@@ -575,26 +652,103 @@ open class Application(
 
     override fun getStyleSheetPaths(): List<String> = activeStyleSheets.map { it.sourcePath }
 
-    private fun applyActiveStyleSheetsToRootContent() {
+    private var cachedCascadeRegistryVersion: Long = -1L
+    private var cachedCascadeInputSheets: List<CssStyleSheet> = emptyList()
+    private var cachedCombinedCascadeSheet: CssStyleSheet? = null
+    private var hasAppliedAnyCascadeStyleSheet: Boolean = false
+
+    private fun inferStyleSheetCascadeOrder(sheet: PrecompiledStyleSheet): Int {
+        val src = StyleSheetRegistry.normalizePath(sheet.sourcePath)
+        val css = StyleSheetRegistry.normalizePath(sheet.cssResourcePath)
+        val nameNorm = sheet.name.trim().lowercase()
+        val isTheme = src.contains("theme") || css.contains("theme") || nameNorm.contains("theme")
+        val isExt = src.contains("ext/") || css.contains("ext/") || src.contains("extension")
+        val isCore = isBuiltInStyleSheet(sheet) ||
+            ((src.contains("genericui") || css.contains("genericui")) && !isExt)
+        val isAppStyle = !isTheme && !isExt && !isCore && (
+            src.endsWith("/style.css") ||
+                src.endsWith("/style.scss") ||
+                src == "style.css" ||
+                src == "style.scss" ||
+                css.endsWith("/style.css") ||
+                css == "style.css" ||
+                nameNorm == "style" ||
+                nameNorm.contains("styleprecompiled")
+            )
+        return when {
+            isCore && !isTheme -> 100
+            isCore -> 200
+            isExt && !isTheme -> 300
+            isExt -> 400
+            isAppStyle -> 500
+            else -> 700
+        }
+    }
+
+    internal fun buildCombinedActiveStyleSheet(): CssStyleSheet? {
+        val coreStyleSheet = Resources.coreDefaultStyleSheet()
+        val hasCoreStyle = coreStyleSheet.rules.isNotEmpty()
+        val themeLayers = ThemeStyleSheetRegistry.getCompiledThemeLayers()
+        val regVersion = ThemeStyleSheetRegistry.registryVersion
+        if (!hasCoreStyle && themeLayers.isEmpty() && activeStyleSheets.isEmpty()) {
+            if (!hasAppliedAnyCascadeStyleSheet) return null
+            return CssStyleSheet.empty()
+        }
+
+        val combinedEntries = ArrayList<Pair<Int, CssStyleSheet>>(
+            (if (hasCoreStyle) 1 else 0) + themeLayers.size + activeStyleSheets.size
+        )
+        if (hasCoreStyle) {
+            combinedEntries.add(100 to coreStyleSheet)
+        }
+        for ((order, cssSheet) in themeLayers) {
+            combinedEntries.add(order to cssSheet)
+        }
+        for (precompiled in activeStyleSheets) {
+            combinedEntries.add(inferStyleSheetCascadeOrder(precompiled) to precompiled.styleSheet)
+        }
+        val orderedSheets = combinedEntries.sortedBy { it.first }.map { it.second }
+        if (regVersion == cachedCascadeRegistryVersion &&
+            orderedSheets.size == cachedCascadeInputSheets.size &&
+            orderedSheets.indices.all { orderedSheets[it] === cachedCascadeInputSheets[it] } &&
+            cachedCombinedCascadeSheet != null
+        ) {
+            return cachedCombinedCascadeSheet
+        }
+        val combined = CssStyleSheet.combineCascade(orderedSheets)
+        cachedCascadeRegistryVersion = regVersion
+        cachedCascadeInputSheets = orderedSheets
+        cachedCombinedCascadeSheet = combined
+        return combined
+    }
+
+    fun applyActiveStyleSheetsTo(
+        root: com.nexustools.genericui.core.AbstractComponent,
+        viewportWidthPx: Int = mainWindow.getWindowSize().width.takeIf { it > 0 } ?: 1280,
+        refreshThemeDependents: Boolean = true
+    ) {
         val activeFactory = mainWindow.resolveActiveFactory() ?: GenericUI.activeFactory
         val engineEnabled = activeFactory?.isStyleSheetEngineEnabled ?: true
+        if (engineEnabled) {
+            val combined = buildCombinedActiveStyleSheet()
+            if (combined != null) {
+                hasAppliedAnyCascadeStyleSheet = true
+                combined.applyToTree(root, viewportWidthPx)
+            }
+        }
+        if (refreshThemeDependents) {
+            refreshThemeDependentTree(root)
+        }
+    }
+
+    fun applyActiveStyleSheetsToRootContent() {
         val content = mainWindow.getContent()
         if (content != null) {
-            if (engineEnabled) {
-                for (sheet in activeStyleSheets) {
-                    sheet.styleSheet.applyToTree(content)
-                }
-            }
-            refreshThemeDependentTree(content)
+            applyActiveStyleSheetsTo(content)
         }
         val currentFragRoot = mainWindow.fragmentContainer?.currentFragment
         if (currentFragRoot != null && currentFragRoot !== content) {
-            if (engineEnabled) {
-                for (sheet in activeStyleSheets) {
-                    sheet.styleSheet.applyToTree(currentFragRoot)
-                }
-            }
-            refreshThemeDependentTree(currentFragRoot)
+            applyActiveStyleSheetsTo(currentFragRoot)
         }
     }
 
@@ -604,6 +758,18 @@ open class Application(
         }
         if (component is com.nexustools.genericui.component.action.Button) {
             component.onThemeChanged()
+        }
+        if (component is StyledContainer) {
+            component.onThemeChanged()
+        }
+        if (component is StyledComponent) {
+            component.onThemeChanged()
+        }
+        if (component is Composite) {
+            component.onThemeChanged()
+            for (child in component.internalCompositeChildren()) {
+                refreshThemeDependentTree(child)
+            }
         }
         if (component is com.nexustools.genericui.core.AbstractContainer) {
             for (child in component.children) {
@@ -631,6 +797,9 @@ open class Application(
      * iOS `UIView.tintColor`, and Desktop window accent / CSS variables).
      */
     override fun setThemeColor(colorHex: String?) {
+        if (!suppressExplicitThemeTracking && !colorHex.isNullOrBlank()) {
+            hasExplicitThemeColor = true
+        }
         themeColorState = colorHex
         if (!colorHex.isNullOrBlank()) {
             themeConfigState = themeConfigState.withPrimaryAccentColor(colorHex)
@@ -638,15 +807,23 @@ open class Application(
         appNativeImpl?.setThemeColor(colorHex)
         appNativeImpl?.setThemeConfig(themeConfigState)
         SystemThemeDetector.onThemeConfigChangedHook?.invoke(this, themeConfigState, getResolvedTheme())
+        applyActiveStyleSheetsToRootContent()
     }
 
     override fun getThemeColor(): String? = appNativeImpl?.getThemeColor() ?: themeColorState
 
     override fun setThemeConfig(config: ThemeConfig) {
+        if (!suppressExplicitThemeTracking) {
+            hasExplicitThemeConfig = true
+            hasExplicitThemeMode = true
+            if ((config.colors.primary ?: config.colors.accent) != null) {
+                hasExplicitThemeColor = true
+            }
+        }
         themeConfigState = config
         themeModeState = config.mode
         val primaryColor = config.colors.primary ?: config.colors.accent
-        if (primaryColor != null) {
+        if (primaryColor != null && (!suppressExplicitThemeTracking || !hasExplicitThemeColor || themeColorState.isNullOrBlank())) {
             themeColorState = primaryColor.toHex()
         }
         appNativeImpl?.setThemeConfig(config)
@@ -658,6 +835,42 @@ open class Application(
         SystemThemeDetector.onThemeConfigChangedHook?.invoke(this, config, resolved)
         SystemThemeDetector.onThemeAppliedHook?.invoke(config.mode, resolved)
         notifyThemeChangeListeners(resolved)
+    }
+
+    /**
+     * Installs build/manifest theme defaults during launch bootstrap while preserving any explicit
+     * theme mode, color, or config already chosen by a custom [Application] subclass.
+     */
+    internal fun applyDescriptorThemeDefaults(
+        defaultThemeConfig: ThemeConfig,
+        defaultThemeMode: ThemeMode,
+        defaultThemeColor: String?
+    ) {
+        suppressExplicitThemeTracking = true
+        try {
+            val effectiveMode = if (hasExplicitThemeMode) themeModeState else defaultThemeMode
+            val effectiveColor = if (hasExplicitThemeColor) {
+                themeColorState
+            } else {
+                defaultThemeColor?.takeIf { it.isNotBlank() } ?: themeColorState
+            }
+            if (!hasExplicitThemeConfig) {
+                var mergedConfig = defaultThemeConfig.withMode(effectiveMode)
+                if (!effectiveColor.isNullOrBlank()) {
+                    mergedConfig = mergedConfig.withPrimaryAccentColor(effectiveColor)
+                }
+                setThemeConfig(mergedConfig)
+            } else {
+                if (!hasExplicitThemeMode) {
+                    setThemeMode(defaultThemeMode)
+                }
+                if (!hasExplicitThemeColor && !defaultThemeColor.isNullOrBlank()) {
+                    setThemeColor(defaultThemeColor)
+                }
+            }
+        } finally {
+            suppressExplicitThemeTracking = false
+        }
     }
 
     override fun getThemeConfig(): ThemeConfig = themeConfigState
@@ -867,6 +1080,8 @@ open class Application(
 
     open override fun run(factory: NativeFactory) {
         isExitingApplication = false
+        appShutdownDispatched = false
+        isEventLoopRunning = false
         current = this
         activeFactory = factory
         GenericUI.initialize(factory)
@@ -897,7 +1112,9 @@ open class Application(
         SystemThemeDetector.onThemeAppliedHook?.invoke(themeModeState, resolved)
         notifyThemeChangeListeners(resolved)
         impl.runEventLoop {
-            if (mainWindow.getContent() == null && mainWindow.fragmentContainer?.currentFragment == null &&
+            isEventLoopRunning = true
+            if (!suppressInitialMainWindowShow &&
+                mainWindow.getContent() == null && mainWindow.fragmentContainer?.currentFragment == null &&
                 (mainFragmentFactory != null || defaultMainFragmentFactory != null || mainFragmentClass != null)
             ) {
                 val created = onCreateMainFragment(launchArguments)
@@ -905,10 +1122,15 @@ open class Application(
                     setFragment(created)
                 }
             }
+            applyActiveStyleSheetsToRootContent()
             onApplicationStarted()
             applyActiveStyleSheetsToRootContent()
-            mainWindow.show(factory)
+            if (!suppressInitialMainWindowShow && (!mainWindow.isWindowShown || mainWindow.realizedFactory !== factory)) {
+                mainWindow.show(factory)
+            }
+            GenericUiExtensionRegistry.dispatchAppEventLoopStarted(this, factory)
             finishWebSplash()
+            checkExitIfNoFragmentsOpen()
         }
     }
 
@@ -933,12 +1155,67 @@ open class Application(
 
     protected open fun onApplicationStarted() {}
 
+    open fun onLaunchArgumentsApplied(args: FragmentBundle?) {}
+
     private var isExitingApplication: Boolean = false
+    private var appShutdownDispatched: Boolean = false
+
+    private fun dispatchAppShutdownOnce() {
+        if (!appShutdownDispatched) {
+            appShutdownDispatched = true
+            GenericUiExtensionRegistry.dispatchAppShutdown(this)
+        }
+    }
+
+    private fun isFragmentDrivenApplication(): Boolean =
+        this is FragmentApplication ||
+            mainFragmentClass != null ||
+            mainFragmentFactory != null ||
+            defaultMainFragmentFactory != null ||
+            mainWindow.fragmentContainer != null ||
+            suppressInitialMainWindowShow
+
+    /**
+     * Returns `true` when at least one UI fragment is currently open across [mainWindow],
+     * [FragmentLaunchCoordinator], attached dialogs, or registered extension coordinators.
+     */
+    open fun hasAnyOpenFragment(): Boolean {
+        val mainHasOpenFragment = !suppressInitialMainWindowShow &&
+            !mainWindow.isDisposed &&
+            mainWindow.isWindowShown &&
+            mainWindow.isVisible &&
+            mainWindow.fragmentContainer?.currentFragment != null
+        if (mainHasOpenFragment) return true
+        if (mainWindow.attachedDialogWindows.any {
+                !it.isDisposed && it.isWindowShown && it.isVisible && it.fragmentContainer?.currentFragment != null
+            }
+        ) {
+            return true
+        }
+        if (FragmentLaunchCoordinator.hasOpenFragments()) return true
+        return GenericUiExtensionRegistry.hasAnyExtensionOpenFragments(this)
+    }
+
+    /**
+     * Exits the application with status `0` when [exitWhenNoFragmentsOpen] is enabled on a
+     * fragment-driven application whose event loop is active and no open fragments remain.
+     */
+    fun checkExitIfNoFragmentsOpen() {
+        if (!exitWhenNoFragmentsOpen) return
+        if (!isFragmentDrivenApplication()) return
+        if (isExitingApplication || appShutdownDispatched) return
+        if (!isEventLoopRunning) return
+        if (!hasAnyOpenFragment()) {
+            exit(0)
+        }
+    }
 
     override fun exit(exitCode: Int) {
         if (isExitingApplication) return
         isExitingApplication = true
+        isEventLoopRunning = false
         try {
+            dispatchAppShutdownOnce()
             flushPendingMainWindowState()
             mainWindow.close()
             appNativeImpl?.exitApplication(exitCode)
@@ -948,6 +1225,8 @@ open class Application(
     }
 
     override fun dispose() {
+        isEventLoopRunning = false
+        dispatchAppShutdownOnce()
         flushPendingMainWindowState()
         pendingMainWindowStateTimerId?.let { UiTimerScheduler.clearTimer(it) }
         pendingMainWindowStateTimerId = null
@@ -991,7 +1270,7 @@ open class Application(
             }
         }
 
-        internal fun findApplicationForWindow(window: Any?): IApplication? {
+        fun findApplicationForWindow(window: Any?): IApplication? {
             if (window == null) return null
             return windowApplications[window]
         }

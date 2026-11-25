@@ -1,0 +1,811 @@
+/*
+ * GenericUI Core Component Base Stylesheet (`style.scss`)
+ *
+ * Library-generic structural layout, typography, spacing, border geometry,
+ * radii, cursors, transitions, visibility states, and interaction rules for
+ * core `:common` components. Zero consumer `$theme` variables belong here —
+ * all palette and focus-ring coloring lives in `theme.scss`.
+ */
+
+/* Generic Visibility & Interactive State Utilities */
+.hidden {
+    opacity: 0;
+    pointer-events: none;
+    cursor: none;
+}
+
+.cursor-pointer {
+    cursor: pointer;
+}
+
+.disabled,
+[disabled],
+[aria-disabled="true"] {
+    cursor: not-allowed;
+    pointer-events: none;
+    opacity: 0.55;
+}
+
+/* Composite & Styled Base Primitives */
+genericui:composite,
+.composite {
+    display: flex;
+    position: relative;
+    box-sizing: border-box;
+}
+
+genericui:styled-component,
+.styled-component {
+    display: block;
+    box-sizing: border-box;
+}
+
+genericui:styled-container,
+.styled-container {
+    display: flex;
+    position: relative;
+    box-sizing: border-box;
+}
+
+/* LayeredContainer & Layer Items */
+genericui:layered-container,
+.gui-layered-container {
+    position: relative;
+    overflow: hidden;
+    box-sizing: border-box;
+}
+
+.gui-layer-item {
+    min-width: 0;
+    min-height: 0;
+    box-sizing: border-box;
+}
+
+.gui-layer-fill {
+    width: 100%;
+    height: 100%;
+}
+
+.gui-layer-pass-through {
+    pointer-events: none;
+}
+
+/* StyledSlider Composite Track, Progress Fill & Knob */
+genericui:styled-slider,
+.styled-slider {
+    position: relative;
+    display: flex;
+    align-items: center;
+    min-width: 64px;
+    height: 24px;
+    box-sizing: border-box;
+    cursor: pointer;
+    user-select: none;
+    @web {
+        -webkit-user-select: none;
+    }
+
+    @mobile {
+        height: 36px;
+
+        .styled-slider-knob {
+            width: 20px;
+            height: 20px;
+        }
+    }
+
+    .styled-slider-track {
+        position: absolute;
+        top: 50%;
+        left: 0;
+        right: 0;
+        height: 4px;
+        border: none;
+        padding: 0;
+        border-radius: 999px;
+        transform: translate(0, -50%);
+        z-index: 1;
+        cursor: pointer;
+        background-color: rgba(128, 128, 128, 0.35);
+        transition: height 0.15s ease, background-color 0.15s ease;
+    }
+
+    .styled-slider-progress {
+        position: absolute;
+        top: 50%;
+        left: 0;
+        height: 4px;
+        border-radius: 999px;
+        transform: translate(0, -50%);
+        pointer-events: none;
+        z-index: 3;
+        background-color: #6c757d;
+        transition: height 0.15s ease, background-color 0.15s ease;
+    }
+
+    .styled-slider-knob {
+        position: absolute;
+        top: 50%;
+        width: 14px;
+        height: 14px;
+        padding: 0;
+        border-radius: 999px;
+        border: 2px solid #495057;
+        background-color: #ffffff;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+        transform: translate(-50%, -50%);
+        z-index: 4;
+        cursor: pointer;
+        outline: none;
+        transition: transform 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
+    }
+
+    &:hover .styled-slider-knob {
+        transform: translate(-50%, -50%) scale(1.15);
+    }
+
+    &:active .styled-slider-knob {
+        transform: translate(-50%, -50%) scale(1.22);
+    }
+
+    &:disabled,
+    &.disabled,
+    &[aria-disabled="true"] {
+        opacity: 0.5;
+        pointer-events: none;
+        cursor: not-allowed;
+
+        .styled-slider-track,
+        .styled-slider-knob {
+            cursor: not-allowed;
+        }
+    }
+}
+
+/* Action Controls (Button, IconButton, ToggleButton, FloatingActionButton, Toolbar) */
+button,
+genericui:button,
+.btn {
+    box-sizing: border-box;
+    cursor: pointer;
+    user-select: none;
+    @web {
+        -webkit-user-select: none;
+    }
+    border-radius: 0.375rem;
+    outline: none;
+    transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease, transform 0.1s ease;
+
+    &:disabled,
+    &.disabled {
+        cursor: not-allowed;
+        pointer-events: none;
+        opacity: 0.55;
+    }
+}
+
+.btn.btn-fab,
+.btn-fab {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 56px;
+    height: 56px;
+    padding: 0;
+    border-radius: 50%;
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.22);
+
+    &:hover {
+        transform: translate(0, -1px);
+    }
+
+    &:active {
+        transform: scale(0.96);
+    }
+}
+
+.btn-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.btn-group {
+    display: inline-flex;
+    align-items: center;
+    box-sizing: border-box;
+}
+
+.btn-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    box-sizing: border-box;
+}
+
+/* Form Controls (TextField, TextArea, Select, CheckBox, RadioButton, Switch, FileDropZone) */
+input,
+textarea,
+select,
+genericui:textfield,
+genericui:textarea,
+genericui:select,
+.form-control,
+.form-select {
+    box-sizing: border-box;
+    border-radius: 0.375rem;
+    border-width: 1px;
+    border-style: solid;
+    outline: none;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
+}
+
+textarea,
+genericui:textarea {
+    min-height: 76px;
+}
+
+genericui:checkbox,
+genericui:radiobutton,
+genericui:switch,
+.form-check {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    box-sizing: border-box;
+    cursor: pointer;
+}
+
+.form-check-input {
+    box-sizing: border-box;
+    cursor: pointer;
+    transition: background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.form-switch .form-check-input {
+    border-radius: 999px;
+}
+
+genericui:filedropzone,
+.file-drop-zone {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 1.5rem;
+    border-width: 2px;
+    border-style: dashed;
+    border-radius: 0.5rem;
+    text-align: center;
+    cursor: pointer;
+    box-sizing: border-box;
+    transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+/* Dialogs, Modals, OptionsDialog, Drawers, Popovers, Tooltips & Dropdowns */
+genericui:dialogwindow,
+genericui:modal,
+.modal {
+    box-sizing: border-box;
+}
+
+.modal-content {
+    display: flex;
+    flex-direction: column;
+    border-radius: 0.5rem;
+    border-width: 1px;
+    border-style: solid;
+    box-sizing: border-box;
+    overflow: hidden;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.24);
+}
+
+.modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.875rem 1rem;
+    border-bottom-width: 1px;
+    border-bottom-style: solid;
+    box-sizing: border-box;
+}
+
+.modal-body {
+    padding: 1rem;
+    box-sizing: border-box;
+}
+
+.modal-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem;
+    border-top-width: 1px;
+    border-top-style: solid;
+    box-sizing: border-box;
+}
+
+genericui:backdrop,
+.modal-backdrop {
+    backdrop-filter: blur(6px);
+    @web {
+        -webkit-backdrop-filter: blur(6px);
+    }
+}
+
+.options-dialog-body {
+    width: 100%;
+    padding: 1rem;
+    box-sizing: border-box;
+}
+
+.options-dialog-list {
+    width: 100%;
+    min-width: 100%;
+    box-sizing: border-box;
+}
+
+.options-dialog-btn {
+    white-space: nowrap;
+}
+
+genericui:dropdown,
+.dropdown-menu {
+    border-radius: 0.375rem;
+    border-width: 1px;
+    border-style: solid;
+    padding: 0.25rem 0;
+    box-sizing: border-box;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+}
+
+.dropdown-item {
+    display: flex;
+    align-items: center;
+    padding: 0.375rem 0.875rem;
+    cursor: pointer;
+    box-sizing: border-box;
+    transition: background-color 0.12s ease, color 0.12s ease;
+}
+
+genericui:popover,
+.popover {
+    border-radius: 0.5rem;
+    border-width: 1px;
+    border-style: solid;
+    box-sizing: border-box;
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.18);
+}
+
+genericui:tooltip,
+.tooltip {
+    border-radius: 0.25rem;
+    padding: 0.25rem 0.5rem;
+    font-size: 0.8125rem;
+    pointer-events: none;
+    box-sizing: border-box;
+}
+
+genericui:drawer,
+genericui:bottomsheet,
+.drawer,
+.bottom-sheet {
+    box-sizing: border-box;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.28);
+}
+
+/* Cards, Accordions, Panels, Wells, ListGroups & Surfaces */
+genericui:card,
+.card {
+    display: flex;
+    flex-direction: column;
+    border-radius: 0.5rem;
+    border-width: 1px;
+    border-style: solid;
+    box-sizing: border-box;
+    overflow: hidden;
+}
+
+.card-header {
+    padding: 0.75rem 1rem;
+    border-bottom-width: 1px;
+    border-bottom-style: solid;
+    box-sizing: border-box;
+}
+
+.card-body {
+    padding: 1rem;
+    box-sizing: border-box;
+}
+
+.card-footer {
+    padding: 0.75rem 1rem;
+    border-top-width: 1px;
+    border-top-style: solid;
+    box-sizing: border-box;
+}
+
+.accordion,
+.collapsible-panel,
+.panel,
+.well {
+    border-radius: 0.5rem;
+    border-width: 1px;
+    border-style: solid;
+    box-sizing: border-box;
+}
+
+.well {
+    padding: 1rem;
+}
+
+.jumbotron {
+    border-radius: 0.5rem;
+    padding: 2rem;
+    box-sizing: border-box;
+}
+
+.list-group {
+    display: flex;
+    flex-direction: column;
+    border-radius: 0.5rem;
+    overflow: hidden;
+    box-sizing: border-box;
+}
+
+.list-group-item {
+    padding: 0.625rem 1rem;
+    border-width: 1px;
+    border-style: solid;
+    box-sizing: border-box;
+    transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+/* Tabs & Navigation */
+genericui:tabcontainer,
+.tab-container {
+    display: flex;
+    flex-direction: column;
+    box-sizing: border-box;
+}
+
+.nav {
+    display: flex;
+    flex-wrap: wrap;
+    box-sizing: border-box;
+}
+
+.nav-tabs {
+    border-bottom-width: 1px;
+    border-bottom-style: solid;
+    gap: 0.25rem;
+}
+
+.nav-link {
+    cursor: pointer;
+    padding: 0.5rem 0.875rem;
+    border-radius: 0.375rem;
+    transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.tab-content {
+    flex: 1 1 auto;
+    min-height: 0;
+    box-sizing: border-box;
+}
+
+.tab-pane {
+    box-sizing: border-box;
+}
+
+.navbar,
+.bottom-nav,
+.side-nav {
+    display: flex;
+    box-sizing: border-box;
+}
+
+.breadcrumb,
+.pagination,
+.stepper {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    box-sizing: border-box;
+}
+
+/* Feedback: Badges, Alerts, Banners, Toasts, ProgressBar, Spinner & Skeleton */
+.badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 0.375rem;
+    padding: 0.25em 0.55em;
+    font-weight: 600;
+    line-height: 1;
+    white-space: nowrap;
+    box-sizing: border-box;
+}
+
+.badge.rounded-pill {
+    border-radius: 999px;
+}
+
+.alert,
+.banner {
+    border-radius: 0.5rem;
+    border-width: 1px;
+    border-style: solid;
+    padding: 0.75rem 1rem;
+    box-sizing: border-box;
+}
+
+.toast-container {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    z-index: 1090;
+    pointer-events: none;
+}
+
+.toast {
+    border-radius: 0.5rem;
+    border-width: 1px;
+    border-style: solid;
+    pointer-events: auto;
+    box-sizing: border-box;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+}
+
+.progress {
+    display: flex;
+    overflow: hidden;
+    border-radius: 999px;
+    height: 0.625rem;
+    box-sizing: border-box;
+}
+
+.progress-bar {
+    height: 100%;
+    transition: width 0.2s ease;
+}
+
+.skeleton {
+    border-radius: 0.375rem;
+    background-color: rgba(128, 128, 128, 0.2);
+}
+
+/* Content & Typography: Avatar, CodeBlock, Blockquote, Divider */
+genericui:avatar,
+.avatar {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    overflow: hidden;
+    object-fit: cover;
+    box-sizing: border-box;
+}
+
+pre,
+code,
+.code-block {
+    border-radius: 0.375rem;
+    box-sizing: border-box;
+}
+
+blockquote,
+.blockquote {
+    padding-left: 1rem;
+    border-left-width: 3px;
+    border-left-style: solid;
+    box-sizing: border-box;
+}
+
+hr,
+.divider {
+    border-style: solid;
+    border-width: 1px 0 0 0;
+}
+
+/* Printable Document: BookContainer & BookPage */
+genericui:bookcontainer,
+iframe.book-container,
+.book-container {
+    display: block;
+    width: 100%;
+    height: 100%;
+    border: none;
+    background-color: #ffffff;
+    overflow-y: auto;
+    box-sizing: border-box;
+}
+
+genericui:bookpage,
+.book-page {
+    position: relative;
+    margin: 0 auto 12px auto;
+    background-color: #ffffff;
+    color: #000000;
+    box-sizing: border-box;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.22);
+}
+
+/* StepScrollView & HorizontalCarouselSelector */
+genericui:stepscrollview {
+    position: relative;
+    overflow: hidden;
+    box-sizing: border-box;
+
+    > .viewport {
+        position: relative;
+        width: 100%;
+        overflow: hidden;
+        transition: height 0.5s ease;
+    }
+
+    > .viewport > table,
+    > .viewport > .step-scroll-content {
+        position: relative;
+        top: 0px;
+        width: 100%;
+        transition: top 0.5s ease;
+    }
+}
+
+genericui:horizontalcarouselselector {
+    overflow: hidden;
+    box-sizing: border-box;
+
+    > .entries {
+        position: relative;
+        overflow: hidden;
+    }
+
+    > .entries > .carousel-track {
+        position: relative;
+        left: 0px;
+        transition: left 0.5s ease-in;
+    }
+
+    .blentry {
+        cursor: pointer;
+        transition: opacity 0.5s ease-in;
+    }
+}
+
+/* Fragment Host Stage & Centered Menu Page */
+.fragment-host {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    flex-grow: 1;
+    overflow: hidden;
+    box-sizing: border-box;
+}
+
+.fragment-stage {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    flex-grow: 1;
+    overflow: hidden;
+    box-sizing: border-box;
+}
+
+.page > .menu {
+    transition: transform 0.5s ease;
+}
+
+/* MDI Workspace & Floating Windows */
+genericui:mdicontainer,
+.mdi-container {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    box-sizing: border-box;
+}
+
+.mdi-toolbar,
+.mdi-taskbar {
+    display: flex;
+    align-items: center;
+    padding: 0.375rem 0.625rem;
+    border-width: 1px;
+    border-style: solid;
+    box-sizing: border-box;
+}
+
+genericui:mdidesktop,
+.mdi-desktop-surface {
+    position: relative;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden;
+    box-sizing: border-box;
+}
+
+genericui:mdiwindow,
+.mdi-window {
+    position: absolute;
+    display: flex;
+    flex-direction: column;
+    border-radius: 0.5rem;
+    border-width: 1px;
+    border-style: solid;
+    overflow: hidden;
+    box-sizing: border-box;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.22);
+}
+
+.mdi-window-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.375rem 0.625rem;
+    border-bottom-width: 1px;
+    border-bottom-style: solid;
+    user-select: none;
+    @web {
+        -webkit-user-select: none;
+    }
+    box-sizing: border-box;
+}
+
+.mdi-window-scroll {
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+.mdi-window-body {
+    padding: 0.625rem;
+    box-sizing: border-box;
+}
+
+/* Dock Workspace, DockArea, DockGroup & DockPanel */
+.dock-workspace {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    box-sizing: border-box;
+}
+
+.dock-workspace-background {
+    position: absolute;
+    left: 0px;
+    top: 0px;
+    width: 100%;
+    height: 100%;
+    z-index: 0;
+}
+
+.gui-dock-mobile-scrim {
+    position: absolute;
+    left: 0px;
+    top: 0px;
+    width: 100%;
+    height: 100%;
+    z-index: 25;
+    background-color: rgba(0, 0, 0, 0.45);
+}
+
+.dock-area,
+.dock-group,
+.dock-panel {
+    box-sizing: border-box;
+}
+
+/* Tables */
+.table {
+    width: 100%;
+    box-sizing: border-box;
+}

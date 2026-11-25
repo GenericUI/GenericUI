@@ -238,7 +238,7 @@ internal object CssDeclarationApplyUtil {
             "font-size" -> CssLength.parse(cleanVal)?.let { style.setFontSize(it, isImp) }
             "font-weight" -> parseFontWeight(style, cleanVal, isImp)
             "font-style" -> CssFontStyle.fromCss(cleanVal)?.let { style.setFontStyle(it, isImp) }
-            "line-height" -> CssLength.parse(cleanVal)?.let { style.setLineHeight(it, isImp) }
+            "line-height" -> CssLength.parseLineHeight(cleanVal)?.let { style.setLineHeight(it, isImp) }
             "letter-spacing" -> CssLength.parse(cleanVal)?.let { style.setLetterSpacing(it, isImp) }
             "text-align" -> parseTextAlign(style, cleanVal, isImp)
             "text-decoration" -> CssTextDecoration.fromCss(cleanVal)?.let { style.setTextDecoration(it, isImp) }
@@ -291,12 +291,21 @@ internal object CssDeclarationApplyUtil {
                 }
             }
             "z-index" -> cleanVal.toIntOrNull()?.let { style.setZIndex(it, isImp) }
-            "transform" -> CssTransform2D.parse(cleanVal)?.let { style.setTransform(it, isImp) }
+            "transform" -> com.nexustools.genericui.style.css.CssTransform.parse(cleanVal)?.let { style.setTransform(it, isImp) }
             "transform-origin" -> CssBackgroundPosition.parse(cleanVal)?.let { style.setTransformOrigin(it, isImp) }
             "transition" -> {
                 val specs = com.nexustools.genericui.style.transition.CssTransitionSpec.parseList(cleanVal)
                 if (specs.isNotEmpty()) style.setTransitions(specs, isImp)
             }
+            "animation" -> style.setAnimation(cleanVal, isImp)
+            "animation-name" -> style.setAnimationName(cleanVal, isImp)
+            "animation-duration" -> style.setAnimationDuration(cleanVal, isImp)
+            "animation-timing-function" -> style.setAnimationTimingFunction(cleanVal, isImp)
+            "animation-delay" -> style.setAnimationDelay(cleanVal, isImp)
+            "animation-iteration-count" -> style.setAnimationIterationCount(cleanVal, isImp)
+            "animation-direction" -> style.setAnimationDirection(cleanVal, isImp)
+            "animation-fill-mode" -> style.setAnimationFillMode(cleanVal, isImp)
+            "animation-play-state" -> style.setAnimationPlayState(cleanVal, isImp)
             "filter" -> CssFilter.parse(cleanVal)?.let { style.setFilter(it, isImp) }
             "backdrop-filter", "-webkit-backdrop-filter" -> CssFilter.parse(cleanVal)?.let { style.setBackdropFilter(it, isImp) }
         }

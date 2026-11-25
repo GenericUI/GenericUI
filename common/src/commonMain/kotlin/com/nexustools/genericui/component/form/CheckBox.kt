@@ -13,6 +13,9 @@ open class CheckBox(
     protected val switchStyle: Boolean = false,
     protected val radioStyle: Boolean = false
 ) : AbstractComponent(htmlTag = "input") {
+    override val supportsFocus: Boolean
+        get() = true
+
     var label: String = label
         set(value) {
             field = value

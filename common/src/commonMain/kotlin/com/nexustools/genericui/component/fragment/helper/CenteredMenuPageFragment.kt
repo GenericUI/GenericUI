@@ -24,7 +24,6 @@ abstract class CenteredMenuPageFragment(
         textAlignment = TextAlignment.CENTER
         leftOffset = "50%"
         topOffset = "50%"
-        transition = "transform .5s ease"
         transform = "translate(-50%, -50%)"
     }
 

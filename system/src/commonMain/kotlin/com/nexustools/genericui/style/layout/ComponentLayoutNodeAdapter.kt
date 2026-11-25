@@ -1,5 +1,6 @@
 package com.nexustools.genericui.style.layout
 
+import com.nexustools.genericui.component.composite.Composite
 import com.nexustools.genericui.core.AbstractComponent
 import com.nexustools.genericui.core.AbstractContainer
 
@@ -8,8 +9,11 @@ import com.nexustools.genericui.core.AbstractContainer
  */
 class ComponentLayoutNodeAdapter : LayoutNodeAdapter<AbstractComponent> {
 
-    override fun childrenOf(node: AbstractComponent): List<AbstractComponent> =
-        if (node is AbstractContainer) node.children.filter { !it.mountedInTitleBar } else emptyList()
+    override fun childrenOf(node: AbstractComponent): List<AbstractComponent> = when (node) {
+        is AbstractContainer -> node.children.filter { !it.mountedInTitleBar }
+        is Composite -> node.internalCompositeChildren().filter { !it.mountedInTitleBar }
+        else -> emptyList()
+    }
 
     override fun layoutStyleOf(
         node: AbstractComponent,

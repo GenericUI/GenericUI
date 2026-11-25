@@ -171,6 +171,14 @@ object GenericUiAndroidManifestXmlGenerator {
         val rawVersionName = model.versionName?.trim()?.takeIf { it.isNotEmpty() }
             ?: appVersion.trim().ifEmpty { "1.0.0" }
         validate(model, rawVersionName)
+        for (frag in fragments) {
+            if (frag.hasIllegalMainDialogFlag) {
+                throw GradleException(
+                    "@MainAppFragment class '${frag.qualifiedName}' must not declare 'dialog': " +
+                        "the 'dialog' flag is only supported on @AppFragment, not @MainAppFragment."
+                )
+            }
+        }
 
         val basePlaceholders = linkedMapOf(
             "applicationId" to resolvedAppId,
@@ -597,8 +605,11 @@ object GenericUiAndroidManifestXmlGenerator {
         attrs["android:name"] = resolvedActivityName
         attrs["android:label"] = activityLabel
         attrs["android:exported"] = exported.toString()
-        merged.launchMode?.trim()?.takeIf { it.isNotEmpty() }?.let {
-            attrs["android:launchMode"] = expandPlaceholders(it, placeholders)
+        val resolvedLaunchMode = merged.launchMode?.trim()?.takeIf { it.isNotEmpty() }
+            ?.let { expandPlaceholders(it, placeholders) }
+            ?: if (!frag.multipleWindows) "singleTop" else null
+        resolvedLaunchMode?.let {
+            attrs["android:launchMode"] = it
         }
         merged.windowSoftInputMode?.trim()?.takeIf { it.isNotEmpty() }?.let {
             attrs["android:windowSoftInputMode"] = expandPlaceholders(it, placeholders)
@@ -613,8 +624,19 @@ object GenericUiAndroidManifestXmlGenerator {
         merged.taskAffinity?.trim()?.takeIf { it.isNotEmpty() }?.let {
             attrs["android:taskAffinity"] = expandPlaceholders(it, placeholders)
         }
-        merged.theme?.trim()?.takeIf { it.isNotEmpty() }?.let {
-            attrs["android:theme"] = expandPlaceholders(it, placeholders)
+        val explicitTheme = merged.theme?.trim()?.takeIf { it.isNotEmpty() }
+            ?.let { expandPlaceholders(it, placeholders) }
+        val hasRawThemeOverride = merged.rawAttributes.keys.any {
+            val normalized = normalizeAttrName(it)
+            normalized == "android:theme" || normalized == "theme"
+        }
+        val resolvedActivityTheme = when {
+            explicitTheme != null -> explicitTheme
+            !hasRawThemeOverride && !frag.isMainFragment && frag.dialog -> "@style/Theme.GenericUI.Dialog"
+            else -> null
+        }
+        resolvedActivityTheme?.let {
+            attrs["android:theme"] = it
         }
         merged.noHistory?.let { attrs["android:noHistory"] = it.toString() }
         merged.documentLaunchMode?.trim()?.takeIf { it.isNotEmpty() }?.let {

@@ -14,7 +14,7 @@ import com.nexustools.genericui.style.css.ComputedStyle
  *
  * A [Tab] is a first-class component that is translated to a native tab item (`JTabbedPane` tab / custom tab
  * component on `:swing`, `TCITEMW` on `:windows`, `NSTabViewItem` on `:macos`, `AdwTabPage` / `GtkNotebookPage`
- * on `:gtk`, `QTabBar` item on `:qt`, `TabLayout.Tab` on `:android`, `UITabBarItem` on `:ios`, and `.nav-link`
+ * on `:gtk`, `QTabBar` item on `:kde`, `TabLayout.Tab` on `:android`, `UITabBarItem` on `:ios`, and `.nav-link`
  * on `:web`).
  *
  * Supports canonical [image] / [iconRes] / [icon] icons with configurable [iconSizePx], [iconPlacement]
@@ -235,8 +235,10 @@ open class Tab(
         }
     }
 
-    override fun applyComputedStyle(style: ComputedStyle) {
-        super.applyComputedStyle(style)
+    override val supportsFocus: Boolean
+        get() = true
+
+    internal override fun onComputedStyleChanged(previous: ComputedStyle?, current: ComputedStyle) {
         image?.onThemeChanged()
     }
 
