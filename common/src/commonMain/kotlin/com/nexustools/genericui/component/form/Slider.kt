@@ -12,23 +12,26 @@ open class Slider(
     min: Double = 0.0,
     max: Double = 100.0,
     step: Double = 1.0
-) : AbstractComponent(htmlTag = "input") {
+) : AbstractComponent(htmlTag = "input"), ISlider {
     override val supportsFocus: Boolean
         get() = true
 
-    var min: Double = min
+    override val labelTargetComponent: AbstractComponent
+        get() = this
+
+    override var min: Double = min
         set(newVal) {
             field = newVal
             typedNative<RangeSliderNativeImpl<*>>()?.setRange(field, max, step)
         }
 
-    var max: Double = max
+    override var max: Double = max
         set(newVal) {
             field = newVal
             typedNative<RangeSliderNativeImpl<*>>()?.setRange(min, field, step)
         }
 
-    var step: Double = step
+    override var step: Double = step
         set(newVal) {
             field = newVal
             typedNative<RangeSliderNativeImpl<*>>()?.setRange(min, max, field)
@@ -36,7 +39,7 @@ open class Slider(
 
     private var isDispatchingValueChange: Boolean = false
 
-    var value: Double = value.coerceIn(min, max)
+    override var value: Double = value.coerceIn(min, max)
         set(newVal) {
             val clamped = newVal.coerceIn(min, max)
             if (kotlin.math.abs(field - clamped) <= 1e-4) return
@@ -51,7 +54,13 @@ open class Slider(
             }
         }
 
-    var onValueChanged: ((Double) -> Unit)? = null
+    override var isEnabled: Boolean
+        get() = super.isEnabled
+        set(value) {
+            super.isEnabled = value
+        }
+
+    override var onValueChanged: ((Double) -> Unit)? = null
 
     fun dispatchUserValueChange(newVal: Double) {
         val clamped = newVal.coerceIn(min, max)

@@ -86,6 +86,10 @@ abstract class GenericUiPackageSwingJarTask : DefaultTask() {
     @get:Optional
     abstract val jniLibsDirectories: ListProperty<String>
 
+    @get:Input
+    @get:Optional
+    abstract val requireNjsClasses: Property<Boolean>
+
     @get:OutputDirectory
     abstract val outputDirectory: DirectoryProperty
 
@@ -160,11 +164,15 @@ abstract class GenericUiPackageSwingJarTask : DefaultTask() {
         val finishedMs = System.currentTimeMillis().coerceAtLeast(taskStartMs)
         finalJar.setLastModified(finishedMs)
 
-        // 6. Verify that the fat JAR contains Main-Class, GenericUI Swing runtime classes, and Kotlin stdlib
+        // 6. Verify that the fat JAR contains Main-Class, GenericUI Swing runtime classes, NJS (when WebView/NJS active), and Kotlin stdlib
+        val hasWebView = ":extensions:ui:webview" in enabledGenericUiModulePaths.orNull.orEmpty()
+        val requireNjs = (requireNjsClasses.orNull == true) || hasWebView
         verifySwingFatJar(
             jarFile = finalJar,
             expectedMainClass = resolvedMainClass,
-            requireGenericUiRuntimeClasses = true
+            requireGenericUiRuntimeClasses = true,
+            requireNjsRuntimeClasses = requireNjs,
+            requireWebViewWorkerClasses = hasWebView
         )
     }
 
@@ -356,6 +364,7 @@ abstract class GenericUiPackageSwingJarTask : DefaultTask() {
         val rawFiles = LinkedHashSet<File>()
         val moduleCoords = LinkedHashSet<String>()
         val projectModulePaths = LinkedHashSet<String>()
+        val njsModuleNames = LinkedHashSet<String>()
         projectModulePaths.addAll(enabledGenericUiModulePaths.orNull.orEmpty())
 
         val artifactTypeAttr = Attribute.of("artifactType", String::class.java)
@@ -386,17 +395,34 @@ abstract class GenericUiPackageSwingJarTask : DefaultTask() {
                     when (val id = comp.id) {
                         is ModuleComponentIdentifier -> {
                             if (id.group.isNotBlank() && id.module.isNotBlank() && id.version.isNotBlank()) {
-                                if (id.group.startsWith("com.nexustools.genericui")) {
-                                    mapGenericUiMavenToModulePath(id.group, id.module)?.let { projectModulePaths.add(it) }
-                                } else {
-                                    moduleCoords.add("${id.group}:${id.module}:${id.version}")
+                                when {
+                                    id.group == "com.nexustools.njs" -> {
+                                        njsModuleNames.add(id.module.trim())
+                                    }
+                                    id.group.startsWith("com.nexustools.genericui") -> {
+                                        mapGenericUiMavenToModulePath(id.group, id.module)?.let { projectModulePaths.add(it) }
+                                    }
+                                    else -> {
+                                        moduleCoords.add("${id.group}:${id.module}:${id.version}")
+                                    }
                                 }
                             }
                         }
                         is ProjectComponentIdentifier -> {
                             val projPath = id.projectPath.trim()
-                            if (projPath.isNotEmpty()) {
-                                projectModulePaths.add(projPath)
+                            val buildPath = runCatching { id.build.buildPath.trim() }.getOrDefault("")
+                            when {
+                                buildPath == ":NJS" || buildPath.endsWith(":NJS") -> {
+                                    val modName = projPath.trim(':')
+                                    if (modName.isNotEmpty()) njsModuleNames.add(modName)
+                                }
+                                projPath.startsWith(":NJS:") -> {
+                                    val modName = projPath.removePrefix(":NJS:").trim(':')
+                                    if (modName.isNotEmpty()) njsModuleNames.add(modName)
+                                }
+                                projPath.isNotEmpty() -> {
+                                    projectModulePaths.add(projPath)
+                                }
                             }
                         }
                     }
@@ -412,6 +438,21 @@ abstract class GenericUiPackageSwingJarTask : DefaultTask() {
             moduleJarsDir = moduleJarsDir
         )
         rawFiles.addAll(compositeModuleJars)
+
+        val hasWebView = ":extensions:ui:webview" in projectModulePaths
+        if (requireNjsClasses.orNull == true || hasWebView) {
+            njsModuleNames.add("common")
+            njsModuleNames.add("jvm")
+        }
+        if (njsModuleNames.isNotEmpty()) {
+            rawFiles.addAll(
+                resolveNjsJvmClassesJars(
+                    njsModuleNames = njsModuleNames,
+                    rootDir = rootDir,
+                    moduleJarsDir = moduleJarsDir
+                )
+            )
+        }
 
         if (moduleCoords.isNotEmpty()) {
             runCatching {
@@ -533,6 +574,69 @@ abstract class GenericUiPackageSwingJarTask : DefaultTask() {
             val (modPath, modDir) = pathAndDir
             val jars = collectModuleJvmClassesJarsFromDir(modDir, modPath, moduleJarsDir)
             collectedJars.addAll(jars)
+        }
+        return collectedJars
+    }
+
+    internal fun resolveNjsJvmClassesJars(
+        njsModuleNames: Collection<String>,
+        rootDir: File,
+        moduleJarsDir: File
+    ): List<File> {
+        val candidateNjsRoots = LinkedHashSet<File>()
+        fun addIfNjsRoot(dir: File?) {
+            if (dir != null &&
+                dir.isDirectory &&
+                File(dir, "common/build.gradle.kts").isFile &&
+                File(dir, "jvm/build.gradle.kts").isFile
+            ) {
+                candidateNjsRoots.add(dir)
+            }
+        }
+        includedBuildRootPaths.orNull.orEmpty().forEach { path ->
+            val f = File(path)
+            addIfNjsRoot(f)
+            addIfNjsRoot(File(f, "lib/NJS"))
+        }
+        runCatching {
+            project.gradle.includedBuilds.forEach { ib ->
+                addIfNjsRoot(ib.projectDir)
+                addIfNjsRoot(File(ib.projectDir, "lib/NJS"))
+            }
+        }
+        listOfNotNull(
+            File(project.rootProject.projectDir, "lib/NJS"),
+            File(rootDir, "lib/NJS"),
+            File(project.rootProject.projectDir, "lib/GenericUI/lib/NJS"),
+            File(rootDir, "lib/GenericUI/lib/NJS"),
+            rootDir.parentFile?.let { File(it, "lib/NJS") },
+            project.rootProject.projectDir.parentFile?.let { File(it, "GenericUI/lib/NJS") }
+        ).forEach { addIfNjsRoot(it) }
+
+        val resolvedModuleDirs = LinkedHashMap<String, Pair<String, File>>()
+        val currentProjectCanonical = runCatching { project.projectDir.canonicalPath }.getOrElse { project.projectDir.absolutePath }
+        for (rawMod in njsModuleNames) {
+            val cleanMod = rawMod.trim().trim(':').ifEmpty { continue }
+            val candidateDirs = mutableListOf<File>()
+            runCatching {
+                project.rootProject.findProject(":NJS:$cleanMod")?.projectDir?.let { candidateDirs.add(it) }
+            }
+            val relSub = cleanMod.replace(':', '/')
+            for (njsRoot in candidateNjsRoots) {
+                candidateDirs.add(File(njsRoot, relSub))
+            }
+            for (dir in candidateDirs) {
+                if (!dir.isDirectory) continue
+                val canonical = runCatching { dir.canonicalPath }.getOrElse { dir.absolutePath }
+                if (canonical == currentProjectCanonical) continue
+                resolvedModuleDirs.putIfAbsent(canonical, "njs-$cleanMod" to dir)
+            }
+        }
+
+        val collectedJars = mutableListOf<File>()
+        for ((_, pathAndDir) in resolvedModuleDirs) {
+            val (modLabel, modDir) = pathAndDir
+            collectedJars.addAll(collectModuleJvmClassesJarsFromDir(modDir, modLabel, moduleJarsDir))
         }
         return collectedJars
     }
@@ -744,7 +848,9 @@ abstract class GenericUiPackageSwingJarTask : DefaultTask() {
     internal fun verifySwingFatJar(
         jarFile: File,
         expectedMainClass: String,
-        requireGenericUiRuntimeClasses: Boolean = true
+        requireGenericUiRuntimeClasses: Boolean = true,
+        requireNjsRuntimeClasses: Boolean = false,
+        requireWebViewWorkerClasses: Boolean = false
     ) {
         if (!jarFile.isFile || jarFile.length() == 0L) {
             throw GradleException(
@@ -782,6 +888,13 @@ abstract class GenericUiPackageSwingJarTask : DefaultTask() {
             requiredClasses.add("com.nexustools.genericui.core.GenericUI")
             requiredClasses.add("com.nexustools.genericui.component.fragment.Fragment")
             requiredClasses.add("kotlin.Unit")
+        }
+        if (requireNjsRuntimeClasses) {
+            requiredClasses.add("com.nexustools.njs.runtime.Global")
+            requiredClasses.add("com.nexustools.njs.compiler.JavaTranspiler")
+        }
+        if (requireWebViewWorkerClasses) {
+            requiredClasses.add("com.nexustools.genericui.ext.webview.desktop.process.WebViewWorkerMain")
         }
 
         val missingClasses = requiredClasses.filter { fqcn ->

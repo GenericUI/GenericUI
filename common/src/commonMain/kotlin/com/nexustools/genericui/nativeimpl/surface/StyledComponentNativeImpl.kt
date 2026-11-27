@@ -4,7 +4,7 @@ import com.nexustools.genericui.core.NativeImpl
 import com.nexustools.genericui.style.css.StyledVisualSpec
 
 /**
- * Native implementation contract for [com.nexustools.genericui.component.surface.StyledComponent],
+ * Native implementation contract for [com.nexustools.genericui.component.surface.styled.StyledComponent],
  * representing a non-container, non-button CSS-styled visual leaf (backgrounds, gradients,
  * borders, shadows, opacity, cursor, pointer-events, transforms, and interactive `:hover`,
  * `:focus`, `:active`, and `:disabled` visual state overrides).

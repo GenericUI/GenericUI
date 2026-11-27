@@ -21,6 +21,7 @@ import com.nexustools.genericui.exception.NativeUninitializedException
 import com.nexustools.genericui.geometry.Rect
 import com.nexustools.genericui.geometry.Size
 import com.nexustools.genericui.nativeimpl.shell.WindowNativeImpl
+import com.nexustools.genericui.style.css.CssStyleSheet
 import com.nexustools.genericui.window.IWindow
 import com.nexustools.genericui.window.TitleBar
 import com.nexustools.genericui.window.TitleCapabilities
@@ -152,6 +153,12 @@ open class Window(
         get() = winImpl?.isUndecorated() ?: undecoratedState
 
     private var titleBarInstructions: TitleBar? = null
+    private val attachedTitleBarComponents = mutableSetOf<AbstractComponent>()
+    private val onTitleBarChangedListeners = mutableListOf<(TitleBar?) -> Unit>()
+    private var hasSyncedTitleBarOnce: Boolean = false
+    private var lastSyncedTitleBarSignature: Long? = null
+    private var lastTitleBarPropagatedStyleSheet: CssStyleSheet? = null
+    private var pendingForceTitleBarSync: Boolean = false
     private var menuBar: MenuBar? = null
     private var navBar: Navbar? = null
     private var bottomNavigationBar: BottomNavigationBar? = null
@@ -343,6 +350,7 @@ open class Window(
         super.onAttachNative(impl)
         val wImpl = impl as? WindowNativeImpl<*> ?: return
         wImpl.setTitle(titleState)
+        windowIconState?.let { wImpl.setWindowIcon(it) }
         minWindowSizeState?.let { wImpl.setMinWindowSize(it) }
         wImpl.setUndecorated(undecoratedState)
         wImpl.setAlwaysOnTop(alwaysOnTopState)
@@ -568,19 +576,159 @@ open class Window(
         }
     }
 
+    private fun computeTitleBarSyncSignature(tb: TitleBar, embedsComponents: Boolean): Long {
+        var h = 17L
+        fun mix(v: Long) {
+            h = h * 31L + v
+        }
+        fun mixBool(b: Boolean) = mix(if (b) 1L else 0L)
+        mixBool(embedsComponents)
+        mixBool(tb.embedMenuBar)
+        mixBool(tb.showWindowTitle)
+        mixBool(tb.showWindowIcon)
+        mix((tb.heightPx ?: -1).toLong())
+        mix(tb.controlsPlacement.ordinal.toLong())
+        mixBool(tb.customTitleBar)
+        mixBool(tb.showMinimizeButton)
+        mixBool(tb.showMaximizeButton)
+        mixBool(tb.showCloseButton)
+        mix((tb.iconPath?.hashCode() ?: 0).toLong())
+        mix(tb.htmlTag.hashCode().toLong())
+        fun mixList(list: List<AbstractComponent>, slotTag: Long) {
+            mix(slotTag)
+            mix(list.size.toLong())
+            for (c in list) {
+                mix(c.hashCode().toLong())
+                mixBool(c.isVisible)
+                mixBool(c.mountedInTitleBar)
+            }
+        }
+        mixList(tb.leadingComponents, 101L)
+        mixList(tb.centerComponents, 202L)
+        mixList(tb.trailingComponents, 303L)
+        return h
+    }
+
+    private fun detachStaleTitleBarComponents(keep: Set<AbstractComponent>) {
+        if (attachedTitleBarComponents.isEmpty()) return
+        val iter = attachedTitleBarComponents.iterator()
+        while (iter.hasNext()) {
+            val prev = iter.next()
+            if (prev !in keep) {
+                prev.mountedInTitleBar = false
+                if (prev.parent === this) {
+                    prev.parent = null
+                }
+                iter.remove()
+            }
+        }
+    }
+
+    private fun resolveActiveTitleBarStyleSheet(): CssStyleSheet? {
+        return lastAppliedStyleSheet
+            ?: contentContainer?.lastAppliedStyleSheet
+            ?: fragmentContainer?.currentFragment?.lastAppliedStyleSheet
+            ?: ((Application.findApplicationForWindow(this) as? Application) ?: Application.current)?.buildCombinedActiveStyleSheet()
+    }
+
+    private fun resolveTitleBarStyleViewportWidthPx(): Int {
+        val w = sizeState.width
+        return if (w > 0) w else DEFAULT_INITIAL_SIZE.width
+    }
+
+    private fun propagateStyleSheetToSubtreeIfNeeded(
+        comp: AbstractComponent,
+        sheet: CssStyleSheet,
+        viewportWidthPx: Int,
+        forceRootApply: Boolean
+    ) {
+        if (forceRootApply || comp.lastAppliedStyleSheet == null) {
+            comp.applyStyleSheet(sheet, viewportWidthPx)
+            return
+        }
+        if (comp is AbstractContainer) {
+            for (child in comp.children.toList()) {
+                propagateStyleSheetToSubtreeIfNeeded(child, sheet, viewportWidthPx, forceRootApply = false)
+            }
+        }
+    }
+
+    private fun propagateActiveStyleSheetToTitleBar(
+        tb: TitleBar,
+        sheet: CssStyleSheet?,
+        forceRootApply: Boolean
+    ) {
+        if (sheet == null) return
+        val viewportWidthPx = resolveTitleBarStyleViewportWidthPx()
+        val sheetChanged = lastTitleBarPropagatedStyleSheet !== sheet
+        val comps = tb.leadingComponents + tb.centerComponents + tb.trailingComponents
+        for (comp in comps) {
+            propagateStyleSheetToSubtreeIfNeeded(
+                comp = comp,
+                sheet = sheet,
+                viewportWidthPx = viewportWidthPx,
+                forceRootApply = forceRootApply || sheetChanged
+            )
+        }
+        lastTitleBarPropagatedStyleSheet = sheet
+    }
+
     private fun syncTitleBarAndMenuBarToNative(impl: WindowNativeImpl<*>) {
         val tb = titleBarInstructions
-        tb?.setHostEmbedsComponents(titleCapabilities.canEmbedComponentsInTitleBar)
-        if ((impl.supportsCustomTitleBar || impl.supportsNavbarMenuBar || impl.supportsMobileNavbarMenuBar) && tb != null) {
-            for (comp in tb.leadingComponents + tb.centerComponents + tb.trailingComponents) {
-                if (comp.parent == null) {
+        val caps = titleCapabilities
+        val embedsComponents = caps.canEmbedComponentsInTitleBar
+        tb?.setHostEmbedsComponents(embedsComponents)
+        val supportsTitleBar = impl.supportsCustomTitleBar || impl.supportsNavbarMenuBar || impl.supportsMobileNavbarMenuBar
+        if (supportsTitleBar && tb != null) {
+            val allComps = tb.leadingComponents + tb.centerComponents + tb.trailingComponents
+            val nextSet = allComps.toSet()
+            detachStaleTitleBarComponents(nextSet)
+            val activeSheet = resolveActiveTitleBarStyleSheet()
+            val sheetChanged = activeSheet != null && lastTitleBarPropagatedStyleSheet !== activeSheet
+            val viewportWidthPx = resolveTitleBarStyleViewportWidthPx()
+            for (comp in allComps) {
+                val prevParent = comp.parent
+                if (prevParent is AbstractContainer && prevParent !== this) {
+                    prevParent.removeChild(comp)
+                }
+                if (comp.parent == null || comp.parent !== this) {
                     comp.parent = this
                 }
-                if (comp.isVisible) comp.ensureNativeImpl()
+                val newlyAttached = attachedTitleBarComponents.add(comp)
+                comp.mountedInTitleBar = embedsComponents
+                if (activeSheet != null) {
+                    propagateStyleSheetToSubtreeIfNeeded(
+                        comp = comp,
+                        sheet = activeSheet,
+                        viewportWidthPx = viewportWidthPx,
+                        forceRootApply = newlyAttached || sheetChanged
+                    )
+                }
+                if (comp.isVisible) {
+                    comp.ensureNativeImpl()
+                }
             }
-            impl.applyTitleBarInstructions(tb)
+            if (activeSheet != null) {
+                lastTitleBarPropagatedStyleSheet = activeSheet
+            }
+            val nextSignature = computeTitleBarSyncSignature(tb, embedsComponents)
+            val forceSync = pendingForceTitleBarSync
+            pendingForceTitleBarSync = false
+            if (!hasSyncedTitleBarOnce || forceSync || lastSyncedTitleBarSignature != nextSignature) {
+                hasSyncedTitleBarOnce = true
+                lastSyncedTitleBarSignature = nextSignature
+                impl.applyTitleBarInstructions(tb)
+            }
         } else {
-            impl.applyTitleBarInstructions(null)
+            detachStaleTitleBarComponents(emptySet())
+            lastTitleBarPropagatedStyleSheet = null
+            val forceSync = pendingForceTitleBarSync
+            pendingForceTitleBarSync = false
+            if (!hasSyncedTitleBarOnce || forceSync || lastSyncedTitleBarSignature != null) {
+                hasSyncedTitleBarOnce = true
+                lastSyncedTitleBarSignature = null
+                impl.applyTitleBarInstructions(null)
+            }
         }
 
         val mb = menuBar
@@ -590,6 +738,46 @@ open class Window(
             impl.setMenuBarNative(mbImpl)
         } else {
             impl.setMenuBarNative(null)
+        }
+    }
+
+    internal override fun applyStyleSheetWalk(
+        styleSheet: CssStyleSheet,
+        viewportWidthPx: Int,
+        walkSheet: CssStyleSheet,
+        activeFactory: NativeFactory?,
+        isDark: Boolean,
+        mediaBucket: Int,
+        refOldWidthPx: Int,
+        mediaMode: Int,
+        targetClasses: Set<String>,
+        targetIds: Set<String>,
+        targetTags: Set<String>,
+        targetAncestorClasses: Set<String>,
+        targetAncestorIds: Set<String>,
+        targetAncestorTags: Set<String>,
+        inInvalidatedAncestorSubtree: Boolean
+    ) {
+        super.applyStyleSheetWalk(
+            styleSheet, viewportWidthPx, walkSheet, activeFactory, isDark,
+            mediaBucket, refOldWidthPx, mediaMode, targetClasses, targetIds, targetTags,
+            targetAncestorClasses, targetAncestorIds, targetAncestorTags, inInvalidatedAncestorSubtree
+        )
+        val tb = titleBarInstructions ?: return
+        val tbComps = tb.leadingComponents + tb.centerComponents + tb.trailingComponents
+        if (tbComps.isEmpty()) return
+        for (comp in tbComps) {
+            comp.applyStyleSheetWalk(
+                styleSheet, viewportWidthPx, walkSheet, activeFactory, isDark,
+                mediaBucket, refOldWidthPx, mediaMode, targetClasses, targetIds, targetTags,
+                targetAncestorClasses, targetAncestorIds, targetAncestorTags, inInvalidatedAncestorSubtree
+            )
+        }
+        lastTitleBarPropagatedStyleSheet = styleSheet
+        val impl = winImpl ?: return
+        if (impl.supportsCustomTitleBar || impl.supportsNavbarMenuBar || impl.supportsMobileNavbarMenuBar) {
+            pendingForceTitleBarSync = true
+            syncTitleBarAndMenuBarToNative(impl)
         }
     }
 
@@ -637,6 +825,7 @@ open class Window(
 
     override fun setWindowIcon(iconPathOrSvg: String?) {
         windowIconState = iconPathOrSvg
+        winImpl?.setWindowIcon(iconPathOrSvg)
     }
 
     override fun setWindowIcon(resId: com.nexustools.genericui.resources.ResourceID) {
@@ -993,15 +1182,41 @@ open class Window(
 
     open override fun setTitleBar(titleBar: TitleBar?) {
         val old = titleBarInstructions
+        old?.onHostInstructionsChanged = null
         old?.onInstructionsChanged = null
         if (old !== titleBar) {
             old?.setHostEmbedsComponents(false)
+            pendingForceTitleBarSync = true
         }
         titleBarInstructions = titleBar
         titleBar?.setHostEmbedsComponents(titleCapabilities.canEmbedComponentsInTitleBar)
-        titleBar?.onInstructionsChanged = {
+        titleBar?.onHostInstructionsChanged = {
+            pendingForceTitleBarSync = true
             winImpl?.let { syncTitleBarAndMenuBarToNative(it) }
         }
+        winImpl?.let { syncTitleBarAndMenuBarToNative(it) }
+        if (onTitleBarChangedListeners.isNotEmpty()) {
+            for (listener in onTitleBarChangedListeners.toList()) {
+                listener.invoke(titleBar)
+            }
+        }
+    }
+
+    internal fun addOnTitleBarChangedListener(listener: (TitleBar?) -> Unit) {
+        if (listener !in onTitleBarChangedListeners) {
+            onTitleBarChangedListeners.add(listener)
+        }
+    }
+
+    internal fun removeOnTitleBarChangedListener(listener: (TitleBar?) -> Unit) {
+        onTitleBarChangedListeners.remove(listener)
+    }
+
+    /**
+     * Re-applies active stylesheets and native [TitleBar] instructions for embedded components.
+     */
+    fun refreshTitleBar() {
+        pendingForceTitleBarSync = true
         winImpl?.let { syncTitleBarAndMenuBarToNative(it) }
     }
 
@@ -1048,6 +1263,12 @@ open class Window(
             }
         }
         addChild(container)
+        titleBarInstructions?.let { tb ->
+            val sheet = resolveActiveTitleBarStyleSheet()
+            if (sheet != null) {
+                propagateActiveStyleSheetToTitleBar(tb, sheet, forceRootApply = false)
+            }
+        }
         if (sizeState.width > 0 && sizeState.height > 0) {
             val isFs = fullscreenState || windowStateVal == WindowState.FULLSCREEN
             val cfg = WindowConfiguration(
@@ -1241,6 +1462,10 @@ open class Window(
         realizedFactory = null
         unregisterShownWindow(this)
         titleBarInstructions?.setHostEmbedsComponents(false)
+        detachStaleTitleBarComponents(emptySet())
+        lastTitleBarPropagatedStyleSheet = null
+        lastSyncedTitleBarSignature = null
+        pendingForceTitleBarSync = false
         for (panelWin in _attachedPanelWindows.toList()) {
             panelWin.close()
         }
@@ -1258,6 +1483,12 @@ open class Window(
         isWindowShown = false
         realizedFactory = null
         unregisterShownWindow(this)
+        titleBarInstructions?.onHostInstructionsChanged = null
+        titleBarInstructions?.onInstructionsChanged = null
+        detachStaleTitleBarComponents(emptySet())
+        onTitleBarChangedListeners.clear()
+        lastTitleBarPropagatedStyleSheet = null
+        lastSyncedTitleBarSignature = null
         super.dispose()
     }
 

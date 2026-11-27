@@ -85,7 +85,7 @@ flowchart TD
 ## 2. SourceSet Tier, `AppTarget`, & GenericUI Consolidated Module Mapping
 
 > [!NOTE]
-> **Framework Modules vs. Consumer SourceSets**: Inside the **51-project** GenericUI repository (`49` `GenericUiGradlePlugin.KNOWN_GENERICUI_MODULES` plus `:gradle-plugin` & `:idea-plugin`, alongside `lib/NJS`), core implementations are organized into consolidated KMP modules (`:common`, `:system`, `:jvm`, `:apple`, `:desktop`, `:mobile`, `:web`) with multi-target source sets (`nativeDesktopMain`, `linuxMain`, `mingwMain`, `macosMain`, `jvmMain`, `androidMain`, `iosMain`). Consumer applications use **source sets inside their own single Gradle project** (`src/commonMain`, and optionally `src/appleMain`, `src/androidMain`, `src/ipadosMain`, etc.).
+> **Framework Modules vs. Consumer SourceSets**: Inside the **54-project** GenericUI repository (`52` `GenericUiGradlePlugin.KNOWN_GENERICUI_MODULES` plus `:gradle-plugin` & `:idea-plugin`, alongside `lib/NJS`), core implementations are organized into consolidated KMP modules (`:common`, `:system`, `:jvm`, `:apple`, `:desktop`, `:mobile`, `:web`) with multi-target source sets (`nativeDesktopMain`, `linuxMain`, `mingwMain`, `macosMain`, `jvmMain`, `androidMain`, `iosMain`). Consumer applications use **source sets inside their own single Gradle project** (`src/commonMain`, and optionally `src/appleMain`, `src/androidMain`, `src/ipadosMain`, etc.).
 
 | Variant Scope (`GenericUiSourceSetsConfig`) | `AppTarget` Enum (`specificityRank`) | Backing GenericUI Module / SourceSet | Consumer Source Directories (Optional except `commonMain`) | Target Scope & Purpose |
 | :--- | :--- | :--- | :--- | :--- |

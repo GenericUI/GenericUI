@@ -68,7 +68,7 @@ data class CompiledSelectorSegment(
                 excludedPseudoClasses = parsed.excludedPseudos,
                 excludedTags = parsed.excludedTags,
                 excludedIds = parsed.excludedIds,
-                unmatchable = parsed.positiveToken.isEmpty()
+                unmatchable = parsed.positiveToken.isEmpty() || parsed.hasUnsupportedAttributeSelector
             )
         }
     }

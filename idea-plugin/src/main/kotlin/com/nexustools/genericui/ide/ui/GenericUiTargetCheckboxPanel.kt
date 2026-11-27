@@ -25,8 +25,9 @@ import javax.swing.event.DocumentListener
  * Interactive Swing/IntelliJ IDEA configuration panel with grouped checkboxes for selecting
  * `GenericUI` target backends (`windows`, `macos`, `gtk`, `kde`, `swing`, `android`, `ios`, `ipados`, `web`),
  * quick-select preset buttons (`All Except Swing`, `Desktop Only (No Swing)`, `Mobile Only`, `Apple Only`, `Select All`, `Clear All`),
- * 19 categorized first-party extension checkboxes (Graphics, Physics, Game & Input, Media, UI) with automatic
- * transitive dependency resolution, starter project template selector, `:tests` (`JestElectricRunner`) toggle,
+ * 24 categorized first-party extension checkboxes (Graphics, Physics, Game & Input, Media, Data, System, UI) with automatic
+ * transitive dependency resolution (including `:alien` and `:dsl` companion modules and Desktop + Android-only [GenericUiExtensionModule.IPC]),
+ * starter project template selector, `:tests` (`JestElectricRunner`) toggle,
  * window defaults (`alwaysOnTop`, `aspectRatio`), Apple icon overrides (`appleIcon`, `macos`, `ios`, `ipados`),
  * and a live preview of the generated `genericui { ... }` Gradle DSL block.
  */
@@ -191,6 +192,7 @@ class GenericUiTargetCheckboxPanel(
 
         wireListeners()
         syncSwingSubCheckboxes()
+        syncIpcCheckbox()
         refreshDslPreview()
     }
 
@@ -208,6 +210,7 @@ class GenericUiTargetCheckboxPanel(
                     if (backend == GenericUiTargetBackend.SWING) {
                         syncSwingSubCheckboxes()
                     }
+                    syncIpcCheckbox()
                     refreshDslPreview()
                 }
             }
@@ -276,10 +279,38 @@ class GenericUiTargetCheckboxPanel(
         swingVulkanCheckbox.isEnabled = swingChecked
     }
 
+    private fun syncIpcCheckbox() {
+        val selected = getSelectedBackends()
+        val ipcSupported = GenericUiExtensionModule.IPC.supportsAnyBackend(selected)
+        val ipcCheckbox = extensionCheckboxes.getValue(GenericUiExtensionModule.IPC)
+        val prevUpdating = updatingCheckboxes
+        updatingCheckboxes = true
+        try {
+            ipcCheckbox.isEnabled = ipcSupported
+            if (!ipcSupported) {
+                ipcCheckbox.isSelected = false
+            } else {
+                val direct = GenericUiExtensionModule.entries
+                    .filter { extensionCheckboxes.getValue(it).isSelected }
+                    .toSet()
+                val resolved = GenericUiExtensionModule.resolveTransitive(direct, selected)
+                if (GenericUiExtensionModule.IPC in resolved) {
+                    ipcCheckbox.isSelected = true
+                }
+            }
+        } finally {
+            updatingCheckboxes = prevUpdating
+        }
+    }
+
     private fun enableRequiredExtensionsFor(extension: GenericUiExtensionModule) {
         updatingCheckboxes = true
         try {
-            for (req in extension.requiredExtensions()) {
+            val resolved = GenericUiExtensionModule.resolveTransitive(
+                setOf(extension),
+                getSelectedBackends()
+            )
+            for (req in resolved) {
                 extensionCheckboxes.getValue(req).isSelected = true
             }
         } finally {
@@ -301,6 +332,7 @@ class GenericUiTargetCheckboxPanel(
                 checkbox.isSelected = backend in backends
             }
             syncSwingSubCheckboxes()
+            syncIpcCheckbox()
         } finally {
             updatingCheckboxes = false
         }
@@ -315,6 +347,7 @@ class GenericUiTargetCheckboxPanel(
             if (backend == GenericUiTargetBackend.SWING) {
                 syncSwingSubCheckboxes()
             }
+            syncIpcCheckbox()
         } finally {
             updatingCheckboxes = false
         }
@@ -330,12 +363,12 @@ class GenericUiTargetCheckboxPanel(
         val direct = GenericUiExtensionModule.entries
             .filter { extensionCheckboxes.getValue(it).isSelected }
             .toSet()
-        return GenericUiExtensionModule.resolveTransitive(direct)
+        return GenericUiExtensionModule.resolveTransitive(direct, getSelectedBackends())
     }
 
     /** Updates the extension checkboxes (automatically checking transitive dependencies) and refreshes the DSL preview. */
     fun setSelectedExtensions(extensions: Set<GenericUiExtensionModule>) {
-        val resolved = GenericUiExtensionModule.resolveTransitive(extensions)
+        val resolved = GenericUiExtensionModule.resolveTransitive(extensions, getSelectedBackends())
         updatingCheckboxes = true
         try {
             for ((ext, checkbox) in extensionCheckboxes) {
@@ -349,15 +382,24 @@ class GenericUiTargetCheckboxPanel(
 
     /**
      * Checks or unchecks a single [extension] checkbox. When [selected] is true,
-     * all required transitive extensions are also checked automatically.
+     * all required transitive extensions compatible with current backends are also checked automatically.
      */
     fun setExtensionSelected(extension: GenericUiExtensionModule, selected: Boolean) {
+        val currentBackends = getSelectedBackends()
         updatingCheckboxes = true
         try {
-            extensionCheckboxes.getValue(extension).isSelected = selected
-            if (selected) {
-                for (req in extension.requiredExtensions()) {
-                    extensionCheckboxes.getValue(req).isSelected = true
+            if (selected && !extension.supportsAnyBackend(currentBackends)) {
+                extensionCheckboxes.getValue(extension).isSelected = false
+            } else {
+                extensionCheckboxes.getValue(extension).isSelected = selected
+                if (selected) {
+                    val resolved = GenericUiExtensionModule.resolveTransitive(
+                        setOf(extension),
+                        currentBackends
+                    )
+                    for (req in resolved) {
+                        extensionCheckboxes.getValue(req).isSelected = true
+                    }
                 }
             }
         } finally {
@@ -517,6 +559,7 @@ class GenericUiTargetCheckboxPanel(
             for ((ext, checkbox) in extensionCheckboxes) {
                 checkbox.isSelected = ext in resolvedExts
             }
+            syncIpcCheckbox()
 
             templateComboBox.selectedItem = config.templateType
             compileSassCheckbox.isSelected = config.compileSass

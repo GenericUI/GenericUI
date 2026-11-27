@@ -322,9 +322,15 @@ class StyledWidgetVisualController(
         return foreground.takeIf { !it.isNone && it.hasActiveEffects }
     }
 
-    private fun sanitizeBootstrapSnapshot(
+    /**
+     * Strips `BootstrapType` semantic colors (`type`, `outline`, `backgroundType`,
+     * `textColorType`, `borderType`) from [snapshot] when this widget does not permit
+     * Bootstrap tinting on [backendTarget], while preserving shape, border-width,
+     * elevation, and spacing properties.
+     */
+    fun sanitizeBootstrapSnapshot(
         snapshot: BootstrapStyleSnapshot?,
-        backendTarget: LayoutBackendTarget?
+        backendTarget: LayoutBackendTarget? = null
     ): BootstrapStyleSnapshot? {
         if (snapshot == null) return null
         if (allowsEffectiveBootstrapTypeTint(backendTarget)) return snapshot

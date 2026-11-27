@@ -79,32 +79,169 @@ class GenericUiBuildFileInspector(
     /**
      * Parses the `extensions { ... }` section inside `genericui { ... }` of [buildGradleKtsContent]
      * and returns the transitively resolved set of enabled [GenericUiExtensionModule]s.
+     *
+     * Accurately handles `ipc()`, `svg()`, `pip()`, `mediaControls()`, `gamepad()`, `serviceWorker { ... }`,
+     * `webView { ... }` configuration blocks, boolean flags (`ext(true)` / `ext(false)` / `ext(enabled = false)`),
+     * comments, and backend constraints (e.g. [GenericUiExtensionModule.IPC] requires Desktop or Android when backends are declared).
      */
     fun parseSelectedExtensions(buildGradleKtsContent: String): Set<GenericUiExtensionModule> {
+        val backends = parseSelectedBackends(buildGradleKtsContent)
         val genericUiBody = extractGenericUiBody(buildGradleKtsContent)
-        val extensionsBlock = extractDirectChildBlockContent(genericUiBody, "extensions") ?: return emptySet()
-        val result = linkedSetOf<GenericUiExtensionModule>()
+        val extensionBlocks = extractAllDirectChildBlockContents(genericUiBody, "extensions")
+        if (extensionBlocks.isEmpty()) return emptySet()
 
-        if (Regex("""\benableAll\s*\(""").containsMatchIn(extensionsBlock)) {
-            return GenericUiExtensionModule.entries.toCollection(LinkedHashSet())
-        }
+        val direct = linkedSetOf<GenericUiExtensionModule>()
+        var enableAllRequested = false
 
-        for (ext in GenericUiExtensionModule.entries) {
-            val callOrBlockPattern = Regex(
-                """\b${Regex.escape(ext.dslMethodName)}\s*(?:\(\s*(true|false)?\s*\)|\{)""",
-                RegexOption.IGNORE_CASE
-            )
-            for (match in callOrBlockPattern.findAll(extensionsBlock)) {
-                val arg = match.groupValues.getOrNull(1)?.trim()
-                if (arg.equals("false", ignoreCase = true)) {
-                    result.remove(ext)
-                } else {
-                    result.add(ext)
+        for (extensionsBlock in extensionBlocks) {
+            var i = 0
+            val n = extensionsBlock.length
+            var inLineComment = false
+            var inBlockComment = false
+            var inString = false
+
+            while (i < n) {
+                val c = extensionsBlock[i]
+                val next = if (i + 1 < n) extensionsBlock[i + 1] else '\u0000'
+                when {
+                    inLineComment -> {
+                        if (c == '\n') inLineComment = false
+                        i++
+                    }
+                    inBlockComment -> {
+                        if (c == '*' && next == '/') {
+                            inBlockComment = false
+                            i += 2
+                        } else {
+                            i++
+                        }
+                    }
+                    inString -> {
+                        if (c == '\\') {
+                            i += 2
+                        } else {
+                            if (c == '"') inString = false
+                            i++
+                        }
+                    }
+                    c == '/' && next == '/' -> {
+                        inLineComment = true
+                        i += 2
+                    }
+                    c == '/' && next == '*' -> {
+                        inBlockComment = true
+                        i += 2
+                    }
+                    c == '"' -> {
+                        inString = true
+                        i++
+                    }
+                    c.isLetter() || c == '_' -> {
+                        val prevChar = if (i > 0) extensionsBlock[i - 1] else ' '
+                        if (prevChar.isLetterOrDigit() || prevChar == '_') {
+                            while (i < n && (extensionsBlock[i].isLetterOrDigit() || extensionsBlock[i] == '_')) i++
+                            continue
+                        }
+                        val identStart = i
+                        while (i < n && (extensionsBlock[i].isLetterOrDigit() || extensionsBlock[i] == '_')) i++
+                        val ident = extensionsBlock.substring(identStart, i)
+
+                        val afterIdent = skipWhitespaceAndComments(extensionsBlock, i)
+                        if (afterIdent >= n) {
+                            i = afterIdent
+                            continue
+                        }
+
+                        when (extensionsBlock[afterIdent]) {
+                            '(' -> {
+                                val closeParen = findMatchingCloseDelimiter(extensionsBlock, afterIdent, '(', ')')
+                                if (closeParen == null) {
+                                    i = afterIdent + 1
+                                    continue
+                                }
+                                val args = extensionsBlock.substring(afterIdent + 1, closeParen)
+                                val afterParen = skipWhitespaceAndComments(extensionsBlock, closeParen + 1)
+                                var blockDisabled = false
+                                val nextIndex = if (afterParen < n && extensionsBlock[afterParen] == '{') {
+                                    val closeBrace = findMatchingCloseBrace(extensionsBlock, afterParen)
+                                    if (closeBrace != null) {
+                                        val body = extensionsBlock.substring(afterParen + 1, closeBrace)
+                                        blockDisabled = hasTopLevelEnabledFalse(body)
+                                        closeBrace + 1
+                                    } else {
+                                        closeParen + 1
+                                    }
+                                } else {
+                                    closeParen + 1
+                                }
+
+                                if (ident.equals("enableAll", ignoreCase = true)) {
+                                    if (!isFalseCallArg(args) && !blockDisabled) {
+                                        enableAllRequested = true
+                                        direct.addAll(GenericUiExtensionModule.entries)
+                                    }
+                                } else if (ident.equals("custom", ignoreCase = true)) {
+                                    handleCustomExtensionCall(args, direct)
+                                } else {
+                                    findExtensionByCallName(ident)?.let { ext ->
+                                        if (isFalseCallArg(args) || blockDisabled) {
+                                            direct.remove(ext)
+                                        } else {
+                                            direct.add(ext)
+                                        }
+                                    }
+                                }
+                                i = nextIndex
+                            }
+                            '{' -> {
+                                val closeBrace = findMatchingCloseBrace(extensionsBlock, afterIdent)
+                                if (closeBrace == null) {
+                                    i = afterIdent + 1
+                                    continue
+                                }
+                                val body = extensionsBlock.substring(afterIdent + 1, closeBrace)
+                                findExtensionByCallName(ident)?.let { ext ->
+                                    if (hasTopLevelEnabledFalse(body)) {
+                                        direct.remove(ext)
+                                    } else {
+                                        direct.add(ext)
+                                    }
+                                }
+                                i = closeBrace + 1
+                            }
+                            '=' -> {
+                                val (rhs, endIndex) = readAssignmentValue(extensionsBlock, afterIdent + 1)
+                                findExtensionByPropertyName(ident)?.let { ext ->
+                                    if (rhs.equals("false", ignoreCase = true)) {
+                                        direct.remove(ext)
+                                    } else if (rhs.equals("true", ignoreCase = true)) {
+                                        direct.add(ext)
+                                    }
+                                }
+                                i = endIndex
+                            }
+                            else -> {
+                                i = afterIdent
+                            }
+                        }
+                    }
+                    c == '{' -> {
+                        val closeBrace = findMatchingCloseBrace(extensionsBlock, i)
+                        i = (closeBrace ?: i) + 1
+                    }
+                    c == '(' -> {
+                        val closeParen = findMatchingCloseDelimiter(extensionsBlock, i, '(', ')')
+                        i = (closeParen ?: i) + 1
+                    }
+                    else -> i++
                 }
             }
         }
 
-        return GenericUiExtensionModule.resolveTransitive(result)
+        if (enableAllRequested && backends.isEmpty()) {
+            return GenericUiExtensionModule.entries.toCollection(LinkedHashSet())
+        }
+        return GenericUiExtensionModule.resolveTransitive(direct, backends)
     }
 
     /**
@@ -272,7 +409,11 @@ class GenericUiBuildFileInspector(
     private fun extractGenericUiBody(source: String): String =
         extractDirectChildBlockContent(source, "genericui") ?: source
 
-    private fun extractDirectChildBlockContent(source: String, blockName: String): String? {
+    private fun extractDirectChildBlockContent(source: String, blockName: String): String? =
+        extractAllDirectChildBlockContents(source, blockName).firstOrNull()
+
+    private fun extractAllDirectChildBlockContents(source: String, blockName: String): List<String> {
+        val results = mutableListOf<String>()
         var i = 0
         var depth = 0
         var inString = false
@@ -324,23 +465,32 @@ class GenericUiBuildFileInspector(
                         var j = i + blockName.length
                         while (j < n && source[j].isWhitespace()) j++
                         if (j < n && source[j] == '{') {
-                            val closeIndex = findMatchingCloseBrace(source, j) ?: return null
-                            return source.substring(j + 1, closeIndex)
+                            val closeIndex = findMatchingCloseBrace(source, j) ?: return results
+                            results.add(source.substring(j + 1, closeIndex))
+                            i = closeIndex
                         }
                     }
                 }
             }
             i++
         }
-        return null
+        return results
     }
 
-    private fun findMatchingCloseBrace(source: String, openBraceIndex: Int): Int? {
+    private fun findMatchingCloseBrace(source: String, openBraceIndex: Int): Int? =
+        findMatchingCloseDelimiter(source, openBraceIndex, '{', '}')
+
+    private fun findMatchingCloseDelimiter(
+        source: String,
+        openIndex: Int,
+        openChar: Char,
+        closeChar: Char
+    ): Int? {
         var depth = 0
         var inString = false
         var inLineComment = false
         var inBlockComment = false
-        var i = openBraceIndex
+        var i = openIndex
         val n = source.length
         while (i < n) {
             val c = source[i]
@@ -365,8 +515,8 @@ class GenericUiBuildFileInspector(
                     i++
                 }
                 c == '"' -> inString = true
-                c == '{' -> depth++
-                c == '}' -> {
+                c == openChar -> depth++
+                c == closeChar -> {
                     depth--
                     if (depth == 0) return i
                 }
@@ -374,6 +524,139 @@ class GenericUiBuildFileInspector(
             i++
         }
         return null
+    }
+
+    private fun skipWhitespaceAndComments(source: String, startIndex: Int): Int {
+        var i = startIndex
+        val n = source.length
+        while (i < n) {
+            val c = source[i]
+            val next = if (i + 1 < n) source[i + 1] else '\u0000'
+            when {
+                c.isWhitespace() -> i++
+                c == '/' && next == '/' -> {
+                    i += 2
+                    while (i < n && source[i] != '\n') i++
+                }
+                c == '/' && next == '*' -> {
+                    i += 2
+                    while (i + 1 < n && !(source[i] == '*' && source[i + 1] == '/')) i++
+                    i = if (i + 1 < n) i + 2 else n
+                }
+                else -> return i
+            }
+        }
+        return i
+    }
+
+    private fun stripCommentsAndStrings(source: String, stripNestedBraces: Boolean): String = buildString {
+        var i = 0
+        val n = source.length
+        var depth = 0
+        var inString = false
+        var inLineComment = false
+        var inBlockComment = false
+        while (i < n) {
+            val c = source[i]
+            val next = if (i + 1 < n) source[i + 1] else '\u0000'
+            when {
+                inLineComment -> {
+                    if (c == '\n') {
+                        inLineComment = false
+                        append('\n')
+                    }
+                    i++
+                }
+                inBlockComment -> {
+                    if (c == '*' && next == '/') {
+                        inBlockComment = false
+                        i += 2
+                    } else {
+                        i++
+                    }
+                }
+                inString -> {
+                    if (c == '\\') {
+                        i += 2
+                    } else {
+                        if (c == '"') inString = false
+                        i++
+                    }
+                }
+                c == '/' && next == '/' -> {
+                    inLineComment = true
+                    i += 2
+                }
+                c == '/' && next == '*' -> {
+                    inBlockComment = true
+                    i += 2
+                }
+                c == '"' -> {
+                    inString = true
+                    i++
+                }
+                stripNestedBraces && c == '{' -> {
+                    depth++
+                    append(' ')
+                    i++
+                }
+                stripNestedBraces && c == '}' -> {
+                    if (depth > 0) depth--
+                    append(' ')
+                    i++
+                }
+                !stripNestedBraces || depth == 0 -> {
+                    append(c)
+                    i++
+                }
+                else -> i++
+            }
+        }
+    }
+
+    private fun isFalseCallArg(args: String): Boolean {
+        val cleaned = stripCommentsAndStrings(args, stripNestedBraces = false).trim()
+        return cleaned.equals("false", ignoreCase = true) ||
+            Regex("""^enabled\s*=\s*false$""", RegexOption.IGNORE_CASE).matches(cleaned)
+    }
+
+    private fun hasTopLevelEnabledFalse(blockBody: String): Boolean {
+        val topLevel = stripCommentsAndStrings(blockBody, stripNestedBraces = true)
+        return Regex("""\benabled\s*=\s*false\b""", RegexOption.IGNORE_CASE).containsMatchIn(topLevel)
+    }
+
+    private fun readAssignmentValue(source: String, startIndex: Int): Pair<String, Int> {
+        var i = skipWhitespaceAndComments(source, startIndex)
+        val start = i
+        val n = source.length
+        while (i < n && (source[i].isLetterOrDigit() || source[i] == '_')) i++
+        return source.substring(start, i) to i
+    }
+
+    private fun findExtensionByCallName(name: String): GenericUiExtensionModule? =
+        GenericUiExtensionModule.entries.firstOrNull {
+            it.dslMethodName.equals(name, ignoreCase = true) ||
+                it.id.equals(name, ignoreCase = true)
+        }
+
+    private fun findExtensionByPropertyName(name: String): GenericUiExtensionModule? {
+        if (name.equals("useCodeEditor", ignoreCase = true)) {
+            return GenericUiExtensionModule.CODE_EDITOR
+        }
+        if (name.endsWith("Enabled")) {
+            return findExtensionByCallName(name.removeSuffix("Enabled"))
+        }
+        return null
+    }
+
+    private fun handleCustomExtensionCall(args: String, target: MutableSet<GenericUiExtensionModule>) {
+        val path = Regex(""""([^"]+)"""").find(args)?.groupValues?.get(1)?.trim() ?: return
+        val matched = GenericUiExtensionModule.fromDslMethod(path) ?: return
+        target.add(matched)
+        val afterPath = stripCommentsAndStrings(args, stripNestedBraces = false)
+        if (Regex("""\btrue\b""", RegexOption.IGNORE_CASE).containsMatchIn(afterPath)) {
+            target.add(GenericUiExtensionModule.DSL)
+        }
     }
 
     private fun replaceTopLevelBlock(source: String, blockName: String, replacementBlock: String): String {

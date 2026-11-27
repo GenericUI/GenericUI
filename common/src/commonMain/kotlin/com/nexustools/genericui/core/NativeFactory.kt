@@ -2,6 +2,8 @@ package com.nexustools.genericui.core
 
 import com.nexustools.genericui.component.layout.DefaultLayoutFactory
 import com.nexustools.genericui.component.layout.LayoutFactory
+import com.nexustools.genericui.core.AbstractComponent
+import com.nexustools.genericui.core.NativeImpl
 import com.nexustools.genericui.enums.bootstrap.BootstrapType
 import com.nexustools.genericui.enums.system.BackendTarget
 import com.nexustools.genericui.exception.RawSocketUnsupportedException
@@ -23,6 +25,7 @@ import com.nexustools.genericui.nativeimpl.feedback.SpinnerNativeImpl
 import com.nexustools.genericui.nativeimpl.form.CheckboxNativeImpl
 import com.nexustools.genericui.nativeimpl.form.RangeSliderNativeImpl
 import com.nexustools.genericui.nativeimpl.form.SelectNativeImpl
+import com.nexustools.genericui.nativeimpl.form.StyledTextInputNativeImpl
 import com.nexustools.genericui.nativeimpl.form.TextInputNativeImpl
 import com.nexustools.genericui.nativeimpl.io.DefaultFileSystemNativeImpl
 import com.nexustools.genericui.nativeimpl.io.FileSystemNativeImpl
@@ -68,6 +71,14 @@ interface NativeFactory {
 
     val usesBrowserManagedImageLoading: Boolean
         get() = false
+
+    /**
+     * `true` when the active backend associates `<label>` elements with their target controls
+     * natively via HTML `id` / `for` attributes (i.e. `:web`), rather than dispatching click-to-focus
+     * in Kotlin.
+     */
+    val supportsNativeHtmlLabelFor: Boolean
+        get() = backendTarget.isBrowser
 
     val supportsMultipleWindows: Boolean
         get() = true
@@ -225,6 +236,10 @@ interface NativeFactory {
     fun createStyledButton(classPrefix: String = "styled-btn"): StyledButtonNativeImpl<*>
     fun createDropdown(): DropdownNativeImpl<*>
     fun createTextInput(multiline: Boolean = false): TextInputNativeImpl<*>
+    fun createStyledTextInput(
+        multiline: Boolean = false,
+        classPrefix: String = if (multiline) "styled-textarea" else "styled-textfield"
+    ): StyledTextInputNativeImpl<*>
     fun createSelect(): SelectNativeImpl<*>
     fun createCheckbox(switchStyle: Boolean = false, radioStyle: Boolean = false): CheckboxNativeImpl<*>
     fun createRangeSlider(): RangeSliderNativeImpl<*>
@@ -297,4 +312,10 @@ interface NativeFactory {
     }
     fun createHttpClient(): HttpClientNativeImpl = com.nexustools.genericui.nativeimpl.net.DefaultHttpClientNativeImpl()
     fun createWebSocket(): WebSocketNativeImpl = com.nexustools.genericui.nativeimpl.net.DefaultWebSocketNativeImpl()
+
+    /**
+     * Pure-core extension dispatch hook allowing extension backends to instantiate native peers
+     * for custom extension components without leaking extension types into `:common`.
+     */
+    fun createExtensionNativeImpl(component: AbstractComponent): NativeImpl<*>? = null
 }

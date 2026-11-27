@@ -14,9 +14,15 @@ interface GenericUiExtensionContributor {
     val extensionModulePath: String
 
     val dslModulePath: String?
-        get() = "$extensionModulePath:dsl"
+        get() = null
+
+    val alienModulePath: String?
+        get() = null
 
     val annotationScanSpecs: List<ExtensionAnnotationScanSpec>
+        get() = emptyList()
+
+    val binaryCodecScanSpecs: List<ExtensionAnnotationScanSpec>
         get() = emptyList()
 
     fun providerInstallerCalls(

@@ -569,8 +569,9 @@ abstract class GenericUiDesktopResourceTask : DefaultTask() {
                         },
                         Charsets.UTF_8
                     )
-                    val macProgramPath = if (entry.executableName == "serviceworker") {
-                        "/Applications/$resolvedAppName.app/Contents/Helpers/$resolvedAppName Service Worker.app/Contents/MacOS/serviceworker"
+                    val helperSuffix = entry.macosHelperBundleSuffix?.trim()?.takeIf { it.isNotEmpty() }
+                    val macProgramPath = if (helperSuffix != null) {
+                        "/Applications/$resolvedAppName.app/Contents/Helpers/$resolvedAppName $helperSuffix.app/Contents/MacOS/${entry.executableName}"
                     } else {
                         entry.executableName
                     }

@@ -155,10 +155,64 @@ data class ComputedStyle(
     val animationIterationCount: String? = null,
     val animationDirection: String? = null,
     val animationFillMode: String? = null,
-    val animationPlayState: String? = null
+    val animationPlayState: String? = null,
+    val borderTopStyle: String? = null,
+    val borderRightStyle: String? = null,
+    val borderBottomStyle: String? = null,
+    val borderLeftStyle: String? = null,
+    val textIndent: CssLength? = null,
+    val listStyleType: String? = null,
+    val content: String? = null,
+    val borderCollapse: String? = null,
+    val borderSpacing: CssLength? = null,
+    val transitionProperty: String? = null,
+    val transitionDuration: String? = null,
+    val transitionTimingFunction: String? = null,
+    val transitionDelay: String? = null,
+    val gridTemplateColumns: String? = null,
+    val gridTemplateRows: String? = null,
+    val gridTemplateAreas: String? = null,
+    val gridArea: String? = null,
+    val gridColumn: String? = null,
+    val gridColumnStart: String? = null,
+    val gridColumnEnd: String? = null,
+    val gridRow: String? = null,
+    val gridRowStart: String? = null,
+    val gridRowEnd: String? = null,
+    val gridAutoFlow: String? = null,
+    val gridAutoRows: String? = null,
+    val gridAutoColumns: String? = null,
+    val justifyItems: String? = null,
+    val justifySelf: String? = null,
+    val placeItems: String? = null,
+    val placeSelf: String? = null,
+    val placeContent: String? = null,
+    val customProperties: Map<String, String> = emptyMap(),
+    val beforeStyle: ComputedStyle? = null,
+    val afterStyle: ComputedStyle? = null,
+    val activeBitmaskExt: Long = 0L,
+    val importantBitmaskExt: Long = 0L
 ) {
     val transformSpec: CssTransform?
         get() = transform2D?.let { CssTransform.fromTransform2D(it) }
+
+    fun resolveEffectiveTransitions(): List<CssTransitionSpec> {
+        if (!transitions.isNullOrEmpty() &&
+            transitionProperty == null &&
+            transitionDuration == null &&
+            transitionTimingFunction == null &&
+            transitionDelay == null
+        ) {
+            return transitions
+        }
+        return CssTransitionSpec.resolveEffectiveSpecs(
+            transitionShorthand = transition,
+            transitionProperty = transitionProperty,
+            transitionDuration = transitionDuration,
+            transitionTimingFunction = transitionTimingFunction,
+            transitionDelay = transitionDelay
+        )
+    }
 
     fun resolveEffectiveAnimations(): List<CssAnimationSpec> {
         if (!animations.isNullOrEmpty() &&
@@ -187,19 +241,19 @@ data class ComputedStyle(
     }
     fun hasProperty(property: CssProperty): Boolean {
         val ord = property.ordinal
-        return if (ord < 64) {
-            (activeBitmaskLow and (1L shl ord)) != 0L
-        } else {
-            (activeBitmaskHigh and (1L shl (ord - 64))) != 0L
+        return when {
+            ord < 64 -> (activeBitmaskLow and (1L shl ord)) != 0L
+            ord < 128 -> (activeBitmaskHigh and (1L shl (ord - 64))) != 0L
+            else -> (activeBitmaskExt and (1L shl (ord - 128))) != 0L
         }
     }
 
     fun isImportant(property: CssProperty): Boolean {
         val ord = property.ordinal
-        return if (ord < 64) {
-            (importantBitmaskLow and (1L shl ord)) != 0L
-        } else {
-            (importantBitmaskHigh and (1L shl (ord - 64))) != 0L
+        return when {
+            ord < 64 -> (importantBitmaskLow and (1L shl ord)) != 0L
+            ord < 128 -> (importantBitmaskHigh and (1L shl (ord - 64))) != 0L
+            else -> (importantBitmaskExt and (1L shl (ord - 128))) != 0L
         }
     }
 
@@ -343,7 +397,36 @@ data class ComputedStyle(
             animationIterationCount = animationIterationCount,
             animationDirection = animationDirection,
             animationFillMode = animationFillMode,
-            animationPlayState = animationPlayState
+            animationPlayState = animationPlayState,
+            textIndent = if (allowTypography) textIndent else null,
+            listStyleType = if (allowTypography) listStyleType else null,
+            borderCollapse = borderCollapse,
+            borderSpacing = borderSpacing,
+            transitionProperty = transitionProperty,
+            transitionDuration = transitionDuration,
+            transitionTimingFunction = transitionTimingFunction,
+            transitionDelay = transitionDelay,
+            gridTemplateColumns = gridTemplateColumns,
+            gridTemplateRows = gridTemplateRows,
+            gridTemplateAreas = gridTemplateAreas,
+            gridArea = gridArea,
+            gridColumn = gridColumn,
+            gridColumnStart = gridColumnStart,
+            gridColumnEnd = gridColumnEnd,
+            gridRow = gridRow,
+            gridRowStart = gridRowStart,
+            gridRowEnd = gridRowEnd,
+            gridAutoFlow = gridAutoFlow,
+            gridAutoRows = gridAutoRows,
+            gridAutoColumns = gridAutoColumns,
+            justifyItems = justifyItems,
+            justifySelf = justifySelf,
+            placeItems = placeItems,
+            placeSelf = placeSelf,
+            placeContent = placeContent,
+            customProperties = customProperties,
+            activeBitmaskExt = activeBitmaskExt and systemFilterExtBitmask(allowTypography),
+            importantBitmaskExt = importantBitmaskExt and systemFilterExtBitmask(allowTypography)
         )
     }
 
@@ -531,7 +614,53 @@ data class ComputedStyle(
             animationIterationCount = other.animationIterationCount ?: animationIterationCount,
             animationDirection = other.animationDirection ?: animationDirection,
             animationFillMode = other.animationFillMode ?: animationFillMode,
-            animationPlayState = other.animationPlayState ?: animationPlayState
+            animationPlayState = other.animationPlayState ?: animationPlayState,
+            borderTopStyle = other.borderTopStyle ?: borderTopStyle,
+            borderRightStyle = other.borderRightStyle ?: borderRightStyle,
+            borderBottomStyle = other.borderBottomStyle ?: borderBottomStyle,
+            borderLeftStyle = other.borderLeftStyle ?: borderLeftStyle,
+            textIndent = other.textIndent ?: textIndent,
+            listStyleType = other.listStyleType ?: listStyleType,
+            content = other.content ?: content,
+            borderCollapse = other.borderCollapse ?: borderCollapse,
+            borderSpacing = other.borderSpacing ?: borderSpacing,
+            transitionProperty = other.transitionProperty ?: transitionProperty,
+            transitionDuration = other.transitionDuration ?: transitionDuration,
+            transitionTimingFunction = other.transitionTimingFunction ?: transitionTimingFunction,
+            transitionDelay = other.transitionDelay ?: transitionDelay,
+            gridTemplateColumns = other.gridTemplateColumns ?: gridTemplateColumns,
+            gridTemplateRows = other.gridTemplateRows ?: gridTemplateRows,
+            gridTemplateAreas = other.gridTemplateAreas ?: gridTemplateAreas,
+            gridArea = other.gridArea ?: gridArea,
+            gridColumn = other.gridColumn ?: gridColumn,
+            gridColumnStart = other.gridColumnStart ?: gridColumnStart,
+            gridColumnEnd = other.gridColumnEnd ?: gridColumnEnd,
+            gridRow = other.gridRow ?: gridRow,
+            gridRowStart = other.gridRowStart ?: gridRowStart,
+            gridRowEnd = other.gridRowEnd ?: gridRowEnd,
+            gridAutoFlow = other.gridAutoFlow ?: gridAutoFlow,
+            gridAutoRows = other.gridAutoRows ?: gridAutoRows,
+            gridAutoColumns = other.gridAutoColumns ?: gridAutoColumns,
+            justifyItems = other.justifyItems ?: justifyItems,
+            justifySelf = other.justifySelf ?: justifySelf,
+            placeItems = other.placeItems ?: placeItems,
+            placeSelf = other.placeSelf ?: placeSelf,
+            placeContent = other.placeContent ?: placeContent,
+            customProperties = when {
+                other.customProperties.isEmpty() -> customProperties
+                customProperties.isEmpty() -> other.customProperties
+                else -> customProperties + other.customProperties
+            },
+            beforeStyle = when {
+                beforeStyle != null && other.beforeStyle != null -> beforeStyle.mergeWith(other.beforeStyle)
+                else -> other.beforeStyle ?: beforeStyle
+            },
+            afterStyle = when {
+                afterStyle != null && other.afterStyle != null -> afterStyle.mergeWith(other.afterStyle)
+                else -> other.afterStyle ?: afterStyle
+            },
+            activeBitmaskExt = activeBitmaskExt or other.activeBitmaskExt,
+            importantBitmaskExt = importantBitmaskExt or other.importantBitmaskExt
         )
     }
 
@@ -600,7 +729,31 @@ data class ComputedStyle(
             CssProperty.ANIMATION_ITERATION_COUNT,
             CssProperty.ANIMATION_DIRECTION,
             CssProperty.ANIMATION_FILL_MODE,
-            CssProperty.ANIMATION_PLAY_STATE
+            CssProperty.ANIMATION_PLAY_STATE,
+            CssProperty.BORDER_COLLAPSE,
+            CssProperty.BORDER_SPACING,
+            CssProperty.TRANSITION_PROPERTY,
+            CssProperty.TRANSITION_DURATION,
+            CssProperty.TRANSITION_TIMING_FUNCTION,
+            CssProperty.TRANSITION_DELAY,
+            CssProperty.GRID_TEMPLATE_COLUMNS,
+            CssProperty.GRID_TEMPLATE_ROWS,
+            CssProperty.GRID_TEMPLATE_AREAS,
+            CssProperty.GRID_AREA,
+            CssProperty.GRID_COLUMN,
+            CssProperty.GRID_COLUMN_START,
+            CssProperty.GRID_COLUMN_END,
+            CssProperty.GRID_ROW,
+            CssProperty.GRID_ROW_START,
+            CssProperty.GRID_ROW_END,
+            CssProperty.GRID_AUTO_FLOW,
+            CssProperty.GRID_AUTO_ROWS,
+            CssProperty.GRID_AUTO_COLUMNS,
+            CssProperty.JUSTIFY_ITEMS,
+            CssProperty.JUSTIFY_SELF,
+            CssProperty.PLACE_ITEMS,
+            CssProperty.PLACE_SELF,
+            CssProperty.PLACE_CONTENT
         )
 
         internal val TYPOGRAPHY_PROPERTIES = setOf(
@@ -616,34 +769,50 @@ data class ComputedStyle(
             CssProperty.TEXT_TRANSFORM,
             CssProperty.TEXT_OVERFLOW,
             CssProperty.WHITE_SPACE,
-            CssProperty.WORD_BREAK
+            CssProperty.WORD_BREAK,
+            CssProperty.TEXT_INDENT,
+            CssProperty.LIST_STYLE_TYPE
         )
 
         private val LAYOUT_MASK_LOW: Long
         private val LAYOUT_MASK_HIGH: Long
+        private val LAYOUT_MASK_EXT: Long
         private val LAYOUT_AND_TYPO_MASK_LOW: Long
         private val LAYOUT_AND_TYPO_MASK_HIGH: Long
+        private val LAYOUT_AND_TYPO_MASK_EXT: Long
         private val FILTER_BIT_LOW: Long
         private val FILTER_BIT_HIGH: Long
 
         init {
             var lLow = 0L
             var lHigh = 0L
+            var lExt = 0L
             for (p in LAYOUT_ONLY_PROPERTIES) {
                 val ord = p.ordinal
-                if (ord < 64) lLow = lLow or (1L shl ord) else lHigh = lHigh or (1L shl (ord - 64))
+                when {
+                    ord < 64 -> lLow = lLow or (1L shl ord)
+                    ord < 128 -> lHigh = lHigh or (1L shl (ord - 64))
+                    else -> lExt = lExt or (1L shl (ord - 128))
+                }
             }
             LAYOUT_MASK_LOW = lLow
             LAYOUT_MASK_HIGH = lHigh
+            LAYOUT_MASK_EXT = lExt
 
             var tLow = lLow
             var tHigh = lHigh
+            var tExt = lExt
             for (p in TYPOGRAPHY_PROPERTIES) {
                 val ord = p.ordinal
-                if (ord < 64) tLow = tLow or (1L shl ord) else tHigh = tHigh or (1L shl (ord - 64))
+                when {
+                    ord < 64 -> tLow = tLow or (1L shl ord)
+                    ord < 128 -> tHigh = tHigh or (1L shl (ord - 64))
+                    else -> tExt = tExt or (1L shl (ord - 128))
+                }
             }
             LAYOUT_AND_TYPO_MASK_LOW = tLow
             LAYOUT_AND_TYPO_MASK_HIGH = tHigh
+            LAYOUT_AND_TYPO_MASK_EXT = tExt
 
             val filterOrd = CssProperty.FILTER.ordinal
             if (filterOrd < 64) {
@@ -654,6 +823,9 @@ data class ComputedStyle(
                 FILTER_BIT_HIGH = 1L shl (filterOrd - 64)
             }
         }
+
+        internal fun systemFilterExtBitmask(allowTypography: Boolean): Long =
+            if (allowTypography) LAYOUT_AND_TYPO_MASK_EXT else LAYOUT_MASK_EXT
 
         internal fun systemFilterBitmasks(
             allowTypography: Boolean,

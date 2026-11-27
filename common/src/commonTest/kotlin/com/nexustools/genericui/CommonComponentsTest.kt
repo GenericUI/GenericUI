@@ -69,6 +69,7 @@ import com.nexustools.genericui.nativeimpl.feedback.SpinnerNativeImpl
 import com.nexustools.genericui.nativeimpl.form.CheckboxNativeImpl
 import com.nexustools.genericui.nativeimpl.form.RangeSliderNativeImpl
 import com.nexustools.genericui.nativeimpl.form.SelectNativeImpl
+import com.nexustools.genericui.nativeimpl.form.StyledTextInputNativeImpl
 import com.nexustools.genericui.nativeimpl.form.TextInputNativeImpl
 import com.nexustools.genericui.nativeimpl.layout.ContainerNativeImpl
 import com.nexustools.genericui.nativeimpl.layout.DividerNativeImpl
@@ -429,6 +430,7 @@ class CommonComponentsTest {
         override fun createStyledButton(classPrefix: String): StyledButtonNativeImpl<*> = unsupported()
         override fun createDropdown(): DropdownNativeImpl<*> = unsupported()
         override fun createTextInput(multiline: Boolean): TextInputNativeImpl<*> = unsupported()
+        override fun createStyledTextInput(multiline: Boolean, classPrefix: String): StyledTextInputNativeImpl<*> = unsupported()
         override fun createSelect(): SelectNativeImpl<*> = unsupported()
         override fun createCheckbox(switchStyle: Boolean, radioStyle: Boolean): CheckboxNativeImpl<*> = unsupported()
         override fun createRangeSlider(): RangeSliderNativeImpl<*> = unsupported()
@@ -869,7 +871,7 @@ class CommonComponentsTest {
         assertSame(iconImg, btnWithImage.image)
         assertEquals("res://drawable/ic_play", btnWithImage.icon)
 
-        val styledContainer = com.nexustools.genericui.component.layout.StyledContainer().apply {
+        val styledContainer = com.nexustools.genericui.component.layout.styled.StyledContainer().apply {
             backgroundColor = RgbaColor(12, 8, 6, 200)
             setBorder(1, RgbaColor(255, 255, 255, 32), com.nexustools.genericui.enums.css.CssBorderStyle.SOLID, radiusPx = 8)
             setBackground(
@@ -888,7 +890,7 @@ class CommonComponentsTest {
         assertEquals(8f, containerSpec.borderRadiusPx)
         assertNotNull(containerSpec.backgroundGradient)
 
-        val styledBtn = com.nexustools.genericui.component.action.StyledButton(
+        val styledBtn = com.nexustools.genericui.component.action.styled.StyledButton(
             image = com.nexustools.genericui.component.media.Image(src = "res://drawable/ic_pause"),
             text = "Pause"
         ).apply {

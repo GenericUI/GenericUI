@@ -1,6 +1,6 @@
 # GenericUI Master Documentation Index
 
-Welcome to the **`GenericUI`** documentation hub. All documentation across the **51-project** root repository (`49` `KNOWN_GENERICUI_MODULES` plus `:gradle-plugin` & `:idea-plugin`, and the `lib/NJS` composite build) and its core, backend, extension, test, and IDE modules is organized by category and cross-referenced.
+Welcome to the **`GenericUI`** documentation hub. All documentation across the **54-project** root repository (`52` `KNOWN_GENERICUI_MODULES` plus `:gradle-plugin` & `:idea-plugin`, and the `lib/NJS` composite build) and its core, backend, extension, test, and IDE modules is organized by category and cross-referenced.
 
 ---
 
@@ -8,7 +8,7 @@ Welcome to the **`GenericUI`** documentation hub. All documentation across the *
 
 | Document | Summary |
 | :--- | :--- |
-| [**Core Architecture Guide (`architecture.md`)**](architecture.md) | Consolidated 51-project module hierarchy (`:common`, `:system`, `:jvm`, `:apple`, `:desktop`, `:mobile`, `:web`, `:tests`, categorized `extensions/{graphics,physics,game,media,data,system,ui}/*`, `:gradle-plugin`, `:idea-plugin`), zero-stub fail-fast registries, `GenericUiExtensionRegistry` & `GenericUiExtensionContributor` SPI, Deferred Upward `NativeImpl` Resolution, pure retained native desktop widget hierarchies, `TitleCapabilities` single-placement rules, zero-allocation strongly-typed `ComponentStyle` (`CssProperty` bitmasks + `WebCssStyleTranslator`), system backend style restraints, 9-backend 10-op `backdropFilter` across all `StyledComponent`, `StyledContainer`, & `StyledButton` instances, custom desktop Bootstrap button widgets (`Swing`/mobile tinting), and 1-Class-Per-File standard. |
+| [**Core Architecture Guide (`architecture.md`)**](architecture.md) | Consolidated 54-project module hierarchy (`:common`, `:system`, `:jvm`, `:apple`, `:desktop`, `:mobile`, `:web`, `:tests`, categorized `extensions/{graphics,physics,game,media,data,system,ui}/*`, `:gradle-plugin`, `:idea-plugin`), zero-stub fail-fast registries, `GenericUiExtensionRegistry` & `GenericUiExtensionContributor` SPI, Deferred Upward `NativeImpl` Resolution, pure retained native desktop widget hierarchies, `TitleCapabilities` single-placement rules, zero-allocation strongly-typed `ComponentStyle` (`CssProperty` bitmasks + `WebCssStyleTranslator`), system backend style restraints, 9-backend 10-op `backdropFilter` across all `StyledComponent`, `StyledContainer`, & `StyledButton` instances, custom desktop Bootstrap button widgets (`Swing`/mobile tinting), and 1-Class-Per-File standard. |
 | [**Shared JVM Foundation (`jvm.md`)**](jvm.md) | The `:jvm` module (`com.nexustools.genericui:jvm`, `jvmSharedMain` / `jvmSharedTest`) consolidating Swing and Android file I/O (`JvmIoExecutor`), UI dispatchers, NIO/sockets/HTTP/WebSockets, JDBC/SQLite (`JvmDatabaseBase`), preferences, resource resolution, `JniLibraryLoader`, `JvmBackdropCapturePlanner`, and pixel tinting (`JvmControlTintPixelUtil`). |
 | [**Shared Apple Foundation (`apple.md`)**](apple.md) | The `:apple` module (`com.nexustools.genericui:apple`, `appleMain` / `appleTest`) consolidating Darwin `AppleStyledSurfaceHelper`, `AppleBackdropFilterController`, `Foundation`, `CoreFoundation`, `Security` TLS SNI, `Network`, `ImageIO`, `CoreGraphics` SVG rasterization (`AppleSvgCoreGraphicsRasterizer`), `UniformTypeIdentifiers`, `UserNotifications`, and `libsqlite3` across macOS, iOS, and iPadOS. |
 | [**Hybrid Responsive Layouts & Fragment Helpers (`layouts-and-helpers.md`)**](layouts-and-helpers.md) | 7 Hybrid Responsive Layout Components & Fragment Helpers (`HybridColumnLayout`/`HybridColumnFragment`, `DockWorkspace`/`DockWorkspaceFragment` with compact mobile edge drawers, `AdaptiveNavigationScaffold`, `ResponsiveMasterDetailLayout`, `HybridSplitNavigationLayout`, `CollapsibleBottomDockLayout`, `ResponsiveBentoGridLayout`), `FlexWrap.WRAP`, `MdiContainer.tileWindows`, `Table.setColumnWeights`, `LazyGrid.minColumnWidthPx`, and `:extensions:ui:dsl` builders ([`layouts-and-hybrid-ui.md`](layouts-and-hybrid-ui.md)). |
@@ -27,7 +27,7 @@ Welcome to the **`GenericUI`** documentation hub. All documentation across the *
 
 | Document | Summary |
 | :--- | :--- |
-| [**Gradle Plugin Guide (`gradle-plugin.md`)**](gradle-plugin.md) | Full reference for `id("com.nexustools.genericui")`: `app`, `window` (`alwaysOnTop`, `aspectRatio`), Apple icon overrides + Chrome-style squircle/full-bleed auto-wrapping, `theme`, all 9 `backends`, all 22 `extensions` (`schema()`, `serviceWorker { ... }`, `pip()`), `jni`/`cinterops`/`nativeLibraries` native build system, `@SchemaData` & `@MainServiceWorker`/`@ServiceWorkerMessage` codegen, `GenericUiExtensionContributor` SPI, `WindowsCoffObjectPartitioner` & `GenericUiKonanCompilerShim`, variant overrides (`6 -> 0`), `android { manifest; services }`, 3-tier `resources`, `sourceSets`, and registered tasks. |
+| [**Gradle Plugin Guide (`gradle-plugin.md`)**](gradle-plugin.md) | Full reference for `id("com.nexustools.genericui")`: `app`, `window` (`alwaysOnTop`, `aspectRatio`), Apple icon overrides + Chrome-style squircle/full-bleed auto-wrapping, `theme`, all 9 `backends`, all 24 `extensions` (`svg()`, `ipc()`, `schema()`, `serviceWorker { ... }`, `webView { ... }`, `pip()`), `jni`/`cinterops`/`nativeLibraries` native build system, `@SchemaData`, `@BinarySerializable`, & `@MainServiceWorker`/`@ServiceWorkerMessage` codegen, `GenericUiExtensionContributor` SPI, `WindowsCoffObjectPartitioner` & `GenericUiKonanCompilerShim`, variant overrides (`6 -> 0`), `android { manifest; services }`, 3-tier `resources`, `sourceSets`, and registered tasks. |
 | [**IntelliJ IDEA Plugin Guide (`idea-plugin.md`)**](idea-plugin.md) | New Project Wizard (`GenericUI.NewProject`) across 7 project templates and `Manage GenericUI Targets & Extensions` (`GenericUI.ManageTargets`) across all 9 backends and 7 extension categories (`Data`, `System`, `Graphics`, `Physics`, `Game & Input`, `Media`, `UI`, wiring `schema()` / `@SchemaData` and `serviceWorker()` / `@MainServiceWorker` + `@ServiceWorkerMessage` Gradle codegen). |
 | [**Agent & Developer Rules (`../AGENTS.md`)**](../AGENTS.md) | Authoritative engineering rules and architectural invariants for contributors and AI agents. |
 
@@ -47,36 +47,38 @@ Welcome to the **`GenericUI`** documentation hub. All documentation across the *
 
 ---
 
-## Category 4 — First-Party Extensions (22 Extensions + 19 Companion `:dsl` Modules)
+## Category 4 — First-Party Extensions (24 Extensions + 16 Companion `:dsl` + 4 Companion `:alien` Modules)
 
 - [**Extensions Overview (`extensions.md`)**](extensions.md) | [**Extensions Module Index (`../extensions/README.md`)**](../extensions/README.md)
 - **Graphics (`:extensions:graphics:*`)**:
   - [`:extensions:graphics:gpu` (`../extensions/docs/gpu.md`)](../extensions/docs/gpu.md)
   - [`:extensions:graphics:imageprocessing` (`../extensions/docs/imageprocessing.md`)](../extensions/docs/imageprocessing.md)
-  - [`:extensions:graphics:canvas2d` & `:dsl` (`../extensions/docs/canvas2d.md`)](../extensions/docs/canvas2d.md)
-  - [`:extensions:graphics:canvas3d` & `:dsl` (`../extensions/docs/canvas3d.md`)](../extensions/docs/canvas3d.md)
+  - [`:extensions:graphics:svg`, `:dsl`, & `:alien` (`../extensions/docs/svg.md`)](../extensions/docs/svg.md)
+  - [`:extensions:graphics:canvas2d`, `:dsl`, & `:alien` (`../extensions/docs/canvas2d.md`)](../extensions/docs/canvas2d.md)
+  - [`:extensions:graphics:canvas3d`, `:dsl`, & `:alien` (`../extensions/docs/canvas3d.md`)](../extensions/docs/canvas3d.md)
   - [`:extensions:graphics:threejs` & `:dsl` (`../extensions/docs/threejs.md`)](../extensions/docs/threejs.md)
 - **Physics (`:extensions:physics:*`)**:
   - [`:extensions:physics:box2d` & `:dsl` (`../extensions/docs/box2d.md`)](../extensions/docs/box2d.md)
   - [`:extensions:physics:box3d` & `:dsl` (`../extensions/docs/box3d.md`)](../extensions/docs/box3d.md)
 - **Game & Input (`:extensions:game:*`)**:
-  - [**`:extensions:game:gamepad` & `:dsl` — Unified Switch/PlayStation/Xbox, 6-Axis IMU, & UI Navigator (`gamepad.md`)**](gamepad.md)
+  - [**`:extensions:game:gamepad` — Unified Switch/PlayStation/Xbox, 6-Axis IMU, & UI Navigator (`gamepad.md`)**](gamepad.md)
   - [**`:extensions:game:engine`, `engine2d`, `engine3d` & `:dsl` — Dedicated Game Thread, VBlank Curves, SVG 2-Bone IK, 2D & 3D Game Engines (`game-engines.md`)**](game-engines.md)
 - **Media (`:extensions:media:*`)**:
-  - [`:extensions:media:media` & `:dsl` — VideoPlayer, AudioPlayer, AudioAnalyzer, & Desktop VLC HDR Engine (`../extensions/docs/media.md`)](../extensions/docs/media.md)
-  - [`:extensions:media:mediacontrols` & `:dsl` — Default Real Platform Transport Controls & Keyboard Keys (`../extensions/docs/mediacontrols.md`)](../extensions/docs/mediacontrols.md)
+  - [`:extensions:media:media`, `:dsl`, & `:alien` — VideoPlayer, AudioPlayer, AudioAnalyzer, & Desktop VLC HDR Engine (`../extensions/docs/media.md`)](../extensions/docs/media.md)
+  - [`:extensions:media:mediacontrols` — Default Real Platform Transport Controls & Keyboard Keys (`../extensions/docs/mediacontrols.md`)](../extensions/docs/mediacontrols.md)
 - **Data (`:extensions:data:*`)**:
-  - `:extensions:data:schema` & `:dsl` — Reflection-free `@SchemaData` codegen (`SchemaExtension`, `<ClassName>SchemaDescriptor.kt`, `SchemaForm`) *(see [`extensions.md`](extensions.md) & [`../extensions/README.md`](../extensions/README.md))*
+  - [`:extensions:data:schema` & `:dsl` — Reflection-free `@SchemaData` codegen (`../extensions/docs/schema.md`)](../extensions/docs/schema.md)
 - **System (`:extensions:system:*`)**:
-  - `:extensions:system:serviceworker` & `:dsl` — Background `@MainServiceWorker` & `@ServiceWorkerMessage` IPC (`ServiceWorkerExtension`, Desktop tray daemons, Android foreground services, Web `./serviceworker.js` + `${resolvedBase}.sw.js|wasm`, honest unsupported iOS/iPadOS contract) *(see [`extensions.md`](extensions.md) & [`../extensions/README.md`](../extensions/README.md))*
+  - [`:extensions:system:ipc` — Target-Scoped Desktop Pipes/Sockets/XPC & Android `Service` Binder IPC (`../extensions/docs/ipc.md`)](../extensions/docs/ipc.md)
+  - [`:extensions:system:serviceworker` — Background `@MainServiceWorker`, `ServiceWorkerFragmentBinding`, & `@ServiceWorkerMessage` IPC (`../extensions/docs/serviceworker.md`)](../extensions/docs/serviceworker.md)
 - **UI, Overlays, WebView, Editor, PiP, & AI (`:extensions:ui:*`)**:
-  - [`:extensions:ui:dsl` & Extension `:dsl` Modules (`../extensions/docs/dsl.md`)](../extensions/docs/dsl.md)
+  - [`:extensions:ui:dsl` & Companion `:dsl` Modules (`../extensions/docs/dsl.md`)](../extensions/docs/dsl.md)
   - [`:extensions:ui:overlay` & `:dsl` (`../extensions/docs/overlay.md`)](../extensions/docs/overlay.md)
   - [`:extensions:ui:alien` & `:dsl` (`../extensions/docs/alien.md`)](../extensions/docs/alien.md)
-  - [`:extensions:ui:webview` & `:dsl` + `:NJS` Bridge (`../extensions/docs/webview.md`)](../extensions/docs/webview.md)
+  - [`:extensions:ui:webview` & `:dsl` — Isolated Alien + `:NJS` Subprocess on Desktop; Native on Mobile & Web (`../extensions/docs/webview.md`)](../extensions/docs/webview.md)
   - [`:extensions:ui:codeeditor` & `:dsl` (`../extensions/docs/codeeditor.md`)](../extensions/docs/codeeditor.md)
   - [`:extensions:ui:aichat` & `:dsl` (`../extensions/docs/aichat.md`)](../extensions/docs/aichat.md)
-  - `:extensions:ui:pip` & `:dsl` — Cross-platform Picture-in-Picture (`PipExtensionContributor`)
+  - [`:extensions:ui:pip` — Cross-platform Picture-in-Picture (`../extensions/docs/pip.md`)](../extensions/docs/pip.md)
   - [**`:NJS` — Nexus JavaScript & TypeScript Engine (`../lib/NJS/README.md`)**](../lib/NJS/README.md) ([Docs Index](../lib/NJS/docs/README.md))
 
 ---

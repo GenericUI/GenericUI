@@ -24,16 +24,16 @@ The `:idea-plugin` module (`idea-plugin/`) provides an IntelliJ IDEA integration
    - **Mobile Targets**: Android (`android`), iOS (`ios` — iPhone), and **iPadOS (`ipados` — iPad)**.
    - **Web Targets**: Web (`web` — dual Kotlin/Wasm primary + Kotlin/JS IR fallback).
    - **Quick-Select Preset Buttons**: `"All Except Swing"`, `"Desktop Only (No Swing)"`, `"Mobile Only"`, `"Apple Only"`, `"Select All"`, `"Clear All"`.
-3. **Transitive Extension Checkboxes (`GenericUiExtensionModule` — 21 Categorized Extensions Across 7 Categories)**:
+3. **Transitive Extension Checkboxes (`GenericUiExtensionModule` — 24 Categorized Extensions Across 7 Categories)**:
    - Interactive checkboxes across all **7** categories (`Graphics`, `Physics`, `Game & Input`, `Media`, **`Data`**, **`System`**, `UI`):
-     - **Graphics**: `gpu`, `imageProcessing`, `canvas2d`, `canvas3d`, `threeJs`
+     - **Graphics**: `gpu`, `imageProcessing`, `svg` *(with `:dsl` & `:alien` companion metadata)*, `canvas2d` *(with `:dsl` & `:alien`)*, `canvas3d` *(with `:dsl` & `:alien`)*, `threeJs`
      - **Physics**: `box2d`, `box3d`
      - **Game & Input**: `gamepad`, `engine`, `engine2d`, `engine3d`
-     - **Media**: `media`, `mediaControls`
+     - **Media**: `media` *(with `:dsl` & `:alien`)*, `mediaControls`
      - **Data**: `schema` (`:extensions:data:schema` — declarative `ObjectSchema` / `SchemaForm` + wiring `schema()` in `build.gradle.kts` for `:gradle-plugin` `@SchemaData` descriptor codegen via `generateGenericUiSchemas`)
-     - **System**: `serviceWorker` (`:extensions:system:serviceworker` — background runtime + wiring `serviceWorker()` in `build.gradle.kts` for `:gradle-plugin` `@MainServiceWorker` validation and `@ServiceWorkerMessage` IPC codec generation via `generateGenericUiServiceWorkerCodecs`)
-     - **UI**: `dsl`, `overlay`, `alien`, `webView`, `codeEditor`, `aiChat` *(note: `:extensions:ui:pip` is enabled manually via `pip()` in `build.gradle.kts` and is not yet listed as a checkbox in `GenericUiExtensionModule`)*
-   - Checking a dependent extension (e.g., `engine3d`, `box3d`, `media` $\rightarrow$ `overlay` + `schema`, `aiChat`) automatically checks its required transitive extensions.
+     - **System**: `ipc` (`:extensions:system:ipc` — Desktop + Android only helper; excluded automatically when non-Desktop/Android backends are unselected), `serviceWorker` (`:extensions:system:serviceworker` — background runtime + wiring `serviceWorker()` in `build.gradle.kts` for `:gradle-plugin` `@MainServiceWorker` validation and `@ServiceWorkerMessage` IPC codec generation via `generateGenericUiServiceWorkerCodecs`)
+     - **UI**: `dsl`, `overlay`, `pip`, `alien`, `webView`, `codeEditor`, `aiChat`
+   - Checking a dependent extension (e.g., `engine3d`, `box3d`, `media` $\rightarrow$ `overlay` + `schema`, `aiChat`, or `webView`) automatically checks its required transitive extensions (such as `ipc`, `alien`, `svg`, `canvas2d`, `canvas3d`, `media` for Desktop `webView`), and automatically resolves active `:dsl` (`16` modules) and `:alien` (`4` modules: `svg:alien`, `canvas2d:alien`, `canvas3d:alien`, `media:alien`) companion Gradle paths.
 4. **Starter Project Templates (`GenericUiProjectTemplateType` — All 7 Templates)**:
    - `STANDARD_FRAGMENT` — Zero-boilerplate `@MainAppFragment` with `FragmentHostFragment` and `TitleBar`
    - `DOCK_WORKSPACE` — `@MainAppFragment` hosting `DockWorkspaceFragment` (GIMP Single-Window vs. Multi-Window IDE)

@@ -2,10 +2,10 @@ package com.nexustools.genericui.system.style
 
 import com.nexustools.genericui.animation.Animator
 import com.nexustools.genericui.component.composite.Composite
-import com.nexustools.genericui.component.form.StyledSlider
+import com.nexustools.genericui.component.form.styled.StyledSlider
 import com.nexustools.genericui.component.layout.Container
-import com.nexustools.genericui.component.layout.StyledContainer
-import com.nexustools.genericui.component.surface.StyledComponent
+import com.nexustools.genericui.component.layout.styled.StyledContainer
+import com.nexustools.genericui.component.surface.styled.StyledComponent
 import com.nexustools.genericui.geometry.Rect
 import com.nexustools.genericui.nativeimpl.system.DefaultAnimationNativeImpl
 import com.nexustools.genericui.style.color.RgbaColor

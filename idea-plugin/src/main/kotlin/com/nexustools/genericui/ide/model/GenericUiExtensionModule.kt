@@ -1,12 +1,13 @@
 package com.nexustools.genericui.ide.model
 
 /**
- * Enum of all 19 first-party `GenericUI` extension modules organized into consolidated categories
- * (`Graphics`, `Physics`, `Game & Input`, `Media`, `UI`), selectable via checkboxes in the
- * IntelliJ IDEA New Project Wizard and Manage Targets Dialog.
+ * Enum of all 24 first-party `GenericUI` extension modules organized into consolidated categories
+ * (`Graphics`, `Physics`, `Game & Input`, `Media`, `Data`, `System`, `UI`), selectable via
+ * checkboxes in the IntelliJ IDEA New Project Wizard and Manage Targets Dialog.
  *
- * Includes companion `:dsl` module metadata ([dslModulePath]) and automatic transitive
- * dependency resolution via [requiredExtensions] and [resolveTransitive].
+ * Includes companion `:dsl` ([dslModulePath]) and `:alien` ([alienModulePath]) module metadata,
+ * target backend compatibility constraints ([isSupportedOn] / [supportsAnyBackend]), and automatic
+ * transitive dependency resolution via [requiredExtensions], [resolveTransitive], and [resolveModulePaths].
  */
 enum class GenericUiExtensionModule(
     val id: String,
@@ -15,7 +16,8 @@ enum class GenericUiExtensionModule(
     val displayName: String,
     val description: String,
     val gradleModulePath: String,
-    val dslModulePath: String?
+    val dslModulePath: String?,
+    val alienModulePath: String? = null
 ) {
     // --- Graphics ---
     GPU(
@@ -36,6 +38,16 @@ enum class GenericUiExtensionModule(
         gradleModulePath = ":extensions:graphics:imageprocessing",
         dslModulePath = null
     ),
+    SVG(
+        id = "svg",
+        dslMethodName = "svg",
+        category = "Graphics",
+        displayName = "SVG Vector Renderer (:extensions:graphics:svg)",
+        description = "Cross-platform W3C SVG DOM scene graph, gradients, clipping, software rasterizer, and Alien/Web DOM rendering",
+        gradleModulePath = ":extensions:graphics:svg",
+        dslModulePath = ":extensions:graphics:svg:dsl",
+        alienModulePath = ":extensions:graphics:svg:alien"
+    ),
     CANVAS_2D(
         id = "canvas2d",
         dslMethodName = "canvas2d",
@@ -43,7 +55,8 @@ enum class GenericUiExtensionModule(
         displayName = "Canvas 2D & Curve Editor (:extensions:graphics:canvas2d)",
         description = "Immediate & retained-mode 2D vector/raster Canvas2D and interactive Bezier CurveEditor",
         gradleModulePath = ":extensions:graphics:canvas2d",
-        dslModulePath = ":extensions:graphics:canvas2d:dsl"
+        dslModulePath = ":extensions:graphics:canvas2d:dsl",
+        alienModulePath = ":extensions:graphics:canvas2d:alien"
     ),
     CANVAS_3D(
         id = "canvas3d",
@@ -52,7 +65,8 @@ enum class GenericUiExtensionModule(
         displayName = "Canvas 3D GL & Vulkan (:extensions:graphics:canvas3d)",
         description = "Hardware-accelerated Canvas3D and ScrollCanvas3D viewport widgets",
         gradleModulePath = ":extensions:graphics:canvas3d",
-        dslModulePath = ":extensions:graphics:canvas3d:dsl"
+        dslModulePath = ":extensions:graphics:canvas3d:dsl",
+        alienModulePath = ":extensions:graphics:canvas3d:alien"
     ),
     THREE_JS(
         id = "threejs",
@@ -92,7 +106,7 @@ enum class GenericUiExtensionModule(
         displayName = "Gamepad & Controller Input (:extensions:game:gamepad)",
         description = "Cross-platform controller manager (Xbox, PlayStation, Switch, Generic), 6-axis IMU fusion, rumble/adaptive triggers, and spatial UI navigation",
         gradleModulePath = ":extensions:game:gamepad",
-        dslModulePath = ":extensions:game:gamepad:dsl"
+        dslModulePath = null
     ),
     ENGINE(
         id = "engine",
@@ -130,7 +144,8 @@ enum class GenericUiExtensionModule(
         displayName = "Media Player & Audio Analyzer (:extensions:media:media)",
         description = "VideoPlayer, AudioPlayer, FFT AudioAnalyzer, WebVTT/SRT subtitles, and Desktop VLC HDR engine",
         gradleModulePath = ":extensions:media:media",
-        dslModulePath = ":extensions:media:media:dsl"
+        dslModulePath = ":extensions:media:media:dsl",
+        alienModulePath = ":extensions:media:media:alien"
     ),
     MEDIA_CONTROLS(
         id = "mediacontrols",
@@ -139,7 +154,7 @@ enum class GenericUiExtensionModule(
         displayName = "System Media Controls (:extensions:media:mediacontrols)",
         description = "OS-level media transport controls, Now Playing metadata, and hardware media key integration",
         gradleModulePath = ":extensions:media:mediacontrols",
-        dslModulePath = ":extensions:media:mediacontrols:dsl"
+        dslModulePath = null
     ),
 
     // --- Data ---
@@ -154,6 +169,16 @@ enum class GenericUiExtensionModule(
     ),
 
     // --- System ---
+    IPC(
+        id = "ipc",
+        dslMethodName = "ipc",
+        category = "System",
+        displayName = "Cross-Platform IPC (:extensions:system:ipc)",
+        description = "Desktop + Android helper ONLY (Named pipes, Unix domain sockets, XPC, and Android Binder; never JS/Wasm/iOS)",
+        gradleModulePath = ":extensions:system:ipc",
+        dslModulePath = null,
+        alienModulePath = null
+    ),
     SERVICE_WORKER(
         id = "serviceWorker",
         dslMethodName = "serviceWorker",
@@ -161,7 +186,7 @@ enum class GenericUiExtensionModule(
         displayName = "Background Service Worker (:extensions:system:serviceworker)",
         description = "Cross-platform background ServiceWorker runtime, @MainServiceWorker validation, @ServiceWorkerMessage IPC codecs, system tray, foreground service, and Web Worker/ServiceWorker support",
         gradleModulePath = ":extensions:system:serviceworker",
-        dslModulePath = ":extensions:system:serviceworker:dsl"
+        dslModulePath = null
     ),
 
     // --- UI ---
@@ -183,6 +208,15 @@ enum class GenericUiExtensionModule(
         gradleModulePath = ":extensions:ui:overlay",
         dslModulePath = ":extensions:ui:overlay:dsl"
     ),
+    PIP(
+        id = "pip",
+        dslMethodName = "pip",
+        category = "UI",
+        displayName = "Picture-in-Picture (:extensions:ui:pip)",
+        description = "Cross-platform Picture-in-Picture floating windows, Android/iOS native PiP, Web Document PiP, and overlay transport controls",
+        gradleModulePath = ":extensions:ui:pip",
+        dslModulePath = null
+    ),
     ALIEN(
         id = "alien",
         dslMethodName = "alien",
@@ -197,7 +231,7 @@ enum class GenericUiExtensionModule(
         dslMethodName = "webView",
         category = "UI",
         displayName = "Hybrid WebView (:extensions:ui:webview)",
-        description = "Chromium Blink + NJS Native JIT on Desktop/Swing and native WebView/WKWebView/iframe on Mobile/Web",
+        description = "Out-of-process Alien + SVG + Canvas2D + Canvas3D + Media + NJS + IPC rendering on Desktop (native helper binary / Swing separate main class), native WebView on Mobile (android.webkit.WebView / WKWebView), and <iframe> on Web",
         gradleModulePath = ":extensions:ui:webview",
         dslModulePath = ":extensions:ui:webview:dsl"
     ),
@@ -224,6 +258,27 @@ enum class GenericUiExtensionModule(
     val hasDslModule: Boolean
         get() = dslModulePath != null
 
+    /** True when this extension provides a companion `:alien` Gradle module (`<gradleModulePath>:alien`). */
+    val hasAlienModule: Boolean
+        get() = alienModulePath != null
+
+    /**
+     * Returns true if this extension module is supported when targeting [backend].
+     * [IPC] (`:extensions:system:ipc`) is a Desktop + Android helper ONLY and never targets JS/Wasm or iOS/iPadOS.
+     */
+    fun isSupportedOn(backend: GenericUiTargetBackend): Boolean = when (this) {
+        IPC -> backend.isDesktop || backend == GenericUiTargetBackend.ANDROID
+        else -> true
+    }
+
+    /** Returns true if at least one backend in [backends] supports this extension (or if [backends] is empty). */
+    fun supportsAnyBackend(backends: Set<GenericUiTargetBackend>): Boolean =
+        backends.isEmpty() || backends.any { isSupportedOn(it) }
+
+    /** Returns all [GenericUiTargetBackend]s on which this extension is supported. */
+    fun supportedBackends(): Set<GenericUiTargetBackend> =
+        GenericUiTargetBackend.entries.filterTo(LinkedHashSet()) { isSupportedOn(it) }
+
     /**
      * Returns all transitive required extension modules that are automatically enabled
      * when this extension module is selected.
@@ -231,6 +286,7 @@ enum class GenericUiExtensionModule(
     fun requiredExtensions(): Set<GenericUiExtensionModule> = when (this) {
         GPU -> emptySet()
         IMAGE_PROCESSING -> linkedSetOf(GPU)
+        SVG -> emptySet()
         CANVAS_2D -> linkedSetOf(GPU, IMAGE_PROCESSING, OVERLAY)
         CANVAS_3D -> linkedSetOf(GPU, IMAGE_PROCESSING, CANVAS_2D, OVERLAY)
         THREE_JS -> linkedSetOf(GPU, IMAGE_PROCESSING, CANVAS_2D, CANVAS_3D, OVERLAY)
@@ -243,11 +299,24 @@ enum class GenericUiExtensionModule(
         MEDIA -> linkedSetOf(OVERLAY, SCHEMA)
         MEDIA_CONTROLS -> emptySet()
         SCHEMA -> emptySet()
-        SERVICE_WORKER -> emptySet()
+        IPC -> emptySet()
+        SERVICE_WORKER -> linkedSetOf(IPC)
         DSL -> emptySet()
         OVERLAY -> emptySet()
+        PIP -> linkedSetOf(OVERLAY)
         ALIEN -> linkedSetOf(GPU, IMAGE_PROCESSING, CANVAS_2D, OVERLAY)
-        WEB_VIEW -> emptySet()
+        WEB_VIEW -> linkedSetOf(
+            GPU,
+            IMAGE_PROCESSING,
+            SVG,
+            CANVAS_2D,
+            CANVAS_3D,
+            MEDIA,
+            SCHEMA,
+            IPC,
+            OVERLAY,
+            ALIEN
+        )
         CODE_EDITOR -> linkedSetOf(GPU, IMAGE_PROCESSING, CANVAS_2D, OVERLAY)
         AI_CHAT -> linkedSetOf(GPU, IMAGE_PROCESSING, CANVAS_2D, OVERLAY, CODE_EDITOR)
     }
@@ -269,16 +338,23 @@ enum class GenericUiExtensionModule(
             entries.filter { it.category == category }
 
         /**
-         * Expands [selected] to include all transitively required extensions in canonical declaration order.
+         * Expands [selected] to include all transitively required extensions in canonical declaration order,
+         * filtering out backend-restricted helpers (such as [IPC]) when non-empty [backends] excludes them.
          */
-        fun resolveTransitive(selected: Set<GenericUiExtensionModule>): Set<GenericUiExtensionModule> {
+        fun resolveTransitive(
+            selected: Set<GenericUiExtensionModule>,
+            backends: Set<GenericUiTargetBackend> = emptySet()
+        ): Set<GenericUiExtensionModule> {
             val expanded = linkedSetOf<GenericUiExtensionModule>()
             val queue = ArrayDeque(selected)
             while (queue.isNotEmpty()) {
                 val ext = queue.removeFirst()
+                if (!ext.supportsAnyBackend(backends)) {
+                    continue
+                }
                 if (expanded.add(ext)) {
                     for (req in ext.requiredExtensions()) {
-                        if (req !in expanded) {
+                        if (req !in expanded && req.supportsAnyBackend(backends)) {
                             queue.addLast(req)
                         }
                     }
@@ -289,14 +365,27 @@ enum class GenericUiExtensionModule(
 
         /**
          * Returns the ordered list of Gradle module paths for [selected], including transitive base
-         * extension modules and (when [DSL] is enabled) every companion `:dsl` module path.
+         * extension modules, active companion `:alien` modules when [ALIEN] is enabled, and
+         * active companion `:dsl` modules when [DSL] is enabled.
          */
-        fun resolveModulePaths(selected: Set<GenericUiExtensionModule>): List<String> {
-            val resolved = resolveTransitive(selected)
+        fun resolveModulePaths(
+            selected: Set<GenericUiExtensionModule>,
+            backends: Set<GenericUiTargetBackend> = emptySet()
+        ): List<String> {
+            val resolved = resolveTransitive(selected, backends)
+            val includeAlienVariants = ALIEN in resolved
             val includeDslVariants = DSL in resolved
             return buildList {
                 for (ext in resolved) {
                     add(ext.gradleModulePath)
+                }
+                if (includeAlienVariants) {
+                    for (ext in resolved) {
+                        val alienPath = ext.alienModulePath
+                        if (alienPath != null) {
+                            add(alienPath)
+                        }
+                    }
                 }
                 if (includeDslVariants) {
                     for (ext in resolved) {
@@ -309,14 +398,15 @@ enum class GenericUiExtensionModule(
             }
         }
 
-        /** Looks up an extension module by its [dslMethodName], [id], [gradleModulePath], or [dslModulePath]. */
+        /** Looks up an extension module by its [dslMethodName], [id], [gradleModulePath], [dslModulePath], or [alienModulePath]. */
         fun fromDslMethod(name: String): GenericUiExtensionModule? {
             val trimmed = name.trim()
             return entries.firstOrNull {
                 it.dslMethodName.equals(trimmed, ignoreCase = true) ||
                     it.id.equals(trimmed, ignoreCase = true) ||
                     it.gradleModulePath.equals(trimmed, ignoreCase = true) ||
-                    it.dslModulePath?.equals(trimmed, ignoreCase = true) == true
+                    it.dslModulePath?.equals(trimmed, ignoreCase = true) == true ||
+                    it.alienModulePath?.equals(trimmed, ignoreCase = true) == true
             }
         }
     }

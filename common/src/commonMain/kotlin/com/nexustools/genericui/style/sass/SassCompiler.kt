@@ -191,8 +191,9 @@ object SassCompiler {
         return variables
     }
 
-    private fun stripComments(scss: String): String =
-        scss.replace(Regex("/\\*[\\s\\S]*?\\*/"), "")
+    private fun stripComments(scss: String): String {
+        val noBlockComments = stripBlockComments(scss)
+        return noBlockComments
             .lines()
             .map { line ->
                 val commentIdx = line.indexOf("//")
@@ -203,6 +204,31 @@ object SassCompiler {
                 }
             }
             .joinToString("\n")
+    }
+
+    /** Strips CSS/SCSS block comments iteratively to avoid backtracking stack overflow on native targets. */
+    private fun stripBlockComments(input: String): String {
+        val firstStart = input.indexOf("/*")
+        if (firstStart < 0) return input
+        val sb = StringBuilder(input.length)
+        var cursor = 0
+        var commentStart = firstStart
+        while (commentStart >= 0) {
+            if (commentStart > cursor) {
+                sb.append(input, cursor, commentStart)
+            }
+            val commentEnd = input.indexOf("*/", commentStart + 2)
+            if (commentEnd < 0) {
+                return sb.toString()
+            }
+            cursor = commentEnd + 2
+            commentStart = input.indexOf("/*", cursor)
+        }
+        if (cursor < input.length) {
+            sb.append(input, cursor, input.length)
+        }
+        return sb.toString()
+    }
 
     private fun splitTopLevelCommas(input: String): List<String> {
         val result = mutableListOf<String>()
@@ -555,7 +581,7 @@ object SassCompiler {
     }
 
     private fun combineSelectors(parents: List<String>, rawChildHeader: String): List<String> {
-        val children = rawChildHeader.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+        val children = com.nexustools.genericui.style.css.CssSelectorCompound.splitTopLevelSelectorList(rawChildHeader)
         if (parents.isEmpty()) return children
         val combined = mutableListOf<String>()
         for (p in parents) {

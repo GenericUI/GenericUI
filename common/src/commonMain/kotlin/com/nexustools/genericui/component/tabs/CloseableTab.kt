@@ -2,8 +2,6 @@ package com.nexustools.genericui.component.tabs
 
 import com.nexustools.genericui.component.media.Image
 import com.nexustools.genericui.core.AbstractComponent
-import com.nexustools.genericui.core.NativeFactory
-import com.nexustools.genericui.nativeimpl.tabs.TabNativeImpl
 import com.nexustools.genericui.resources.ResourceID
 
 /**
@@ -26,11 +24,11 @@ open class CloseableTab(
     customComponent: AbstractComponent? = null,
     iconRes: ResourceID? = null,
     image: Image? = null,
-    tintImageToTheme: Boolean = true,
+    tintImageToTheme: Boolean? = null,
     iconSizePx: Int = image?.widthPx ?: image?.heightPx ?: 20,
     iconPlacement: TabIconPlacement = TabIconPlacement.START,
-    var onCloseRequested: (() -> Boolean)? = null,
-    var onClosed: (() -> Unit)? = null
+    onCloseRequested: (() -> Boolean)? = null,
+    onClosed: (() -> Unit)? = null
 ) : Tab(
     tabId = tabId,
     title = title,
@@ -41,51 +39,16 @@ open class CloseableTab(
     image = image,
     tintImageToTheme = tintImageToTheme,
     iconSizePx = iconSizePx,
-    iconPlacement = iconPlacement
+    iconPlacement = iconPlacement,
+    closable = isCloseable,
+    onCloseRequested = onCloseRequested,
+    onClosed = onClosed
 ) {
-
-    var isCloseable: Boolean = isCloseable
-        set(value) {
-            field = value
-            typedNative<TabNativeImpl<*>>()?.setClosableNative(value)
-            ownerNotifyUpdated?.invoke(this)
-        }
-
-    var isClosable: Boolean
-        get() = isCloseable
-        set(value) {
-            isCloseable = value
-        }
 
     init {
         htmlTag = "genericui:closeabletab"
         this.isDirty = isDirty
     }
 
-    /**
-     * Requests closing this tab. Invokes [onCloseRequested] (if set) to allow vetoing (e.g. unsaved changes prompt),
-     * then notifies the owning [TabContainer] or [FragmentTabContainer] to remove the tab and invokes [onClosed].
-     */
-    open fun requestClose(): Boolean {
-        if (!isCloseable) return false
-        val allowed = onCloseRequested?.invoke() ?: true
-        if (!allowed) return false
-        val closedByOwner = ownerRequestClose?.invoke(this) ?: true
-        if (closedByOwner) {
-            onClosed?.invoke()
-        }
-        return closedByOwner
-    }
-
-    protected override fun createNativeImpl(factory: NativeFactory): TabNativeImpl<*> =
-        factory.createTab(closable = isCloseable)
-
-    override fun syncStateToNative() {
-        super.syncStateToNative()
-        val impl = typedNative<TabNativeImpl<*>>() ?: return
-        impl.setClosableNative(isCloseable)
-        impl.setOnCloseClicked {
-            requestClose()
-        }
-    }
+    override fun requestClose(): Boolean = super.requestClose()
 }

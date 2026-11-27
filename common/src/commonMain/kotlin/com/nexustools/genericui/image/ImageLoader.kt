@@ -13,6 +13,7 @@ import com.nexustools.genericui.resources.ResourceID
 import com.nexustools.genericui.resources.ResourceResolver
 import com.nexustools.genericui.resources.ResourceType
 import com.nexustools.genericui.style.color.RgbaColor
+import com.nexustools.genericui.style.css.CssCustomCursor
 import com.nexustools.genericui.util.CacheDirectory
 import com.nexustools.genericui.util.WeakReference
 import kotlin.concurrent.atomics.AtomicInt
@@ -803,16 +804,18 @@ object ImageLoader {
             ImageFormat.WEBP -> LibWebpCodec.decode(bytes)
             ImageFormat.BMP -> decodeBmp(bytes)
             ImageFormat.PPM -> decodePpm(bytes)
-            ImageFormat.SVG -> createDefaultPlaceholderBuffer(
-                width = options.targetWidth ?: 48,
-                height = options.targetHeight ?: 48
+            ImageFormat.SVG -> CssCustomCursor.rasterizeSvgMarkup(
+                svgMarkup = bytes.decodeToString(),
+                widthPx = options.targetWidth ?: 48,
+                heightPx = options.targetHeight ?: 48
             )
             else -> {
                 val headStr = bytes.take(64).toByteArray().decodeToString().trimStart()
                 if (headStr.startsWith("<svg", ignoreCase = true) || headStr.startsWith("<?xml", ignoreCase = true)) {
-                    createDefaultPlaceholderBuffer(
-                        width = options.targetWidth ?: 48,
-                        height = options.targetHeight ?: 48
+                    CssCustomCursor.rasterizeSvgMarkup(
+                        svgMarkup = bytes.decodeToString(),
+                        widthPx = options.targetWidth ?: 48,
+                        heightPx = options.targetHeight ?: 48
                     )
                 } else {
                     val (w, h) = parseDimensionsFromHeader(bytes, fmt)

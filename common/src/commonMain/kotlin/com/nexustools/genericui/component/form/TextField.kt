@@ -12,51 +12,64 @@ open class TextField(
     placeholder: String = "",
     protected val multilineMode: Boolean = false,
     protected val passwordMode: Boolean = false,
-    label: String? = null
-) : AbstractComponent(htmlTag = if (multilineMode) "textarea" else "input") {
+    label: String? = null,
+    classPrefix: String = ""
+) : AbstractComponent(
+    componentClassPrefix = classPrefix,
+    htmlTag = if (multilineMode) "textarea" else "input"
+), ITextField {
     override val isTextInputComponent: Boolean
         get() = true
 
     override val supportsFocus: Boolean
         get() = true
 
+    override val labelTargetComponent: AbstractComponent
+        get() = this
+
     init {
         ignoreKeyEventsWhenTypingInTextInput = false
     }
 
-    var value: String = value
+    override var value: String = value
         set(newVal) {
             if (field == newVal) return
             field = newVal
             typedNative<TextInputNativeImpl<*>>()?.setValue(newVal)
         }
 
-    var placeholder: String = placeholder
+    override var placeholder: String = placeholder
         set(newVal) {
             field = newVal
             typedNative<TextInputNativeImpl<*>>()?.setPlaceholder(newVal)
         }
 
-    var label: String? = label
+    override var label: String? = label
         set(newVal) {
             if (field == newVal) return
             field = newVal
             typedNative<TextInputNativeImpl<*>>()?.setLabel(newVal?.takeIf { it.isNotEmpty() })
         }
 
-    var isReadOnly: Boolean = false
+    override var isReadOnly: Boolean = false
         set(newVal) {
             field = newVal
             typedNative<TextInputNativeImpl<*>>()?.setReadOnly(newVal)
         }
 
-    var onValueChanged: ((String) -> Unit)? = null
+    override var isEnabled: Boolean
+        get() = super.isEnabled
+        set(value) {
+            super.isEnabled = value
+        }
+
+    override var onValueChanged: ((String) -> Unit)? = null
         set(newVal) {
             field = newVal
             typedNative<TextInputNativeImpl<*>>()?.let { bindOnValueChangedListener(it) }
         }
 
-    var onSubmit: ((String) -> Unit)? = null
+    override var onSubmit: ((String) -> Unit)? = null
         set(newVal) {
             field = newVal
             typedNative<TextInputNativeImpl<*>>()?.setOnSubmit(field)

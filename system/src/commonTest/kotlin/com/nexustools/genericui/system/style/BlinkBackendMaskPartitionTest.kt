@@ -1,7 +1,7 @@
 package com.nexustools.genericui.system.style
 
-import com.nexustools.genericui.component.layout.StyledContainer
-import com.nexustools.genericui.component.surface.StyledComponent
+import com.nexustools.genericui.component.layout.styled.StyledContainer
+import com.nexustools.genericui.component.surface.styled.StyledComponent
 import com.nexustools.genericui.core.GenericUI
 import com.nexustools.genericui.core.NativeFactory
 import com.nexustools.genericui.enums.system.BackendTarget
@@ -25,6 +25,7 @@ import com.nexustools.genericui.nativeimpl.feedback.SpinnerNativeImpl
 import com.nexustools.genericui.nativeimpl.form.CheckboxNativeImpl
 import com.nexustools.genericui.nativeimpl.form.RangeSliderNativeImpl
 import com.nexustools.genericui.nativeimpl.form.SelectNativeImpl
+import com.nexustools.genericui.nativeimpl.form.StyledTextInputNativeImpl
 import com.nexustools.genericui.nativeimpl.form.TextInputNativeImpl
 import com.nexustools.genericui.nativeimpl.layout.ContainerNativeImpl
 import com.nexustools.genericui.nativeimpl.layout.DividerNativeImpl
@@ -97,6 +98,7 @@ class BlinkBackendMaskPartitionTest {
         override fun createStyledButton(classPrefix: String): StyledButtonNativeImpl<*> = unused()
         override fun createDropdown(): DropdownNativeImpl<*> = unused()
         override fun createTextInput(multiline: Boolean): TextInputNativeImpl<*> = unused()
+        override fun createStyledTextInput(multiline: Boolean, classPrefix: String): StyledTextInputNativeImpl<*> = unused()
         override fun createSelect(): SelectNativeImpl<*> = unused()
         override fun createCheckbox(switchStyle: Boolean, radioStyle: Boolean): CheckboxNativeImpl<*> = unused()
         override fun createRangeSlider(): RangeSliderNativeImpl<*> = unused()

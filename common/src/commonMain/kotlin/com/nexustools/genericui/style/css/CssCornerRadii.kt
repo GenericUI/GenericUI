@@ -46,7 +46,9 @@ data class CssCornerRadii(
                 ?.trim()
                 ?.takeIf { it.isNotEmpty() }
                 ?: return null
-            val parts = cleaned.split(Regex("\\s+")).mapNotNull { CssLength.parse(it) }
+            val slashIdx = findEllipticalSlashIndex(cleaned)
+            val radiiSource = if (slashIdx >= 0) cleaned.substring(0, slashIdx).trim() else cleaned
+            val parts = CssShadow.tokenizePreservingParens(radiiSource).mapNotNull { CssLength.parse(it) }
             return when (parts.size) {
                 1 -> all(parts[0])
                 2 -> CssCornerRadii(topLeft = parts[0], topRight = parts[1], bottomRight = parts[0], bottomLeft = parts[1])
@@ -54,6 +56,28 @@ data class CssCornerRadii(
                 4 -> CssCornerRadii(topLeft = parts[0], topRight = parts[1], bottomRight = parts[2], bottomLeft = parts[3])
                 else -> null
             }
+        }
+
+        private fun findEllipticalSlashIndex(value: String): Int {
+            var parenDepth = 0
+            for (i in value.indices) {
+                val ch = value[i]
+                when (ch) {
+                    '(' -> parenDepth++
+                    ')' -> if (parenDepth > 0) parenDepth--
+                    '/' -> if (parenDepth == 0) {
+                        var tokenStart = i - 1
+                        while (tokenStart >= 0 && !value[tokenStart].isWhitespace()) {
+                            tokenStart--
+                        }
+                        if (tokenStart + 1 < i && value[tokenStart + 1] == '@') {
+                            continue
+                        }
+                        return i
+                    }
+                }
+            }
+            return -1
         }
     }
 }

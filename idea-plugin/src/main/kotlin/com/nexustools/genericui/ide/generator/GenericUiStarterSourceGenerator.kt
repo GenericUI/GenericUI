@@ -14,8 +14,8 @@ class GenericUiStarterSourceGenerator {
      * Generates `src/commonMain/kotlin/<packagePath>/MainFragment.kt` matching [GenericUiProjectConfig.templateType].
      *
      * When [GenericUiExtensionModule.DSL] is enabled, demonstrates the `:extensions:ui:dsl` `bootstrap { ... }`
-     * and `style { ... }` builders (plus companion `:dsl` game/extension builders); otherwise demonstrates
-     * core `getBootstrap().apply { ... }` and `getStyle().apply { ... }` configuration.
+     * and `style { ... }` builders (plus companion `:dsl` extension builders where supported); otherwise
+     * demonstrates core `getBootstrap().apply { ... }` and `getStyle().apply { ... }` configuration.
      */
     fun generateMainFragmentKt(config: GenericUiProjectConfig): String = buildString {
         val resolvedExtensions = config.resolvedExtensions()
@@ -64,6 +64,7 @@ class GenericUiStarterSourceGenerator {
                 appendLine("        super.onCreate(savedState)")
                 appendStylingSnippet(useDsl)
                 appendLine("        // Initialize GenericUI Fragment hierarchy, MenuBar, ToolBar, and responsive widgets")
+                appendExtensionGuidanceComments(resolvedExtensions)
                 appendLine("    }")
                 appendLine("}")
             }
@@ -81,6 +82,7 @@ class GenericUiStarterSourceGenerator {
                 appendLine("        super.onCreate(savedState)")
                 appendStylingSnippet(useDsl)
                 appendLine("        // Configure DockWorkspaceFragment panels, IdeCodeEditor, and AIChatDrawer")
+                appendExtensionGuidanceComments(resolvedExtensions)
                 appendLine("    }")
                 appendLine("}")
             }
@@ -96,6 +98,7 @@ class GenericUiStarterSourceGenerator {
                 appendLine("        super.onCreate(savedState)")
                 appendStylingSnippet(useDsl)
                 appendLine("        // Configure OverlayDockWorkspaceFragment with ThreeSceneCanvas and floating HUD docks")
+                appendExtensionGuidanceComments(resolvedExtensions)
                 appendLine("    }")
                 appendLine("}")
             }
@@ -112,6 +115,7 @@ class GenericUiStarterSourceGenerator {
                 appendLine("        super.onCreate(savedState)")
                 appendStylingSnippet(useDsl)
                 appendLine("        // Configure HybridColumnFragment sections and VideoPlayer / AudioPlayer media views")
+                appendExtensionGuidanceComments(resolvedExtensions)
                 appendLine("    }")
                 appendLine("}")
             }
@@ -134,6 +138,7 @@ class GenericUiStarterSourceGenerator {
                     appendLine("        addChild(host.canvas)")
                     appendLine("        host.start()")
                 }
+                appendExtensionGuidanceComments(resolvedExtensions)
                 appendLine("    }")
                 appendLine("}")
             }
@@ -156,6 +161,7 @@ class GenericUiStarterSourceGenerator {
                     appendLine("        addChild(host.canvas)")
                     appendLine("        host.start()")
                 }
+                appendExtensionGuidanceComments(resolvedExtensions)
                 appendLine("    }")
                 appendLine("}")
             }
@@ -171,10 +177,40 @@ class GenericUiStarterSourceGenerator {
                 appendLine("        super.onCreate(savedState)")
                 appendStylingSnippet(useDsl)
                 appendLine("        // Configure CenteredMenuPageFragment and ValidatedStepPageFragment navigation stack")
+                appendExtensionGuidanceComments(resolvedExtensions)
                 appendLine("    }")
                 appendLine("}")
             }
         }
+    }
+
+    /**
+     * Generates `src/commonMain/kotlin/<packagePath>/AppServiceWorker.kt` when
+     * [GenericUiExtensionModule.SERVICE_WORKER] is enabled, using core `:extensions:system:serviceworker`
+     * APIs directly (backed by `:extensions:system:ipc` on Desktop and Android).
+     */
+    fun generateServiceWorkerKt(config: GenericUiProjectConfig): String = buildString {
+        appendLine("package ${config.packageName}")
+        appendLine()
+        appendLine("import com.nexustools.genericui.ext.serviceworker.MainServiceWorker")
+        appendLine("import com.nexustools.genericui.ext.serviceworker.ServiceWorker")
+        appendLine()
+        appendLine("/**")
+        appendLine(" * Background Service Worker for ${config.projectName}.")
+        appendLine(" * Uses :extensions:system:serviceworker directly (backed by :extensions:system:ipc on Desktop and Android).")
+        appendLine(" */")
+        appendLine("@MainServiceWorker")
+        appendLine("class AppServiceWorker : ServiceWorker() {")
+        appendLine("    override fun onStart() {")
+        appendLine("        if (supportsOngoingNotification) {")
+        appendLine("            setNotificationTitle(\"${config.projectName}\")")
+        appendLine("            setNotificationText(\"Running in background\")")
+        appendLine("        }")
+        appendLine("        if (supportsSystemTray) {")
+        appendLine("            setTrayTooltip(\"${config.projectName}\")")
+        appendLine("        }")
+        appendLine("    }")
+        append("}")
     }
 
     /**
@@ -222,6 +258,28 @@ class GenericUiStarterSourceGenerator {
             appendLine("        getStyle().apply {")
             appendLine("            setCursor(CssCursor.DEFAULT)")
             appendLine("        }")
+        }
+    }
+
+    private fun StringBuilder.appendExtensionGuidanceComments(resolvedExtensions: Set<GenericUiExtensionModule>) {
+        if (GenericUiExtensionModule.WEB_VIEW in resolvedExtensions) {
+            appendLine("        // WebView uses out-of-process Alien + SVG + Canvas2D + Canvas3D + Media + NJS + IPC on Desktop, native WebView on Mobile, and <iframe> on Web")
+        } else {
+            if (GenericUiExtensionModule.SVG in resolvedExtensions) {
+                appendLine("        // SVG vector scene graph active via :extensions:graphics:svg")
+            }
+            if (GenericUiExtensionModule.IPC in resolvedExtensions && GenericUiExtensionModule.SERVICE_WORKER !in resolvedExtensions) {
+                appendLine("        // Desktop + Android IPC transport active via :extensions:system:ipc")
+            }
+        }
+        if (GenericUiExtensionModule.SERVICE_WORKER in resolvedExtensions) {
+            appendLine("        // Connect to AppServiceWorker via ServiceWorkerExtension.channel")
+        }
+        if (GenericUiExtensionModule.MEDIA_CONTROLS in resolvedExtensions) {
+            appendLine("        // OS media transport controls active via MediaControlsSession (:extensions:media:mediacontrols)")
+        }
+        if (GenericUiExtensionModule.PIP in resolvedExtensions) {
+            appendLine("        // Picture-in-Picture active via FragmentPipHelper (:extensions:ui:pip)")
         }
     }
 

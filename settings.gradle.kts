@@ -48,10 +48,15 @@ include(":web")
 // Graphics
 include(":extensions:graphics:gpu")
 include(":extensions:graphics:imageprocessing")
+include(":extensions:graphics:svg")
+include(":extensions:graphics:svg:dsl")
+include(":extensions:graphics:svg:alien")
 include(":extensions:graphics:canvas2d")
 include(":extensions:graphics:canvas2d:dsl")
+include(":extensions:graphics:canvas2d:alien")
 include(":extensions:graphics:canvas3d")
 include(":extensions:graphics:canvas3d:dsl")
+include(":extensions:graphics:canvas3d:alien")
 include(":extensions:graphics:threejs")
 include(":extensions:graphics:threejs:dsl")
 
@@ -63,7 +68,6 @@ include(":extensions:physics:box3d:dsl")
 
 // Game & Input
 include(":extensions:game:gamepad")
-include(":extensions:game:gamepad:dsl")
 include(":extensions:game:engine")
 include(":extensions:game:engine:dsl")
 include(":extensions:game:engine2d")
@@ -74,16 +78,16 @@ include(":extensions:game:engine3d:dsl")
 // Media
 include(":extensions:media:media")
 include(":extensions:media:media:dsl")
+include(":extensions:media:media:alien")
 include(":extensions:media:mediacontrols")
-include(":extensions:media:mediacontrols:dsl")
 
 // Data
 include(":extensions:data:schema")
 include(":extensions:data:schema:dsl")
 
 // System
+include(":extensions:system:ipc")
 include(":extensions:system:serviceworker")
-include(":extensions:system:serviceworker:dsl")
 
 // UI
 include(":extensions:ui:dsl")
@@ -98,7 +102,6 @@ include(":extensions:ui:codeeditor:dsl")
 include(":extensions:ui:aichat")
 include(":extensions:ui:aichat:dsl")
 include(":extensions:ui:pip")
-include(":extensions:ui:pip:dsl")
 
 // JestElectricRunner Multi-Backend UI Testing Suite
 include(":tests")

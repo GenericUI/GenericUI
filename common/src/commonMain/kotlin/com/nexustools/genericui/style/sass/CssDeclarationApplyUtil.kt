@@ -87,6 +87,19 @@ internal object CssDeclarationApplyUtil {
         if (cleanVal.isEmpty()) return
         val isImp = important || hasBangImportant
 
+        when {
+            propName.startsWith("--") -> {
+                style.setCustomProperty(propName, cleanVal)
+                if (propName == "--bs-aspect-ratio") {
+                    val pct = cleanVal.removeSuffix("%").trim().toFloatOrNull()
+                    if (pct != null && pct > 0f) {
+                        style.setAspectRatio(CssAspectRatio.of(100f, pct), isImp)
+                    }
+                }
+                return
+            }
+        }
+
         when (propName) {
             "background-color" -> resolveColor(cleanVal, isDarkTheme)?.let { style.setBackgroundColor(it, isImp) }
             "background" -> {
@@ -115,11 +128,11 @@ internal object CssDeclarationApplyUtil {
             "display" -> CssDisplay.fromCss(cleanVal)?.let { style.setDisplay(it, isImp) }
             "visibility" -> CssVisibility.fromCss(cleanVal)?.let { style.setVisibility(it, isImp) }
             "position" -> CssPosition.fromCss(cleanVal)?.let { style.setPosition(it, isImp) }
-            "inset" -> CssLength.parse(cleanVal)?.let {
-                style.setTop(it, isImp)
-                style.setRight(it, isImp)
-                style.setBottom(it, isImp)
-                style.setLeft(it, isImp)
+            "inset" -> CssEdgeLengths.parse(cleanVal)?.let {
+                style.setTop(it.top, isImp)
+                style.setRight(it.right, isImp)
+                style.setBottom(it.bottom, isImp)
+                style.setLeft(it.left, isImp)
             }
             "top" -> CssLength.parse(cleanVal)?.let { style.setTop(it, isImp) }
             "right" -> CssLength.parse(cleanVal)?.let { style.setRight(it, isImp) }
@@ -194,11 +207,17 @@ internal object CssDeclarationApplyUtil {
                 style.setBorderWidth(cur.copy(left = w), isImp)
             }
             "border-style" -> CssBorderStyle.fromCss(cleanVal)?.let { style.setBorderStyle(it, isImp) }
+            "border-top-style" -> CssBorderStyle.fromCss(cleanVal)?.let { style.setBorderTopStyle(it, isImp) }
+            "border-right-style" -> CssBorderStyle.fromCss(cleanVal)?.let { style.setBorderRightStyle(it, isImp) }
+            "border-bottom-style" -> CssBorderStyle.fromCss(cleanVal)?.let { style.setBorderBottomStyle(it, isImp) }
+            "border-left-style" -> CssBorderStyle.fromCss(cleanVal)?.let { style.setBorderLeftStyle(it, isImp) }
             "border-color" -> resolveColor(cleanVal, isDarkTheme)?.let { style.setBorderColor(it, isImp) }
             "border-top-color" -> resolveColor(cleanVal, isDarkTheme)?.let { style.setBorderTopColor(it, isImp) }
             "border-right-color" -> resolveColor(cleanVal, isDarkTheme)?.let { style.setBorderRightColor(it, isImp) }
             "border-bottom-color" -> resolveColor(cleanVal, isDarkTheme)?.let { style.setBorderBottomColor(it, isImp) }
             "border-left-color" -> resolveColor(cleanVal, isDarkTheme)?.let { style.setBorderLeftColor(it, isImp) }
+            "border-collapse" -> style.setBorderCollapse(cleanVal, isImp)
+            "border-spacing" -> CssLength.parse(cleanVal)?.let { style.setBorderSpacing(it, isImp) }
             "border" -> parseBorderShorthand(style, cleanVal, isImp, isDarkTheme, side = null)
             "border-top" -> parseBorderShorthand(style, cleanVal, isImp, isDarkTheme, side = "top")
             "border-right" -> parseBorderShorthand(style, cleanVal, isImp, isDarkTheme, side = "right")
@@ -258,8 +277,8 @@ internal object CssDeclarationApplyUtil {
             "flex-shrink" -> cleanVal.toFloatOrNull()?.let { style.setFlexShrink(it, isImp) }
             "flex-basis" -> CssLength.parse(cleanVal)?.let { style.setFlexBasis(it, isImp) }
             "order" -> cleanVal.toIntOrNull()?.let { style.setOrder(it, isImp) }
-            "gap" -> {
-                val parts = cleanVal.split(WHITESPACE_REGEX).filter { it.isNotEmpty() }
+            "gap", "grid-gap" -> {
+                val parts = splitTokensPreservingFunctions(cleanVal)
                 val first = CssLength.parse(parts.getOrNull(0))
                 val second = CssLength.parse(parts.getOrNull(1)) ?: first
                 if (first != null) {
@@ -270,8 +289,64 @@ internal object CssDeclarationApplyUtil {
                     style.setColumnGap(second, isImp)
                 }
             }
-            "row-gap" -> CssLength.parse(cleanVal)?.let { style.setRowGap(it, isImp) }
-            "column-gap" -> CssLength.parse(cleanVal)?.let { style.setColumnGap(it, isImp) }
+            "row-gap", "grid-row-gap" -> CssLength.parse(cleanVal)?.let { style.setRowGap(it, isImp) }
+            "column-gap", "grid-column-gap" -> CssLength.parse(cleanVal)?.let { style.setColumnGap(it, isImp) }
+            "text-indent" -> CssLength.parse(cleanVal)?.let { style.setTextIndent(it, isImp) }
+            "list-style-type" -> style.setListStyleType(cleanVal.lowercase(), isImp)
+            "list-style" -> {
+                val tokens = splitTokensPreservingFunctions(cleanVal)
+                val firstType = tokens.firstOrNull { t ->
+                    t.lowercase() in setOf(
+                        "none", "disc", "circle", "square", "decimal",
+                        "lower-alpha", "upper-alpha", "lower-roman", "upper-roman"
+                    )
+                }
+                if (firstType != null) style.setListStyleType(firstType.lowercase(), isImp)
+            }
+            "content" -> style.setContent(parseCssContentString(cleanVal), isImp)
+            "grid-template-columns" -> style.setGridTemplateColumns(cleanVal, isImp)
+            "grid-template-rows" -> style.setGridTemplateRows(cleanVal, isImp)
+            "grid-template-areas" -> style.setGridTemplateAreas(cleanVal, isImp)
+            "grid-area" -> style.setGridArea(cleanVal, isImp)
+            "grid-column" -> style.setGridColumn(cleanVal, isImp)
+            "grid-column-start" -> style.setGridColumnStart(cleanVal, isImp)
+            "grid-column-end" -> style.setGridColumnEnd(cleanVal, isImp)
+            "grid-row" -> style.setGridRow(cleanVal, isImp)
+            "grid-row-start" -> style.setGridRowStart(cleanVal, isImp)
+            "grid-row-end" -> style.setGridRowEnd(cleanVal, isImp)
+            "grid-auto-flow" -> style.setGridAutoFlow(cleanVal, isImp)
+            "grid-auto-rows" -> style.setGridAutoRows(cleanVal, isImp)
+            "grid-auto-columns" -> style.setGridAutoColumns(cleanVal, isImp)
+            "justify-items" -> style.setJustifyItems(cleanVal, isImp)
+            "justify-self" -> style.setJustifySelf(cleanVal, isImp)
+            "place-items" -> {
+                style.setPlaceItems(cleanVal, isImp)
+                val parts = splitTokensPreservingFunctions(cleanVal)
+                if (parts.isNotEmpty()) {
+                    parseAlignItems(style, parts[0], isImp)
+                    style.setJustifyItems(parts.getOrElse(1) { parts[0] }, isImp)
+                }
+            }
+            "place-self" -> {
+                style.setPlaceSelf(cleanVal, isImp)
+                val parts = splitTokensPreservingFunctions(cleanVal)
+                if (parts.isNotEmpty()) {
+                    parseAlignSelf(style, parts[0], isImp)
+                    style.setJustifySelf(parts.getOrElse(1) { parts[0] }, isImp)
+                }
+            }
+            "place-content" -> {
+                style.setPlaceContent(cleanVal, isImp)
+                val parts = splitTokensPreservingFunctions(cleanVal)
+                if (parts.isNotEmpty()) {
+                    CssAlignContent.fromCss(parts[0])?.let { style.setAlignContent(it, isImp) }
+                    parseJustifyContent(style, parts.getOrElse(1) { parts[0] }, isImp)
+                }
+            }
+            "transition-property" -> style.setTransitionProperty(cleanVal, isImp)
+            "transition-duration" -> style.setTransitionDuration(cleanVal, isImp)
+            "transition-timing-function" -> style.setTransitionTimingFunction(cleanVal, isImp)
+            "transition-delay" -> style.setTransitionDelay(cleanVal, isImp)
             "overflow" -> parseOverflow(cleanVal)?.let {
                 style.setOverflow(it, isImp)
                 style.setOverflowX(it, isImp)
@@ -376,7 +451,10 @@ internal object CssDeclarationApplyUtil {
                     val cur = style.getBorderWidth() ?: CssEdgeLengths.ZERO
                     style.setBorderWidth(cur.copy(top = parsedWidth), important)
                 }
-                if (parsedStyle != null && style.getBorderStyle() == null) style.setBorderStyle(parsedStyle, important)
+                if (parsedStyle != null) {
+                    style.setBorderTopStyle(parsedStyle, important)
+                    if (style.getBorderStyle() == null) style.setBorderStyle(parsedStyle, important)
+                }
                 if (parsedColor != null) style.setBorderTopColor(parsedColor, important)
             }
             "right" -> {
@@ -384,7 +462,10 @@ internal object CssDeclarationApplyUtil {
                     val cur = style.getBorderWidth() ?: CssEdgeLengths.ZERO
                     style.setBorderWidth(cur.copy(right = parsedWidth), important)
                 }
-                if (parsedStyle != null && style.getBorderStyle() == null) style.setBorderStyle(parsedStyle, important)
+                if (parsedStyle != null) {
+                    style.setBorderRightStyle(parsedStyle, important)
+                    if (style.getBorderStyle() == null) style.setBorderStyle(parsedStyle, important)
+                }
                 if (parsedColor != null) style.setBorderRightColor(parsedColor, important)
             }
             "bottom" -> {
@@ -392,7 +473,10 @@ internal object CssDeclarationApplyUtil {
                     val cur = style.getBorderWidth() ?: CssEdgeLengths.ZERO
                     style.setBorderWidth(cur.copy(bottom = parsedWidth), important)
                 }
-                if (parsedStyle != null && style.getBorderStyle() == null) style.setBorderStyle(parsedStyle, important)
+                if (parsedStyle != null) {
+                    style.setBorderBottomStyle(parsedStyle, important)
+                    if (style.getBorderStyle() == null) style.setBorderStyle(parsedStyle, important)
+                }
                 if (parsedColor != null) style.setBorderBottomColor(parsedColor, important)
             }
             "left" -> {
@@ -400,7 +484,10 @@ internal object CssDeclarationApplyUtil {
                     val cur = style.getBorderWidth() ?: CssEdgeLengths.ZERO
                     style.setBorderWidth(cur.copy(left = parsedWidth), important)
                 }
-                if (parsedStyle != null && style.getBorderStyle() == null) style.setBorderStyle(parsedStyle, important)
+                if (parsedStyle != null) {
+                    style.setBorderLeftStyle(parsedStyle, important)
+                    if (style.getBorderStyle() == null) style.setBorderStyle(parsedStyle, important)
+                }
                 if (parsedColor != null) style.setBorderLeftColor(parsedColor, important)
             }
             else -> {
@@ -408,6 +495,20 @@ internal object CssDeclarationApplyUtil {
                 if (parsedStyle != null) style.setBorderStyle(parsedStyle, important)
                 if (parsedColor != null) style.setBorderColor(parsedColor, important)
             }
+        }
+    }
+
+    private fun parseCssContentString(raw: String): String {
+        val trimmed = raw.trim()
+        if (trimmed.equals("none", ignoreCase = true) || trimmed.equals("normal", ignoreCase = true)) {
+            return ""
+        }
+        return if ((trimmed.startsWith("\"") && trimmed.endsWith("\"")) ||
+            (trimmed.startsWith("'") && trimmed.endsWith("'"))
+        ) {
+            if (trimmed.length >= 2) trimmed.substring(1, trimmed.length - 1) else ""
+        } else {
+            trimmed
         }
     }
 

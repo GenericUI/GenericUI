@@ -61,7 +61,8 @@ class GenericUiGradleScriptGenerator {
 
     /**
      * Generates the `genericui { ... }` Gradle DSL block configuring `app`, `application`,
-     * optional `window`, `theme`, `backends`, per-target Apple icons, `graphics`, `extensions`,
+     * optional `window`, `theme`, `backends`, per-target Apple icons, `graphics`, `extensions`
+     * (including `ipc()`, `svg()`, `webView()`, and `:alien` / `:dsl` companion wiring),
      * `styles`, and `testing` (`JestElectricRunner` via `:tests`).
      *
      * `id("com.nexustools.genericui")` automatically configures the Kotlin Multiplatform

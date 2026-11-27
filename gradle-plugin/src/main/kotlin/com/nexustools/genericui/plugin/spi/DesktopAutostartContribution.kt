@@ -9,5 +9,6 @@ data class DesktopAutostartContribution(
     val executableName: String,
     val displayName: String,
     val arguments: List<String> = emptyList(),
-    val runAtStartup: Boolean = true
+    val runAtStartup: Boolean = true,
+    val macosHelperBundleSuffix: String? = null
 )

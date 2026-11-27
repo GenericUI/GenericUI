@@ -14,7 +14,7 @@ object PipExtensionContributor : GenericUiExtensionContributor {
 
     override val extensionModulePath: String = PIP_MODULE_PATH
 
-    override val dslModulePath: String = "$PIP_MODULE_PATH:dsl"
+    override val dslModulePath: String? = null
 
     override fun providerInstallerCalls(
         backendScope: GenericUiVariantScope,

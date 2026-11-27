@@ -3,10 +3,10 @@
 > **Root Repository**: [**GenericUI (`../README.md`)**](../README.md) | **Master Docs Index**: [**`docs/README.md`**](./README.md)  
 > **Related Guides**: [Game Engines (`game-engines.md`)](./game-engines.md) · [First-Party Extensions (`extensions.md`)](./extensions.md) · [Declarative Kotlin DSL (`../extensions/docs/dsl.md`)](../extensions/docs/dsl.md) · [Gradle Plugin (`gradle-plugin.md`)](./gradle-plugin.md)
 
-The **`:extensions:game:gamepad`** module (`com.nexustools.genericui.ext.gamepad`) and its companion DSL module **`:extensions:game:gamepad:dsl`** (`com.nexustools.genericui.ext.gamepad.dsl`) provide unified, cross-platform controller input, six-axis gyroscope/accelerometer sensor fusion, vendor-specific controller hardware features, and **zero-config UI controller navigation** across all 9 GenericUI backends depending **only on `:common`**.
+The **`:extensions:game:gamepad`** module (`com.nexustools.genericui.ext.gamepad`) provides unified, cross-platform controller input, six-axis gyroscope/accelerometer sensor fusion, vendor-specific controller hardware features, and **zero-config UI controller navigation** across all 9 GenericUI backends depending **only on `:common`** (with zero separate `:dsl` companion module).
 
-- **Maven Coordinates**: `com.nexustools.genericui.extensions.game:gamepad:0.1.0-SNAPSHOT` and `com.nexustools.genericui.extensions.game.gamepad:dsl:0.1.0-SNAPSHOT`
-- **Gradle Plugin DSL**: `genericui { extensions { gamepad() } }` (plus `dsl()` for declarative navigation & badge helpers)
+- **Maven Coordinates**: `com.nexustools.genericui.extensions.game:gamepad:0.1.0-SNAPSHOT`
+- **Gradle Plugin DSL**: `genericui { extensions { gamepad() } }`
 
 ---
 
@@ -30,7 +30,7 @@ The **`:extensions:game:gamepad`** module (`com.nexustools.genericui.ext.gamepad
 | **`ControllerFamily.GENERIC`** | Standard HID / 8BitDo / Logitech / Valve Steam Deck (`0x28DE`) | Standard Xbox-normalized gamepad axes (`LEFT_X`, `LEFT_Y`, `RIGHT_X`, `RIGHT_Y`, `LEFT_TRIGGER`, `RIGHT_TRIGGER`) and face/shoulder/D-pad buttons |
 
 > [!TIP]
-> Use `ControllerButtonLabels.buttonName(button, family)` or `:dsl`'s `gamepadButtonBadgeText(button, family)` to display accurate PlayStation (`Cross`/`Circle`), Nintendo (`B`/`A`), or Xbox (`A`/`B`) glyph prompts automatically in UI overlays.
+> Use `ControllerButtonLabels.buttonName(button, family)` to display accurate PlayStation (`Cross`/`Circle`), Nintendo (`B`/`A`), or Xbox (`A`/`B`) glyph prompts automatically in UI overlays.
 
 ---
 
@@ -76,8 +76,7 @@ Every snapshot exposes optional hardware blocks (`switchFeatures`, `playStation`
 [`GamepadUiNavigator`](../extensions/game/gamepad/src/commonMain/kotlin/com/nexustools/genericui/ext/gamepad/ui/GamepadUiNavigator.kt) lets any standard GenericUI screen (native buttons, checkboxes, sliders, selects, tabs, scroll views, and modal dialogs) be driven seamlessly with D-pad, thumbstick, shoulder bumpers, and face buttons **with zero manual wiring**:
 
 - **Zero-Config Activation**:
-  - Imperative extension helpers ([`GamepadUiNavigationExtensions.kt`](../extensions/game/gamepad/src/commonMain/kotlin/com/nexustools/genericui/ext/gamepad/ui/GamepadUiNavigationExtensions.kt)): call `rootContainer.enableGamepadUiNavigation()`, `window.enableGamepadUiNavigation()`, `dialogWindow.enableGamepadUiNavigation()`, or `application.enableGamepadUiNavigation()` and invoke `pollAndUpdate(deltaSeconds)` on frame updates/timers.
-  - Declarative `:dsl` ([`GamepadUiNavigatorDslScope.kt`](../extensions/game/gamepad/dsl/src/commonMain/kotlin/com/nexustools/genericui/ext/gamepad/dsl/GamepadUiNavigatorDslScope.kt)): configure directly inside any container DSL via `gamepadNavigation { playerIndex = 0; strategy = ... }`.
+  - Call `enableGamepadUiNavigation(...)` directly ([`GamepadUiNavigationExtensions.kt`](../extensions/game/gamepad/src/commonMain/kotlin/com/nexustools/genericui/ext/gamepad/ui/GamepadUiNavigationExtensions.kt)) on any `AbstractContainer`, `Window`, `DialogWindow`, or `Application` (`rootContainer.enableGamepadUiNavigation()`, `window.enableGamepadUiNavigation()`, `dialogWindow.enableGamepadUiNavigation()`, or `application.enableGamepadUiNavigation()`) and invoke `pollAndUpdate(deltaSeconds)` on frame updates/timers.
 - **Automatic Spatial Routing & Widget Actions**:
   - Discovers interactive controls (`Button`, `StyledButton`, `IconButton`, `ToggleButton`, `CheckBox`, `RadioButton`, `Switch`, `Select`, `TextField`, `TextArea`, `RangeSlider`, `Tab`, `ListGroupItem`, or any component marked with `data-gamepad-focusable="true"` / excluded via `"false"`) and synchronizes focus with `InputFocusManager`.
   - Uses directional half-plane + cone weighting across live measured bounds, falling back deterministically to DOM/tree order in headless tests before layout bounds exist.

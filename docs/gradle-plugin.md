@@ -97,36 +97,44 @@ genericui {
         }
     }
 
-    // 5. First-Party Extension Modules (22 Extensions + 19 Companion :dsl Modules)
+    // 5. First-Party Extension Modules (24 Extensions + 16 Companion :dsl + 4 Companion :alien Modules)
     extensions {
         gpu()              // :extensions:graphics:gpu
         imageProcessing()  // :extensions:graphics:imageprocessing -> gpu
+        svg()              // :extensions:graphics:svg (+ :dsl, + :alien when alien() active)
         overlay()          // :extensions:ui:overlay (+ :dsl)
-        canvas2d()         // :extensions:graphics:canvas2d -> gpu + imageprocessing + overlay (+ :dsl)
-        canvas3d()         // :extensions:graphics:canvas3d -> gpu + canvas2d + overlay (+ :dsl)
+        canvas2d()         // :extensions:graphics:canvas2d -> gpu + imageprocessing + overlay (+ :dsl, + :alien)
+        canvas3d()         // :extensions:graphics:canvas3d -> gpu + canvas2d + overlay (+ :dsl, + :alien)
         threeJs()          // :extensions:graphics:threejs -> gpu + canvas3d (+ :dsl)
         box2d()            // :extensions:physics:box2d -> canvas2d + canvas3d (+ :dsl)
         box3d()            // :extensions:physics:box3d -> threejs + canvas3d (+ :dsl)
-        gamepad()          // :extensions:game:gamepad (+ :dsl)
+        gamepad()          // :extensions:game:gamepad (core API only)
         engine()           // :extensions:game:engine -> gamepad (+ :dsl)
         engine2d()         // :extensions:game:engine2d -> engine + canvas2d + box2d (+ :dsl)
         engine3d()         // :extensions:game:engine3d -> engine + canvas3d + threejs + box3d (+ :dsl)
-        media()            // :extensions:media:media -> overlay + schema (+ :dsl)
-        mediaControls()    // :extensions:media:mediacontrols (+ :dsl)
+        media()            // :extensions:media:media -> overlay + schema (+ :dsl, + :alien)
+        mediaControls()    // :extensions:media:mediacontrols (core API only)
         schema()           // :extensions:data:schema (+ :dsl) — @SchemaData descriptor codegen
-        serviceWorker {    // :extensions:system:serviceworker (+ :dsl) — @MainServiceWorker + @ServiceWorkerMessage
+        ipc()              // :extensions:system:ipc (Desktop + Android ONLY; never web/ios/ipados)
+        serviceWorker {    // :extensions:system:serviceworker (+ :ipc on Desktop/Android) — @MainServiceWorker + @ServiceWorkerMessage
             autostart = false
             trayIcon = null // Optional drawable path/name (unwrapped in Mach-O on macOS)
             openWindowOnLaunch = true
             androidForegroundServiceType = "specialUse"
             androidSpecialUseFgsSubtype = "GenericUI background ServiceWorker execution"
         }
-        webView()          // :extensions:ui:webview (+ :dsl)
-        alien()            // :extensions:ui:alien -> canvas2d (+ :dsl)
+        webView {          // :extensions:ui:webview (+ :dsl + Desktop Alien/Media/SVG/IPC worker subprocess)
+            enableCanvas2D = true
+            enableWebGL = true
+            enableMedia = true
+            enableSvg = true
+            enableWebAudio = true
+        }
+        alien()            // :extensions:ui:alien -> canvas2d (+ :dsl + active :alien companions)
         codeEditor()       // :extensions:ui:codeeditor -> canvas2d (+ :dsl)
         aiChat()           // :extensions:ui:aichat -> codeeditor -> canvas2d (+ :dsl)
-        pip()              // :extensions:ui:pip -> overlay (+ :dsl)
-        dsl()              // :extensions:ui:dsl + companion :dsl modules for enabled extensions
+        pip()              // :extensions:ui:pip -> overlay (core API only)
+        dsl()              // :extensions:ui:dsl + 16 companion :dsl modules for enabled extensions
     }
 
     // 6. Hierarchical Variant Overrides (rank 0 -> 6)
@@ -297,7 +305,7 @@ When **`appleIconExplicitlyProvided == false`**, GenericUI automatically wraps t
 | Task Name | Implementation Class | Description |
 | :--- | :--- | :--- |
 | `genericuiValidateApp` | `GenericUiValidateAppTask` | Validates `@MainAppFragment` and `@AppFragment` classes across all enabled targets, verifies `AppTarget` specificity, and runs `GenericUiExtensionContributor.validate(...)`. |
-| `generateGenericUiSchemas`<br/>`generateGenericUiServiceWorkerCodecs` | `GenericUiGenerateSchemaSourcesTask`<br/>`GenericUiGenerateServiceWorkerCodecsTask` | Generates `<ClassName>SchemaDescriptor.kt` + `GeneratedSchemaRegistrar.kt` (`@SchemaData`) and validates `@MainServiceWorker` + emits `<Msg>ServiceWorkerCodec.kt` + `GeneratedServiceWorkerCodecRegistrar.kt` (`@ServiceWorkerMessage`). |
+| `generateGenericUiSchemas`<br/>`generateGenericUiServiceWorkerCodecs`<br/>`generateGenericUiBinaryCodecs` | `GenericUiGenerateSchemaSourcesTask`<br/>`GenericUiGenerateServiceWorkerCodecsTask`<br/>`GenericUiGenerateBinaryCodecsTask` | Generates `<ClassName>SchemaDescriptor.kt` + `GeneratedSchemaRegistrar.kt` (`@SchemaData`), validates `@MainServiceWorker` + emits `<Msg>ServiceWorkerCodec.kt` + `GeneratedServiceWorkerCodecRegistrar.kt` (`@ServiceWorkerMessage`), and generates reflection-free `BinaryJson` codecs (`@BinarySerializable`). |
 | `generateGenericUiLaunchers` | `GenericUiGenerateLaunchersTask` | Generates `GenericUiAppDescriptor`, backend launchers, SPI `generatedLauncherSources`, extension wiring, and visual test runners. |
 | `compileGenericUiResources` | `GenericUiResourceCompilerTask` | Generates isolated `R.kt`/`RC.kt`/`Resource.kt`/`GeneratedResourceRegistry.kt`, embeds prefix-free `nativeResourceKey` tables (`GenericUiNativeResourceEmbedder`), translates Tier 1/2/3 assets, compiles Android theme XMLs, and synthesizes Windows `.cur` cursors. |
 | `compileGenericUiSass` | `GenericUiSassCompileTask` | Compiles consumer `.scss`/`.sass` stylesheets and extracts raw upstream `theme.scss` templates from prebuilt `:common` and extension artifacts (`META-INF/genericui/themes/<scopeId>.scss` & `META-INF/genericui/module-resources/<scopeId>.json`, never pre-baked into library artifacts), substituting the consumer app's `genericui { theme { ... } }` SCSS variables (`$primary`, `$accent`, `$surface`, `rgba($accent, ...)`) to emit `.css` / `gui/genericui-theme.css` (Web, automatically stripping non-Web backend `@` blocks such as `@desktop`/`@mobile` and unwrapping `@web`/`@browser` blocks) and zero-parse Kotlin `PrecompiledStyleSheet` / `GenericUiGeneratedThemeStyleSheet` objects (carrying `BackendStyleMask` bitmasks across all 8 system targets) integrated solely into the consumer application. See [**`docs/scss-and-styling.md`**](./scss-and-styling.md). |
@@ -306,9 +314,9 @@ When **`appleIconExplicitlyProvided == false`**, GenericUI automatically wraps t
 | `generateGenericUiAndroidActivities`<br/>`generateGenericUiAndroidManifest` | `GenericUiGenerateAndroidActivitiesTask`<br/>`GenericUiGenerateAndroidManifestTask` | Generates 1:1 `<FragmentName>Activity` classes and `AndroidManifest.xml` (merging SPI `<service>`/`<receiver>`/`<provider>`/`<uses-permission>`/`Activity` hooks). |
 | `generateGenericUiIosApp`<br/>`generateGenericUiIpadosApp` | `GenericUiGenerateIosAppTask` | Generates iPhone (`UIDeviceFamily = 1`) and iPad (`UIDeviceFamily = 2`) Xcode wrapper projects, `Info.plist` (merging SPI entries), SwiftUI host, and `AppIcon.appiconset`. |
 | `fetchGenericUiNativeSources`<br/>`compileGenericUiJniLibraries` | `GenericUiFetchNativeSourceArchiveTask`<br/>`GenericUiCompileJniTask` | Downloads verified native source archives and compiles consumer C/C++/CMake JNI shared libraries (`-Wl,-z,max-page-size=16384`, zero-NDK Konan LLVM + `target-sysroot-1-android_ndk` fallback, host test `.so`/`.dylib`/`.dll`, Swing JAR manifest). |
-| `bundleGenericUiAngle`<br/>`bundleGenericUiVulkan`<br/>`bundleGenericUiVlc`<br/>`bundleGenericUiWebViewProcess` | `AngleNativeBundleTask`<br/>`VulkanNativeBundleTask`<br/>`VlcNativeBundleTask`<br/>`WebViewNativeProcessBundleTask` | Stages opt-in ANGLE, Vulkan/MoltenVK/Shaderc, Desktop VLC, and out-of-process Desktop WebView helper artifacts when the corresponding extension is enabled. |
-| `buildGenericUiSharedLibsFor*` | `GenericUiBuildNativeSharedLibsTask`, `GenericUiKonanCompilerShim`, & `WindowsCoffObjectPartitioner` | Compiles core (`genericui`), native desktop backends (`genericui-{macos,windows,gtk,kde}`), `njs`, enabled extensions/DSL modules (`genericui-ext-*`), and `genericui-tests` as dynamic shared libraries (`PROGRAM` links only), partitioning MinGW COFF objects when exports exceed 65,535. |
-| `packageGenericUiWebDistribution`<br/>`packageGenericUiSwingDevelopmentJar` / `ProductionJar`<br/>`packageGenericUiAndroid*Apk` | `GenericUiWebDistributionTask`<br/>`GenericUiPackageSwingJarTask`<br/>`GenericUiPackageAndroidApkTask` | Packages Web Wasm/JS/theme/`loader.js`/web-root `./serviceworker.js` (+ SPI `WebSwPluginScript` / `${resolvedBase}.sw.js\|wasm`), Swing fat JARs (`META-INF/native/<os>-<arch>/`), and 16KB-aligned Android APKs (`zipalign -f -P 16 4` + `src/androidMain/jniLibs`). |
+| `bundleGenericUiAngle`<br/>`bundleGenericUiVulkan`<br/>`bundleGenericUiVlc` | `AngleNativeBundleTask`<br/>`VulkanNativeBundleTask`<br/>`VlcNativeBundleTask` | Stages opt-in ANGLE, Vulkan/MoltenVK/Shaderc, and Desktop VLC native library artifacts when enabled. |
+| `buildGenericUiSharedLibsFor*` | `GenericUiBuildNativeSharedLibsTask`, `GenericUiKonanCompilerShim`, & `WindowsCoffObjectPartitioner` | Compiles core (`genericui`), native desktop backends (`genericui-{macos,windows,gtk,kde}`), `njs`, enabled extensions/DSL/Alien modules (`genericui-ext-*`), and `genericui-tests` as dynamic shared libraries (`PROGRAM` links only), partitioning MinGW COFF objects when exports exceed 65,535. |
+| `packageGenericUiWebDistribution`<br/>`packageGenericUiSwingDevelopmentJar` / `ProductionJar`<br/>`packageGenericUiAndroid*Apk` | `GenericUiWebDistributionTask`<br/>`GenericUiPackageSwingJarTask`<br/>`GenericUiPackageAndroidApkTask` | Packages Web Wasm/JS/theme/`loader.js`/web-root `./serviceworker.js` (+ SPI `WebSwPluginScript` / `${resolvedBase}.sw.js\|wasm`), Swing fat JARs (`META-INF/native/<os>-<arch>/` + `GeneratedSwingServiceWorkerMain` / `GeneratedSwingWebViewWorkerMain`), and 16KB-aligned Android APKs (`zipalign -f -P 16 4` + `src/androidMain/jniLibs`). |
 | `development*` / `production*`<br/>(`Windows`, `Mac`/`Macos`, `LinuxGtk`, `LinuxKde`, `Swing`, `Android`, `Ios`, `Ipados`, `Web`) | `GenericUiMultiplatformConfigurator` | Per-target lifecycle development & production tasks (including `SecondaryDesktopExecutableContribution` binaries and `-gtk`/`-kde` compilation variants via `registerBuildTargetTasks`). |
 | `printGenericUiConfig` | `GenericUiGradlePlugin` | Prints resolved backends, extensions, Maven coordinates, and pipeline config. |
 
@@ -331,14 +339,14 @@ On native desktop targets (`macosArm64`, `linuxX64`, `linuxArm64`, `mingwX64`), 
 
 ## 7. Extension Contributor SPI (`gradle-plugin/.../spi/`)
 
-First-party (`PipExtensionContributor`, `SchemaExtensionContributor`, `ServiceWorkerExtensionContributor`) and third-party Gradle extensions extend codegen, manifests, and packaging cleanly without modifying core `:gradle-plugin` tasks:
+First-party (`PipExtensionContributor`, `SchemaExtensionContributor`, `ServiceWorkerExtensionContributor`, `WebViewExtensionContributor`) and third-party Gradle extensions extend codegen, manifests, and packaging cleanly without modifying core `:gradle-plugin` tasks:
 
 - **Discovery (`GenericUiExtensionContributorRegistry`)**: Loads built-in contributors, `java.util.ServiceLoader<GenericUiExtensionContributor>`, and JSON descriptors under `META-INF/genericui/extensions/*.json` (`custom(...)` / `option(...)`).
 - **Lifecycle & Hooks (`GenericUiExtensionContributor`)**:
-  - `annotationScanSpecs` (`ExtensionAnnotationScanSpec`) & `validate(ExtensionBuildContext, List<GenericUiDiscoveredSymbol>)`: Declares annotations to scan (`@SchemaData`, `@MainServiceWorker`, `@ServiceWorkerMessage`) and validates consumer code cleanly with `GradleException`.
-  - `providerInstallerCalls(...)` & `generatedLauncherSources(...)`: Registers extension hooks (`ApplicationLifecycleExtensionHook` on `GenericUiExtensionRegistry`) in generated launchers (on iOS/iPadOS, `ServiceWorkerExtensionContributor` emits only codec registration and does not instantiate `@MainServiceWorker`, keeping `ServiceWorkerExtension.isSupported == false` honestly without simulation).
+  - `annotationScanSpecs` (`ExtensionAnnotationScanSpec`) & `validate(ExtensionBuildContext, List<GenericUiDiscoveredSymbol>)`: Declares annotations to scan (`@SchemaData`, `@MainServiceWorker`, `@ServiceWorkerMessage`, `@BinarySerializable`) and validates consumer code cleanly with `GradleException`.
+  - `providerInstallerCalls(...)` & `generatedLauncherSources(...)`: Registers extension hooks (`ApplicationLifecycleExtensionHook` on `GenericUiExtensionRegistry`) and extension runtime properties (such as `webview.desktop.workerBinaryBaseName`, `webview.swing.workerMainClass`, `webview.capability.*`) in generated launchers (on iOS/iPadOS, `ServiceWorkerExtensionContributor` emits only codec registration and does not instantiate `@MainServiceWorker`, keeping `ServiceWorkerExtension.isSupported == false` honestly without simulation).
   - `contributeAndroid(...)` $\rightarrow$ `AndroidExtensionContribution`: Contributes Android `<service>`, `<receiver>` (`BOOT_COMPLETED`), `<provider>`, `<uses-permission>`, `<meta-data>`, and `GenericUiFragmentActivity` lifecycle hooks.
-  - `contributeDesktop(...)` $\rightarrow$ `DesktopExtensionContribution`: Contributes `SecondaryDesktopExecutableContribution` executables (staged as `serviceworker.exe`, macOS `Contents/MacOS/serviceworker`, Linux `serviceworker` with `-gtk`/`-kde` compilation variants via `GenericUiMultiplatformConfigurator.registerBuildTargetTasks`, and Swing `GeneratedSwingServiceWorkerMain`), `DesktopAutostartContribution`, and `macosInfoPlistEntries`.
+  - `contributeDesktop(...)` $\rightarrow$ `DesktopExtensionContribution`: Contributes `SecondaryDesktopExecutableContribution` executables (staged as `serviceworker.exe` / `${baseName}-webview.exe`, macOS helpers, Linux binaries with `-gtk`/`-kde` compilation variants via `GenericUiMultiplatformConfigurator.registerBuildTargetTasks`, and Swing main classes `GeneratedSwingServiceWorkerMain` / `<genPkg>.GeneratedSwingWebViewWorkerMain`), `DesktopAutostartContribution`, and `macosInfoPlistEntries`.
   - `contributeAppleMobile(...)` $\rightarrow$ `AppleMobileExtensionContribution`: Contributes iOS/iPadOS `Info.plist` entries such as `UIBackgroundModes` (`audio` for `:extensions:ui:pip`).
   - `contributeWebServiceWorker(...)` $\rightarrow$ `WebServiceWorkerContribution`: Contributes `WebSwPluginScript` (`importScripts(...)` inside web-root `./serviceworker.js`), `WebWorkerBinarySpec` (`${resolvedBase}.sw.wasm` + `${resolvedBase}.sw.js`), and offline cache URLs staged by `GenericUiWebDistributionTask`.
   - `contributeThemeScss(...)`: Contributes raw uncompiled `src/commonMain/resources/styles/theme.scss` templates (alongside `META-INF/genericui/themes/<scopeId>.scss` & `META-INF/genericui/module-resources/<scopeId>.json` discovery for `:common` and extensions — never pre-compiled or baked into library `.jar`/`.klib` artifacts), extracted and compiled solely during the consumer app's `compileGenericUiSass` / `GenericUiWebDistributionTask` build against the consumer app's `genericui { theme { ... } }` light/dark SCSS palette variables into `GenericUiGeneratedThemeStyleSheet` (`:system`) and `gui/genericui-theme.css` (`:web`) integrated only into the consumer app.

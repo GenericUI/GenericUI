@@ -59,12 +59,16 @@ class JvmUiThreadDispatcherAndDatabaseResourceTest {
 
         assertEquals(listOf("logic-start", "sync:from-ui-sync", "logic-end", "ui-queued"), trace)
 
-        // When invoked asynchronously off the pumper thread, posts wakeup via postToToolkitUiThread
+        // When invoked asynchronously off the toolkit UI thread, posts wakeup via postToToolkitUiThread
+        // instead of executing UI mutations directly on the caller's background thread.
         fakeMainThread = null
         dispatcher.dispatchToUi {
             trace.add("async-ui")
         }
-        // Outside logic thread without active pumper, dispatchToUi drains directly on caller thread
+        assertFalse(trace.contains("async-ui"))
+        assertEquals(1, postedToUi.size)
+        fakeMainThread = Thread.currentThread()
+        postedToUi.removeAt(0).invoke()
         assertTrue(trace.contains("async-ui"))
     }
 

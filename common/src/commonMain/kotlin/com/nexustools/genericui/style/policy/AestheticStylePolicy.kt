@@ -2,19 +2,20 @@ package com.nexustools.genericui.style.policy
 
 import com.nexustools.genericui.component.action.Button
 import com.nexustools.genericui.component.action.DropdownButton
-import com.nexustools.genericui.component.action.StyledButton
+import com.nexustools.genericui.component.action.styled.StyledButton
 import com.nexustools.genericui.component.composite.Composite
 import com.nexustools.genericui.component.feedback.Alert
 import com.nexustools.genericui.component.feedback.Banner
 import com.nexustools.genericui.component.feedback.Toast
-import com.nexustools.genericui.component.form.StyledSlider
+import com.nexustools.genericui.component.form.styled.StyledSlider
+import com.nexustools.genericui.component.form.styled.StyledTextField
 import com.nexustools.genericui.component.layout.LayoutBackendTarget
-import com.nexustools.genericui.component.layout.StyledContainer
+import com.nexustools.genericui.component.layout.styled.StyledContainer
 import com.nexustools.genericui.component.surface.Card
 import com.nexustools.genericui.component.surface.Jumbotron
 import com.nexustools.genericui.component.surface.ListGroup
 import com.nexustools.genericui.component.surface.ListGroupItem
-import com.nexustools.genericui.component.surface.StyledComponent
+import com.nexustools.genericui.component.surface.styled.StyledComponent
 import com.nexustools.genericui.component.surface.Well
 import com.nexustools.genericui.component.typography.Badge
 import com.nexustools.genericui.core.AbstractComponent
@@ -62,7 +63,11 @@ object AestheticStylePolicy {
         "styled-component",
         "composite",
         "styledslider",
-        "styled-slider"
+        "styled-slider",
+        "styledtextfield",
+        "styled-textfield",
+        "styledtextarea",
+        "styled-textarea"
     )
 
     private val STYLED_TAG_TOKENS = setOf(
@@ -76,6 +81,10 @@ object AestheticStylePolicy {
         "composite",
         "styledslider",
         "styled-slider",
+        "styledtextfield",
+        "styled-textfield",
+        "styledtextarea",
+        "styled-textarea",
         "card",
         "badge",
         "alert",
@@ -177,6 +186,7 @@ object AestheticStylePolicy {
             component is StyledComponent ||
             component is Composite ||
             component is StyledSlider ||
+            component is StyledTextField ||
             component is Card ||
             component is Badge ||
             component is Alert ||
@@ -319,7 +329,8 @@ object AestheticStylePolicy {
         if (component is StyledContainer ||
             component is StyledButton ||
             component is StyledComponent ||
-            component is Composite
+            component is Composite ||
+            component is StyledTextField
         ) return true
         val normalizedTag = normalizeTagToken(component.htmlTag)
         if (normalizedTag in STYLED_BACKDROP_TAG_TOKENS) return true

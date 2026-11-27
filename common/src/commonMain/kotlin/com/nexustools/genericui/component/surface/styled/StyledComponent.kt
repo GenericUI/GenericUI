@@ -1,4 +1,4 @@
-package com.nexustools.genericui.component.surface
+package com.nexustools.genericui.component.surface.styled
 
 import com.nexustools.genericui.component.shell.Application
 import com.nexustools.genericui.core.AbstractComponent

@@ -83,7 +83,7 @@ object PreferenceObjectCodec {
             }
             is Iterable<*> -> PreferenceElement.ofArray(value.map { toElement(it) })
             is Array<*> -> PreferenceElement.ofArray(value.map { toElement(it) })
-            is ByteArray -> PreferenceElement.ofArray(value.map { PreferenceElement.ofByte(it) })
+            is ByteArray -> PreferenceElement.ofBytes(value)
             is ShortArray -> PreferenceElement.ofArray(value.map { PreferenceElement.ofShort(it) })
             is IntArray -> PreferenceElement.ofArray(value.map { PreferenceElement.ofInt(it) })
             is LongArray -> PreferenceElement.ofArray(value.map { PreferenceElement.ofLong(it) })
@@ -92,6 +92,7 @@ object PreferenceObjectCodec {
             is BooleanArray -> PreferenceElement.ofArray(value.map { PreferenceElement.ofBoolean(it) })
             is CharArray -> PreferenceElement.ofString(value.concatToString())
             else -> {
+                DataClassCodecRegistry.encode(value)?.let { return it }
                 val extracted = PreferencePlatformReflector.extractObjectFields(value)
                 if (extracted != null) {
                     val fields = LinkedHashMap<String, PreferenceElement>(extracted.size)
@@ -171,14 +172,51 @@ object PreferenceObjectCodec {
                     defaultValue
                 }
             }
-            IntArray::class -> IntArray(element.arrayElements.size) { element.arrayElements[it].asInt() }
-            LongArray::class -> LongArray(element.arrayElements.size) { element.arrayElements[it].asLong() }
-            FloatArray::class -> FloatArray(element.arrayElements.size) { element.arrayElements[it].asFloat() }
-            DoubleArray::class -> DoubleArray(element.arrayElements.size) { element.arrayElements[it].asDouble() }
-            BooleanArray::class -> BooleanArray(element.arrayElements.size) { element.arrayElements[it].asBoolean() }
-            ByteArray::class -> ByteArray(element.arrayElements.size) { element.arrayElements[it].asByte() }
-            ShortArray::class -> ShortArray(element.arrayElements.size) { element.arrayElements[it].asShort() }
+            IntArray::class -> if (element.isArray) {
+                IntArray(element.arrayElements.size) { element.arrayElements[it].asInt() }
+            } else {
+                defaultValue
+            }
+            LongArray::class -> if (element.isArray) {
+                LongArray(element.arrayElements.size) { element.arrayElements[it].asLong() }
+            } else {
+                defaultValue
+            }
+            FloatArray::class -> if (element.isArray) {
+                FloatArray(element.arrayElements.size) { element.arrayElements[it].asFloat() }
+            } else {
+                defaultValue
+            }
+            DoubleArray::class -> if (element.isArray) {
+                DoubleArray(element.arrayElements.size) { element.arrayElements[it].asDouble() }
+            } else {
+                defaultValue
+            }
+            BooleanArray::class -> if (element.isArray) {
+                BooleanArray(element.arrayElements.size) { element.arrayElements[it].asBoolean() }
+            } else {
+                defaultValue
+            }
+            ByteArray::class -> when {
+                element.isBytes -> element.bytesOrNull() ?: ByteArray(0)
+                element.isArray -> ByteArray(element.arrayElements.size) { element.arrayElements[it].asByte() }
+                else -> defaultValue
+            }
+            ShortArray::class -> if (element.isArray) {
+                ShortArray(element.arrayElements.size) { element.arrayElements[it].asShort() }
+            } else {
+                defaultValue
+            }
+            CharArray::class -> when {
+                element.isString -> (element.stringValue ?: "").toCharArray()
+                element.isArray -> CharArray(element.arrayElements.size) { idx ->
+                    val item = element.arrayElements[idx]
+                    if (item.isNumber) item.asInt().toChar() else item.asString()?.firstOrNull() ?: '\u0000'
+                }
+                else -> defaultValue
+            }
             else -> {
+                DataClassCodecRegistry.decode(targetClass, element)?.let { return it }
                 if (element.isString) {
                     PreferencePlatformReflector.resolveEnumConstant(
                         targetClass,
@@ -201,6 +239,50 @@ object PreferenceObjectCodec {
             }
         }
         return (result as? T) ?: defaultValue
+    }
+
+    /**
+     * Decodes a [PreferenceElement] array into a typed [List] using [itemDecoder], returning `null`
+     * when [element] is `null`, [PreferenceElement.isNull], or not an array.
+     */
+    fun <T> decodeList(
+        element: PreferenceElement?,
+        itemDecoder: (PreferenceElement) -> T
+    ): List<T>? {
+        if (element == null || element.isNull || !element.isArray) return null
+        return element.arrayElements.map(itemDecoder)
+    }
+
+    /**
+     * Decodes a [PreferenceElement] array into a typed [Set] preserving element order, returning `null`
+     * when [element] is `null`, [PreferenceElement.isNull], or not an array.
+     */
+    fun <T> decodeSet(
+        element: PreferenceElement?,
+        itemDecoder: (PreferenceElement) -> T
+    ): Set<T>? {
+        if (element == null || element.isNull || !element.isArray) return null
+        val set = LinkedHashSet<T>(element.arrayElements.size)
+        for (item in element.arrayElements) {
+            set.add(itemDecoder(item))
+        }
+        return set
+    }
+
+    /**
+     * Decodes a [PreferenceElement] map or object into a typed [Map] using [valueDecoder], returning `null`
+     * when [element] is `null`, [PreferenceElement.isNull], or neither a map nor an object.
+     */
+    fun <V> decodeMap(
+        element: PreferenceElement?,
+        valueDecoder: (PreferenceElement) -> V
+    ): Map<String, V>? {
+        if (element == null || element.isNull || (!element.isMap && !element.isObject)) return null
+        val map = LinkedHashMap<String, V>(element.mapEntries.size)
+        for ((k, v) in element.mapEntries) {
+            map[k] = valueDecoder(v)
+        }
+        return map
     }
 
     /**
@@ -304,6 +386,15 @@ object PreferenceObjectCodec {
                 }
             }
             PreferenceElementKind.STRING -> writeJsonString(sb, element.stringValue ?: "")
+            PreferenceElementKind.BYTES -> {
+                val bytes = element.bytesOrNull() ?: ByteArray(0)
+                sb.append('[')
+                bytes.forEachIndexed { idx, b ->
+                    if (idx > 0) sb.append(',')
+                    sb.append(b.toInt())
+                }
+                sb.append(']')
+            }
             PreferenceElementKind.ARRAY -> {
                 sb.append('[')
                 element.arrayElements.forEachIndexed { idx, child ->

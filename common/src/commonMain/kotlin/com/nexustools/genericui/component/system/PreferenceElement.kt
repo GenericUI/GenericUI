@@ -11,8 +11,11 @@ class PreferenceElement(
     val numberTypeTag: Byte = NUMBER_TAG_INT,
     val stringValue: String? = null,
     val arrayElements: List<PreferenceElement> = emptyList(),
-    val mapEntries: Map<String, PreferenceElement> = emptyMap()
+    val mapEntries: Map<String, PreferenceElement> = emptyMap(),
+    bytes: ByteArray? = null
 ) {
+    private val bytesData: ByteArray? = bytes?.copyOf()
+
     val isNull: Boolean
         get() = kind == PreferenceElementKind.NULL
 
@@ -24,6 +27,9 @@ class PreferenceElement(
 
     val isString: Boolean
         get() = kind == PreferenceElementKind.STRING
+
+    val isBytes: Boolean
+        get() = kind == PreferenceElementKind.BYTES
 
     val isArray: Boolean
         get() = kind == PreferenceElementKind.ARRAY
@@ -101,6 +107,26 @@ class PreferenceElement(
         else -> defaultValue
     }
 
+    /**
+     * Returns a copy of the binary payload when [kind] is [PreferenceElementKind.BYTES], or `null` otherwise.
+     */
+    fun bytesOrNull(): ByteArray? =
+        if (kind == PreferenceElementKind.BYTES) bytesData?.copyOf() else null
+
+    /**
+     * Returns a copy of the binary payload when [kind] is [PreferenceElementKind.BYTES] (or converts
+     * numeric [PreferenceElementKind.ARRAY] byte sequences), or returns [default] otherwise.
+     */
+    fun asBytes(default: ByteArray = ByteArray(0)): ByteArray = when (kind) {
+        PreferenceElementKind.BYTES -> bytesData?.copyOf() ?: default
+        PreferenceElementKind.ARRAY -> if (arrayElements.all { it.isNumber }) {
+            ByteArray(arrayElements.size) { arrayElements[it].asByte() }
+        } else {
+            default
+        }
+        else -> default
+    }
+
     operator fun get(key: String): PreferenceElement? =
         if (kind == PreferenceElementKind.MAP || kind == PreferenceElementKind.OBJECT) {
             mapEntries[key]
@@ -116,7 +142,7 @@ class PreferenceElement(
         }
 
     /**
-     * Converts this [PreferenceElement] tree into standard Kotlin primitives, [List]s, and [LinkedHashMap]s.
+     * Converts this [PreferenceElement] tree into standard Kotlin primitives, [ByteArray], [List]s, and [LinkedHashMap]s.
      */
     fun toPlainValue(): Any? = when (kind) {
         PreferenceElementKind.NULL -> null
@@ -131,6 +157,7 @@ class PreferenceElement(
             else -> numberValue ?: 0
         }
         PreferenceElementKind.STRING -> stringValue ?: ""
+        PreferenceElementKind.BYTES -> bytesData?.copyOf() ?: ByteArray(0)
         PreferenceElementKind.ARRAY -> arrayElements.map { it.toPlainValue() }
         PreferenceElementKind.MAP, PreferenceElementKind.OBJECT -> {
             val map = LinkedHashMap<String, Any?>(mapEntries.size)
@@ -140,6 +167,11 @@ class PreferenceElement(
             map
         }
     }
+
+    /**
+     * Converts this [PreferenceElement] tree into standard Kotlin primitives, [ByteArray], [List]s, and [LinkedHashMap]s.
+     */
+    fun toAny(): Any? = toPlainValue()
 
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
@@ -151,6 +183,15 @@ class PreferenceElement(
             PreferenceElementKind.NUMBER -> numberValue?.toDouble() == other.numberValue?.toDouble() &&
                 numberValue?.toLong() == other.numberValue?.toLong()
             PreferenceElementKind.STRING -> stringValue == other.stringValue
+            PreferenceElementKind.BYTES -> {
+                val a = bytesData
+                val b = other.bytesData
+                when {
+                    a == null && b == null -> true
+                    a == null || b == null -> false
+                    else -> a.contentEquals(b)
+                }
+            }
             PreferenceElementKind.ARRAY -> arrayElements == other.arrayElements
             PreferenceElementKind.MAP, PreferenceElementKind.OBJECT -> mapEntries == other.mapEntries
         }
@@ -161,6 +202,7 @@ class PreferenceElement(
         result = 31 * result + (booleanValue?.hashCode() ?: 0)
         result = 31 * result + (numberValue?.toDouble()?.hashCode() ?: 0)
         result = 31 * result + (stringValue?.hashCode() ?: 0)
+        result = 31 * result + (bytesData?.contentHashCode() ?: 0)
         result = 31 * result + arrayElements.hashCode()
         result = 31 * result + mapEntries.hashCode()
         return result
@@ -212,6 +254,9 @@ class PreferenceElement(
         fun ofString(value: String): PreferenceElement =
             PreferenceElement(PreferenceElementKind.STRING, stringValue = value)
 
+        fun ofBytes(value: ByteArray): PreferenceElement =
+            PreferenceElement(PreferenceElementKind.BYTES, bytes = value)
+
         fun ofArray(elements: List<PreferenceElement>): PreferenceElement =
             PreferenceElement(PreferenceElementKind.ARRAY, arrayElements = elements.toList())
 
@@ -220,5 +265,7 @@ class PreferenceElement(
 
         fun ofObject(fields: Map<String, PreferenceElement>): PreferenceElement =
             PreferenceElement(PreferenceElementKind.OBJECT, mapEntries = LinkedHashMap(fields))
+
+        fun fromAny(value: Any?): PreferenceElement = PreferenceObjectCodec.toElement(value)
     }
 }

@@ -15,16 +15,20 @@ package com.nexustools.genericui.plugin
 open class GenericUiExtensionsConfig {
     var gpuEnabled: Boolean = false
     var imageProcessingEnabled: Boolean = false
+    var svgEnabled: Boolean = false
     var overlayEnabled: Boolean = false
     var canvas2dEnabled: Boolean = false
     var canvas3dEnabled: Boolean = false
     var mediaEnabled: Boolean = false
     var mediaControlsEnabled: Boolean = false
     var schemaEnabled: Boolean = false
+    var ipcEnabled: Boolean = false
     var serviceWorkerEnabled: Boolean = false
 
     val serviceWorkerConfig: GenericUiServiceWorkerExtensionSpec = GenericUiServiceWorkerExtensionSpec()
     var webViewEnabled: Boolean = false
+
+    val webViewConfig: GenericUiWebViewExtensionSpec = GenericUiWebViewExtensionSpec()
     var codeEditorEnabled: Boolean = false
     var aiChatEnabled: Boolean = false
     var threeJsEnabled: Boolean = false
@@ -213,10 +217,48 @@ open class GenericUiExtensionsConfig {
     }
 
     /**
-     * Includes `:extensions:ui:webview` (Chromium/NJS WebView on desktop/Swing and native WebView on mobile/web).
+     * Includes `:extensions:graphics:svg` (`Svg`, pure-Kotlin software SVG rasterizer on system targets
+     * and native `<svg>` DOM renderer on web targets).
+     */
+    fun svg(enabled: Boolean = true) {
+        svgEnabled = enabled
+    }
+
+    /**
+     * Includes `:extensions:system:ipc` (target-scoped Desktop + Android cross-process IPC runtime;
+     * never wired to Web or iOS targets).
+     */
+    fun ipc(enabled: Boolean = true) {
+        ipcEnabled = enabled
+    }
+
+    /**
+     * Includes `:extensions:ui:webview` (Alien/NJS WebView on desktop/Swing and native WebView on mobile/web).
      */
     fun webView(enabled: Boolean = true) {
         webViewEnabled = enabled
+        syncWebViewExtensionOptions()
+    }
+
+    /**
+     * Includes and configures `:extensions:ui:webview` via [GenericUiWebViewExtensionSpec].
+     */
+    fun webView(configure: org.gradle.api.Action<GenericUiWebViewExtensionSpec>) {
+        webViewEnabled = true
+        configure.execute(webViewConfig)
+        syncWebViewExtensionOptions()
+    }
+
+    fun webView(configure: GenericUiWebViewExtensionSpec.() -> Unit) {
+        webViewEnabled = true
+        webViewConfig.configure()
+        syncWebViewExtensionOptions()
+    }
+
+    internal fun syncWebViewExtensionOptions() {
+        for ((k, v) in webViewConfig.toOptionsMap()) {
+            extensionOptions[k] = v
+        }
     }
 
     /**
@@ -368,6 +410,7 @@ open class GenericUiExtensionsConfig {
     fun enableAll() {
         gpu(true)
         imageProcessing(true)
+        svg(true)
         overlay(true)
         canvas2d(true)
         canvas3d(true)
@@ -386,16 +429,50 @@ open class GenericUiExtensionsConfig {
         alien(true)
         pip(true)
         schema(true)
+        ipc(true)
         serviceWorker(true)
         dsl(true)
     }
 
     /**
      * Evaluates transitive extension dependencies in case boolean properties were set directly,
-     * and returns the ordered list of categorized extension module paths
+     * and returns the ordered list of target-safe common categorized extension module paths
      * (e.g. `":extensions:graphics:gpu"`, `":extensions:game:engine2d"`).
+     *
+     * Target-scoped modules such as `:extensions:system:ipc` and Desktop-only `webView` companion
+     * modules are excluded from the common set and returned only by [enabledExtensionModulePathsForTarget].
      */
-    fun enabledExtensionModulePaths(): List<String> {
+    fun enabledExtensionModulePaths(): List<String> =
+        enabledExtensionModulePathsForTarget(GenericUiVariantScope.COMMON)
+
+    /** Returns `true` when `:extensions:data:schema` is active across common targets (explicit `schema()` or `media()`). */
+    fun isCommonSchemaEnabled(): Boolean =
+        ":extensions:data:schema" in enabledExtensionModulePathsForTarget(GenericUiVariantScope.COMMON)
+
+    /** Returns `true` when `:extensions:data:schema` is active on Desktop (including transitive `webView()` media/audio). */
+    fun isDesktopSchemaEnabled(backends: GenericUiBackendsConfig): Boolean {
+        val hasDesktop = backends.windowsEnabled ||
+            backends.macosEnabled ||
+            backends.gtkEnabled ||
+            backends.kdeEnabled ||
+            backends.swingConfig.enabled
+        return hasDesktop &&
+            (":extensions:data:schema" in enabledExtensionModulePathsForTarget(GenericUiVariantScope.DESKTOP_COMMON))
+    }
+
+    /** Returns `true` when `:extensions:data:schema` is active on Common or any enabled Desktop target. */
+    fun isAnySchemaEnabled(backends: GenericUiBackendsConfig): Boolean =
+        isCommonSchemaEnabled() || isDesktopSchemaEnabled(backends)
+
+    /**
+     * Returns the ordered list of enabled extension module paths resolved specifically for [targetScope],
+     * including target-scoped `:extensions:system:ipc` on Desktop/Android and Desktop-only Alien +
+     * capability companion modules when `webView` is enabled.
+     */
+    fun enabledExtensionModulePathsForTarget(targetScope: GenericUiVariantScope): List<String> {
+        val isDesktop = isDesktopTargetScope(targetScope)
+        val isIpcSupported = isIpcSupportedScope(targetScope)
+        val webViewDesktopActive = isDesktop && webViewEnabled
         val resolvedEngine3d = engine3dEnabled
         val resolvedEngine2d = engine2dEnabled
         val resolvedBox3d = box3dEnabled || resolvedEngine3d
@@ -405,16 +482,31 @@ open class GenericUiExtensionsConfig {
         val resolvedGamepad = gamepadEnabled || resolvedEngine
         val resolvedAiChat = aiChatEnabled
         val resolvedCodeEditor = codeEditorEnabled || resolvedAiChat
-        val resolvedAlien = alienEnabled
+        val resolvedAlien = alienEnabled || webViewDesktopActive
         val resolvedPip = pipEnabled
         val resolvedWebView = webViewEnabled
-        val resolvedMedia = mediaEnabled
+        val resolvedMedia = mediaEnabled ||
+            (webViewDesktopActive && (webViewConfig.enableMedia || webViewConfig.enableWebAudio))
         val resolvedMediaControls = mediaControlsEnabled
         val resolvedSchema = schemaEnabled || resolvedMedia
         val resolvedServiceWorker = serviceWorkerEnabled
         syncServiceWorkerExtensionOptions()
-        val resolvedCanvas3d = canvas3dEnabled || resolvedThreeJs || resolvedBox2d || resolvedBox3d || resolvedEngine3d
-        val resolvedCanvas2d = canvas2dEnabled || resolvedCanvas3d || resolvedCodeEditor || resolvedBox2d || resolvedAlien || resolvedEngine2d
+        syncWebViewExtensionOptions()
+        val resolvedSvg = svgEnabled || (webViewDesktopActive && webViewConfig.enableSvg)
+        val resolvedIpc = isIpcSupported && (ipcEnabled || resolvedServiceWorker || webViewDesktopActive)
+        val resolvedCanvas3d = canvas3dEnabled ||
+            resolvedThreeJs ||
+            resolvedBox2d ||
+            resolvedBox3d ||
+            resolvedEngine3d ||
+            (webViewDesktopActive && webViewConfig.enableWebGL)
+        val resolvedCanvas2d = canvas2dEnabled ||
+            resolvedCanvas3d ||
+            resolvedCodeEditor ||
+            resolvedBox2d ||
+            resolvedAlien ||
+            resolvedEngine2d ||
+            (webViewDesktopActive && (webViewConfig.enableCanvas2D || webViewConfig.enableWebGL))
         val resolvedOverlay = overlayEnabled || resolvedMedia || resolvedCanvas2d || resolvedCanvas3d || resolvedPip
         val resolvedImageProcessing = imageProcessingEnabled || resolvedCanvas2d || resolvedEngine2d
         val resolvedGpu = gpuEnabled || resolvedImageProcessing || resolvedCanvas3d || resolvedThreeJs
@@ -423,6 +515,7 @@ open class GenericUiExtensionsConfig {
         return buildList {
             if (resolvedGpu) add(":extensions:graphics:gpu")
             if (resolvedImageProcessing) add(":extensions:graphics:imageprocessing")
+            if (resolvedSvg) add(":extensions:graphics:svg")
             if (resolvedOverlay) add(":extensions:ui:overlay")
             if (resolvedSchema) add(":extensions:data:schema")
             if (resolvedCanvas2d) add(":extensions:graphics:canvas2d")
@@ -440,8 +533,15 @@ open class GenericUiExtensionsConfig {
             if (resolvedEngine2d) add(":extensions:game:engine2d")
             if (resolvedEngine3d) add(":extensions:game:engine3d")
             if (resolvedAlien) add(":extensions:ui:alien")
+            if (resolvedAlien) {
+                if (resolvedSvg) add(":extensions:graphics:svg:alien")
+                if (resolvedCanvas2d) add(":extensions:graphics:canvas2d:alien")
+                if (resolvedCanvas3d) add(":extensions:graphics:canvas3d:alien")
+                if (resolvedMedia) add(":extensions:media:media:alien")
+            }
             if (resolvedPip) add(":extensions:ui:pip")
             if (resolvedServiceWorker) add(":extensions:system:serviceworker")
+            if (resolvedIpc) add(":extensions:system:ipc")
             for (customMod in customModulePaths) {
                 add(customMod)
             }
@@ -449,23 +549,20 @@ open class GenericUiExtensionsConfig {
                 add(":extensions:ui:dsl")
                 if (resolvedOverlay) add(":extensions:ui:overlay:dsl")
                 if (resolvedSchema) add(":extensions:data:schema:dsl")
+                if (resolvedSvg) add(":extensions:graphics:svg:dsl")
                 if (resolvedCanvas2d) add(":extensions:graphics:canvas2d:dsl")
                 if (resolvedCanvas3d) add(":extensions:graphics:canvas3d:dsl")
                 if (resolvedMedia) add(":extensions:media:media:dsl")
-                if (resolvedMediaControls) add(":extensions:media:mediacontrols:dsl")
                 if (resolvedWebView) add(":extensions:ui:webview:dsl")
                 if (resolvedCodeEditor) add(":extensions:ui:codeeditor:dsl")
                 if (resolvedAiChat) add(":extensions:ui:aichat:dsl")
                 if (resolvedThreeJs) add(":extensions:graphics:threejs:dsl")
                 if (resolvedBox2d) add(":extensions:physics:box2d:dsl")
                 if (resolvedBox3d) add(":extensions:physics:box3d:dsl")
-                if (resolvedGamepad) add(":extensions:game:gamepad:dsl")
                 if (resolvedEngine) add(":extensions:game:engine:dsl")
                 if (resolvedEngine2d) add(":extensions:game:engine2d:dsl")
                 if (resolvedEngine3d) add(":extensions:game:engine3d:dsl")
                 if (resolvedAlien) add(":extensions:ui:alien:dsl")
-                if (resolvedPip) add(":extensions:ui:pip:dsl")
-                if (resolvedServiceWorker) add(":extensions:system:serviceworker:dsl")
                 for (customMod in customModulePaths) {
                     val dslMod = if (customMod.endsWith(":dsl")) customMod else "$customMod:dsl"
                     if (dslMod !in this) add(dslMod)
@@ -477,6 +574,21 @@ open class GenericUiExtensionsConfig {
         }
     }
 
+    private fun isDesktopTargetScope(scope: GenericUiVariantScope): Boolean = when (scope) {
+        GenericUiVariantScope.WINDOWS,
+        GenericUiVariantScope.MACOS,
+        GenericUiVariantScope.GTK,
+        GenericUiVariantScope.KDE,
+        GenericUiVariantScope.SWING,
+        GenericUiVariantScope.LINUX_COMMON,
+        GenericUiVariantScope.NATIVE_DESKTOP_COMMON,
+        GenericUiVariantScope.DESKTOP_COMMON -> true
+        else -> false
+    }
+
+    private fun isIpcSupportedScope(scope: GenericUiVariantScope): Boolean =
+        isDesktopTargetScope(scope) || scope == GenericUiVariantScope.ANDROID
+
     /**
      * Returns the ordered list of fully-qualified Kotlin provider registration / installation
      * expressions for all enabled extensions on [backendScope] (applying optional per-variant
@@ -486,7 +598,8 @@ open class GenericUiExtensionsConfig {
     fun providerInstallerCallsForBackend(
         backendScope: GenericUiVariantScope,
         extensionOverrides: Map<String, Boolean> = emptyMap(),
-        generatedPackageName: String = ""
+        generatedPackageName: String = "",
+        baseName: String = ""
     ): List<String> {
         fun overrideOrDefault(defaultVal: Boolean, vararg keys: String): Boolean {
             for (k in keys) {
@@ -495,6 +608,8 @@ open class GenericUiExtensionsConfig {
             return defaultVal
         }
 
+        val isDesktop = isDesktopTargetScope(backendScope)
+        val isIpcSupported = isIpcSupportedScope(backendScope)
         val rawEngine3d = overrideOrDefault(engine3dEnabled, "engine3d", "engine3D")
         val rawEngine2d = overrideOrDefault(engine2dEnabled, "engine2d", "engine2D")
         val rawBox3d = overrideOrDefault(box3dEnabled, "box3d")
@@ -508,23 +623,42 @@ open class GenericUiExtensionsConfig {
         val rawMedia = overrideOrDefault(mediaEnabled, "media")
         val rawMediaControls = overrideOrDefault(mediaControlsEnabled, "mediaControls", "mediacontrols")
         val rawSchema = overrideOrDefault(schemaEnabled, "schema")
+        val rawSvg = overrideOrDefault(svgEnabled, "svg")
+        val rawIpc = overrideOrDefault(ipcEnabled, "ipc")
+        val rawServiceWorker = overrideOrDefault(serviceWorkerEnabled, "serviceWorker", "serviceworker")
         val rawCanvas3d = overrideOrDefault(canvas3dEnabled, "canvas3d")
         val rawCanvas2d = overrideOrDefault(canvas2dEnabled, "canvas2d")
         val rawImageProcessing = overrideOrDefault(imageProcessingEnabled, "imageProcessing", "imageprocessing")
         val rawGpu = overrideOrDefault(gpuEnabled, "gpu")
 
+        syncWebViewExtensionOptions()
+        val webViewDesktopActive = isDesktop && rawWebView
         val resolvedBox3d = rawBox3d || rawEngine3d
         val resolvedBox2d = rawBox2d || rawEngine2d
         val resolvedThreeJs = rawThreeJs || resolvedBox3d || rawEngine3d
         val resolvedCodeEditor = rawCodeEditor || rawAiChat
-        val resolvedAlien = rawAlien
+        val resolvedAlien = rawAlien || webViewDesktopActive
         val resolvedPip = rawPip
         val resolvedWebView = rawWebView
-        val resolvedMedia = rawMedia
+        val resolvedMedia = rawMedia ||
+            (webViewDesktopActive && (webViewConfig.enableMedia || webViewConfig.enableWebAudio))
         val resolvedMediaControls = rawMediaControls
         val resolvedSchema = rawSchema || resolvedMedia
-        val resolvedCanvas3d = rawCanvas3d || resolvedThreeJs || resolvedBox2d || resolvedBox3d || rawEngine3d
-        val resolvedCanvas2d = rawCanvas2d || resolvedCanvas3d || resolvedCodeEditor || resolvedBox2d || resolvedAlien || rawEngine2d
+        val resolvedSvg = rawSvg || (webViewDesktopActive && webViewConfig.enableSvg)
+        val resolvedIpc = isIpcSupported && (rawIpc || rawServiceWorker || webViewDesktopActive)
+        val resolvedCanvas3d = rawCanvas3d ||
+            resolvedThreeJs ||
+            resolvedBox2d ||
+            resolvedBox3d ||
+            rawEngine3d ||
+            (webViewDesktopActive && webViewConfig.enableWebGL)
+        val resolvedCanvas2d = rawCanvas2d ||
+            resolvedCanvas3d ||
+            resolvedCodeEditor ||
+            resolvedBox2d ||
+            resolvedAlien ||
+            rawEngine2d ||
+            (webViewDesktopActive && (webViewConfig.enableCanvas2D || webViewConfig.enableWebGL))
         val resolvedImageProcessing = rawImageProcessing || resolvedCanvas2d || rawEngine2d
         val resolvedGpu = rawGpu || resolvedImageProcessing || resolvedCanvas3d || resolvedThreeJs
 
@@ -676,7 +810,53 @@ open class GenericUiExtensionsConfig {
                 }
             }
 
+            if (resolvedSvg) {
+                when (backendScope) {
+                    GenericUiVariantScope.WEB ->
+                        add("com.nexustools.genericui.ext.svg.web.WebSvgProvider.install()")
+                    GenericUiVariantScope.WINDOWS,
+                    GenericUiVariantScope.MACOS,
+                    GenericUiVariantScope.GTK,
+                    GenericUiVariantScope.KDE,
+                    GenericUiVariantScope.SWING,
+                    GenericUiVariantScope.ANDROID,
+                    GenericUiVariantScope.IOS,
+                    GenericUiVariantScope.IPADOS,
+                    GenericUiVariantScope.IOS_COMMON,
+                    GenericUiVariantScope.LINUX_COMMON,
+                    GenericUiVariantScope.NATIVE_DESKTOP_COMMON,
+                    GenericUiVariantScope.DESKTOP_COMMON,
+                    GenericUiVariantScope.MOBILE_COMMON,
+                    GenericUiVariantScope.APPLE_COMMON,
+                    GenericUiVariantScope.JVM_COMMON,
+                    GenericUiVariantScope.SYSTEM_COMMON ->
+                        add("com.nexustools.genericui.ext.svg.system.SystemSvgProvider.install()")
+                    else -> Unit
+                }
+            }
+
+            if (resolvedIpc) {
+                add("com.nexustools.genericui.ext.ipc.IpcExtension.registerProviders()")
+            }
+
             if (resolvedWebView) {
+                if (isDesktop) {
+                    val resolvedWebViewGenPkg = generatedPackageName.trim().ifEmpty {
+                        com.nexustools.genericui.plugin.spi.WebViewExtensionContributor.DEFAULT_GENERATED_PACKAGE
+                    }
+                    val resolvedWebViewWorkerBase = com.nexustools.genericui.plugin.spi.WebViewExtensionContributor
+                        .resolveWorkerBinaryBaseName(baseName.trim().ifEmpty { "app" })
+                    for (propCall in com.nexustools.genericui.plugin.spi.WebViewExtensionContributor.buildDesktopRuntimePropertyCalls(
+                        backendScope = backendScope,
+                        genPkg = resolvedWebViewGenPkg,
+                        workerBaseName = resolvedWebViewWorkerBase,
+                        options = extensionOptions
+                    )) {
+                        if (propCall !in this) {
+                            add(propCall)
+                        }
+                    }
+                }
                 when (backendScope) {
                     GenericUiVariantScope.WINDOWS,
                     GenericUiVariantScope.MACOS,
@@ -703,9 +883,11 @@ open class GenericUiExtensionsConfig {
             }
 
             if (resolvedAlien) {
-                when (backendScope) {
-                    GenericUiVariantScope.WEB ->
+                val alienBootstrapInstalled = when (backendScope) {
+                    GenericUiVariantScope.WEB -> {
                         add("com.nexustools.genericui.ext.alien.web.WebAlienBootstrap.install()")
+                        true
+                    }
                     GenericUiVariantScope.WINDOWS,
                     GenericUiVariantScope.MACOS,
                     GenericUiVariantScope.GTK,
@@ -721,9 +903,25 @@ open class GenericUiExtensionsConfig {
                     GenericUiVariantScope.MOBILE_COMMON,
                     GenericUiVariantScope.APPLE_COMMON,
                     GenericUiVariantScope.JVM_COMMON,
-                    GenericUiVariantScope.SYSTEM_COMMON ->
+                    GenericUiVariantScope.SYSTEM_COMMON -> {
                         add("com.nexustools.genericui.ext.alien.system.SystemAlienBootstrap.install()")
-                    else -> Unit
+                        true
+                    }
+                    else -> false
+                }
+                if (alienBootstrapInstalled) {
+                    if (resolvedSvg) {
+                        add("com.nexustools.genericui.ext.svg.alien.SvgAlienExtension.register()")
+                    }
+                    if (resolvedCanvas2d) {
+                        add("com.nexustools.genericui.ext.canvas2d.alien.Canvas2DAlienExtension.register()")
+                    }
+                    if (resolvedCanvas3d) {
+                        add("com.nexustools.genericui.ext.canvas3d.alien.Canvas3DAlienExtension.register()")
+                    }
+                    if (resolvedMedia) {
+                        add("com.nexustools.genericui.ext.media.alien.MediaAlienExtension.register()")
+                    }
                 }
             }
 
@@ -755,7 +953,7 @@ open class GenericUiExtensionsConfig {
                 }
             }
 
-            val spiEnabledPaths = enabledExtensionModulePaths().toMutableSet().apply {
+            val spiEnabledPaths = enabledExtensionModulePathsForTarget(backendScope).toMutableSet().apply {
                 if (resolvedSchema) {
                     add(":extensions:data:schema")
                 } else {
@@ -770,7 +968,7 @@ open class GenericUiExtensionsConfig {
                     appId = "",
                     appName = "",
                     appVersion = "",
-                    baseName = "",
+                    baseName = baseName,
                     generatedPackageName = generatedPackageName,
                     enabledExtensionModulePaths = spiEnabledPaths,
                     customExtensionModulePaths = customModulePaths.toSet(),

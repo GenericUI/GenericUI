@@ -1,6 +1,11 @@
 package com.nexustools.genericui.util
 
+import com.nexustools.genericui.component.system.BinarySerializable
+import com.nexustools.genericui.component.system.DataClassCodec
+import com.nexustools.genericui.component.system.DataClassCodecRegistry
 import com.nexustools.genericui.component.system.PreferenceElement
+import com.nexustools.genericui.component.system.PreferenceElementKind
+import com.nexustools.genericui.component.system.PreferenceObjectCodec
 import com.nexustools.genericui.component.system.PreferenceSerializable
 import com.nexustools.genericui.io.ByteBuffer
 import com.nexustools.genericui.io.ByteOrder
@@ -170,13 +175,19 @@ class BinaryJsonTest {
         assertNull(BinaryJson.decodeElementOrNull(exhaustedBuf))
         assertFalse(BinaryJson.isBinaryJson(exhaustedBuf))
 
-        // Unknown tags outside 0x00..0x0B (e.g. ASCII JSON '{' = 0x7B, bplist00 'b' = 0x62, 0x0C, 0xFF)
+        // Unknown tags outside 0x00..0x0C (e.g. ASCII JSON '{' = 0x7B, bplist00 'b' = 0x62, 0x0D, 0xFF)
         val asciiJson = """{"theme":"dark"}""".encodeToByteArray()
         assertFalse(BinaryJson.isBinaryJson(asciiJson))
         assertNull(BinaryJson.decodeElementOrNull(asciiJson))
-        assertNull(BinaryJson.decodeElementOrNull(byteArrayOf(0x0C)))
+        assertNull(BinaryJson.decodeElementOrNull(byteArrayOf(0x0D)))
         assertNull(BinaryJson.decodeElementOrNull(byteArrayOf(0xFF.toByte())))
         assertFalse(BinaryJson.isBinaryJson(BinaryPlist.encode(mapOf("a" to 1))))
+
+        // Truncated TYPE_BYTES payloads
+        assertNull(BinaryJson.decodeElementOrNull(byteArrayOf(BinaryJson.TYPE_BYTES)))
+        assertNull(BinaryJson.decodeElementOrNull(byteArrayOf(BinaryJson.TYPE_BYTES, 0x00, 0x00, 0x00, 0x04, 0x01, 0x02)))
+        assertNull(BinaryJson.decodeElementOrNull(byteArrayOf(BinaryJson.TYPE_BYTES, 0xFF.toByte(), 0xFF.toByte(), 0xFF.toByte(), 0xFF.toByte())))
+        assertNull(BinaryJson.decodeElementOrNull(byteArrayOf(BinaryJson.TYPE_BYTES, 0x7F, 0xFF.toByte(), 0xFF.toByte(), 0xFF.toByte(), 0x01)))
 
         // Truncated primitive payloads
         assertNull(BinaryJson.decodeElementOrNull(byteArrayOf(BinaryJson.TYPE_BOOLEAN)))
@@ -226,5 +237,214 @@ class BinaryJsonTest {
         assertNotNull(slicedDecoded)
         assertEquals(12345, slicedDecoded.asInt())
         assertEquals(framedBuf.limit, framedBuf.position)
+    }
+
+    private enum class CodecPriority {
+        LOW,
+        MEDIUM,
+        HIGH
+    }
+
+    @BinarySerializable
+    private data class NestedAttachment(
+        val name: String,
+        val payload: ByteArray,
+        val priority: CodecPriority
+    ) {
+        override fun equals(other: Any?): Boolean {
+            if (this === other) return true
+            if (other !is NestedAttachment) return false
+            return name == other.name &&
+                payload.contentEquals(other.payload) &&
+                priority == other.priority
+        }
+
+        override fun hashCode(): Int {
+            var result = name.hashCode()
+            result = 31 * result + payload.contentHashCode()
+            result = 31 * result + priority.hashCode()
+            return result
+        }
+    }
+
+    @BinarySerializable
+    private data class CodecEnvelope(
+        val id: String,
+        val primary: NestedAttachment,
+        val secondary: NestedAttachment?,
+        val attachments: List<NestedAttachment>,
+        val tags: Set<String>,
+        val metadata: Map<String, NestedAttachment>,
+        val shorts: ShortArray,
+        val chars: CharArray
+    ) {
+        override fun equals(other: Any?): Boolean {
+            if (this === other) return true
+            if (other !is CodecEnvelope) return false
+            return id == other.id &&
+                primary == other.primary &&
+                secondary == other.secondary &&
+                attachments == other.attachments &&
+                tags == other.tags &&
+                metadata == other.metadata &&
+                shorts.contentEquals(other.shorts) &&
+                chars.contentEquals(other.chars)
+        }
+
+        override fun hashCode(): Int {
+            var result = id.hashCode()
+            result = 31 * result + primary.hashCode()
+            result = 31 * result + (secondary?.hashCode() ?: 0)
+            result = 31 * result + attachments.hashCode()
+            result = 31 * result + tags.hashCode()
+            result = 31 * result + metadata.hashCode()
+            result = 31 * result + shorts.contentHashCode()
+            result = 31 * result + chars.contentHashCode()
+            return result
+        }
+    }
+
+    private object NestedAttachmentCodec : DataClassCodec<NestedAttachment> {
+        override fun encode(value: NestedAttachment): PreferenceElement = PreferenceElement.ofObject(
+            linkedMapOf(
+                "name" to PreferenceObjectCodec.toElement(value.name),
+                "payload" to PreferenceObjectCodec.toElement(value.payload),
+                "priority" to PreferenceObjectCodec.toElement(value.priority)
+            )
+        )
+
+        override fun decode(element: PreferenceElement): NestedAttachment {
+            val priorityStr = element["priority"]?.asString() ?: CodecPriority.LOW.name
+            val priority = CodecPriority.entries.firstOrNull { it.name == priorityStr } ?: CodecPriority.LOW
+            return NestedAttachment(
+                name = element["name"]?.asString() ?: "",
+                payload = element["payload"]?.asBytes() ?: ByteArray(0),
+                priority = priority
+            )
+        }
+    }
+
+    private object CodecEnvelopeCodec : DataClassCodec<CodecEnvelope> {
+        override fun encode(value: CodecEnvelope): PreferenceElement = PreferenceElement.ofObject(
+            linkedMapOf(
+                "id" to PreferenceObjectCodec.toElement(value.id),
+                "primary" to PreferenceObjectCodec.toElement(value.primary),
+                "secondary" to PreferenceObjectCodec.toElement(value.secondary),
+                "attachments" to PreferenceObjectCodec.toElement(value.attachments),
+                "tags" to PreferenceObjectCodec.toElement(value.tags),
+                "metadata" to PreferenceObjectCodec.toElement(value.metadata),
+                "shorts" to PreferenceObjectCodec.toElement(value.shorts),
+                "chars" to PreferenceObjectCodec.toElement(value.chars)
+            )
+        )
+
+        override fun decode(element: PreferenceElement): CodecEnvelope = CodecEnvelope(
+            id = element["id"]?.asString() ?: "",
+            primary = PreferenceObjectCodec.fromElement(element["primary"], NestedAttachment::class)
+                ?: error("Missing primary attachment"),
+            secondary = PreferenceObjectCodec.fromElement(element["secondary"], NestedAttachment::class),
+            attachments = PreferenceObjectCodec.decodeList(element["attachments"]) { item ->
+                PreferenceObjectCodec.fromElement(item, NestedAttachment::class)
+                    ?: error("Invalid attachment item")
+            } ?: emptyList(),
+            tags = PreferenceObjectCodec.decodeSet(element["tags"]) { it.asString("") ?: "" } ?: emptySet(),
+            metadata = PreferenceObjectCodec.decodeMap(element["metadata"]) { item ->
+                PreferenceObjectCodec.fromElement(item, NestedAttachment::class)
+                    ?: error("Invalid metadata attachment")
+            } ?: emptyMap(),
+            shorts = PreferenceObjectCodec.fromElement(element["shorts"], ShortArray::class) ?: ShortArray(0),
+            chars = PreferenceObjectCodec.fromElement(element["chars"], CharArray::class) ?: CharArray(0)
+        )
+    }
+
+    @Test
+    fun `TYPE_BYTES encodes and decodes empty arbitrary and large ByteArrays cleanly`() = runSuspend {
+        val emptyBytes = ByteArray(0)
+        val encodedEmpty = BinaryJson.encode(emptyBytes)
+        assertEquals(5, encodedEmpty.size)
+        assertEquals(BinaryJson.TYPE_BYTES, encodedEmpty[0])
+        assertTrue(BinaryJson.isBinaryJson(encodedEmpty))
+        val decodedEmptyElem = BinaryJson.decodeElementOrNull(encodedEmpty)
+        assertNotNull(decodedEmptyElem)
+        assertEquals(PreferenceElementKind.BYTES, decodedEmptyElem.kind)
+        assertTrue(decodedEmptyElem.isBytes)
+        assertTrue(emptyBytes.contentEquals(decodedEmptyElem.bytesOrNull()))
+        assertTrue(emptyBytes.contentEquals(BinaryJson.decode(encodedEmpty) as? ByteArray))
+        assertTrue(emptyBytes.contentEquals(BinaryJson.decodeAs<ByteArray>(encodedEmpty)))
+
+        val allByteValues = ByteArray(256) { it.toByte() }
+        val elemA = PreferenceElement.fromAny(allByteValues)
+        val elemB = PreferenceElement.ofBytes(allByteValues.copyOf())
+        assertEquals(PreferenceElementKind.BYTES, elemA.kind)
+        assertEquals(elemA, elemB)
+        assertEquals(elemA.hashCode(), elemB.hashCode())
+        assertTrue(allByteValues.contentEquals(elemA.toAny() as? ByteArray))
+
+        // Mutating original input array must not mutate element
+        val mutableInput = byteArrayOf(10, 20, 30)
+        val immutableElem = PreferenceElement.ofBytes(mutableInput)
+        mutableInput[0] = 99
+        assertEquals(10.toByte(), immutableElem.bytesOrNull()?.get(0))
+
+        val encodedAll = BinaryJson.encode(allByteValues)
+        assertEquals(BinaryJson.TYPE_BYTES, encodedAll[0])
+        assertEquals(1 + 4 + 256, encodedAll.size)
+        val decodedAll = BinaryJson.decodeAs<ByteArray>(encodedAll)
+        assertNotNull(decodedAll)
+        assertTrue(allByteValues.contentEquals(decodedAll))
+        assertTrue(allByteValues.contentEquals(BinaryJson.decode(encodedAll) as? ByteArray))
+
+        // Multi-chunk > 64KB stream test
+        val largeBytes = ByteArray(70_000) { ((it * 31) and 0xFF).toByte() }
+        val writableBuf = WritableByteBuffer(initialCapacity = 1024, byteOrder = ByteOrder.BIG_ENDIAN)
+        BinaryJson.encode(largeBytes, writableBuf)
+        val readableBuf = ReadableByteBuffer(writableBuf.toByteBuffer())
+        val streamDecoded = BinaryJson.decodeAs<ByteArray>(readableBuf)
+        assertNotNull(streamDecoded)
+        assertTrue(largeBytes.contentEquals(streamDecoded))
+    }
+
+    @Test
+    fun `DataClassCodecRegistry round-trips nested data classes collections enums and primitive arrays via BinaryJson`() {
+        DataClassCodecRegistry.register(NestedAttachment::class, NestedAttachmentCodec)
+        DataClassCodecRegistry.register(CodecEnvelope::class, CodecEnvelopeCodec)
+        try {
+            assertTrue(DataClassCodecRegistry.hasCodec(NestedAttachment::class))
+            assertTrue(DataClassCodecRegistry.hasCodec<CodecEnvelope>())
+
+            val envelope = CodecEnvelope(
+                id = "env-42",
+                primary = NestedAttachment("icon.png", byteArrayOf(0x00, 0x7F, 0x80.toByte(), 0xFF.toByte()), CodecPriority.HIGH),
+                secondary = null,
+                attachments = listOf(
+                    NestedAttachment("thumb.jpg", ByteArray(0), CodecPriority.LOW),
+                    NestedAttachment("shader.spv", byteArrayOf(0x03, 0x02, 0x23, 0x07), CodecPriority.MEDIUM)
+                ),
+                tags = linkedSetOf("ui", "binary", "kmp"),
+                metadata = linkedMapOf(
+                    "cover" to NestedAttachment("cover.webp", byteArrayOf(1, 2, 3, 4), CodecPriority.HIGH)
+                ),
+                shorts = shortArrayOf(-32768, 0, 1024, 32767),
+                chars = charArrayOf('G', 'U', 'I')
+            )
+
+            val encoded = BinaryJson.encodeDataClass(envelope)
+            assertEquals(BinaryJson.TYPE_OBJECT, encoded[0])
+            assertTrue(BinaryJson.isBinaryJson(encoded))
+
+            val decoded = BinaryJson.decodeDataClass<CodecEnvelope>(encoded)
+            assertEquals(envelope, decoded)
+
+            val decodedViaDecodeAs = BinaryJson.decodeAs(encoded, CodecEnvelope::class)
+            assertEquals(envelope, decodedViaDecodeAs)
+
+            // Null payload decodes to null for decodeDataClass
+            assertNull(BinaryJson.decodeDataClass<CodecEnvelope>(BinaryJson.encode(null)))
+            assertNull(BinaryJson.decodeDataClass<CodecEnvelope>(byteArrayOf(0x7F)))
+        } finally {
+            DataClassCodecRegistry.unregister<CodecEnvelope>()
+            DataClassCodecRegistry.unregister<NestedAttachment>()
+        }
+        assertFalse(DataClassCodecRegistry.hasCodec<CodecEnvelope>())
     }
 }

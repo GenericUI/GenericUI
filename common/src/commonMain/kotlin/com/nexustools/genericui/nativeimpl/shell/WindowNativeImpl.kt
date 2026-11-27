@@ -30,6 +30,7 @@ interface WindowNativeImpl<out W> : AbstractContainerNativeImpl<W> {
 
     fun setTitle(title: String)
     fun getTitle(): String
+    fun setWindowIcon(iconPathOrSvg: String?) {}
 
     fun setWindowSize(size: Size)
     fun getWindowSize(): Size

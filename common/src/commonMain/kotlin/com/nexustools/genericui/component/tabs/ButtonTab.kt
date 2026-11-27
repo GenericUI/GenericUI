@@ -18,7 +18,7 @@ open class ButtonTab(
     customComponent: AbstractComponent? = null,
     iconRes: ResourceID? = null,
     image: Image? = null,
-    tintImageToTheme: Boolean = true,
+    tintImageToTheme: Boolean? = null,
     iconSizePx: Int = image?.widthPx ?: image?.heightPx ?: 20,
     iconPlacement: TabIconPlacement = TabIconPlacement.START,
     onClick: (() -> Unit)? = null

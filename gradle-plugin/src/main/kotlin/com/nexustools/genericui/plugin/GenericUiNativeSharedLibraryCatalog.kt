@@ -171,11 +171,16 @@ object GenericUiNativeSharedLibraryCatalog {
                 val groupPart = uniqueName.substring(0, colonIdx)
                 val artifactPart = uniqueName.substring(colonIdx + 1)
                 val sub = groupPart.removePrefix("com.nexustools.genericui.extensions.")
-                return if (artifactPart == "dsl" && sub.contains('.')) {
-                    val extLeaf = sub.substringAfterLast('.').lowercase(Locale.ROOT)
-                    "genericui-ext-$extLeaf-dsl"
-                } else {
-                    "genericui-ext-${artifactPart.lowercase(Locale.ROOT)}"
+                return when {
+                    artifactPart == "dsl" && sub.contains('.') -> {
+                        val extLeaf = sub.substringAfterLast('.').lowercase(Locale.ROOT)
+                        "genericui-ext-$extLeaf-dsl"
+                    }
+                    artifactPart == "alien" && sub.contains('.') -> {
+                        val extLeaf = sub.substringAfterLast('.').lowercase(Locale.ROOT)
+                        "genericui-ext-$extLeaf-alien"
+                    }
+                    else -> "genericui-ext-${artifactPart.lowercase(Locale.ROOT)}"
                 }
             }
         }
@@ -497,8 +502,9 @@ object GenericUiNativeSharedLibraryCatalog {
                 groupId.startsWith("genericui-linux") -> 1
             groupId == NJS_GROUP_ID -> 2
             groupId == "genericui-ext-dsl" -> 3
-            groupId.startsWith("genericui-ext-") && !groupId.endsWith("-dsl") -> 4
-            groupId.startsWith("genericui-ext-") && groupId.endsWith("-dsl") -> 5
+            groupId == "genericui-ext-alien" -> 4
+            groupId.startsWith("genericui-ext-") && !groupId.endsWith("-dsl") && !groupId.endsWith("-alien") -> 4
+            groupId.startsWith("genericui-ext-") && (groupId.endsWith("-dsl") || groupId.endsWith("-alien")) -> 5
             groupId == TESTS_GROUP_ID -> 6
             else -> 7
         }

@@ -1,5 +1,6 @@
 package com.nexustools.genericui.util
 
+import com.nexustools.genericui.component.system.DataClassCodecRegistry
 import com.nexustools.genericui.component.system.PreferenceElement
 import com.nexustools.genericui.component.system.PreferenceElementKind
 import com.nexustools.genericui.component.system.PreferenceObjectCodec
@@ -34,6 +35,7 @@ import kotlin.reflect.KClass
  * - `0x09` ([TYPE_ARRAY]): 4-byte element count + encoded elements
  * - `0x0A` ([TYPE_MAP]): 4-byte entry count + pairs of `[4-byte keyLen + UTF-8 key][encoded value]`
  * - `0x0B` ([TYPE_OBJECT]): 4-byte field count + pairs of `[4-byte fieldNameLen + UTF-8 fieldName][encoded field value]`
+ * - `0x0C` ([TYPE_BYTES]): 4-byte unsigned byte length + raw bytes
  */
 object BinaryJson {
 
@@ -49,6 +51,7 @@ object BinaryJson {
     const val TYPE_ARRAY: Byte = 0x09
     const val TYPE_MAP: Byte = 0x0A
     const val TYPE_OBJECT: Byte = 0x0B
+    const val TYPE_BYTES: Byte = 0x0C
 
     /**
      * Encodes a [PreferenceElement] tree directly into any [Writable] stream (including [WritableByteBuffer]).
@@ -91,6 +94,32 @@ object BinaryJson {
      */
     fun encodeToBuffer(value: Any?): ByteBuffer =
         encodeElementToBuffer(PreferenceObjectCodec.toElement(value))
+
+    /**
+     * Encodes a data class (or registered `@BinarySerializable` / reflected object) [value]
+     * of [targetClass] into binary JSON bytes.
+     */
+    fun <T : Any> encodeDataClass(value: T, targetClass: KClass<T>): ByteArray {
+        val element = DataClassCodecRegistry.encode(value, targetClass)
+            ?: PreferenceObjectCodec.toElement(value)
+        return encodeElement(element)
+    }
+
+    inline fun <reified T : Any> encodeDataClass(value: T): ByteArray =
+        encodeDataClass(value, T::class)
+
+    /**
+     * Decodes binary JSON bytes directly into an instance of [targetClass] using
+     * [DataClassCodecRegistry] or platform reflection, returning `null` if invalid or `null`.
+     */
+    fun <T : Any> decodeDataClass(bytes: ByteArray, targetClass: KClass<T>): T? {
+        val element = decodeElementOrNull(bytes) ?: return null
+        if (element.isNull) return null
+        return PreferenceObjectCodec.fromElement(element, targetClass, defaultValue = null)
+    }
+
+    inline fun <reified T : Any> decodeDataClass(bytes: ByteArray): T? =
+        decodeDataClass(bytes, T::class)
 
     /**
      * Asynchronously decodes a [PreferenceElement] tree directly from any [Readable] stream
@@ -276,6 +305,10 @@ object BinaryJson {
                 out.writeByte(TYPE_STRING)
                 writeUtf8(out, element.stringValue ?: "")
             }
+            PreferenceElementKind.BYTES -> {
+                out.writeByte(TYPE_BYTES)
+                writeLengthPrefixedBytes(out, element.bytesOrNull() ?: ByteArray(0))
+            }
             PreferenceElementKind.ARRAY -> {
                 out.writeByte(TYPE_ARRAY)
                 out.writeInt(element.arrayElements.size, ByteOrder.BIG_ENDIAN)
@@ -303,9 +336,14 @@ object BinaryJson {
     }
 
     private fun writeUtf8(out: Writable, str: String) {
-        val utf8 = str.encodeToByteArray()
-        out.writeInt(utf8.size, ByteOrder.BIG_ENDIAN)
-        out.writeBytes(utf8, 0, utf8.size)
+        writeLengthPrefixedBytes(out, str.encodeToByteArray())
+    }
+
+    private fun writeLengthPrefixedBytes(out: Writable, bytes: ByteArray) {
+        out.writeInt(bytes.size, ByteOrder.BIG_ENDIAN)
+        if (bytes.isNotEmpty()) {
+            out.writeBytes(bytes, 0, bytes.size)
+        }
     }
 
     private suspend fun readElement(readable: Readable): PreferenceElement {
@@ -335,6 +373,7 @@ object BinaryJson {
                 PreferenceElement.ofDouble(buf.readDouble(0, ByteOrder.BIG_ENDIAN))
             }
             TYPE_STRING -> PreferenceElement.ofString(readUtf8(readable))
+            TYPE_BYTES -> PreferenceElement.ofBytes(readLengthPrefixedBytes(readable))
             TYPE_ARRAY -> {
                 val countBuf = readable.tryReadFully(4) ?: return PreferenceElement.ofArray(emptyList())
                 val count = countBuf.readInt(0, ByteOrder.BIG_ENDIAN)
@@ -385,24 +424,27 @@ object BinaryJson {
         }
     }
 
-    private suspend fun readUtf8(readable: Readable): String {
-        val lenBuf = readable.tryReadFully(4) ?: return ""
+    private suspend fun readUtf8(readable: Readable): String =
+        readLengthPrefixedBytes(readable).decodeToString()
+
+    private suspend fun readLengthPrefixedBytes(readable: Readable): ByteArray {
+        val lenBuf = readable.tryReadFully(4) ?: return ByteArray(0)
         val len = lenBuf.readInt(0, ByteOrder.BIG_ENDIAN)
-        if (len <= 0) return ""
-        if (readable is ReadableByteBuffer && len > readable.remaining) return ""
+        if (len <= 0) return ByteArray(0)
+        if (readable is ReadableByteBuffer && len > readable.remaining) return ByteArray(0)
         if (len <= STREAM_CHUNK_SIZE) {
-            val payload = readable.tryReadFully(len) ?: return ""
-            return payload.toString("utf8")
+            val payload = readable.tryReadFully(len) ?: return ByteArray(0)
+            return payload.toByteArray()
         }
         val out = WritableByteBuffer(initialCapacity = STREAM_CHUNK_SIZE, byteOrder = ByteOrder.BIG_ENDIAN)
         var remaining = len
         while (remaining > 0) {
             val chunkLen = minOf(remaining, STREAM_CHUNK_SIZE)
-            val chunk = readable.tryReadFully(chunkLen) ?: return ""
+            val chunk = readable.tryReadFully(chunkLen) ?: return ByteArray(0)
             out.write(chunk)
             remaining -= chunkLen
         }
-        return out.toByteBuffer().toString("utf8")
+        return out.toByteArray()
     }
 
     private class StrictReadCursor(
@@ -461,6 +503,15 @@ object BinaryJson {
             position += len
             return str
         }
+
+        fun readBytesStrictOrNull(): ByteArray? {
+            val len = readIntBEOrNull() ?: return null
+            if (len < 0 || len > remaining) return null
+            if (len == 0) return ByteArray(0)
+            val bytes = buffer.toByteArray(position, position + len)
+            position += len
+            return bytes
+        }
     }
 
     private fun readElementStrictOrNull(cursor: StrictReadCursor, depth: Int): PreferenceElement? {
@@ -499,6 +550,10 @@ object BinaryJson {
             TYPE_STRING -> {
                 val str = cursor.readUtf8StrictOrNull() ?: return null
                 PreferenceElement.ofString(str)
+            }
+            TYPE_BYTES -> {
+                val bytes = cursor.readBytesStrictOrNull() ?: return null
+                PreferenceElement.ofBytes(bytes)
             }
             TYPE_ARRAY -> {
                 val count = cursor.readIntBEOrNull() ?: return null

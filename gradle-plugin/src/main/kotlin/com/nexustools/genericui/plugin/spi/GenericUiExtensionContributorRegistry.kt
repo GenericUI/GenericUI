@@ -56,6 +56,7 @@ object GenericUiExtensionContributorRegistry {
         addContributor(PipExtensionContributor)
         addContributor(SchemaExtensionContributor)
         addContributor(ServiceWorkerExtensionContributor)
+        addContributor(WebViewExtensionContributor)
 
         val loaded = cachedClasspathContributors ?: loadClasspathContributors(classLoader).also {
             cachedClasspathContributors = it
@@ -102,6 +103,14 @@ object GenericUiExtensionContributorRegistry {
     ): List<ExtensionAnnotationScanSpec> =
         activeContributors(enabledExtensionModulePaths, projectRootDir)
             .flatMap { it.annotationScanSpecs }
+
+    fun allBinaryCodecScanSpecs(
+        enabledExtensionModulePaths: Set<String>,
+        projectRootDir: File? = null,
+        additionalClasspathDirs: Collection<File> = emptyList()
+    ): List<ExtensionAnnotationScanSpec> =
+        activeContributors(enabledExtensionModulePaths, projectRootDir, additionalClasspathDirs)
+            .flatMap { it.binaryCodecScanSpecs }
 
     fun collectProviderInstallerCalls(
         backendScope: GenericUiVariantScope,
@@ -205,9 +214,12 @@ object GenericUiExtensionContributorRegistry {
         val modulePath = parsed.strings["modulePath"]
             ?: parsed.strings["extensionModulePath"]
             ?: return null
-        val dslPath = parsed.strings["dslModulePath"] ?: "$modulePath:dsl"
+        val dslPath = parsed.strings["dslModulePath"]?.trim()?.takeIf { it.isNotEmpty() }
+        val alienPath = parsed.strings["alienModulePath"]?.trim()?.takeIf { it.isNotEmpty() }
         val scanSimple = parsed.stringArrays["simpleAnnotationNames"].orEmpty().toSet()
         val scanQualified = parsed.stringArrays["qualifiedAnnotationNames"].orEmpty().toSet()
+        val binarySimple = parsed.stringArrays["binaryCodecSimpleAnnotationNames"].orEmpty().toSet()
+        val binaryQualified = parsed.stringArrays["binaryCodecQualifiedAnnotationNames"].orEmpty().toSet()
         val providerInstallers = parsed.stringArrays["providerInstallers"].orEmpty()
         val permissions = parsed.stringArrays["androidPermissions"].orEmpty()
         val bgModes = parsed.stringArrays["appleBackgroundModes"].orEmpty()
@@ -220,12 +232,24 @@ object GenericUiExtensionContributorRegistry {
         return JsonManifestExtensionContributor(
             extensionModulePath = modulePath,
             dslModulePath = dslPath,
+            alienModulePath = alienPath,
             annotationScanSpecs = if (scanSimple.isNotEmpty() || scanQualified.isNotEmpty()) {
                 listOf(
                     ExtensionAnnotationScanSpec(
                         extensionModulePath = modulePath,
                         simpleAnnotationNames = scanSimple,
                         qualifiedAnnotationNames = scanQualified
+                    )
+                )
+            } else {
+                emptyList()
+            },
+            binaryCodecScanSpecs = if (binarySimple.isNotEmpty() || binaryQualified.isNotEmpty()) {
+                listOf(
+                    ExtensionAnnotationScanSpec(
+                        extensionModulePath = modulePath,
+                        simpleAnnotationNames = binarySimple,
+                        qualifiedAnnotationNames = binaryQualified
                     )
                 )
             } else {
@@ -243,7 +267,9 @@ object GenericUiExtensionContributorRegistry {
     private class JsonManifestExtensionContributor(
         override val extensionModulePath: String,
         override val dslModulePath: String?,
+        override val alienModulePath: String?,
         override val annotationScanSpecs: List<ExtensionAnnotationScanSpec>,
+        override val binaryCodecScanSpecs: List<ExtensionAnnotationScanSpec>,
         private val providerInstallers: List<String>,
         private val androidPermissions: List<String>,
         private val appleBackgroundModes: List<String>,

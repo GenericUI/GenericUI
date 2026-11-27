@@ -39,6 +39,63 @@ data class CssTransitionSpec(
             return result
         }
 
+        fun resolveEffectiveSpecs(
+            transitionShorthand: String? = null,
+            transitionProperty: String? = null,
+            transitionDuration: String? = null,
+            transitionTimingFunction: String? = null,
+            transitionDelay: String? = null
+        ): List<CssTransitionSpec> {
+            if (transitionProperty == null &&
+                transitionDuration == null &&
+                transitionTimingFunction == null &&
+                transitionDelay == null
+            ) {
+                return parseList(transitionShorthand)
+            }
+
+            val base = parseList(transitionShorthand)
+            val props = transitionProperty
+                ?.let { splitTopLevelCommas(it.replace("!important", "", ignoreCase = true)) }
+                ?.filter { it.isNotEmpty() }
+                ?.takeIf { it.isNotEmpty() }
+                ?: if (base.isNotEmpty()) base.map { it.property } else listOf("all")
+            if (props.size == 1 && props[0].equals("none", ignoreCase = true)) return emptyList()
+
+            val durations = transitionDuration
+                ?.let { splitTopLevelCommas(it.replace("!important", "", ignoreCase = true)) }
+                ?.map { parseTimeMs(it) ?: 0f }
+                ?.takeIf { it.isNotEmpty() }
+                ?: base.map { it.durationMs }.takeIf { it.isNotEmpty() }
+                ?: emptyList()
+
+            val timings = transitionTimingFunction
+                ?.let { splitTopLevelCommas(it.replace("!important", "", ignoreCase = true)) }
+                ?.map { CssTimingFunction.parse(it) }
+                ?.takeIf { it.isNotEmpty() }
+                ?: base.map { it.timingFunction }.takeIf { it.isNotEmpty() }
+                ?: listOf(CssTimingFunction.EASE)
+
+            val delays = transitionDelay
+                ?.let { splitTopLevelCommas(it.replace("!important", "", ignoreCase = true)) }
+                ?.map { parseTimeMs(it) ?: 0f }
+                ?.takeIf { it.isNotEmpty() }
+                ?: base.map { it.delayMs }.takeIf { it.isNotEmpty() }
+                ?: listOf(0f)
+
+            val out = ArrayList<CssTransitionSpec>(props.size)
+            for (idx in props.indices) {
+                val propName = props[idx].lowercase()
+                if (propName == "none") continue
+                val dur = if (durations.isNotEmpty()) durations[idx % durations.size] else 0f
+                if (dur <= 0f) continue
+                val tf = timings[idx % timings.size]
+                val del = delays[idx % delays.size]
+                out.add(CssTransitionSpec(property = propName, durationMs = dur, timingFunction = tf, delayMs = del))
+            }
+            return out
+        }
+
         fun findMatching(specs: List<CssTransitionSpec>, propertyName: String): CssTransitionSpec? {
             val norm = propertyName.trim().lowercase()
             return specs.lastOrNull { it.property == norm } ?: specs.lastOrNull { it.property == "all" }

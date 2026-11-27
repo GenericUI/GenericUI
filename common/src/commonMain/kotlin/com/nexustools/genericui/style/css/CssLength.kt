@@ -12,7 +12,8 @@ import com.nexustools.genericui.resources.ResourceResolver
 data class CssLength(
     val value: Float = 0f,
     val unit: CssUnit = CssUnit.PX,
-    val secondaryPxOffset: Float = 0f
+    val secondaryPxOffset: Float = 0f,
+    val expression: String? = null
 ) : CssValue {
 
     val isAuto: Boolean
@@ -22,7 +23,7 @@ data class CssLength(
         get() = unit == CssUnit.NONE
 
     val isZero: Boolean
-        get() = !isAuto && !isNone && value == 0f && secondaryPxOffset == 0f
+        get() = !isAuto && !isNone && expression == null && value == 0f && secondaryPxOffset == 0f
 
     /**
      * Resolves this length to pixels (`Float`), or `null` when [isAuto] or [isNone].
@@ -33,20 +34,33 @@ data class CssLength(
         parentFontSizePx: Float = 16f,
         viewportWidthPx: Float = 1280f,
         viewportHeightPx: Float = 800f
-    ): Float? = when (unit) {
-        CssUnit.AUTO, CssUnit.NONE -> null
-        CssUnit.PX, CssUnit.DP -> value
-        CssUnit.PERCENT -> (referencePx * (value / 100f)) + secondaryPxOffset
-        CssUnit.REM -> value * rootFontSizePx
-        CssUnit.EM, CssUnit.NUMBER -> value * parentFontSizePx
-        CssUnit.VW -> (value / 100f) * viewportWidthPx
-        CssUnit.VH -> (value / 100f) * viewportHeightPx
-        CssUnit.VMIN -> (value / 100f) * minOf(viewportWidthPx, viewportHeightPx)
-        CssUnit.VMAX -> (value / 100f) * maxOf(viewportWidthPx, viewportHeightPx)
-        CssUnit.PT -> value * (96f / 72f)
+    ): Float? {
+        if (expression != null) {
+            return CssMathEvaluator.evaluateLengthPx(
+                expression = expression,
+                referencePx = referencePx,
+                rootFontSizePx = rootFontSizePx,
+                parentFontSizePx = parentFontSizePx,
+                viewportWidthPx = viewportWidthPx,
+                viewportHeightPx = viewportHeightPx
+            )
+        }
+        return when (unit) {
+            CssUnit.AUTO, CssUnit.NONE -> null
+            CssUnit.PX, CssUnit.DP -> value
+            CssUnit.PERCENT -> (referencePx * (value / 100f)) + secondaryPxOffset
+            CssUnit.REM -> value * rootFontSizePx
+            CssUnit.EM, CssUnit.NUMBER -> value * parentFontSizePx
+            CssUnit.VW -> (value / 100f) * viewportWidthPx
+            CssUnit.VH -> (value / 100f) * viewportHeightPx
+            CssUnit.VMIN -> (value / 100f) * minOf(viewportWidthPx, viewportHeightPx)
+            CssUnit.VMAX -> (value / 100f) * maxOf(viewportWidthPx, viewportHeightPx)
+            CssUnit.PT -> value * (96f / 72f)
+        }
     }
 
     override fun toCssString(): String {
+        if (expression != null) return expression
         if (unit == CssUnit.AUTO) return "auto"
         if (unit == CssUnit.NONE) return "none"
         if (unit == CssUnit.NUMBER) return formatNumber(value)
@@ -140,14 +154,25 @@ data class CssLength(
             if (cleaned == "none") return NONE
             if (cleaned == "0") return ZERO
 
-            if (cleaned.startsWith("calc(")) {
-                val calcMatch = CALC_PERCENT_PX_REGEX.matchEntire(cleaned)
-                if (calcMatch != null) {
-                    val pct = calcMatch.groupValues[1].toFloatOrNull() ?: return null
-                    val op = calcMatch.groupValues[2]
-                    val pxOffset = calcMatch.groupValues[3].toFloatOrNull() ?: return null
-                    val signedPx = if (op == "-") -pxOffset else pxOffset
-                    return calcPercentPx(pct, signedPx)
+            if (CssMathEvaluator.isMathFunction(cleaned)) {
+                if (cleaned.startsWith("calc(")) {
+                    val calcMatch = CALC_PERCENT_PX_REGEX.matchEntire(cleaned)
+                    if (calcMatch != null) {
+                        val pct = calcMatch.groupValues[1].toFloatOrNull() ?: return null
+                        val op = calcMatch.groupValues[2]
+                        val pxOffset = calcMatch.groupValues[3].toFloatOrNull() ?: return null
+                        val signedPx = if (op == "-") -pxOffset else pxOffset
+                        return calcPercentPx(pct, signedPx)
+                    }
+                }
+                if (CssMathEvaluator.isValidLengthExpression(cleaned)) {
+                    if (CssMathEvaluator.isFixedPixelOnlyExpression(cleaned)) {
+                        val fixedPx = CssMathEvaluator.evaluateLengthPx(cleaned)
+                        if (fixedPx != null) {
+                            return CssLength(fixedPx, CssUnit.PX)
+                        }
+                    }
+                    return CssLength(0f, CssUnit.PX, 0f, expression = cleaned)
                 }
             }
 

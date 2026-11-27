@@ -15,12 +15,15 @@ import kotlin.math.roundToInt
 /**
  * Curated cross-platform visual style specification supported consistently across all 9 GenericUI
  * backends (`:windows`, `:macos`, `:gtk`, `:kde`, `:swing`, `:android`, `:ios`, `:ipados`, `:web`) by
- * [com.nexustools.genericui.component.layout.StyledContainer] and
- * [com.nexustools.genericui.component.action.StyledButton].
+ * [com.nexustools.genericui.component.layout.styled.StyledContainer],
+ * [com.nexustools.genericui.component.action.styled.StyledButton],
+ * [com.nexustools.genericui.component.surface.styled.StyledComponent],
+ * [com.nexustools.genericui.component.form.styled.StyledTextField], and
+ * [com.nexustools.genericui.component.form.styled.StyledTextArea].
  *
  * Covers solid & alpha-transparent backgrounds, linear/radial gradients, borders (width, style, color,
- * corner radius), foreground text/icon color, opacity, padding, explicit box dimensions, gap, box shadow,
- * focus ring styling, and CSS filter / backdrop-filter blur.
+ * corner radius), foreground text/icon/placeholder color, typography, opacity, padding, explicit box
+ * dimensions, gap, box shadow, focus ring styling, and CSS filter / backdrop-filter blur.
  */
 data class StyledVisualSpec(
     val backgroundColor: RgbaColor? = null,
@@ -43,7 +46,11 @@ data class StyledVisualSpec(
     val focusRingWidthPx: Float? = null,
     val backdropBlurPx: Float? = null,
     val backdropFilter: CssFilter? = null,
-    val filter: CssFilter? = null
+    val filter: CssFilter? = null,
+    val placeholderColor: RgbaColor? = null,
+    val fontSizePx: Float? = null,
+    val fontFamily: String? = null,
+    val fontWeightNumeric: Int? = null
 ) {
     val hasCustomBackground: Boolean
         get() = backgroundColor != null || backgroundGradient != null
@@ -90,22 +97,20 @@ data class StyledVisualSpec(
             focusRingWidthPx = overrideSpec.focusRingWidthPx ?: focusRingWidthPx,
             backdropBlurPx = overrideSpec.backdropBlurPx ?: backdropBlurPx,
             backdropFilter = overrideSpec.backdropFilter ?: backdropFilter,
-            filter = overrideSpec.filter ?: filter
+            filter = overrideSpec.filter ?: filter,
+            placeholderColor = overrideSpec.placeholderColor ?: placeholderColor,
+            fontSizePx = overrideSpec.fontSizePx ?: fontSizePx,
+            fontFamily = overrideSpec.fontFamily ?: fontFamily,
+            fontWeightNumeric = overrideSpec.fontWeightNumeric ?: fontWeightNumeric
         )
     }
 
-    /**
-     * Filters this [StyledVisualSpec] for the given [backendTarget]:
-     * - On `WEB`, `ANDROID`, `IOS`, and `IPADOS`, retains all properties including [backdropBlurPx] and [backdropFilter].
-     * - On Desktop targets (`WINDOWS`, `MACOS`, `GTK`, `KDE`, `SWING`), strips [backdropBlurPx] and [backdropFilter]
-     *   while preserving alpha-translucent [backgroundColor], [backgroundGradient], borders, shadows, and geometry.
-     */
     /**
      * Resolves this visual spec for the target backend.
      *
      * All 9 backends (`WEB`, `ANDROID`, `IOS`, `IPADOS`, `WINDOWS`, `MACOS`, `GTK`, `KDE`, `SWING`) retain
      * all styling properties including [backdropBlurPx] and [backdropFilter]; component-level gating to
-     * [com.nexustools.genericui.component.layout.StyledContainer] is enforced by component policy and
+     * [com.nexustools.genericui.component.layout.styled.StyledContainer] is enforced by component policy and
      * native implementations.
      */
     fun forBackend(backendTarget: LayoutBackendTarget): StyledVisualSpec = when (backendTarget) {
@@ -227,6 +232,8 @@ data class StyledVisualSpec(
             val parsedShadowColor = parsedShadow?.color
             val parsedShadowBlurPx = parsedShadow?.blurRadius?.resolvePx()
 
+            val parsedPlaceholderColor = computed.customProperties["--placeholder-color"]?.let { RgbaColor.fromCss(it) }
+
             val hasAny = computed.backgroundColor != null ||
                 computed.backgroundGradient != null ||
                 computed.textColor != null ||
@@ -247,7 +254,11 @@ data class StyledVisualSpec(
                 parsedShadowBlurPx != null ||
                 parsedBackdropBlurPx != null ||
                 parsedBackdropFilter != null ||
-                parsedFilter != null
+                parsedFilter != null ||
+                parsedPlaceholderColor != null ||
+                computed.fontSizePx != null ||
+                computed.fontFamily != null ||
+                computed.fontWeightNumeric != null
             if (!hasAny) return null
             return StyledVisualSpec(
                 backgroundColor = computed.backgroundColor,
@@ -270,7 +281,11 @@ data class StyledVisualSpec(
                 focusRingWidthPx = parsedFocusRingWidth,
                 backdropBlurPx = parsedBackdropBlurPx,
                 backdropFilter = parsedBackdropFilter,
-                filter = parsedFilter
+                filter = parsedFilter,
+                placeholderColor = parsedPlaceholderColor,
+                fontSizePx = computed.fontSizePx,
+                fontFamily = computed.fontFamily,
+                fontWeightNumeric = computed.fontWeightNumeric
             )
         }
 
@@ -374,6 +389,12 @@ data class StyledVisualSpec(
             val resolvedBackdropBlurPx = parseBackdropBlurPx(resolvedBackdropFilter, null)
             val resolvedFilter = componentStyle?.filter
                 ?: computedStyle?.filter
+            val resolvedPlaceholderColor = componentStyle?.getCustomProperties()?.get("--placeholder-color")
+                ?.let { RgbaColor.fromCss(it) }
+                ?: computedStyle?.customProperties?.get("--placeholder-color")?.let { RgbaColor.fromCss(it) }
+            val resolvedFontSizePx = componentStyle?.fontSizePx ?: computedStyle?.fontSizePx
+            val resolvedFontFamily = componentStyle?.fontFamily?.toCssString() ?: computedStyle?.fontFamily
+            val resolvedFontWeight = componentStyle?.fontWeightNumeric ?: computedStyle?.fontWeightNumeric
 
             return StyledVisualSpec(
                 backgroundColor = resolvedBg,
@@ -394,7 +415,11 @@ data class StyledVisualSpec(
                 boxShadowBlurPx = resolvedShadowBlur,
                 backdropBlurPx = resolvedBackdropBlurPx,
                 backdropFilter = resolvedBackdropFilter,
-                filter = resolvedFilter
+                filter = resolvedFilter,
+                placeholderColor = resolvedPlaceholderColor,
+                fontSizePx = resolvedFontSizePx,
+                fontFamily = resolvedFontFamily,
+                fontWeightNumeric = resolvedFontWeight
             )
         }
     }

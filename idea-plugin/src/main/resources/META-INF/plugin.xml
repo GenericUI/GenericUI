@@ -12,13 +12,15 @@
                 (<i>All Except Swing</i>, <i>Desktop Only (No Swing)</i>, <i>Mobile Only</i>, <i>Apple Only</i>, <i>Select All</i>),
                 window defaults (<code>alwaysOnTop</code>, <code>aspectRatio</code>), Apple icon overrides, and
                 <code>:tests</code> (<code>JestElectricRunner</code>) test scaffolding.</li>
-            <li><b>19 Categorized First-Party Extension Modules</b>: Select Graphics (<code>gpu</code>,
-                <code>imageProcessing</code>, <code>canvas2d</code>, <code>canvas3d</code>, <code>threeJs</code>),
+            <li><b>24 Categorized First-Party Extension Modules</b>: Select Graphics (<code>gpu</code>,
+                <code>imageProcessing</code>, <code>svg</code>, <code>canvas2d</code>, <code>canvas3d</code>, <code>threeJs</code>),
                 Physics (<code>box2d</code>, <code>box3d</code>), Game &amp; Input (<code>gamepad</code>,
                 <code>engine</code>, <code>engine2d</code>, <code>engine3d</code>), Media (<code>media</code>,
-                <code>mediaControls</code>), and UI (<code>dsl</code>, <code>overlay</code>, <code>alien</code>,
+                <code>mediaControls</code>), Data (<code>schema</code>), System (<code>ipc</code>, <code>serviceWorker</code>),
+                and UI (<code>dsl</code>, <code>overlay</code>, <code>pip</code>, <code>alien</code>,
                 <code>webView</code>, <code>codeEditor</code>, <code>aiChat</code>) with companion <code>:dsl</code>
-                submodules and automatic transitive dependency resolution.</li>
+                and <code>:alien</code> submodules (<code>svg:alien</code>, <code>canvas2d:alien</code>,
+                <code>canvas3d:alien</code>, <code>media:alien</code>) and automatic transitive dependency resolution.</li>
             <li><b>Manage GenericUI Targets &amp; Extensions</b>: Inspect and update an existing project's
                 <code>build.gradle.kts</code> target backends, extension modules, window defaults, and Apple icons in-place.</li>
         </ul>

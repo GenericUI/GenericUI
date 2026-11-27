@@ -56,7 +56,7 @@ class Wave4PluginFeaturesTest {
         assertTrue(":extensions:ui:dsl" in engine2dModules)
         assertTrue(":extensions:game:engine2d:dsl" in engine2dModules)
         assertTrue(":extensions:game:engine:dsl" in engine2dModules)
-        assertTrue(":extensions:game:gamepad:dsl" in engine2dModules)
+        assertFalse(":extensions:game:gamepad:dsl" in engine2dModules)
 
         val macProviders = ext.extensions.providerInstallerCallsForBackend(GenericUiVariantScope.MACOS)
         assertTrue("com.nexustools.genericui.ext.gpu.desktop.DesktopGpuProvider.install()" in macProviders)
@@ -83,55 +83,39 @@ class Wave4PluginFeaturesTest {
 
         assertTrue(":extensions:ui:webview" in GenericUiGradlePlugin.KNOWN_GENERICUI_MODULES)
         assertTrue(":extensions:ui:pip" in GenericUiGradlePlugin.KNOWN_GENERICUI_MODULES)
-        assertTrue(":extensions:ui:pip:dsl" in GenericUiGradlePlugin.KNOWN_GENERICUI_MODULES)
+        assertFalse(":extensions:ui:pip:dsl" in GenericUiGradlePlugin.KNOWN_GENERICUI_MODULES)
         assertTrue(":extensions:data:schema" in GenericUiGradlePlugin.KNOWN_GENERICUI_MODULES)
         assertTrue(":extensions:data:schema:dsl" in GenericUiGradlePlugin.KNOWN_GENERICUI_MODULES)
+        assertTrue(":extensions:system:ipc" in GenericUiGradlePlugin.KNOWN_GENERICUI_MODULES)
         assertTrue(":extensions:system:serviceworker" in GenericUiGradlePlugin.KNOWN_GENERICUI_MODULES)
-        assertTrue(":extensions:system:serviceworker:dsl" in GenericUiGradlePlugin.KNOWN_GENERICUI_MODULES)
+        assertFalse(":extensions:system:serviceworker:dsl" in GenericUiGradlePlugin.KNOWN_GENERICUI_MODULES)
+        assertTrue(":extensions:graphics:svg" in GenericUiGradlePlugin.KNOWN_GENERICUI_MODULES)
+        assertTrue(":extensions:graphics:svg:dsl" in GenericUiGradlePlugin.KNOWN_GENERICUI_MODULES)
+        assertTrue(":extensions:graphics:svg:alien" in GenericUiGradlePlugin.KNOWN_GENERICUI_MODULES)
         assertTrue(":system" in GenericUiGradlePlugin.KNOWN_GENERICUI_MODULES)
         assertTrue(":jvm" in GenericUiGradlePlugin.KNOWN_GENERICUI_MODULES)
         assertTrue(":apple" in GenericUiGradlePlugin.KNOWN_GENERICUI_MODULES)
         assertTrue(":tests" in GenericUiGradlePlugin.KNOWN_GENERICUI_MODULES)
-        assertEquals(49, GenericUiGradlePlugin.KNOWN_GENERICUI_MODULES.size)
+        assertEquals(52, GenericUiGradlePlugin.KNOWN_GENERICUI_MODULES.size)
     }
 
     @Test
-    fun `webview helper bundle task stages prebuilt executable from extensions ui webview`() {
+    fun `webview desktop worker replaces legacy c stub bundle task cleanly`() {
         val project = ProjectBuilder.builder().withName("webview-consumer").build()
         project.pluginManager.apply("com.nexustools.genericui")
-
-        val hostOs = System.getProperty("os.name").orEmpty().lowercase()
-        val (targetName, fileName) = when {
-            hostOs.contains("win") -> "mingwX64" to "genericui-webview-process.exe"
-            hostOs.contains("mac") || hostOs.contains("darwin") -> "macosArm64" to "genericui-webview-process"
-            else -> "linuxX64" to "genericui-webview-process"
+        val ext = project.extensions.getByType(GenericUiExtension::class.java)
+        ext.extensions {
+            webView()
         }
 
-        val fakeBuiltDir = File(
-            project.projectDir,
-            "extensions/ui/webview/build/bin/$targetName/webviewProcessDebugExecutable"
-        ).apply { mkdirs() }
-        val fakeReleaseDir = File(
-            project.projectDir,
-            "extensions/ui/webview/build/bin/$targetName/webviewProcessReleaseExecutable"
-        ).apply { mkdirs() }
-        File(fakeBuiltDir, fileName).writeText("PREBUILT_DEBUG_MARKER")
-        File(fakeReleaseDir, fileName).writeText("PREBUILT_RELEASE_MARKER")
-
-        val bundleTask = project.tasks.create("testStageWebViewProcess", WebViewNativeProcessBundleTask::class.java)
-        bundleTask.genericUiRootPath.set(project.projectDir.absolutePath)
-        bundleTask.outputDirectory.set(File(project.projectDir, "build/webview-bundle"))
-        bundleTask.stageWebViewProcessBinaries()
-
-        val platformSubdir = when {
-            hostOs.contains("win") -> "windows"
-            hostOs.contains("mac") || hostOs.contains("darwin") -> "macos"
-            else -> "linux"
-        }
-        val stagedDev = File(project.projectDir, "build/webview-bundle/$platformSubdir/development/$fileName")
-        val stagedProd = File(project.projectDir, "build/webview-bundle/$platformSubdir/production/$fileName")
-        assertEquals("PREBUILT_DEBUG_MARKER", stagedDev.readText())
-        assertEquals("PREBUILT_RELEASE_MARKER", stagedProd.readText())
+        assertNull(
+            project.tasks.findByName("bundleGenericUiWebViewProcess"),
+            "Legacy bundleGenericUiWebViewProcess C-stub task must not be registered"
+        )
+        assertNotNull(
+            project.tasks.findByName("generateGenericUiBinaryCodecs"),
+            "generateGenericUiBinaryCodecs task must be registered cleanly"
+        )
     }
 
     @Test

@@ -131,7 +131,7 @@ open class DefaultUiThreadDispatcherNativeImpl(
             block()
             return
         }
-        if (isOnLogicThread() || isDrainingUiQueue) {
+        if (!isOnUiThread() || isDrainingUiQueue) {
             enqueueUiTask(block)
             onUiTaskQueuedFromLogic()
             return
@@ -222,7 +222,7 @@ open class DefaultUiThreadDispatcherNativeImpl(
             }
             return executed
         }
-        if (isOnLogicThread()) return 0
+        if (!isOnUiThread()) return 0
         if (!uiDrainActive.compareAndSet(expectedValue = false, newValue = true)) return 0
         isDrainingUiQueue = true
         uiExecutionDepth++

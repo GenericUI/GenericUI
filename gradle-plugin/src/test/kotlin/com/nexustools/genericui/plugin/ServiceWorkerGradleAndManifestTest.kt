@@ -54,9 +54,11 @@ class ServiceWorkerGradleAndManifestTest {
 
     @Test
     fun extensionsDslCatalogAndLibraryMappingRegisterServiceWorkerCleanly() {
-        assertEquals(49, GenericUiGradlePlugin.KNOWN_GENERICUI_MODULES.size)
+        assertEquals(52, GenericUiGradlePlugin.KNOWN_GENERICUI_MODULES.size)
         assertTrue(":extensions:system:serviceworker" in GenericUiGradlePlugin.KNOWN_GENERICUI_MODULES)
-        assertTrue(":extensions:system:serviceworker:dsl" in GenericUiGradlePlugin.KNOWN_GENERICUI_MODULES)
+        assertFalse(":extensions:system:serviceworker:dsl" in GenericUiGradlePlugin.KNOWN_GENERICUI_MODULES)
+        assertTrue(":extensions:system:ipc" in GenericUiGradlePlugin.KNOWN_GENERICUI_MODULES)
+        assertNull(ServiceWorkerExtensionContributor.dslModulePath)
         assertEquals(
             "genericui-ext-serviceworker",
             GenericUiNativeSharedLibraryCatalog.classifyKlibGroup(
@@ -66,9 +68,9 @@ class ServiceWorkerGradleAndManifestTest {
             )
         )
         assertEquals(
-            "genericui-ext-serviceworker-dsl",
+            "genericui-ext-ipc",
             GenericUiNativeSharedLibraryCatalog.classifyKlibGroup(
-                uniqueName = "com.nexustools.genericui.extensions.system.serviceworker:dsl",
+                uniqueName = "com.nexustools.genericui.extensions.system:ipc",
                 konanTargetName = "mingw_x64",
                 backendVariant = "windows"
             )
@@ -521,9 +523,14 @@ class ServiceWorkerGradleAndManifestTest {
                 extCtx.copy(extensionOptions = autostartOpts)
             )
             assertNotNull(desktopContrib)
-            assertEquals(listOf("serviceworker"), desktopContrib.secondaryExecutables.map { it.binaryBaseName })
+            assertEquals(listOf("swapp-sw"), desktopContrib.secondaryExecutables.map { it.binaryBaseName })
             assertEquals("windows", desktopContrib.secondaryExecutables.single().windowsSubsystem)
+            assertEquals("Service Worker", desktopContrib.secondaryExecutables.single().macosHelperBundleSuffix)
+            assertEquals("serviceworker", desktopContrib.secondaryExecutables.single().macosHelperBundleIdSuffix)
+            assertTrue(desktopContrib.secondaryExecutables.single().macosHelperLsUiElement)
             assertEquals(1, desktopContrib.autostartEntries.size)
+            assertEquals("swapp-sw", desktopContrib.autostartEntries.single().executableName)
+            assertEquals("Service Worker", desktopContrib.autostartEntries.single().macosHelperBundleSuffix)
             assertTrue(desktopContrib.generatedSources.any { it.relativeFilePath.endsWith("GeneratedSwingServiceWorkerMain.kt") })
 
             val project = ProjectBuilder.builder().withProjectDir(tempDir).build()
@@ -561,6 +568,7 @@ class ServiceWorkerGradleAndManifestTest {
                 .readText(Charsets.UTF_8)
             assertTrue(winMain.contains("ServiceWorkerExtension.configure"))
             assertTrue(winMain.contains("openWindowOnLaunch = false"))
+            assertTrue(winMain.contains("workerBinaryBaseName = \"swapp-sw\""))
             assertTrue(winMain.contains("prepareDesktopMainLaunch(args)"))
 
             val swingWorkerMain = File(launchersDir, "swing/kotlin/com/example/swapp/generated/GeneratedSwingServiceWorkerMain.kt")
@@ -655,18 +663,18 @@ class ServiceWorkerGradleAndManifestTest {
                 "bundleGenericUiVulkan",
                 "linkDebugExecutableMingwX64",
                 "compileKotlinMingwX64",
-                "linkServiceworkerDebugExecutableMingwX64",
+                "linkSwdistswDebugExecutableMingwX64",
                 "linkDebugExecutableMacosArm64",
                 "compileKotlinMacosArm64",
-                "linkServiceworkerDebugExecutableMacosArm64",
+                "linkSwdistswDebugExecutableMacosArm64",
                 "linkGtkDebugExecutableLinuxX64",
                 "compileGtkKotlinLinuxX64",
-                "linkGtkServiceworkerDebugExecutableLinuxX64",
+                "linkGtkSwdistswDebugExecutableLinuxX64",
                 "linkDebugExecutableLinuxX64",
                 "compileKotlinLinuxX64",
                 "linkKdeDebugExecutableLinuxX64",
                 "compileKdeKotlinLinuxX64",
-                "linkKdeServiceworkerDebugExecutableLinuxX64"
+                "linkKdeSwdistswDebugExecutableLinuxX64"
             ).forEach { name ->
                 project.tasks.register(name)
             }
@@ -676,22 +684,22 @@ class ServiceWorkerGradleAndManifestTest {
             val devWin = project.tasks.getByName("developmentWindows")
             val winDeps = devWin.taskDependencies.getDependencies(devWin).map { it.name }.toSet()
             assertTrue("linkDebugExecutableMingwX64" in winDeps)
-            assertTrue("linkServiceworkerDebugExecutableMingwX64" in winDeps)
+            assertTrue("linkSwdistswDebugExecutableMingwX64" in winDeps)
 
             val devMac = project.tasks.getByName("developmentMac")
             val macDeps = devMac.taskDependencies.getDependencies(devMac).map { it.name }.toSet()
             assertTrue("linkDebugExecutableMacosArm64" in macDeps)
-            assertTrue("linkServiceworkerDebugExecutableMacosArm64" in macDeps)
+            assertTrue("linkSwdistswDebugExecutableMacosArm64" in macDeps)
 
             val devGtk = project.tasks.getByName("developmentLinuxGtk")
             val gtkDeps = devGtk.taskDependencies.getDependencies(devGtk).map { it.name }.toSet()
             assertTrue("linkGtkDebugExecutableLinuxX64" in gtkDeps)
-            assertTrue("linkGtkServiceworkerDebugExecutableLinuxX64" in gtkDeps)
+            assertTrue("linkGtkSwdistswDebugExecutableLinuxX64" in gtkDeps)
 
             val devKde = project.tasks.getByName("developmentLinuxKde")
             val kdeDeps = devKde.taskDependencies.getDependencies(devKde).map { it.name }.toSet()
             assertTrue("linkKdeDebugExecutableLinuxX64" in kdeDeps)
-            assertTrue("linkKdeServiceworkerDebugExecutableLinuxX64" in kdeDeps)
+            assertTrue("linkKdeSwdistswDebugExecutableLinuxX64" in kdeDeps)
 
             val buildDir = project.layout.buildDirectory.asFile.get()
             fun writeStubFile(rel: String, content: ByteArray = byteArrayOf(1, 2, 3, 4)) {
@@ -701,34 +709,46 @@ class ServiceWorkerGradleAndManifestTest {
             }
             writeStubFile("bin/mingwX64/debugExecutable/swdist.exe")
             writeStubFile("bin/mingwX64/debugExecutable/libgenericui.dll")
-            writeStubFile("bin/mingwX64/serviceworkerDebugExecutable/serviceworker.exe")
+            writeStubFile("bin/mingwX64/swdistswDebugExecutable/swdist-sw.exe")
             writeStubFile("bin/macosArm64/debugExecutable/swdist.kexe")
             writeStubFile("bin/macosArm64/debugExecutable/libgenericui.dylib")
-            writeStubFile("bin/macosArm64/serviceworkerDebugExecutable/serviceworker.kexe")
+            writeStubFile("bin/macosArm64/swdistswDebugExecutable/swdist-sw.kexe")
             writeStubFile("bin/linuxX64/gtkDebugExecutable/swdist-gtk.kexe")
             writeStubFile("bin/linuxX64/gtkDebugExecutable/libgenericui-gtk.so")
-            writeStubFile("bin/linuxX64/gtkServiceworkerDebugExecutable/serviceworker.kexe")
+            writeStubFile("bin/linuxX64/gtkSwdistswDebugExecutable/swdist-sw.kexe")
             writeStubFile("bin/linuxX64/kdeDebugExecutable/swdist-kde.kexe")
             writeStubFile("bin/linuxX64/kdeDebugExecutable/libgenericui-kde.so")
-            writeStubFile("bin/linuxX64/kdeServiceworkerDebugExecutable/serviceworker.kexe")
+            writeStubFile("bin/linuxX64/kdeSwdistswDebugExecutable/swdist-sw.kexe")
+
+            // Seed legacy serviceworker binaries in dist/bundle directories to verify stale cleanup
+            writeStubFile("dist/windows/x64/development/serviceworker.exe")
+            writeStubFile("dist/mac/development/SwDist.app/Contents/MacOS/serviceworker")
+            writeStubFile("dist/mac/development/SwDist.app/Contents/Helpers/SwDist Service Worker.app/Contents/MacOS/serviceworker")
+            writeStubFile("dist/linux-gtk/x64/development/serviceworker.kexe")
+            writeStubFile("dist/linux-gtk/x64/development/serviceworker")
+            writeStubFile("dist/linux-kde/x64/development/serviceworker.kexe")
+            writeStubFile("dist/linux-kde/x64/development/serviceworker")
 
             devWin.actions.forEach { it.execute(devWin) }
             val winDist = File(buildDir, "dist/windows/x64/development")
             assertTrue(File(winDist, "swdist.exe").isFile)
-            assertTrue(File(winDist, "serviceworker.exe").isFile)
+            assertTrue(File(winDist, "swdist-sw.exe").isFile)
+            assertFalse(File(winDist, "serviceworker.exe").exists(), "Legacy serviceworker.exe must be removed from Windows dist")
 
             devMac.actions.forEach { it.execute(devMac) }
             val macAppDir = File(buildDir, "dist/mac/development/SwDist.app")
             val macOsDir = File(macAppDir, "Contents/MacOS")
             assertTrue(File(macOsDir, "swdist").isFile)
-            assertFalse(File(macOsDir, "serviceworker").exists(), "serviceworker must live inside nested Helpers/*.app bundle on macOS")
+            assertFalse(File(macOsDir, "swdist-sw").exists(), "swdist-sw must live inside nested Helpers/*.app bundle on macOS")
+            assertFalse(File(macOsDir, "serviceworker").exists(), "Legacy serviceworker must not remain in Contents/MacOS")
             val helperBundle = File(macAppDir, "Contents/Helpers/SwDist Service Worker.app")
-            assertTrue(File(helperBundle, "Contents/MacOS/serviceworker").isFile)
+            assertTrue(File(helperBundle, "Contents/MacOS/swdist-sw").isFile)
+            assertFalse(File(helperBundle, "Contents/MacOS/serviceworker").exists(), "Legacy serviceworker must be removed from helper bundle")
             assertTrue(File(helperBundle, "Contents/PkgInfo").isFile)
             val helperPlist = File(helperBundle, "Contents/Info.plist").readText(Charsets.UTF_8)
             assertTrue(helperPlist.contains("com.example.swdist.serviceworker"))
             assertTrue(helperPlist.contains("<string>SwDist Service Worker</string>"))
-            assertTrue(helperPlist.contains("<string>serviceworker</string>"))
+            assertTrue(helperPlist.contains("<string>swdist-sw</string>"))
             assertTrue(helperPlist.contains("<key>LSUIElement</key>"))
             assertTrue(helperPlist.contains("<key>LSMultipleInstancesProhibited</key>"))
             assertTrue(helperPlist.contains("<key>NSLocalNetworkUsageDescription</key>"))
@@ -739,14 +759,18 @@ class ServiceWorkerGradleAndManifestTest {
             devGtk.actions.forEach { it.execute(devGtk) }
             val gtkDist = File(buildDir, "dist/linux-gtk/x64/development")
             assertTrue(File(gtkDist, "swdist-gtk.kexe").isFile)
-            assertTrue(File(gtkDist, "serviceworker.kexe").isFile)
-            assertTrue(File(gtkDist, "serviceworker").isFile)
+            assertTrue(File(gtkDist, "swdist-sw.kexe").isFile)
+            assertTrue(File(gtkDist, "swdist-sw").isFile)
+            assertFalse(File(gtkDist, "serviceworker.kexe").exists())
+            assertFalse(File(gtkDist, "serviceworker").exists())
 
             devKde.actions.forEach { it.execute(devKde) }
             val kdeDist = File(buildDir, "dist/linux-kde/x64/development")
             assertTrue(File(kdeDist, "swdist-kde.kexe").isFile)
-            assertTrue(File(kdeDist, "serviceworker.kexe").isFile)
-            assertTrue(File(kdeDist, "serviceworker").isFile)
+            assertTrue(File(kdeDist, "swdist-sw.kexe").isFile)
+            assertTrue(File(kdeDist, "swdist-sw").isFile)
+            assertFalse(File(kdeDist, "serviceworker.kexe").exists())
+            assertFalse(File(kdeDist, "serviceworker").exists())
         } finally {
             tempDir.deleteRecursively()
         }
@@ -918,7 +942,7 @@ class ServiceWorkerGradleAndManifestTest {
                 "bundleGenericUiVulkan",
                 "linkDebugExecutableMacosArm64",
                 "compileKotlinMacosArm64",
-                "linkServiceworkerDebugExecutableMacosArm64"
+                "linkCastreceiverswDebugExecutableMacosArm64"
             ).forEach { name ->
                 project.tasks.register(name)
             }
@@ -931,7 +955,7 @@ class ServiceWorkerGradleAndManifestTest {
                 f.writeBytes(byteArrayOf(1, 2, 3, 4))
             }
             writeStub("bin/macosArm64/debugExecutable/castreceiver.kexe")
-            writeStub("bin/macosArm64/serviceworkerDebugExecutable/serviceworker.kexe")
+            writeStub("bin/macosArm64/castreceiverswDebugExecutable/castreceiver-sw.kexe")
 
             val devMac = project.tasks.getByName("developmentMac")
             devMac.actions.forEach { it.execute(devMac) }
@@ -947,9 +971,10 @@ class ServiceWorkerGradleAndManifestTest {
             assertTrue(mainPlist.contains("<string>_googlecast._tcp.</string>"))
 
             val helperBundle = File(appBundle, "Contents/Helpers/Cast Receiver Service Worker.app")
-            assertTrue(File(helperBundle, "Contents/MacOS/serviceworker").isFile)
+            assertTrue(File(helperBundle, "Contents/MacOS/castreceiver-sw").isFile)
             val helperPlist = File(helperBundle, "Contents/Info.plist").readText(Charsets.UTF_8)
             assertTrue(helperPlist.contains("com.example.castreceiver.serviceworker"))
+            assertTrue(helperPlist.contains("<string>castreceiver-sw</string>"))
             assertTrue(helperPlist.contains("<key>LSUIElement</key>"))
             assertTrue(helperPlist.contains("<key>LSMultipleInstancesProhibited</key>"))
             assertTrue(helperPlist.contains("Required for local Cast mDNS receiver discovery."))
@@ -986,7 +1011,7 @@ class ServiceWorkerGradleAndManifestTest {
             val macAutostartPlist = File(desktopOut, "autostart/macos/com.example.castreceiver.serviceworker.plist")
                 .readText(Charsets.UTF_8)
             assertTrue(
-                macAutostartPlist.contains("Contents/Helpers/Cast Receiver Service Worker.app/Contents/MacOS/serviceworker"),
+                macAutostartPlist.contains("Contents/Helpers/Cast Receiver Service Worker.app/Contents/MacOS/castreceiver-sw"),
                 "macOS LaunchAgent plist should target nested Service Worker.app executable"
             )
             assertTrue(
@@ -1010,7 +1035,7 @@ class ServiceWorkerGradleAndManifestTest {
             val linuxDesktop = linuxDesktopFile.readText(Charsets.UTF_8)
             assertTrue(linuxDesktop.contains("[Desktop Entry]"))
             assertTrue(linuxDesktop.contains("Name=Cast Receiver"))
-            assertTrue(linuxDesktop.contains("Exec=serviceworker"))
+            assertTrue(linuxDesktop.contains("Exec=castreceiver-sw"))
             assertTrue(linuxDesktop.contains("X-GNOME-Autostart-enabled=true"))
 
             val linuxAutostartDir = File(desktopOut, "autostart/linux")
@@ -1084,7 +1109,7 @@ class ServiceWorkerGradleAndManifestTest {
             val linuxDesktopText = linuxDesktopFile.readText(Charsets.UTF_8)
             assertTrue(linuxDesktopText.contains("[Desktop Entry]"))
             assertTrue(linuxDesktopText.contains("Name=Num Cast"))
-            assertTrue(linuxDesktopText.contains("Exec=serviceworker"))
+            assertTrue(linuxDesktopText.contains("Exec=numcast-sw"))
             assertTrue(linuxDesktopText.contains("X-GNOME-Autostart-enabled=true"))
             assertTrue(
                 linuxAutostartDir.listFiles()?.none { it.name.endsWith(".service") } == true,
@@ -1093,6 +1118,10 @@ class ServiceWorkerGradleAndManifestTest {
 
             val macPlist = File(desktopOut, "autostart/macos/com.example.99-cast.app.serviceworker.plist")
                 .readText(Charsets.UTF_8)
+            assertTrue(
+                macPlist.contains("/Applications/Num Cast.app/Contents/Helpers/Num Cast Service Worker.app/Contents/MacOS/numcast-sw"),
+                "macOS LaunchAgent plist should point to nested numcast-sw helper executable:\n$macPlist"
+            )
             val expectedMachServicesBlock = listOf(
                 "    <key>MachServices</key>",
                 "    <dict>",
@@ -1159,6 +1188,7 @@ class ServiceWorkerGradleAndManifestTest {
             assertTrue(macWorkerSrc.contains("com.example.initapp.generated.GeneratedSchemaRegistrar.ensureRegistered()"))
             assertTrue(macWorkerSrc.contains("com.example.initapp.generated.GeneratedServiceWorkerCodecRegistrar.registerAll()"))
             assertTrue(macWorkerSrc.contains("macosTrayIcon = \"icons/mac_tray.svg\""))
+            assertTrue(macWorkerSrc.contains("workerBinaryBaseName = \"initapp-sw\""))
             assertTrue(
                 macWorkerSrc.indexOf("GeneratedResourceRegistry.ensureInitialized()") <
                     macWorkerSrc.indexOf("runDesktopWorkerMain")
@@ -1196,10 +1226,160 @@ class ServiceWorkerGradleAndManifestTest {
             )
             val contrib = ServiceWorkerExtensionContributor.contributeDesktop(extCtx)
             assertNotNull(contrib)
+            assertEquals("initapp-sw", contrib.secondaryExecutables.single().binaryBaseName)
             assertTrue(
                 "-Wl,-rpath,@executable_path/../../../../Frameworks" in
                     contrib.secondaryExecutables.single().macosExtraLinkerOpts
             )
+        } finally {
+            tempDir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun hyphenatedBaseNameProducesSanitizedSecondaryTaskAndSwBinaryNames() {
+        assertEquals("app-sw", ServiceWorkerExtensionContributor.resolveWorkerBinaryBaseName(""))
+        assertEquals(
+            "episode-caster-receiver-sw",
+            ServiceWorkerExtensionContributor.resolveWorkerBinaryBaseName("episode-caster-receiver")
+        )
+
+        val tempDir = Files.createTempDirectory("genericui-sw-hyphen-base").toFile()
+        try {
+            val commonDir = File(tempDir, "src/commonMain/kotlin/com/example/epcast").apply { mkdirs() }
+            File(commonDir, "MainFrag.kt").writeText(
+                """
+                package com.example.epcast
+                import com.nexustools.genericui.component.fragment.Fragment
+                import com.nexustools.genericui.component.fragment.MainAppFragment
+                @MainAppFragment
+                class MainFrag : Fragment()
+                """.trimIndent()
+            )
+            File(commonDir, "CastWorker.kt").writeText(
+                """
+                package com.example.epcast
+                import com.nexustools.genericui.ext.serviceworker.MainServiceWorker
+                import com.nexustools.genericui.ext.serviceworker.ServiceWorker
+                @MainServiceWorker
+                class CastWorker : ServiceWorker()
+                """.trimIndent()
+            )
+            val ext = createBasicAppExtension(enableServiceWorker = true).apply {
+                app.id = "com.example.episodecaster"
+                app.name = "Episode Caster Receiver"
+                app.packageName = "com.example.epcast"
+                application.baseName = "episode-caster-receiver"
+                backends.gtkEnabled = true
+                backends.kdeEnabled = true
+                extensions.serviceWorker {
+                    autostart = true
+                }
+            }
+            val project = ProjectBuilder.builder().withProjectDir(tempDir).build()
+            listOf(
+                "genericuiValidateApp",
+                "generateGenericUiLaunchers",
+                "compileGenericUiResources",
+                "prepareGenericUiDesktopResources",
+                "bundleGenericUiAngle",
+                "bundleGenericUiVulkan",
+                "linkDebugExecutableMingwX64",
+                "compileKotlinMingwX64",
+                "linkEpisodecasterreceiverswDebugExecutableMingwX64",
+                "linkDebugExecutableMacosArm64",
+                "compileKotlinMacosArm64",
+                "linkEpisodecasterreceiverswDebugExecutableMacosArm64",
+                "linkGtkDebugExecutableLinuxX64",
+                "compileGtkKotlinLinuxX64",
+                "linkGtkEpisodecasterreceiverswDebugExecutableLinuxX64",
+                "linkDebugExecutableLinuxX64",
+                "compileKotlinLinuxX64",
+                "linkKdeDebugExecutableLinuxX64",
+                "compileKdeKotlinLinuxX64",
+                "linkKdeEpisodecasterreceiverswDebugExecutableLinuxX64"
+            ).forEach { name ->
+                project.tasks.register(name)
+            }
+            GenericUiMultiplatformConfigurator.registerBuildTargetTasks(project, ext)
+
+            val devWin = project.tasks.getByName("developmentWindows")
+            val devMac = project.tasks.getByName("developmentMac")
+            val devGtk = project.tasks.getByName("developmentLinuxGtk")
+            val devKde = project.tasks.getByName("developmentLinuxKde")
+            assertTrue("linkEpisodecasterreceiverswDebugExecutableMingwX64" in devWin.taskDependencies.getDependencies(devWin).map { it.name })
+            assertTrue("linkEpisodecasterreceiverswDebugExecutableMacosArm64" in devMac.taskDependencies.getDependencies(devMac).map { it.name })
+            assertTrue("linkGtkEpisodecasterreceiverswDebugExecutableLinuxX64" in devGtk.taskDependencies.getDependencies(devGtk).map { it.name })
+            assertTrue("linkKdeEpisodecasterreceiverswDebugExecutableLinuxX64" in devKde.taskDependencies.getDependencies(devKde).map { it.name })
+
+            val buildDir = project.layout.buildDirectory.asFile.get()
+            fun writeStub(rel: String) {
+                val f = File(buildDir, rel)
+                f.parentFile?.mkdirs()
+                f.writeBytes(byteArrayOf(1, 2, 3, 4))
+            }
+            writeStub("bin/mingwX64/debugExecutable/episode-caster-receiver.exe")
+            writeStub("bin/mingwX64/episodecasterreceiverswDebugExecutable/episode-caster-receiver-sw.exe")
+            writeStub("bin/macosArm64/debugExecutable/episode-caster-receiver.kexe")
+            writeStub("bin/macosArm64/episodecasterreceiverswDebugExecutable/episode-caster-receiver-sw.kexe")
+            writeStub("bin/linuxX64/gtkDebugExecutable/episode-caster-receiver-gtk.kexe")
+            writeStub("bin/linuxX64/gtkEpisodecasterreceiverswDebugExecutable/episode-caster-receiver-sw.kexe")
+            writeStub("bin/linuxX64/kdeDebugExecutable/episode-caster-receiver-kde.kexe")
+            writeStub("bin/linuxX64/kdeEpisodecasterreceiverswDebugExecutable/episode-caster-receiver-sw.kexe")
+
+            devWin.actions.forEach { it.execute(devWin) }
+            assertTrue(File(buildDir, "dist/windows/x64/development/episode-caster-receiver-sw.exe").isFile)
+
+            devMac.actions.forEach { it.execute(devMac) }
+            val helperApp = File(
+                buildDir,
+                "dist/mac/development/Episode Caster Receiver.app/Contents/Helpers/Episode Caster Receiver Service Worker.app"
+            )
+            assertTrue(File(helperApp, "Contents/MacOS/episode-caster-receiver-sw").isFile)
+            val helperPlist = File(helperApp, "Contents/Info.plist").readText(Charsets.UTF_8)
+            assertTrue(helperPlist.contains("<key>CFBundleExecutable</key>"))
+            assertTrue(helperPlist.contains("<string>episode-caster-receiver-sw</string>"))
+            assertTrue(helperPlist.contains("<string>com.example.episodecaster.serviceworker</string>"))
+
+            devGtk.actions.forEach { it.execute(devGtk) }
+            assertTrue(File(buildDir, "dist/linux-gtk/x64/development/episode-caster-receiver-sw.kexe").isFile)
+            assertTrue(File(buildDir, "dist/linux-gtk/x64/development/episode-caster-receiver-sw").isFile)
+
+            devKde.actions.forEach { it.execute(devKde) }
+            assertTrue(File(buildDir, "dist/linux-kde/x64/development/episode-caster-receiver-sw.kexe").isFile)
+            assertTrue(File(buildDir, "dist/linux-kde/x64/development/episode-caster-receiver-sw").isFile)
+
+            val resProject = ProjectBuilder.builder().withProjectDir(tempDir).build()
+            val desktopOut = File(tempDir, "build/desktop-res-hyphen")
+            val desktopTask = resProject.tasks.register("desktopHyphenCheck", GenericUiDesktopResourceTask::class.java).get()
+            desktopTask.projectRootPath.set(tempDir.absolutePath)
+            desktopTask.baseName.set("episode-caster-receiver")
+            desktopTask.appName.set("Episode Caster Receiver")
+            desktopTask.appId.set("com.example.episodecaster")
+            desktopTask.appVersion.set("1.0.0")
+            desktopTask.vendor.set("Example")
+            desktopTask.embedWindowsResources.set(false)
+            desktopTask.macMinimumSystemVersion.set("12.0")
+            desktopTask.macCategory.set("public.app-category.utilities")
+            desktopTask.macHighResolutionCapable.set(true)
+            desktopTask.linuxCategories.set("Utility;")
+            desktopTask.linuxTerminal.set(false)
+            desktopTask.customResourceEntries.set(emptyMap())
+            desktopTask.enabledExtensionModulePaths.set(ext.extensions.enabledExtensionModulePaths())
+            desktopTask.extensionOptions.set(GenericUiGradlePlugin.buildPluginExtensionOptionsStatic(ext))
+            desktopTask.outputDirectory.set(desktopOut)
+            desktopTask.generateDesktopResources()
+
+            val macAgentPlist = File(desktopOut, "autostart/macos/com.example.episodecaster.serviceworker.plist")
+                .readText(Charsets.UTF_8)
+            assertTrue(
+                macAgentPlist.contains(
+                    "/Applications/Episode Caster Receiver.app/Contents/Helpers/Episode Caster Receiver Service Worker.app/Contents/MacOS/episode-caster-receiver-sw"
+                )
+            )
+            val linuxDesktop = File(desktopOut, "autostart/linux/com.example.episodecaster.serviceworker.desktop")
+                .readText(Charsets.UTF_8)
+            assertTrue(linuxDesktop.contains("Exec=episode-caster-receiver-sw"))
         } finally {
             tempDir.deleteRecursively()
         }

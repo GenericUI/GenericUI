@@ -2,9 +2,9 @@ package com.nexustools.genericui.style
 
 import com.nexustools.genericui.component.composite.Composite
 import com.nexustools.genericui.component.layout.Container
-import com.nexustools.genericui.component.layout.StyledContainer
+import com.nexustools.genericui.component.layout.styled.StyledContainer
 import com.nexustools.genericui.component.shell.Application
-import com.nexustools.genericui.component.surface.StyledComponent
+import com.nexustools.genericui.component.surface.styled.StyledComponent
 import com.nexustools.genericui.enums.css.CssCursor
 import com.nexustools.genericui.style.color.RgbaColor
 import com.nexustools.genericui.style.css.CompiledStyleRule

@@ -52,8 +52,10 @@ class ComponentStyle(
 
     private var activeBitmaskLow: Long = 0L
     private var activeBitmaskHigh: Long = 0L
+    private var activeBitmaskExt: Long = 0L
     private var importantBitmaskLow: Long = 0L
     private var importantBitmaskHigh: Long = 0L
+    private var importantBitmaskExt: Long = 0L
     private var defaultImportantScope: Boolean = false
     private var suppressInternalNotifications: Boolean = false
     private var lastMarkedProperty: CssProperty? = null
@@ -64,11 +66,17 @@ class ComponentStyle(
     val activeBitmaskHighValue: Long
         get() = activeBitmaskHigh
 
+    val activeBitmaskExtValue: Long
+        get() = activeBitmaskExt
+
     val importantBitmaskLowValue: Long
         get() = importantBitmaskLow
 
     val importantBitmaskHighValue: Long
         get() = importantBitmaskHigh
+
+    val importantBitmaskExtValue: Long
+        get() = importantBitmaskExt
 
     // --- 1. Background & Color ---
     private var _backgroundColor: RgbaColor? = null
@@ -185,26 +193,72 @@ class ComponentStyle(
     private var _animationPlayState: String? = null
     private var _filter: CssFilter? = null
     private var _backdropFilter: CssFilter? = null
+    private var _borderTopStyle: CssBorderStyle? = null
+    private var _borderRightStyle: CssBorderStyle? = null
+    private var _borderBottomStyle: CssBorderStyle? = null
+    private var _borderLeftStyle: CssBorderStyle? = null
+    private var _textIndent: CssLength? = null
+    private var _listStyleType: String? = null
+    private var _content: String? = null
+    private var _borderCollapse: String? = null
+    private var _borderSpacing: CssLength? = null
+    private var _transitionProperty: String? = null
+    private var _transitionDuration: String? = null
+    private var _transitionTimingFunction: String? = null
+    private var _transitionDelay: String? = null
+    private var _gridTemplateColumns: String? = null
+    private var _gridTemplateRows: String? = null
+    private var _gridTemplateAreas: String? = null
+    private var _gridArea: String? = null
+    private var _gridColumn: String? = null
+    private var _gridColumnStart: String? = null
+    private var _gridColumnEnd: String? = null
+    private var _gridRow: String? = null
+    private var _gridRowStart: String? = null
+    private var _gridRowEnd: String? = null
+    private var _gridAutoFlow: String? = null
+    private var _gridAutoRows: String? = null
+    private var _gridAutoColumns: String? = null
+    private var _justifyItems: String? = null
+    private var _justifySelf: String? = null
+    private var _placeItems: String? = null
+    private var _placeSelf: String? = null
+    private var _placeContent: String? = null
+    private var _customProperties: LinkedHashMap<String, String>? = null
 
     private fun setActiveBit(property: CssProperty, present: Boolean) {
         val ord = property.ordinal
-        if (ord < 64) {
-            val mask = 1L shl ord
-            activeBitmaskLow = if (present) activeBitmaskLow or mask else activeBitmaskLow and mask.inv()
-        } else {
-            val mask = 1L shl (ord - 64)
-            activeBitmaskHigh = if (present) activeBitmaskHigh or mask else activeBitmaskHigh and mask.inv()
+        when {
+            ord < 64 -> {
+                val mask = 1L shl ord
+                activeBitmaskLow = if (present) activeBitmaskLow or mask else activeBitmaskLow and mask.inv()
+            }
+            ord < 128 -> {
+                val mask = 1L shl (ord - 64)
+                activeBitmaskHigh = if (present) activeBitmaskHigh or mask else activeBitmaskHigh and mask.inv()
+            }
+            else -> {
+                val mask = 1L shl (ord - 128)
+                activeBitmaskExt = if (present) activeBitmaskExt or mask else activeBitmaskExt and mask.inv()
+            }
         }
     }
 
     private fun setImportantBit(property: CssProperty, important: Boolean) {
         val ord = property.ordinal
-        if (ord < 64) {
-            val mask = 1L shl ord
-            importantBitmaskLow = if (important) importantBitmaskLow or mask else importantBitmaskLow and mask.inv()
-        } else {
-            val mask = 1L shl (ord - 64)
-            importantBitmaskHigh = if (important) importantBitmaskHigh or mask else importantBitmaskHigh and mask.inv()
+        when {
+            ord < 64 -> {
+                val mask = 1L shl ord
+                importantBitmaskLow = if (important) importantBitmaskLow or mask else importantBitmaskLow and mask.inv()
+            }
+            ord < 128 -> {
+                val mask = 1L shl (ord - 64)
+                importantBitmaskHigh = if (important) importantBitmaskHigh or mask else importantBitmaskHigh and mask.inv()
+            }
+            else -> {
+                val mask = 1L shl (ord - 128)
+                importantBitmaskExt = if (important) importantBitmaskExt or mask else importantBitmaskExt and mask.inv()
+            }
         }
     }
 
@@ -240,10 +294,10 @@ class ComponentStyle(
 
     fun hasProperty(property: CssProperty): Boolean {
         val ord = property.ordinal
-        return if (ord < 64) {
-            (activeBitmaskLow and (1L shl ord)) != 0L
-        } else {
-            (activeBitmaskHigh and (1L shl (ord - 64))) != 0L
+        return when {
+            ord < 64 -> (activeBitmaskLow and (1L shl ord)) != 0L
+            ord < 128 -> (activeBitmaskHigh and (1L shl (ord - 64))) != 0L
+            else -> (activeBitmaskExt and (1L shl (ord - 128))) != 0L
         }
     }
 
@@ -252,10 +306,10 @@ class ComponentStyle(
      */
     fun isImportant(property: CssProperty): Boolean {
         val ord = property.ordinal
-        return if (ord < 64) {
-            (importantBitmaskLow and (1L shl ord)) != 0L
-        } else {
-            (importantBitmaskHigh and (1L shl (ord - 64))) != 0L
+        return when {
+            ord < 64 -> (importantBitmaskLow and (1L shl ord)) != 0L
+            ord < 128 -> (importantBitmaskHigh and (1L shl (ord - 64))) != 0L
+            else -> (importantBitmaskExt and (1L shl (ord - 128))) != 0L
         }
     }
 
@@ -1613,6 +1667,236 @@ class ComponentStyle(
         @JvmName("obtainBackdropFilter") get() = _backdropFilter
         @JvmName("assignBackdropFilter") set(value) = setBackdropFilter(value)
 
+    fun getBorderTopStyle(): CssBorderStyle? = _borderTopStyle ?: _borderStyle
+    fun setBorderTopStyle(style: CssBorderStyle?, important: Boolean = false) {
+        _borderTopStyle = style
+        updateImportance(CssProperty.BORDER_TOP_STYLE, style != null, important)
+        notifyChanged()
+    }
+
+    fun getBorderRightStyle(): CssBorderStyle? = _borderRightStyle ?: _borderStyle
+    fun setBorderRightStyle(style: CssBorderStyle?, important: Boolean = false) {
+        _borderRightStyle = style
+        updateImportance(CssProperty.BORDER_RIGHT_STYLE, style != null, important)
+        notifyChanged()
+    }
+
+    fun getBorderBottomStyle(): CssBorderStyle? = _borderBottomStyle ?: _borderStyle
+    fun setBorderBottomStyle(style: CssBorderStyle?, important: Boolean = false) {
+        _borderBottomStyle = style
+        updateImportance(CssProperty.BORDER_BOTTOM_STYLE, style != null, important)
+        notifyChanged()
+    }
+
+    fun getBorderLeftStyle(): CssBorderStyle? = _borderLeftStyle ?: _borderStyle
+    fun setBorderLeftStyle(style: CssBorderStyle?, important: Boolean = false) {
+        _borderLeftStyle = style
+        updateImportance(CssProperty.BORDER_LEFT_STYLE, style != null, important)
+        notifyChanged()
+    }
+
+    fun getTextIndent(): CssLength? = _textIndent
+    fun setTextIndent(textIndent: CssLength?, important: Boolean = false) {
+        _textIndent = textIndent
+        updateImportance(CssProperty.TEXT_INDENT, textIndent != null, important)
+        notifyChanged()
+    }
+
+    fun getListStyleType(): String? = _listStyleType
+    fun setListStyleType(listStyleType: String?, important: Boolean = false) {
+        _listStyleType = listStyleType?.trim()?.takeIf { it.isNotEmpty() }
+        updateImportance(CssProperty.LIST_STYLE_TYPE, _listStyleType != null, important)
+        notifyChanged()
+    }
+
+    fun getContent(): String? = _content
+    fun setContent(content: String?, important: Boolean = false) {
+        _content = content
+        updateImportance(CssProperty.CONTENT, content != null, important)
+        notifyChanged()
+    }
+
+    fun getBorderCollapse(): String? = _borderCollapse
+    fun setBorderCollapse(borderCollapse: String?, important: Boolean = false) {
+        _borderCollapse = borderCollapse?.trim()?.lowercase()?.takeIf { it.isNotEmpty() }
+        updateImportance(CssProperty.BORDER_COLLAPSE, _borderCollapse != null, important)
+        notifyChanged()
+    }
+
+    fun getBorderSpacing(): CssLength? = _borderSpacing
+    fun setBorderSpacing(borderSpacing: CssLength?, important: Boolean = false) {
+        _borderSpacing = borderSpacing
+        updateImportance(CssProperty.BORDER_SPACING, borderSpacing != null, important)
+        notifyChanged()
+    }
+
+    fun getTransitionProperty(): String? = _transitionProperty
+    fun setTransitionProperty(value: String?, important: Boolean = false) {
+        _transitionProperty = value?.trim()?.takeIf { it.isNotEmpty() }
+        updateImportance(CssProperty.TRANSITION_PROPERTY, _transitionProperty != null, important)
+        notifyChanged()
+    }
+
+    fun getTransitionDuration(): String? = _transitionDuration
+    fun setTransitionDuration(value: String?, important: Boolean = false) {
+        _transitionDuration = value?.trim()?.takeIf { it.isNotEmpty() }
+        updateImportance(CssProperty.TRANSITION_DURATION, _transitionDuration != null, important)
+        notifyChanged()
+    }
+
+    fun getTransitionTimingFunction(): String? = _transitionTimingFunction
+    fun setTransitionTimingFunction(value: String?, important: Boolean = false) {
+        _transitionTimingFunction = value?.trim()?.takeIf { it.isNotEmpty() }
+        updateImportance(CssProperty.TRANSITION_TIMING_FUNCTION, _transitionTimingFunction != null, important)
+        notifyChanged()
+    }
+
+    fun getTransitionDelay(): String? = _transitionDelay
+    fun setTransitionDelay(value: String?, important: Boolean = false) {
+        _transitionDelay = value?.trim()?.takeIf { it.isNotEmpty() }
+        updateImportance(CssProperty.TRANSITION_DELAY, _transitionDelay != null, important)
+        notifyChanged()
+    }
+
+    fun getGridTemplateColumns(): String? = _gridTemplateColumns
+    fun setGridTemplateColumns(value: String?, important: Boolean = false) {
+        _gridTemplateColumns = value?.trim()?.takeIf { it.isNotEmpty() }
+        updateImportance(CssProperty.GRID_TEMPLATE_COLUMNS, _gridTemplateColumns != null, important)
+        notifyChanged()
+    }
+
+    fun getGridTemplateRows(): String? = _gridTemplateRows
+    fun setGridTemplateRows(value: String?, important: Boolean = false) {
+        _gridTemplateRows = value?.trim()?.takeIf { it.isNotEmpty() }
+        updateImportance(CssProperty.GRID_TEMPLATE_ROWS, _gridTemplateRows != null, important)
+        notifyChanged()
+    }
+
+    fun getGridTemplateAreas(): String? = _gridTemplateAreas
+    fun setGridTemplateAreas(value: String?, important: Boolean = false) {
+        _gridTemplateAreas = value?.trim()?.takeIf { it.isNotEmpty() }
+        updateImportance(CssProperty.GRID_TEMPLATE_AREAS, _gridTemplateAreas != null, important)
+        notifyChanged()
+    }
+
+    fun getGridArea(): String? = _gridArea
+    fun setGridArea(value: String?, important: Boolean = false) {
+        _gridArea = value?.trim()?.takeIf { it.isNotEmpty() }
+        updateImportance(CssProperty.GRID_AREA, _gridArea != null, important)
+        notifyChanged()
+    }
+
+    fun getGridColumn(): String? = _gridColumn
+    fun setGridColumn(value: String?, important: Boolean = false) {
+        _gridColumn = value?.trim()?.takeIf { it.isNotEmpty() }
+        updateImportance(CssProperty.GRID_COLUMN, _gridColumn != null, important)
+        notifyChanged()
+    }
+
+    fun getGridColumnStart(): String? = _gridColumnStart
+    fun setGridColumnStart(value: String?, important: Boolean = false) {
+        _gridColumnStart = value?.trim()?.takeIf { it.isNotEmpty() }
+        updateImportance(CssProperty.GRID_COLUMN_START, _gridColumnStart != null, important)
+        notifyChanged()
+    }
+
+    fun getGridColumnEnd(): String? = _gridColumnEnd
+    fun setGridColumnEnd(value: String?, important: Boolean = false) {
+        _gridColumnEnd = value?.trim()?.takeIf { it.isNotEmpty() }
+        updateImportance(CssProperty.GRID_COLUMN_END, _gridColumnEnd != null, important)
+        notifyChanged()
+    }
+
+    fun getGridRow(): String? = _gridRow
+    fun setGridRow(value: String?, important: Boolean = false) {
+        _gridRow = value?.trim()?.takeIf { it.isNotEmpty() }
+        updateImportance(CssProperty.GRID_ROW, _gridRow != null, important)
+        notifyChanged()
+    }
+
+    fun getGridRowStart(): String? = _gridRowStart
+    fun setGridRowStart(value: String?, important: Boolean = false) {
+        _gridRowStart = value?.trim()?.takeIf { it.isNotEmpty() }
+        updateImportance(CssProperty.GRID_ROW_START, _gridRowStart != null, important)
+        notifyChanged()
+    }
+
+    fun getGridRowEnd(): String? = _gridRowEnd
+    fun setGridRowEnd(value: String?, important: Boolean = false) {
+        _gridRowEnd = value?.trim()?.takeIf { it.isNotEmpty() }
+        updateImportance(CssProperty.GRID_ROW_END, _gridRowEnd != null, important)
+        notifyChanged()
+    }
+
+    fun getGridAutoFlow(): String? = _gridAutoFlow
+    fun setGridAutoFlow(value: String?, important: Boolean = false) {
+        _gridAutoFlow = value?.trim()?.lowercase()?.takeIf { it.isNotEmpty() }
+        updateImportance(CssProperty.GRID_AUTO_FLOW, _gridAutoFlow != null, important)
+        notifyChanged()
+    }
+
+    fun getGridAutoRows(): String? = _gridAutoRows
+    fun setGridAutoRows(value: String?, important: Boolean = false) {
+        _gridAutoRows = value?.trim()?.takeIf { it.isNotEmpty() }
+        updateImportance(CssProperty.GRID_AUTO_ROWS, _gridAutoRows != null, important)
+        notifyChanged()
+    }
+
+    fun getGridAutoColumns(): String? = _gridAutoColumns
+    fun setGridAutoColumns(value: String?, important: Boolean = false) {
+        _gridAutoColumns = value?.trim()?.takeIf { it.isNotEmpty() }
+        updateImportance(CssProperty.GRID_AUTO_COLUMNS, _gridAutoColumns != null, important)
+        notifyChanged()
+    }
+
+    fun getJustifyItems(): String? = _justifyItems
+    fun setJustifyItems(value: String?, important: Boolean = false) {
+        _justifyItems = value?.trim()?.lowercase()?.takeIf { it.isNotEmpty() }
+        updateImportance(CssProperty.JUSTIFY_ITEMS, _justifyItems != null, important)
+        notifyChanged()
+    }
+
+    fun getJustifySelf(): String? = _justifySelf
+    fun setJustifySelf(value: String?, important: Boolean = false) {
+        _justifySelf = value?.trim()?.lowercase()?.takeIf { it.isNotEmpty() }
+        updateImportance(CssProperty.JUSTIFY_SELF, _justifySelf != null, important)
+        notifyChanged()
+    }
+
+    fun getPlaceItems(): String? = _placeItems
+    fun setPlaceItems(value: String?, important: Boolean = false) {
+        _placeItems = value?.trim()?.lowercase()?.takeIf { it.isNotEmpty() }
+        updateImportance(CssProperty.PLACE_ITEMS, _placeItems != null, important)
+        notifyChanged()
+    }
+
+    fun getPlaceSelf(): String? = _placeSelf
+    fun setPlaceSelf(value: String?, important: Boolean = false) {
+        _placeSelf = value?.trim()?.lowercase()?.takeIf { it.isNotEmpty() }
+        updateImportance(CssProperty.PLACE_SELF, _placeSelf != null, important)
+        notifyChanged()
+    }
+
+    fun getPlaceContent(): String? = _placeContent
+    fun setPlaceContent(value: String?, important: Boolean = false) {
+        _placeContent = value?.trim()?.lowercase()?.takeIf { it.isNotEmpty() }
+        updateImportance(CssProperty.PLACE_CONTENT, _placeContent != null, important)
+        notifyChanged()
+    }
+
+    fun getCustomProperties(): Map<String, String> = _customProperties?.toMap() ?: emptyMap()
+    fun setCustomProperty(name: String, value: String?) {
+        val norm = name.trim().lowercase()
+        if (!norm.startsWith("--")) return
+        if (value == null) {
+            _customProperties?.remove(norm)
+        } else {
+            val map = _customProperties ?: LinkedHashMap<String, String>().also { _customProperties = it }
+            map[norm] = value.trim()
+        }
+        notifyChanged()
+    }
+
     // -------------------------------------------------------------------------
     // Copy, Merge, Filter, & Clear Operations
     // -------------------------------------------------------------------------
@@ -1623,8 +1907,10 @@ class ComponentStyle(
         try {
             activeBitmaskLow = 0L
             activeBitmaskHigh = 0L
+            activeBitmaskExt = 0L
             importantBitmaskLow = 0L
             importantBitmaskHigh = 0L
+            importantBitmaskExt = 0L
             _backgroundColor = null
             _backgroundImage = null
             _backgroundSize = null
@@ -1729,6 +2015,38 @@ class ComponentStyle(
             _animationPlayState = null
             _filter = null
             _backdropFilter = null
+            _borderTopStyle = null
+            _borderRightStyle = null
+            _borderBottomStyle = null
+            _borderLeftStyle = null
+            _textIndent = null
+            _listStyleType = null
+            _content = null
+            _borderCollapse = null
+            _borderSpacing = null
+            _transitionProperty = null
+            _transitionDuration = null
+            _transitionTimingFunction = null
+            _transitionDelay = null
+            _gridTemplateColumns = null
+            _gridTemplateRows = null
+            _gridTemplateAreas = null
+            _gridArea = null
+            _gridColumn = null
+            _gridColumnStart = null
+            _gridColumnEnd = null
+            _gridRow = null
+            _gridRowStart = null
+            _gridRowEnd = null
+            _gridAutoFlow = null
+            _gridAutoRows = null
+            _gridAutoColumns = null
+            _justifyItems = null
+            _justifySelf = null
+            _placeItems = null
+            _placeSelf = null
+            _placeContent = null
+            _customProperties = null
         } finally {
             suppressInternalNotifications = prevSuppress
             lastMarkedProperty = null
@@ -1738,7 +2056,11 @@ class ComponentStyle(
         }
     }
 
-    fun isEmpty(): Boolean = activeBitmaskLow == 0L && activeBitmaskHigh == 0L
+    fun isEmpty(): Boolean =
+        activeBitmaskLow == 0L &&
+            activeBitmaskHigh == 0L &&
+            activeBitmaskExt == 0L &&
+            _customProperties.isNullOrEmpty()
 
     fun copyFrom(other: ComponentStyle) {
         val prevSuppress = suppressInternalNotifications
@@ -1746,8 +2068,10 @@ class ComponentStyle(
         try {
             activeBitmaskLow = other.activeBitmaskLow
             activeBitmaskHigh = other.activeBitmaskHigh
+            activeBitmaskExt = other.activeBitmaskExt
             importantBitmaskLow = other.importantBitmaskLow
             importantBitmaskHigh = other.importantBitmaskHigh
+            importantBitmaskExt = other.importantBitmaskExt
             _backgroundColor = other._backgroundColor
             _backgroundImage = other._backgroundImage
             _backgroundSize = other._backgroundSize
@@ -1852,6 +2176,38 @@ class ComponentStyle(
             _animationPlayState = other._animationPlayState
             _filter = other._filter
             _backdropFilter = other._backdropFilter
+            _borderTopStyle = other._borderTopStyle
+            _borderRightStyle = other._borderRightStyle
+            _borderBottomStyle = other._borderBottomStyle
+            _borderLeftStyle = other._borderLeftStyle
+            _textIndent = other._textIndent
+            _listStyleType = other._listStyleType
+            _content = other._content
+            _borderCollapse = other._borderCollapse
+            _borderSpacing = other._borderSpacing
+            _transitionProperty = other._transitionProperty
+            _transitionDuration = other._transitionDuration
+            _transitionTimingFunction = other._transitionTimingFunction
+            _transitionDelay = other._transitionDelay
+            _gridTemplateColumns = other._gridTemplateColumns
+            _gridTemplateRows = other._gridTemplateRows
+            _gridTemplateAreas = other._gridTemplateAreas
+            _gridArea = other._gridArea
+            _gridColumn = other._gridColumn
+            _gridColumnStart = other._gridColumnStart
+            _gridColumnEnd = other._gridColumnEnd
+            _gridRow = other._gridRow
+            _gridRowStart = other._gridRowStart
+            _gridRowEnd = other._gridRowEnd
+            _gridAutoFlow = other._gridAutoFlow
+            _gridAutoRows = other._gridAutoRows
+            _gridAutoColumns = other._gridAutoColumns
+            _justifyItems = other._justifyItems
+            _justifySelf = other._justifySelf
+            _placeItems = other._placeItems
+            _placeSelf = other._placeSelf
+            _placeContent = other._placeContent
+            _customProperties = other._customProperties?.let { LinkedHashMap(it) }
         } finally {
             suppressInternalNotifications = prevSuppress
             lastMarkedProperty = null
@@ -2029,10 +2385,38 @@ class ComponentStyle(
             return copy
         }
         val (maskLow, maskHigh) = ComputedStyle.systemFilterBitmasks(allowTypography, allowFilter = allowFilter)
+        val maskExt = ComputedStyle.systemFilterExtBitmask(allowTypography)
         copy.activeBitmaskLow = activeBitmaskLow and maskLow
         copy.activeBitmaskHigh = activeBitmaskHigh and maskHigh
+        copy.activeBitmaskExt = activeBitmaskExt and maskExt
         copy.importantBitmaskLow = importantBitmaskLow and maskLow
         copy.importantBitmaskHigh = importantBitmaskHigh and maskHigh
+        copy.importantBitmaskExt = importantBitmaskExt and maskExt
+        copy._borderCollapse = _borderCollapse
+        copy._borderSpacing = _borderSpacing
+        copy._transitionProperty = _transitionProperty
+        copy._transitionDuration = _transitionDuration
+        copy._transitionTimingFunction = _transitionTimingFunction
+        copy._transitionDelay = _transitionDelay
+        copy._gridTemplateColumns = _gridTemplateColumns
+        copy._gridTemplateRows = _gridTemplateRows
+        copy._gridTemplateAreas = _gridTemplateAreas
+        copy._gridArea = _gridArea
+        copy._gridColumn = _gridColumn
+        copy._gridColumnStart = _gridColumnStart
+        copy._gridColumnEnd = _gridColumnEnd
+        copy._gridRow = _gridRow
+        copy._gridRowStart = _gridRowStart
+        copy._gridRowEnd = _gridRowEnd
+        copy._gridAutoFlow = _gridAutoFlow
+        copy._gridAutoRows = _gridAutoRows
+        copy._gridAutoColumns = _gridAutoColumns
+        copy._justifyItems = _justifyItems
+        copy._justifySelf = _justifySelf
+        copy._placeItems = _placeItems
+        copy._placeSelf = _placeSelf
+        copy._placeContent = _placeContent
+        copy._customProperties = _customProperties?.let { LinkedHashMap(it) }
 
         // Layout / geometry properties
         copy._display = _display
@@ -2114,6 +2498,8 @@ class ComponentStyle(
             copy._textOverflow = _textOverflow
             copy._whiteSpace = _whiteSpace
             copy._wordBreak = _wordBreak
+            copy._textIndent = _textIndent
+            copy._listStyleType = _listStyleType
         }
         if (allowFilter) {
             copy._filter = _filter
@@ -2295,6 +2681,50 @@ class ComponentStyle(
         CssProperty.ANIMATION_PLAY_STATE -> _animationPlayState
         CssProperty.FILTER -> _filter?.toCssString()
         CssProperty.BACKDROP_FILTER -> _backdropFilter?.toCssString()
+        CssProperty.OUTLINE_OFFSET -> _outlineOffset?.toCssString()
+        CssProperty.BORDER_TOP -> listOfNotNull(_borderWidth?.top?.toCssString(), (_borderTopStyle ?: _borderStyle)?.cssValue, (_borderTopColor ?: _borderColor)?.toCssRgbaString()).takeIf { it.isNotEmpty() }?.joinToString(" ")
+        CssProperty.BORDER_RIGHT -> listOfNotNull(_borderWidth?.right?.toCssString(), (_borderRightStyle ?: _borderStyle)?.cssValue, (_borderRightColor ?: _borderColor)?.toCssRgbaString()).takeIf { it.isNotEmpty() }?.joinToString(" ")
+        CssProperty.BORDER_BOTTOM -> listOfNotNull(_borderWidth?.bottom?.toCssString(), (_borderBottomStyle ?: _borderStyle)?.cssValue, (_borderBottomColor ?: _borderColor)?.toCssRgbaString()).takeIf { it.isNotEmpty() }?.joinToString(" ")
+        CssProperty.BORDER_LEFT -> listOfNotNull(_borderWidth?.left?.toCssString(), (_borderLeftStyle ?: _borderStyle)?.cssValue, (_borderLeftColor ?: _borderColor)?.toCssRgbaString()).takeIf { it.isNotEmpty() }?.joinToString(" ")
+        CssProperty.BORDER_TOP_WIDTH -> _borderWidth?.top?.toCssString()
+        CssProperty.BORDER_RIGHT_WIDTH -> _borderWidth?.right?.toCssString()
+        CssProperty.BORDER_BOTTOM_WIDTH -> _borderWidth?.bottom?.toCssString()
+        CssProperty.BORDER_LEFT_WIDTH -> _borderWidth?.left?.toCssString()
+        CssProperty.BORDER_TOP_STYLE -> _borderTopStyle?.cssValue
+        CssProperty.BORDER_RIGHT_STYLE -> _borderRightStyle?.cssValue
+        CssProperty.BORDER_BOTTOM_STYLE -> _borderBottomStyle?.cssValue
+        CssProperty.BORDER_LEFT_STYLE -> _borderLeftStyle?.cssValue
+        CssProperty.BORDER_TOP_COLOR -> _borderTopColor?.toCssRgbaString()
+        CssProperty.BORDER_RIGHT_COLOR -> _borderRightColor?.toCssRgbaString()
+        CssProperty.BORDER_BOTTOM_COLOR -> _borderBottomColor?.toCssRgbaString()
+        CssProperty.BORDER_LEFT_COLOR -> _borderLeftColor?.toCssRgbaString()
+        CssProperty.TEXT_INDENT -> _textIndent?.toCssString()
+        CssProperty.LIST_STYLE_TYPE -> _listStyleType
+        CssProperty.CONTENT -> _content
+        CssProperty.BORDER_COLLAPSE -> _borderCollapse
+        CssProperty.BORDER_SPACING -> _borderSpacing?.toCssString()
+        CssProperty.TRANSITION_PROPERTY -> _transitionProperty
+        CssProperty.TRANSITION_DURATION -> _transitionDuration
+        CssProperty.TRANSITION_TIMING_FUNCTION -> _transitionTimingFunction
+        CssProperty.TRANSITION_DELAY -> _transitionDelay
+        CssProperty.GRID_TEMPLATE_COLUMNS -> _gridTemplateColumns
+        CssProperty.GRID_TEMPLATE_ROWS -> _gridTemplateRows
+        CssProperty.GRID_TEMPLATE_AREAS -> _gridTemplateAreas
+        CssProperty.GRID_AREA -> _gridArea
+        CssProperty.GRID_COLUMN -> _gridColumn
+        CssProperty.GRID_COLUMN_START -> _gridColumnStart
+        CssProperty.GRID_COLUMN_END -> _gridColumnEnd
+        CssProperty.GRID_ROW -> _gridRow
+        CssProperty.GRID_ROW_START -> _gridRowStart
+        CssProperty.GRID_ROW_END -> _gridRowEnd
+        CssProperty.GRID_AUTO_FLOW -> _gridAutoFlow
+        CssProperty.GRID_AUTO_ROWS -> _gridAutoRows
+        CssProperty.GRID_AUTO_COLUMNS -> _gridAutoColumns
+        CssProperty.JUSTIFY_ITEMS -> _justifyItems
+        CssProperty.JUSTIFY_SELF -> _justifySelf
+        CssProperty.PLACE_ITEMS -> _placeItems
+        CssProperty.PLACE_SELF -> _placeSelf
+        CssProperty.PLACE_CONTENT -> _placeContent
     }
 
     /**
@@ -2414,6 +2844,21 @@ class ComponentStyle(
             outlineColor = _outlineColor ?: sheetBase?.outlineColor,
             outlineOffsetPx = _outlineOffset?.resolvePx() ?: sheetBase?.outlineOffsetPx
         )
+        CssProperty.OUTLINE_OFFSET -> current.copy(outlineOffsetPx = _outlineOffset?.resolvePx() ?: sheetBase?.outlineOffsetPx)
+        CssProperty.BORDER_TOP_STYLE -> current.copy(borderTopStyle = _borderTopStyle?.cssValue ?: sheetBase?.borderTopStyle)
+        CssProperty.BORDER_RIGHT_STYLE -> current.copy(borderRightStyle = _borderRightStyle?.cssValue ?: sheetBase?.borderRightStyle)
+        CssProperty.BORDER_BOTTOM_STYLE -> current.copy(borderBottomStyle = _borderBottomStyle?.cssValue ?: sheetBase?.borderBottomStyle)
+        CssProperty.BORDER_LEFT_STYLE -> current.copy(borderLeftStyle = _borderLeftStyle?.cssValue ?: sheetBase?.borderLeftStyle)
+        CssProperty.BORDER_TOP_COLOR -> current.copy(borderTopColor = _borderTopColor ?: sheetBase?.borderTopColor)
+        CssProperty.BORDER_RIGHT_COLOR -> current.copy(borderRightColor = _borderRightColor ?: sheetBase?.borderRightColor)
+        CssProperty.BORDER_BOTTOM_COLOR -> current.copy(borderBottomColor = _borderBottomColor ?: sheetBase?.borderBottomColor)
+        CssProperty.BORDER_LEFT_COLOR -> current.copy(borderLeftColor = _borderLeftColor ?: sheetBase?.borderLeftColor)
+        CssProperty.BORDER_TOP_WIDTH -> current.copy(borderTopWidthPx = _borderWidth?.top?.resolvePx() ?: sheetBase?.borderTopWidthPx)
+        CssProperty.BORDER_RIGHT_WIDTH -> current.copy(borderRightWidthPx = _borderWidth?.right?.resolvePx() ?: sheetBase?.borderRightWidthPx)
+        CssProperty.BORDER_BOTTOM_WIDTH -> current.copy(borderBottomWidthPx = _borderWidth?.bottom?.resolvePx() ?: sheetBase?.borderBottomWidthPx)
+        CssProperty.BORDER_LEFT_WIDTH -> current.copy(borderLeftWidthPx = _borderWidth?.left?.resolvePx() ?: sheetBase?.borderLeftWidthPx)
+        CssProperty.BORDER_COLLAPSE -> current.copy(borderCollapse = _borderCollapse ?: sheetBase?.borderCollapse)
+        CssProperty.BORDER_SPACING -> current.copy(borderSpacing = _borderSpacing ?: sheetBase?.borderSpacing)
         CssProperty.BOX_SHADOW -> current.copy(
             boxShadow = _boxShadow?.toCssString() ?: sheetBase?.boxShadow,
             boxShadowList = _boxShadow ?: sheetBase?.boxShadowList
@@ -2507,6 +2952,31 @@ class ComponentStyle(
         CssProperty.ANIMATION_PLAY_STATE -> current.copy(animationPlayState = _animationPlayState ?: sheetBase?.animationPlayState)
         CssProperty.FILTER -> current.copy(filter = _filter ?: sheetBase?.filter)
         CssProperty.BACKDROP_FILTER -> current.copy(backdropFilter = _backdropFilter ?: sheetBase?.backdropFilter)
+        CssProperty.TEXT_INDENT -> current.copy(textIndent = _textIndent ?: sheetBase?.textIndent)
+        CssProperty.LIST_STYLE_TYPE -> current.copy(listStyleType = _listStyleType ?: sheetBase?.listStyleType)
+        CssProperty.CONTENT -> current.copy(content = _content ?: sheetBase?.content)
+        CssProperty.TRANSITION_PROPERTY -> current.copy(transitionProperty = _transitionProperty ?: sheetBase?.transitionProperty)
+        CssProperty.TRANSITION_DURATION -> current.copy(transitionDuration = _transitionDuration ?: sheetBase?.transitionDuration)
+        CssProperty.TRANSITION_TIMING_FUNCTION -> current.copy(transitionTimingFunction = _transitionTimingFunction ?: sheetBase?.transitionTimingFunction)
+        CssProperty.TRANSITION_DELAY -> current.copy(transitionDelay = _transitionDelay ?: sheetBase?.transitionDelay)
+        CssProperty.GRID_TEMPLATE_COLUMNS -> current.copy(gridTemplateColumns = _gridTemplateColumns ?: sheetBase?.gridTemplateColumns)
+        CssProperty.GRID_TEMPLATE_ROWS -> current.copy(gridTemplateRows = _gridTemplateRows ?: sheetBase?.gridTemplateRows)
+        CssProperty.GRID_TEMPLATE_AREAS -> current.copy(gridTemplateAreas = _gridTemplateAreas ?: sheetBase?.gridTemplateAreas)
+        CssProperty.GRID_AREA -> current.copy(gridArea = _gridArea ?: sheetBase?.gridArea)
+        CssProperty.GRID_COLUMN -> current.copy(gridColumn = _gridColumn ?: sheetBase?.gridColumn)
+        CssProperty.GRID_COLUMN_START -> current.copy(gridColumnStart = _gridColumnStart ?: sheetBase?.gridColumnStart)
+        CssProperty.GRID_COLUMN_END -> current.copy(gridColumnEnd = _gridColumnEnd ?: sheetBase?.gridColumnEnd)
+        CssProperty.GRID_ROW -> current.copy(gridRow = _gridRow ?: sheetBase?.gridRow)
+        CssProperty.GRID_ROW_START -> current.copy(gridRowStart = _gridRowStart ?: sheetBase?.gridRowStart)
+        CssProperty.GRID_ROW_END -> current.copy(gridRowEnd = _gridRowEnd ?: sheetBase?.gridRowEnd)
+        CssProperty.GRID_AUTO_FLOW -> current.copy(gridAutoFlow = _gridAutoFlow ?: sheetBase?.gridAutoFlow)
+        CssProperty.GRID_AUTO_ROWS -> current.copy(gridAutoRows = _gridAutoRows ?: sheetBase?.gridAutoRows)
+        CssProperty.GRID_AUTO_COLUMNS -> current.copy(gridAutoColumns = _gridAutoColumns ?: sheetBase?.gridAutoColumns)
+        CssProperty.JUSTIFY_ITEMS -> current.copy(justifyItems = _justifyItems ?: sheetBase?.justifyItems)
+        CssProperty.JUSTIFY_SELF -> current.copy(justifySelf = _justifySelf ?: sheetBase?.justifySelf)
+        CssProperty.PLACE_ITEMS -> current.copy(placeItems = _placeItems ?: sheetBase?.placeItems)
+        CssProperty.PLACE_SELF -> current.copy(placeSelf = _placeSelf ?: sheetBase?.placeSelf)
+        CssProperty.PLACE_CONTENT -> current.copy(placeContent = _placeContent ?: sheetBase?.placeContent)
         else -> null
     }
 
@@ -2528,18 +2998,26 @@ class ComponentStyle(
             val mask = 1L shl ord
             if (present || baseHas) current.activeBitmaskLow or mask else current.activeBitmaskLow and mask.inv()
         } else current.activeBitmaskLow
-        val nextActHigh = if (ord >= 64) {
+        val nextActHigh = if (ord in 64 until 128) {
             val mask = 1L shl (ord - 64)
             if (present || baseHas) current.activeBitmaskHigh or mask else current.activeBitmaskHigh and mask.inv()
         } else current.activeBitmaskHigh
+        val nextActExt = if (ord >= 128) {
+            val mask = 1L shl (ord - 128)
+            if (present || baseHas) current.activeBitmaskExt or mask else current.activeBitmaskExt and mask.inv()
+        } else current.activeBitmaskExt
         val nextImpLow = if (ord < 64) {
             val mask = 1L shl ord
             if ((present && imp) || (!present && baseImp)) current.importantBitmaskLow or mask else current.importantBitmaskLow and mask.inv()
         } else current.importantBitmaskLow
-        val nextImpHigh = if (ord >= 64) {
+        val nextImpHigh = if (ord in 64 until 128) {
             val mask = 1L shl (ord - 64)
             if ((present && imp) || (!present && baseImp)) current.importantBitmaskHigh or mask else current.importantBitmaskHigh and mask.inv()
         } else current.importantBitmaskHigh
+        val nextImpExt = if (ord >= 128) {
+            val mask = 1L shl (ord - 128)
+            if ((present && imp) || (!present && baseImp)) current.importantBitmaskExt or mask else current.importantBitmaskExt and mask.inv()
+        } else current.importantBitmaskExt
 
         val updated = applyVisualAndPositionPropertyToComputed(property, current, sheetBase)
             ?: applyBorderAndShadowPropertyToComputed(property, current, sheetBase)
@@ -2550,8 +3028,10 @@ class ComponentStyle(
         return updated.copy(
             activeBitmaskLow = nextActLow,
             activeBitmaskHigh = nextActHigh,
+            activeBitmaskExt = nextActExt,
             importantBitmaskLow = nextImpLow,
-            importantBitmaskHigh = nextImpHigh
+            importantBitmaskHigh = nextImpHigh,
+            importantBitmaskExt = nextImpExt
         )
     }
 
@@ -2724,7 +3204,47 @@ class ComponentStyle(
             animationIterationCount = if (canOverride(CssProperty.ANIMATION_ITERATION_COUNT)) _animationIterationCount ?: baseStyle.animationIterationCount else baseStyle.animationIterationCount,
             animationDirection = if (canOverride(CssProperty.ANIMATION_DIRECTION)) _animationDirection ?: baseStyle.animationDirection else baseStyle.animationDirection,
             animationFillMode = if (canOverride(CssProperty.ANIMATION_FILL_MODE)) _animationFillMode ?: baseStyle.animationFillMode else baseStyle.animationFillMode,
-            animationPlayState = if (canOverride(CssProperty.ANIMATION_PLAY_STATE)) _animationPlayState ?: baseStyle.animationPlayState else baseStyle.animationPlayState
+            animationPlayState = if (canOverride(CssProperty.ANIMATION_PLAY_STATE)) _animationPlayState ?: baseStyle.animationPlayState else baseStyle.animationPlayState,
+            borderTopStyle = if (canOverride(CssProperty.BORDER_TOP_STYLE) || canOverride(CssProperty.BORDER_STYLE)) _borderTopStyle?.cssValue ?: _borderStyle?.cssValue ?: baseStyle.borderTopStyle else baseStyle.borderTopStyle,
+            borderRightStyle = if (canOverride(CssProperty.BORDER_RIGHT_STYLE) || canOverride(CssProperty.BORDER_STYLE)) _borderRightStyle?.cssValue ?: _borderStyle?.cssValue ?: baseStyle.borderRightStyle else baseStyle.borderRightStyle,
+            borderBottomStyle = if (canOverride(CssProperty.BORDER_BOTTOM_STYLE) || canOverride(CssProperty.BORDER_STYLE)) _borderBottomStyle?.cssValue ?: _borderStyle?.cssValue ?: baseStyle.borderBottomStyle else baseStyle.borderBottomStyle,
+            borderLeftStyle = if (canOverride(CssProperty.BORDER_LEFT_STYLE) || canOverride(CssProperty.BORDER_STYLE)) _borderLeftStyle?.cssValue ?: _borderStyle?.cssValue ?: baseStyle.borderLeftStyle else baseStyle.borderLeftStyle,
+            textIndent = if (canOverride(CssProperty.TEXT_INDENT)) _textIndent ?: baseStyle.textIndent else baseStyle.textIndent,
+            listStyleType = if (canOverride(CssProperty.LIST_STYLE_TYPE)) _listStyleType ?: baseStyle.listStyleType else baseStyle.listStyleType,
+            content = if (canOverride(CssProperty.CONTENT)) _content ?: baseStyle.content else baseStyle.content,
+            borderCollapse = if (canOverride(CssProperty.BORDER_COLLAPSE)) _borderCollapse ?: baseStyle.borderCollapse else baseStyle.borderCollapse,
+            borderSpacing = if (canOverride(CssProperty.BORDER_SPACING)) _borderSpacing ?: baseStyle.borderSpacing else baseStyle.borderSpacing,
+            transitionProperty = if (canOverride(CssProperty.TRANSITION_PROPERTY)) _transitionProperty ?: baseStyle.transitionProperty else baseStyle.transitionProperty,
+            transitionDuration = if (canOverride(CssProperty.TRANSITION_DURATION)) _transitionDuration ?: baseStyle.transitionDuration else baseStyle.transitionDuration,
+            transitionTimingFunction = if (canOverride(CssProperty.TRANSITION_TIMING_FUNCTION)) _transitionTimingFunction ?: baseStyle.transitionTimingFunction else baseStyle.transitionTimingFunction,
+            transitionDelay = if (canOverride(CssProperty.TRANSITION_DELAY)) _transitionDelay ?: baseStyle.transitionDelay else baseStyle.transitionDelay,
+            gridTemplateColumns = if (canOverride(CssProperty.GRID_TEMPLATE_COLUMNS)) _gridTemplateColumns ?: baseStyle.gridTemplateColumns else baseStyle.gridTemplateColumns,
+            gridTemplateRows = if (canOverride(CssProperty.GRID_TEMPLATE_ROWS)) _gridTemplateRows ?: baseStyle.gridTemplateRows else baseStyle.gridTemplateRows,
+            gridTemplateAreas = if (canOverride(CssProperty.GRID_TEMPLATE_AREAS)) _gridTemplateAreas ?: baseStyle.gridTemplateAreas else baseStyle.gridTemplateAreas,
+            gridArea = if (canOverride(CssProperty.GRID_AREA)) _gridArea ?: baseStyle.gridArea else baseStyle.gridArea,
+            gridColumn = if (canOverride(CssProperty.GRID_COLUMN)) _gridColumn ?: baseStyle.gridColumn else baseStyle.gridColumn,
+            gridColumnStart = if (canOverride(CssProperty.GRID_COLUMN_START)) _gridColumnStart ?: baseStyle.gridColumnStart else baseStyle.gridColumnStart,
+            gridColumnEnd = if (canOverride(CssProperty.GRID_COLUMN_END)) _gridColumnEnd ?: baseStyle.gridColumnEnd else baseStyle.gridColumnEnd,
+            gridRow = if (canOverride(CssProperty.GRID_ROW)) _gridRow ?: baseStyle.gridRow else baseStyle.gridRow,
+            gridRowStart = if (canOverride(CssProperty.GRID_ROW_START)) _gridRowStart ?: baseStyle.gridRowStart else baseStyle.gridRowStart,
+            gridRowEnd = if (canOverride(CssProperty.GRID_ROW_END)) _gridRowEnd ?: baseStyle.gridRowEnd else baseStyle.gridRowEnd,
+            gridAutoFlow = if (canOverride(CssProperty.GRID_AUTO_FLOW)) _gridAutoFlow ?: baseStyle.gridAutoFlow else baseStyle.gridAutoFlow,
+            gridAutoRows = if (canOverride(CssProperty.GRID_AUTO_ROWS)) _gridAutoRows ?: baseStyle.gridAutoRows else baseStyle.gridAutoRows,
+            gridAutoColumns = if (canOverride(CssProperty.GRID_AUTO_COLUMNS)) _gridAutoColumns ?: baseStyle.gridAutoColumns else baseStyle.gridAutoColumns,
+            justifyItems = if (canOverride(CssProperty.JUSTIFY_ITEMS)) _justifyItems ?: baseStyle.justifyItems else baseStyle.justifyItems,
+            justifySelf = if (canOverride(CssProperty.JUSTIFY_SELF)) _justifySelf ?: baseStyle.justifySelf else baseStyle.justifySelf,
+            placeItems = if (canOverride(CssProperty.PLACE_ITEMS)) _placeItems ?: baseStyle.placeItems else baseStyle.placeItems,
+            placeSelf = if (canOverride(CssProperty.PLACE_SELF)) _placeSelf ?: baseStyle.placeSelf else baseStyle.placeSelf,
+            placeContent = if (canOverride(CssProperty.PLACE_CONTENT)) _placeContent ?: baseStyle.placeContent else baseStyle.placeContent,
+            customProperties = when {
+                _customProperties.isNullOrEmpty() -> baseStyle.customProperties
+                baseStyle.customProperties.isEmpty() -> _customProperties!!.toMap()
+                else -> baseStyle.customProperties + _customProperties!!
+            },
+            beforeStyle = baseStyle.beforeStyle,
+            afterStyle = baseStyle.afterStyle,
+            activeBitmaskExt = baseStyle.activeBitmaskExt or activeBitmaskExt,
+            importantBitmaskExt = baseStyle.importantBitmaskExt or importantBitmaskExt
         )
     }
 }

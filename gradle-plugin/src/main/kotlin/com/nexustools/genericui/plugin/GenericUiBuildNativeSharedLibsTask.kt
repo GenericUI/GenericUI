@@ -2146,7 +2146,10 @@ abstract class GenericUiBuildNativeSharedLibsTask : DefaultTask() {
             "opengl32",
             "secur32",
             "usp10",
-            "wininet"
+            "wininet",
+            "winhttp",
+            "windowscodecs",
+            "iphlpapi"
         )
 
         internal fun isStaticPlatformCacheKlib(uniqueName: String, konanTarget: String): Boolean =

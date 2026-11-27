@@ -3,7 +3,7 @@ package com.nexustools.genericui.nativeimpl.action
 import com.nexustools.genericui.style.css.StyledVisualSpec
 
 /**
- * Native implementation contract for [com.nexustools.genericui.component.action.StyledButton]
+ * Native implementation contract for [com.nexustools.genericui.component.action.styled.StyledButton]
  * supporting cross-platform backgrounds (solid, RGBA alpha-transparent, linear & radial gradients),
  * borders (width, style, color, corner radius), foreground text/icon tinting, and interactive
  * `:hover`, `:focus`, `:active` (pressed), and `:disabled` visual state overrides across all 8 backends.

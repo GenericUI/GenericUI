@@ -8,6 +8,7 @@ enum class PreferenceElementKind {
     BOOLEAN,
     NUMBER,
     STRING,
+    BYTES,
     ARRAY,
     MAP,
     OBJECT

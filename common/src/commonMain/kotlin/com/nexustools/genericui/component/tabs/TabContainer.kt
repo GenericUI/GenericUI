@@ -308,7 +308,7 @@ open class TabContainer(
         icon: String? = null,
         iconRes: ResourceID? = null,
         image: Image? = null,
-        tintImageToTheme: Boolean = true,
+        tintImageToTheme: Boolean? = null,
         iconSizePx: Int = image?.widthPx ?: image?.heightPx ?: 20,
         iconPlacement: TabIconPlacement = TabIconPlacement.START,
         index: Int = -1,
@@ -359,7 +359,7 @@ open class TabContainer(
         closable: Boolean = false,
         iconRes: ResourceID? = null,
         image: Image? = null,
-        tintImageToTheme: Boolean = true,
+        tintImageToTheme: Boolean? = null,
         iconSizePx: Int = image?.widthPx ?: image?.heightPx ?: 20,
         iconPlacement: TabIconPlacement = TabIconPlacement.START
     ): TabContainer = apply {
@@ -403,7 +403,7 @@ open class TabContainer(
         customComponent: AbstractComponent? = null,
         iconRes: ResourceID? = null,
         image: Image? = null,
-        tintImageToTheme: Boolean = true,
+        tintImageToTheme: Boolean? = null,
         iconSizePx: Int = image?.widthPx ?: image?.heightPx ?: 20,
         iconPlacement: TabIconPlacement = TabIconPlacement.START,
         onCloseRequested: (() -> Boolean)? = null
@@ -488,19 +488,26 @@ open class TabContainer(
         return true
     }
 
-    fun closeTab(tabId: String): Boolean {
+    fun closeTab(tabId: String): Boolean =
+        closeTabInternal(tabId, invokedFromTabRequest = false)
+
+    private fun closeTabInternal(tabId: String, invokedFromTabRequest: Boolean): Boolean {
         val idx = _entries.indexOfFirst { it.id == tabId }
         if (idx < 0) return false
         val entry = _entries[idx]
-        val closeable = entry.tab as? CloseableTab
-        if (closeable != null && !closeable.isCloseable) return false
-        val tabAllowed = closeable?.onCloseRequested?.invoke() ?: true
-        if (!tabAllowed) return false
+        if (!entry.tab.isCloseable) return false
+        if (!invokedFromTabRequest) {
+            val tabAllowed = entry.tab.onCloseRequested?.invoke() ?: true
+            if (!tabAllowed) return false
+        }
         val containerAllowed = onTabCloseRequested?.invoke(entry) ?: true
         if (!containerAllowed) return false
         onTabIdCloseRequested?.invoke(tabId)
         if (_entries.any { it.id == tabId }) {
             removeTab(tabId)
+        }
+        if (!invokedFromTabRequest) {
+            entry.tab.onClosed?.invoke()
         }
         return true
     }
@@ -519,12 +526,12 @@ open class TabContainer(
         (entry.tab.nativeImpl as? TabNativeImpl<*>)?.let { impl?.updateTabNative(idx, it) }
     }
 
-    fun setTabImage(tabId: String, image: Image?, tintToTheme: Boolean = true) {
+    fun setTabImage(tabId: String, image: Image?, tintToTheme: Boolean? = null) {
         val entry = _entries.firstOrNull { it.id == tabId } ?: return
         entry.tab.setImage(image, tintToTheme)
     }
 
-    fun setTabIcon(tabId: String, resId: ResourceID, tintToTheme: Boolean = true) {
+    fun setTabIcon(tabId: String, resId: ResourceID, tintToTheme: Boolean? = null) {
         val entry = _entries.firstOrNull { it.id == tabId } ?: return
         entry.tab.setImage(resId, tintToTheme)
     }
@@ -568,7 +575,7 @@ open class TabContainer(
             }
         }
         tab.ownerRequestClose = { closingTab ->
-            closeTab(closingTab.tabId)
+            closeTabInternal(closingTab.tabId, invokedFromTabRequest = true)
         }
     }
 

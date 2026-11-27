@@ -157,6 +157,14 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
 
     @get:Input
     @get:Optional
+    abstract val backendEnabledExtensionModulePaths: MapProperty<String, List<String>>
+
+    @get:Input
+    @get:Optional
+    abstract val binaryCodecsEnabled: Property<Boolean>
+
+    @get:Input
+    @get:Optional
     abstract val extensionOptions: MapProperty<String, String>
 
     @get:OutputDirectory
@@ -170,6 +178,7 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
         testingEnabled.convention(true)
         baseName.convention("")
         enabledExtensionModulePaths.convention(emptyList())
+        binaryCodecsEnabled.convention(true)
         extensionOptions.convention(emptyMap())
     }
 
@@ -256,13 +265,19 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
             .map { it.trim() }
             .filter { it.isNotEmpty() }
             .toSet()
+        val backendExtPathsMap = backendEnabledExtensionModulePaths.getOrElse(emptyMap())
+            .mapValues { (_, list) ->
+                list.map { it.trim() }.filter { it.isNotEmpty() }.toSet()
+            }
+        val allEnabledExtPathsSet = (enabledExtPathsSet + backendExtPathsMap.values.flatten()).toSet()
         val scanSpecs = com.nexustools.genericui.plugin.spi.GenericUiExtensionContributorRegistry
-            .allAnnotationScanSpecs(enabledExtPathsSet, projectDir)
+            .allAnnotationScanSpecs(allEnabledExtPathsSet, projectDir)
         val discoveredSymbols = GenericUiFragmentScanner.scanProjectSymbols(
             projectDir = projectDir,
             scanSpecs = scanSpecs,
             extraDirectories = extraDirs
         )
+        val binaryCodecsActive = binaryCodecsEnabled.getOrElse(true)
         val resolvedBaseName = baseName.orNull?.trim().orEmpty().ifEmpty { projectDir.name }
         val mergedExtOptions = LinkedHashMap<String, String>(extensionOptions.getOrElse(emptyMap())).apply {
             putIfAbsent(
@@ -281,7 +296,11 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
             }
             putIfAbsent(
                 com.nexustools.genericui.plugin.spi.ServiceWorkerExtensionContributor.OPTION_SCHEMA_ENABLED,
-                (com.nexustools.genericui.plugin.spi.SchemaExtensionContributor.SCHEMA_MODULE_PATH in enabledExtPathsSet).toString()
+                (com.nexustools.genericui.plugin.spi.SchemaExtensionContributor.SCHEMA_MODULE_PATH in allEnabledExtPathsSet).toString()
+            )
+            putIfAbsent(
+                com.nexustools.genericui.plugin.spi.ServiceWorkerExtensionContributor.OPTION_BINARY_CODECS_ENABLED,
+                binaryCodecsActive.toString()
             )
         }
         val validationContext = com.nexustools.genericui.plugin.spi.ExtensionBuildContext(
@@ -292,7 +311,7 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
             appVersion = appVersionsMap.values.firstOrNull() ?: "1.0.0",
             baseName = resolvedBaseName,
             generatedPackageName = effectiveGenPkg,
-            enabledExtensionModulePaths = enabledExtPathsSet,
+            enabledExtensionModulePaths = allEnabledExtPathsSet,
             discoveredFragments = discovered,
             discoveredSymbols = discoveredSymbols,
             extensionOptions = mergedExtOptions
@@ -330,6 +349,7 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
                 windowSizeExplicitlySet = sizeExplicitMap[key] ?: false,
                 fullscreenExplicitlySet = fullscreenExplicitMap[key] ?: false
             )
+            val scopeExtPathsSet = backendExtPathsMap[key]?.takeIf { it.isNotEmpty() } ?: enabledExtPathsSet
             val extContext = com.nexustools.genericui.plugin.spi.ExtensionBuildContext(
                 projectRootDir = projectDir,
                 projectName = projectDir.name,
@@ -338,13 +358,13 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
                 appVersion = variantConfig.appVersion,
                 baseName = resolvedBaseName,
                 generatedPackageName = effectiveGenPkg,
-                enabledExtensionModulePaths = enabledExtPathsSet,
+                enabledExtensionModulePaths = scopeExtPathsSet,
                 discoveredFragments = discovered,
                 discoveredSymbols = discoveredSymbols,
                 extensionOptions = mergedExtOptions
             )
             val activeContributors = com.nexustools.genericui.plugin.spi.GenericUiExtensionContributorRegistry
-                .activeContributors(enabledExtPathsSet, projectDir)
+                .activeContributors(scopeExtPathsSet, projectDir)
             val spiProviderCalls = activeContributors
                 .flatMap { it.providerInstallerCalls(backendScope, extContext) }
             val extraSources = mutableListOf<com.nexustools.genericui.plugin.spi.ExtensionGeneratedSource>()
@@ -361,12 +381,17 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
                     }
                 }
             }
-            val providerCalls = (providerCallsMap[key].orEmpty() + spiProviderCalls)
+            val binaryCodecCalls = if (binaryCodecsActive) {
+                listOf("$effectiveGenPkg.GeneratedBinaryCodecRegistrar.registerAll()")
+            } else {
+                emptyList()
+            }
+            val providerCalls = (binaryCodecCalls + providerCallsMap[key].orEmpty() + spiProviderCalls)
                 .map { it.trim() }
                 .filter { it.isNotEmpty() }
                 .distinct()
 
-            val swActive = com.nexustools.genericui.plugin.spi.ServiceWorkerExtensionContributor.SERVICE_WORKER_MODULE_PATH in enabledExtPathsSet &&
+            val swActive = com.nexustools.genericui.plugin.spi.ServiceWorkerExtensionContributor.SERVICE_WORKER_MODULE_PATH in scopeExtPathsSet &&
                 backendScope != GenericUiVariantScope.IOS &&
                 backendScope != GenericUiVariantScope.IPADOS &&
                 com.nexustools.genericui.plugin.spi.ServiceWorkerExtensionContributor.hasResolvedWorkerForBackend(extContext, backendScope)
@@ -514,7 +539,12 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
                 )
             }
             extension.extensions.syncServiceWorkerExtensionOptions()
-            val enabledExtPathsSet = extension.extensions.enabledExtensionModulePaths().toSet()
+            extension.extensions.syncWebViewExtensionOptions()
+            val commonExtPathsSet = extension.extensions.enabledExtensionModulePaths().toSet()
+            val perTargetExtPaths = targetScopes.associateWith { scope ->
+                extension.extensions.enabledExtensionModulePathsForTarget(scope).toSet()
+            }
+            val enabledExtPathsSet = (commonExtPathsSet + perTargetExtPaths.values.flatten()).toSet()
             val scanSpecs = com.nexustools.genericui.plugin.spi.GenericUiExtensionContributorRegistry
                 .allAnnotationScanSpecs(enabledExtPathsSet, projectDir)
             val discoveredSymbols = GenericUiFragmentScanner.scanProjectSymbols(
@@ -543,6 +573,10 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
                     com.nexustools.genericui.plugin.spi.ServiceWorkerExtensionContributor.OPTION_SCHEMA_ENABLED,
                     (com.nexustools.genericui.plugin.spi.SchemaExtensionContributor.SCHEMA_MODULE_PATH in enabledExtPathsSet).toString()
                 )
+                put(
+                    com.nexustools.genericui.plugin.spi.ServiceWorkerExtensionContributor.OPTION_BINARY_CODECS_ENABLED,
+                    extension.includeCommon.toString()
+                )
             }
             val firstVariant = targetScopes.firstOrNull()?.let { GenericUiVariantResolver.resolve(extension, it) }
             val validationContext = com.nexustools.genericui.plugin.spi.ExtensionBuildContext(
@@ -558,12 +592,11 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
                 discoveredSymbols = discoveredSymbols,
                 extensionOptions = mergedExtOptions
             )
-            val activeContributors = com.nexustools.genericui.plugin.spi.GenericUiExtensionContributorRegistry
-                .activeContributors(enabledExtPathsSet, projectDir)
             com.nexustools.genericui.plugin.spi.GenericUiExtensionContributorRegistry
                 .validateActiveContributors(validationContext, discoveredSymbols)
 
             for (scope in targetScopes) {
+                val scopeExtPathsSet = perTargetExtPaths[scope] ?: commonExtPathsSet
                 val variantConfig = GenericUiVariantResolver.resolve(extension, scope)
                 val extContext = com.nexustools.genericui.plugin.spi.ExtensionBuildContext(
                     projectRootDir = projectDir,
@@ -573,11 +606,13 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
                     appVersion = variantConfig.appVersion,
                     baseName = resolvedBaseName,
                     generatedPackageName = generatedPkg,
-                    enabledExtensionModulePaths = enabledExtPathsSet,
+                    enabledExtensionModulePaths = scopeExtPathsSet,
                     discoveredFragments = discovered,
                     discoveredSymbols = discoveredSymbols,
                     extensionOptions = mergedExtOptions
                 )
+                val activeContributors = com.nexustools.genericui.plugin.spi.GenericUiExtensionContributorRegistry
+                    .activeContributors(scopeExtPathsSet, projectDir)
                 val spiProviderCalls = activeContributors.flatMap { it.providerInstallerCalls(scope, extContext) }
                 val extraSources = mutableListOf<com.nexustools.genericui.plugin.spi.ExtensionGeneratedSource>()
                 for (c in activeContributors) {
@@ -596,13 +631,19 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
                 val baseProviderCalls = extension.extensions.providerInstallerCallsForBackend(
                     backendScope = scope,
                     extensionOverrides = variantConfig.extensionOverrides,
-                    generatedPackageName = generatedPkg
+                    generatedPackageName = generatedPkg,
+                    baseName = resolvedBaseName
                 )
-                val providerCalls = (baseProviderCalls + spiProviderCalls)
+                val binaryCodecCalls = if (extension.includeCommon) {
+                    listOf("$generatedPkg.GeneratedBinaryCodecRegistrar.registerAll()")
+                } else {
+                    emptyList()
+                }
+                val providerCalls = (binaryCodecCalls + baseProviderCalls + spiProviderCalls)
                     .map { it.trim() }
                     .filter { it.isNotEmpty() }
                     .distinct()
-                val swActive = com.nexustools.genericui.plugin.spi.ServiceWorkerExtensionContributor.SERVICE_WORKER_MODULE_PATH in enabledExtPathsSet &&
+                val swActive = com.nexustools.genericui.plugin.spi.ServiceWorkerExtensionContributor.SERVICE_WORKER_MODULE_PATH in scopeExtPathsSet &&
                     scope != GenericUiVariantScope.IOS &&
                     scope != GenericUiVariantScope.IPADOS &&
                     com.nexustools.genericui.plugin.spi.ServiceWorkerExtensionContributor.hasResolvedWorkerForBackend(extContext, scope)

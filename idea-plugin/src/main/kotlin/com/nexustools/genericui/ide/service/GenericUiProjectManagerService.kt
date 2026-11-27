@@ -32,6 +32,7 @@ class GenericUiProjectManagerService(
      * - `gradle.properties`
      * - `lib/` directory
      * - `src/commonMain/kotlin/<packagePath>/MainFragment.kt`
+     * - `src/commonMain/kotlin/<packagePath>/AppServiceWorker.kt` (when [GenericUiExtensionModule.SERVICE_WORKER] is enabled)
      * - `src/commonMain/resources/styles/main.scss`
      * - `src/commonTest/kotlin/<packagePath>/MainFragmentTest.kt` (when [GenericUiProjectConfig.enableTesting] is `true`)
      */
@@ -70,6 +71,14 @@ class GenericUiProjectManagerService(
             sourceGenerator.generateMainFragmentKt(config),
             StandardCharsets.UTF_8
         )
+
+        if (GenericUiExtensionModule.SERVICE_WORKER in config.resolvedExtensions()) {
+            Files.writeString(
+                kotlinDir.resolve("AppServiceWorker.kt"),
+                sourceGenerator.generateServiceWorkerKt(config),
+                StandardCharsets.UTF_8
+            )
+        }
 
         val stylesDir = rootDir.resolve("src/commonMain/resources/styles")
         Files.createDirectories(stylesDir)
@@ -148,7 +157,7 @@ class GenericUiProjectManagerService(
         val currentConfig = loadProjectConfig(projectDir)
         val newConfig = currentConfig.copy(
             selectedBackends = updatedBackends,
-            selectedExtensions = GenericUiExtensionModule.resolveTransitive(updatedExtensions),
+            selectedExtensions = GenericUiExtensionModule.resolveTransitive(updatedExtensions, updatedBackends),
             swingUseLwjglGL = swingUseLwjglGL,
             swingUseVulkan = swingUseVulkan,
             compileSass = compileSass,

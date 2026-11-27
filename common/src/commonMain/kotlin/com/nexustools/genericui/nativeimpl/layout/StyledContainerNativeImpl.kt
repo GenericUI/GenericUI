@@ -3,7 +3,7 @@ package com.nexustools.genericui.nativeimpl.layout
 import com.nexustools.genericui.style.css.StyledVisualSpec
 
 /**
- * Native implementation contract for [com.nexustools.genericui.component.layout.StyledContainer]
+ * Native implementation contract for [com.nexustools.genericui.component.layout.styled.StyledContainer]
  * supporting cross-platform backgrounds (solid, RGBA alpha-transparent, linear & radial gradients),
  * borders (width, style, color, corner radius), padding, opacity, and box shadows across all 8 backends.
  *

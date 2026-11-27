@@ -1,17 +1,23 @@
 package com.nexustools.genericui.system.style
 
 import com.nexustools.genericui.component.layout.LayoutBackendTarget
+import com.nexustools.genericui.enums.bootstrap.BootstrapBorderWidth
 import com.nexustools.genericui.enums.bootstrap.BootstrapType
+import com.nexustools.genericui.enums.bootstrap.BorderRadiusStyle
+import com.nexustools.genericui.enums.bootstrap.ShadowElevation
+import com.nexustools.genericui.enums.bootstrap.SpacingScale
 import com.nexustools.genericui.style.color.BootstrapColorPalette
 import com.nexustools.genericui.style.color.RgbaColor
 import com.nexustools.genericui.style.css.ComponentStyle
 import com.nexustools.genericui.style.css.ComputedStyle
 import com.nexustools.genericui.style.css.CssFilter
 import com.nexustools.genericui.style.css.CssLength
+import com.nexustools.genericui.geometry.EdgeInsets
 import com.nexustools.genericui.style.css.StyledVisualSpec
 import com.nexustools.genericui.style.mapper.BootstrapStyleSnapshot
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -171,5 +177,56 @@ class StyledWidgetVisualControllerAndSurfaceResolverTest {
             assertNotNull(spec.textColor)
             assertTrue((spec.borderRadiusPx ?: 0f) >= 0f)
         }
+    }
+
+    @Test
+    fun sanitizeBootstrapSnapshotStripsSemanticColorsWhilePreservingShapeAndSpacing() {
+        val controller = StyledWidgetVisualController(allowsBootstrapTypeTint = false)
+        val snapshot = BootstrapStyleSnapshot(
+            type = BootstrapType.DANGER,
+            outline = true,
+            backgroundType = BootstrapType.PRIMARY,
+            textColorType = BootstrapType.SUCCESS,
+            borderType = BootstrapType.WARNING,
+            borderRadius = BorderRadiusStyle.LARGE,
+            borderWidth = BootstrapBorderWidth.BORDER_2,
+            paddingAll = SpacingScale.THREE,
+            shadow = ShadowElevation.SMALL,
+            gap = SpacingScale.TWO
+        )
+
+        val sanitized = assertNotNull(
+            controller.sanitizeBootstrapSnapshot(snapshot, LayoutBackendTarget.WINDOWS)
+        )
+        assertEquals(BootstrapType.NONE, sanitized.type)
+        assertFalse(sanitized.outline)
+        assertNull(sanitized.backgroundType)
+        assertNull(sanitized.textColorType)
+        assertNull(sanitized.borderType)
+        assertEquals(BorderRadiusStyle.LARGE, sanitized.borderRadius)
+        assertEquals(BootstrapBorderWidth.BORDER_2, sanitized.borderWidth)
+        assertEquals(SpacingScale.THREE, sanitized.paddingAll)
+        assertEquals(ShadowElevation.SMALL, sanitized.shadow)
+        assertEquals(SpacingScale.TWO, sanitized.gap)
+
+        controller.bootstrapSnapshot = snapshot
+        val resolved = controller.resolveCurrentVisuals(
+            isDarkTheme = false,
+            backendTarget = LayoutBackendTarget.WINDOWS
+        )
+        assertNull(resolved.backgroundColor)
+        assertNull(resolved.textColor)
+        assertNull(resolved.borderColor)
+        assertEquals(8f, resolved.borderRadiusPx)
+        assertEquals(2f, resolved.borderWidthPx)
+        assertEquals(EdgeInsets(16, 16, 16, 16), resolved.padding)
+        assertEquals(4f, resolved.boxShadowBlurPx)
+        assertEquals(8, resolved.gapPx)
+
+        val webSnapshot = assertNotNull(
+            controller.sanitizeBootstrapSnapshot(snapshot, LayoutBackendTarget.WEB)
+        )
+        assertEquals(snapshot, webSnapshot)
+        assertNull(controller.sanitizeBootstrapSnapshot(null, LayoutBackendTarget.WINDOWS))
     }
 }

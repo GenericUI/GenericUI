@@ -22,7 +22,6 @@ import java.io.File
 object ServiceWorkerExtensionContributor : GenericUiExtensionContributor {
 
     const val SERVICE_WORKER_MODULE_PATH: String = ":extensions:system:serviceworker"
-    const val SERVICE_WORKER_DSL_MODULE_PATH: String = ":extensions:system:serviceworker:dsl"
     const val OPTION_AUTOSTART: String = "serviceWorker.autostart"
     const val OPTION_TRAY_ICON: String = "serviceWorker.trayIcon"
     const val OPTION_MACOS_TRAY_ICON: String = "serviceWorker.macosTrayIcon"
@@ -35,6 +34,7 @@ object ServiceWorkerExtensionContributor : GenericUiExtensionContributor {
     const val OPTION_RESOURCES_ENABLED: String = "genericui.resourcesEnabled"
     const val OPTION_RESOURCE_PACKAGE: String = "genericui.resourcePackageName"
     const val OPTION_SCHEMA_ENABLED: String = "genericui.schemaEnabled"
+    const val OPTION_BINARY_CODECS_ENABLED: String = "genericui.binaryCodecsEnabled"
     const val OPTION_REGISTRAR_PACKAGE: String = "serviceWorkerRegistrarPackage"
     const val DEFAULT_REGISTRAR_PACKAGE: String = "com.nexustools.genericui.generated"
 
@@ -48,7 +48,7 @@ object ServiceWorkerExtensionContributor : GenericUiExtensionContributor {
 
     override val extensionModulePath: String = SERVICE_WORKER_MODULE_PATH
 
-    override val dslModulePath: String = SERVICE_WORKER_DSL_MODULE_PATH
+    override val dslModulePath: String? = null
 
     override val annotationScanSpecs: List<ExtensionAnnotationScanSpec> = listOf(
         ExtensionAnnotationScanSpec(
@@ -96,6 +96,9 @@ object ServiceWorkerExtensionContributor : GenericUiExtensionContributor {
         if (explicit != null) return explicit
         return basePackageName?.trim()?.takeIf { it.isNotEmpty() } ?: DEFAULT_REGISTRAR_PACKAGE
     }
+
+    fun resolveWorkerBinaryBaseName(baseName: String): String =
+        "${baseName.trim().ifEmpty { "app" }}-sw"
 
     override fun validate(
         context: ExtensionBuildContext,
@@ -225,7 +228,14 @@ object ServiceWorkerExtensionContributor : GenericUiExtensionContributor {
             hasWorker = true,
             swingWorkerMainClass = ""
         )
-        val androidInitStmts = resolveFragmentMetadataStatements(context, GenericUiVariantScope.ANDROID)
+        val binaryCodecsEnabled = context.extensionOptions[OPTION_BINARY_CODECS_ENABLED]?.toBooleanStrictOrNull() ?: true
+        val androidInitStmts = buildList {
+            if (binaryCodecsEnabled) {
+                val genPkg = context.generatedPackageName.trim().ifEmpty { registrarPkg }
+                add("$genPkg.GeneratedBinaryCodecRegistrar.registerAll()")
+            }
+            addAll(resolveFragmentMetadataStatements(context, GenericUiVariantScope.ANDROID))
+        }
         val generatedFiles = mutableListOf<ExtensionGeneratedSource>()
         generatedFiles.add(
             ExtensionGeneratedSource(
@@ -297,15 +307,20 @@ object ServiceWorkerExtensionContributor : GenericUiExtensionContributor {
             GenericUiVariantScope.GTK,
             GenericUiVariantScope.KDE
         )
+        val workerBaseName = resolveWorkerBinaryBaseName(context.baseName)
         val desktopInitStmts = resolveDesktopInitStatements(context)
         val hasAnyNativeDesktopWorker = nativeDesktopScopes.any { it in resolvedByScope }
         if (hasAnyNativeDesktopWorker) {
             secondaryExes.add(
                 SecondaryDesktopExecutableContribution(
-                    binaryBaseName = "serviceworker",
+                    binaryBaseName = workerBaseName,
                     entryPointFqn = "$genPkg.mainServiceWorker",
                     windowsSubsystem = "windows",
-                    macosExtraLinkerOpts = listOf("-Wl,-rpath,@executable_path/../../../../Frameworks")
+                    macosExtraLinkerOpts = listOf("-Wl,-rpath,@executable_path/../../../../Frameworks"),
+                    macosHelperBundleSuffix = "Service Worker",
+                    macosHelperBundleIdSuffix = "serviceworker",
+                    macosHelperLsUiElement = true,
+                    legacyBinaryBaseNames = listOf("serviceworker")
                 )
             )
             for (scope in nativeDesktopScopes) {
@@ -356,9 +371,10 @@ object ServiceWorkerExtensionContributor : GenericUiExtensionContributor {
             listOf(
                 DesktopAutostartContribution(
                     identifier = "${context.appId}.serviceworker",
-                    executableName = "serviceworker",
+                    executableName = workerBaseName,
                     displayName = context.appName,
-                    runAtStartup = true
+                    runAtStartup = true,
+                    macosHelperBundleSuffix = "Service Worker"
                 )
             )
         } else {
@@ -536,7 +552,7 @@ object ServiceWorkerExtensionContributor : GenericUiExtensionContributor {
                 if (f.isFile) files.add(f)
             }
         }
-        val classRegex = Regex("""class\s+([A-Za-z_][A-Za-z0-9_]*)(?:<[^>]*>)?(?:\s*(?:(?:public|internal|private|protected)\s+)?constructor)?(?:\s*\([^)]*\))?\s*(?::\s*([^{]+))?""")
+        val classRegex = Regex("""class\s+([A-Za-z_][A-Za-z0-9_]*)(?:<[^>]*>)?(?:\s*(?:(?:public|internal|private|protected)\s+)?constructor)?(?:\s*\([^)]*\))?\s*(?::\s*([^\r\n{]+))?""")
         for (f in files) {
             val text = runCatching { f.readText(Charsets.UTF_8) }.getOrNull() ?: continue
             val pkg = Regex("""(?m)^\s*package\s+([A-Za-z0-9_.]+)""").find(text)?.groupValues?.get(1)?.trim().orEmpty()
@@ -634,6 +650,7 @@ object ServiceWorkerExtensionContributor : GenericUiExtensionContributor {
         val fgsType = context.extensionOptions[OPTION_ANDROID_FGS_TYPE]?.trim()?.takeIf { it.isNotEmpty() } ?: "specialUse"
         val specialSubtype = context.extensionOptions[OPTION_ANDROID_SPECIAL_USE_SUBTYPE]?.trim()
             ?.takeIf { it.isNotEmpty() } ?: "GenericUI background ServiceWorker execution"
+        val workerBinaryBaseName = resolveWorkerBinaryBaseName(context.baseName)
         return "com.nexustools.genericui.ext.serviceworker.ServiceWorkerOptions(" +
             "appId = ${quoteKotlin(context.appId)}, " +
             "appName = ${quoteKotlin(context.appName)}, " +
@@ -645,7 +662,8 @@ object ServiceWorkerExtensionContributor : GenericUiExtensionContributor {
             "androidSpecialUseFgsSubtype = ${quoteKotlin(specialSubtype)}, " +
             "hasWorker = $hasWorker, " +
             "swingWorkerMainClass = ${quoteKotlin(swingWorkerMainClass)}, " +
-            "macosTrayIcon = ${macosTrayIcon?.let { quoteKotlin(it) } ?: "null"})"
+            "macosTrayIcon = ${macosTrayIcon?.let { quoteKotlin(it) } ?: "null"}, " +
+            "workerBinaryBaseName = ${quoteKotlin(workerBinaryBaseName)})"
     }
 
     private fun buildAndroidServiceSource(
@@ -722,6 +740,11 @@ open class GeneratedAndroidServiceWorkerBootReceiver : BroadcastReceiver() {
         if (schemaEnabled) {
             val schemaPkg = SchemaExtensionContributor.resolveRegistrarPackage(context)
             add("$schemaPkg.GeneratedSchemaRegistrar.ensureRegistered()")
+        }
+        val binaryCodecsEnabled = context.extensionOptions[OPTION_BINARY_CODECS_ENABLED]?.toBooleanStrictOrNull() ?: true
+        if (binaryCodecsEnabled) {
+            val genPkg = context.generatedPackageName.trim().ifEmpty { resolveRegistrarPackage(context) }
+            add("$genPkg.GeneratedBinaryCodecRegistrar.registerAll()")
         }
     }
 

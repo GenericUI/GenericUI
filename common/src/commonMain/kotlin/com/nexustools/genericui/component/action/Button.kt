@@ -24,7 +24,10 @@ open class Button(
     size: BootstrapSize = BootstrapSize.MD,
     outline: Boolean = false,
     private val classPrefix: String = "btn"
-) : AbstractComponent(classPrefix, htmlTag = "button") {
+) : AbstractComponent(classPrefix, htmlTag = "button"), IButton {
+
+    override val labelTargetComponent: AbstractComponent
+        get() = this
 
     constructor(
         text: String,
@@ -129,7 +132,7 @@ open class Button(
      */
     internal open fun onButtonVisualContentChanged() {}
 
-    var tintImageToTheme: Boolean = true
+    override var tintImageToTheme: Boolean = true
         set(value) {
             field = value
             image?.setMonocolorThemeRecolor(value)
@@ -140,7 +143,7 @@ open class Button(
     /**
      * Optional [Image] displayed inside this button alongside or in place of [text].
      */
-    var image: Image? = null
+    override var image: Image? = null
         set(value) {
             val previous = field
             field = value
@@ -164,16 +167,16 @@ open class Button(
             onButtonVisualContentChanged()
         }
 
-    fun setText(resId: ResourceID, vararg formatArgs: Any) {
+    override fun setText(resId: ResourceID, vararg formatArgs: Any) {
         this.textRes = resId
         this.text = ResourceResolver.getString(resId, *formatArgs)
     }
 
-    fun setIcon(resId: ResourceID) {
+    override fun setIcon(resId: ResourceID) {
         this.iconRes = resId
     }
 
-    fun setImage(image: Image?, tintToTheme: Boolean = this.tintImageToTheme) {
+    override fun setImage(image: Image?, tintToTheme: Boolean) {
         this.tintImageToTheme = tintToTheme
         if (image == null) {
             this.iconRes = null
@@ -184,7 +187,7 @@ open class Button(
         this.image = image
     }
 
-    fun setImage(resId: ResourceID, tintToTheme: Boolean = this.tintImageToTheme) {
+    override fun setImage(resId: ResourceID, tintToTheme: Boolean) {
         this.tintImageToTheme = tintToTheme
         this.iconRes = resId
         this.image = Image(resId).apply {
@@ -192,7 +195,7 @@ open class Button(
         }
     }
 
-    fun setImage(src: String, tintToTheme: Boolean = this.tintImageToTheme) {
+    override fun setImage(src: String, tintToTheme: Boolean) {
         this.tintImageToTheme = tintToTheme
         this.iconRes = null
         this.icon = src
@@ -201,7 +204,7 @@ open class Button(
         }
     }
 
-    var textRes: ResourceID? = null
+    override var textRes: ResourceID? = null
         set(value) {
             field = value
             if (value != null) {
@@ -209,7 +212,7 @@ open class Button(
             }
         }
 
-    var iconRes: ResourceID? = null
+    override var iconRes: ResourceID? = null
         set(value) {
             field = value
             if (value != null) {
@@ -225,7 +228,7 @@ open class Button(
             }
         }
 
-    var text: String = text
+    override var text: String = text
         set(value) {
             if (field != value) {
                 field = value
@@ -234,7 +237,7 @@ open class Button(
             }
         }
 
-    var icon: String? = icon
+    override var icon: String? = icon
         set(value) {
             if (field != value) {
                 field = value
@@ -247,8 +250,46 @@ open class Button(
     /**
      * Returns `true` when this button has an [icon] or [image] and no [text] caption.
      */
-    val isIconOnly: Boolean
+    override val isIconOnly: Boolean
         get() = (!icon.isNullOrBlank() || image != null) && text.isBlank()
+
+    override var type: BootstrapType?
+        get() = super.type
+        set(value) {
+            super.type = value
+        }
+
+    override var size: BootstrapSize?
+        get() = super.size
+        set(value) {
+            super.size = value
+        }
+
+    override var outline: Boolean
+        get() = super.outline
+        set(value) {
+            super.outline = value
+        }
+
+    override var isEnabled: Boolean
+        get() = super.isEnabled
+        set(value) {
+            super.isEnabled = value
+        }
+
+    override var tooltipText: String?
+        get() = super.tooltipText
+        set(value) {
+            super.tooltipText = value
+        }
+
+    override var onClick: (() -> Unit)?
+        get() = super.onClick
+        set(value) {
+            super.onClick = value
+        }
+
+    override fun triggerClick() = super.triggerClick()
 
     init {
         this.type = type

@@ -90,6 +90,19 @@ class GenericUiIdeaPluginTest {
         panel.selectAllExceptSwing()
         assertEquals(GenericUiTargetBackend.allExceptSwingSet(), panel.getSelectedBackends())
         assertTrue(panel.isBackendSelected(GenericUiTargetBackend.IPADOS))
+        assertTrue(panel.extensionCheckboxes.getValue(GenericUiExtensionModule.IPC).isEnabled)
+
+        // IPC is Desktop + Android helper ONLY (disabled on Web-only and iOS/iPadOS-only)
+        panel.setSelectedBackends(setOf(GenericUiTargetBackend.WEB))
+        assertFalse(panel.extensionCheckboxes.getValue(GenericUiExtensionModule.IPC).isEnabled)
+        panel.setExtensionSelected(GenericUiExtensionModule.IPC, true)
+        assertFalse(GenericUiExtensionModule.IPC in panel.getSelectedExtensions())
+
+        panel.setSelectedBackends(setOf(GenericUiTargetBackend.IOS, GenericUiTargetBackend.IPADOS))
+        assertFalse(panel.extensionCheckboxes.getValue(GenericUiExtensionModule.IPC).isEnabled)
+
+        panel.selectAllExceptSwing()
+        assertTrue(panel.extensionCheckboxes.getValue(GenericUiExtensionModule.IPC).isEnabled)
     }
 
     @Test
@@ -120,12 +133,33 @@ class GenericUiIdeaPluginTest {
         assertTrue(panel.isExtensionSelected(GenericUiExtensionModule.GAMEPAD))
         assertTrue(panel.isExtensionSelected(GenericUiExtensionModule.BOX_2D))
 
+        // Checking WEB_VIEW should automatically check ALIEN, SVG, CANVAS_2D, CANVAS_3D, MEDIA, SCHEMA, IPC, OVERLAY, IMAGE_PROCESSING, GPU
+        panel.setExtensionSelected(GenericUiExtensionModule.WEB_VIEW, true)
+        assertTrue(panel.isExtensionSelected(GenericUiExtensionModule.WEB_VIEW))
+        assertTrue(panel.isExtensionSelected(GenericUiExtensionModule.ALIEN))
+        assertTrue(panel.isExtensionSelected(GenericUiExtensionModule.SVG))
+        assertTrue(panel.isExtensionSelected(GenericUiExtensionModule.MEDIA))
+        assertTrue(panel.isExtensionSelected(GenericUiExtensionModule.SCHEMA))
+        assertTrue(panel.isExtensionSelected(GenericUiExtensionModule.IPC))
+
+        // Checking PIP should automatically check OVERLAY
+        panel.setExtensionSelected(GenericUiExtensionModule.PIP, true)
+        assertTrue(panel.isExtensionSelected(GenericUiExtensionModule.PIP))
+        assertTrue(panel.isExtensionSelected(GenericUiExtensionModule.OVERLAY))
+
         val preview = panel.getDslPreviewText()
         assertTrue(preview.contains("gpu()"))
         assertTrue(preview.contains("imageProcessing()"))
+        assertTrue(preview.contains("svg()"))
         assertTrue(preview.contains("overlay()"))
         assertTrue(preview.contains("canvas2d()"))
         assertTrue(preview.contains("canvas3d()"))
+        assertTrue(preview.contains("media()"))
+        assertTrue(preview.contains("schema()"))
+        assertTrue(preview.contains("ipc()"))
+        assertTrue(preview.contains("pip()"))
+        assertTrue(preview.contains("alien()"))
+        assertTrue(preview.contains("webView()"))
         assertTrue(preview.contains("box2d()"))
         assertTrue(preview.contains("gamepad()"))
         assertTrue(preview.contains("engine()"))
@@ -137,24 +171,39 @@ class GenericUiIdeaPluginTest {
 
     @Test
     fun testAllCategorizedExtensionsDslModulesAndTransitiveDependencies() {
-        assertEquals(21, GenericUiExtensionModule.entries.size)
+        assertEquals(24, GenericUiExtensionModule.entries.size)
+        assertTrue(GenericUiExtensionModule.entries.contains(GenericUiExtensionModule.IPC))
+        assertTrue(GenericUiExtensionModule.entries.contains(GenericUiExtensionModule.SVG))
+        assertTrue(GenericUiExtensionModule.entries.contains(GenericUiExtensionModule.PIP))
         assertTrue(GenericUiExtensionModule.entries.contains(GenericUiExtensionModule.SERVICE_WORKER))
         for (ext in GenericUiExtensionModule.entries) {
             assertTrue(ext.description.isNotBlank(), "Missing description for $ext")
+            assertFalse(
+                ext.description.lowercase().contains("chromium"),
+                "Extension description must contain zero Chromium references: $ext"
+            )
             assertEquals(ext, GenericUiExtensionModule.fromDslMethod(ext.dslMethodName))
             assertEquals(ext, GenericUiExtensionModule.fromDslMethod(ext.gradleModulePath))
             ext.dslModulePath?.let { dslPath ->
                 assertEquals(ext, GenericUiExtensionModule.fromDslMethod(dslPath))
             }
+            ext.alienModulePath?.let { alienPath ->
+                assertEquals(ext, GenericUiExtensionModule.fromDslMethod(alienPath))
+            }
         }
 
-        // Verify categorized Gradle module paths
+        // Verify categorized Gradle module paths, :dsl paths, and :alien companion paths
         assertEquals(":extensions:graphics:gpu", GenericUiExtensionModule.GPU.gradleModulePath)
         assertEquals(":extensions:graphics:imageprocessing", GenericUiExtensionModule.IMAGE_PROCESSING.gradleModulePath)
+        assertEquals(":extensions:graphics:svg", GenericUiExtensionModule.SVG.gradleModulePath)
+        assertEquals(":extensions:graphics:svg:dsl", GenericUiExtensionModule.SVG.dslModulePath)
+        assertEquals(":extensions:graphics:svg:alien", GenericUiExtensionModule.SVG.alienModulePath)
         assertEquals(":extensions:graphics:canvas2d", GenericUiExtensionModule.CANVAS_2D.gradleModulePath)
         assertEquals(":extensions:graphics:canvas2d:dsl", GenericUiExtensionModule.CANVAS_2D.dslModulePath)
+        assertEquals(":extensions:graphics:canvas2d:alien", GenericUiExtensionModule.CANVAS_2D.alienModulePath)
         assertEquals(":extensions:graphics:canvas3d", GenericUiExtensionModule.CANVAS_3D.gradleModulePath)
         assertEquals(":extensions:graphics:canvas3d:dsl", GenericUiExtensionModule.CANVAS_3D.dslModulePath)
+        assertEquals(":extensions:graphics:canvas3d:alien", GenericUiExtensionModule.CANVAS_3D.alienModulePath)
         assertEquals(":extensions:graphics:threejs", GenericUiExtensionModule.THREE_JS.gradleModulePath)
         assertEquals(":extensions:graphics:threejs:dsl", GenericUiExtensionModule.THREE_JS.dslModulePath)
 
@@ -164,7 +213,7 @@ class GenericUiIdeaPluginTest {
         assertEquals(":extensions:physics:box3d:dsl", GenericUiExtensionModule.BOX_3D.dslModulePath)
 
         assertEquals(":extensions:game:gamepad", GenericUiExtensionModule.GAMEPAD.gradleModulePath)
-        assertEquals(":extensions:game:gamepad:dsl", GenericUiExtensionModule.GAMEPAD.dslModulePath)
+        assertEquals(null, GenericUiExtensionModule.GAMEPAD.dslModulePath)
         assertEquals(":extensions:game:engine", GenericUiExtensionModule.ENGINE.gradleModulePath)
         assertEquals(":extensions:game:engine:dsl", GenericUiExtensionModule.ENGINE.dslModulePath)
         assertEquals(":extensions:game:engine2d", GenericUiExtensionModule.ENGINE_2D.gradleModulePath)
@@ -174,14 +223,23 @@ class GenericUiIdeaPluginTest {
 
         assertEquals(":extensions:media:media", GenericUiExtensionModule.MEDIA.gradleModulePath)
         assertEquals(":extensions:media:media:dsl", GenericUiExtensionModule.MEDIA.dslModulePath)
+        assertEquals(":extensions:media:media:alien", GenericUiExtensionModule.MEDIA.alienModulePath)
         assertEquals(":extensions:media:mediacontrols", GenericUiExtensionModule.MEDIA_CONTROLS.gradleModulePath)
-        assertEquals(":extensions:media:mediacontrols:dsl", GenericUiExtensionModule.MEDIA_CONTROLS.dslModulePath)
+        assertEquals(null, GenericUiExtensionModule.MEDIA_CONTROLS.dslModulePath)
         assertEquals(":extensions:data:schema", GenericUiExtensionModule.SCHEMA.gradleModulePath)
         assertEquals(":extensions:data:schema:dsl", GenericUiExtensionModule.SCHEMA.dslModulePath)
+
+        assertEquals(":extensions:system:ipc", GenericUiExtensionModule.IPC.gradleModulePath)
+        assertEquals(null, GenericUiExtensionModule.IPC.dslModulePath)
+        assertEquals(null, GenericUiExtensionModule.IPC.alienModulePath)
+        assertEquals(":extensions:system:serviceworker", GenericUiExtensionModule.SERVICE_WORKER.gradleModulePath)
+        assertEquals(null, GenericUiExtensionModule.SERVICE_WORKER.dslModulePath)
 
         assertEquals(":extensions:ui:dsl", GenericUiExtensionModule.DSL.gradleModulePath)
         assertEquals(":extensions:ui:overlay", GenericUiExtensionModule.OVERLAY.gradleModulePath)
         assertEquals(":extensions:ui:overlay:dsl", GenericUiExtensionModule.OVERLAY.dslModulePath)
+        assertEquals(":extensions:ui:pip", GenericUiExtensionModule.PIP.gradleModulePath)
+        assertEquals(null, GenericUiExtensionModule.PIP.dslModulePath)
         assertEquals(":extensions:ui:alien", GenericUiExtensionModule.ALIEN.gradleModulePath)
         assertEquals(":extensions:ui:alien:dsl", GenericUiExtensionModule.ALIEN.dslModulePath)
         assertEquals(":extensions:ui:webview", GenericUiExtensionModule.WEB_VIEW.gradleModulePath)
@@ -191,10 +249,68 @@ class GenericUiIdeaPluginTest {
         assertEquals(":extensions:ui:aichat", GenericUiExtensionModule.AI_CHAT.gradleModulePath)
         assertEquals(":extensions:ui:aichat:dsl", GenericUiExtensionModule.AI_CHAT.dslModulePath)
 
-        // GPU, ImageProcessing, and UI DSL itself do not have separate :dsl submodules
+        // GPU, ImageProcessing, DSL, IPC, and the 4 removed non-UI :dsl extensions have dslModulePath == null
         assertFalse(GenericUiExtensionModule.GPU.hasDslModule)
         assertFalse(GenericUiExtensionModule.IMAGE_PROCESSING.hasDslModule)
         assertFalse(GenericUiExtensionModule.DSL.hasDslModule)
+        assertFalse(GenericUiExtensionModule.IPC.hasDslModule)
+        assertFalse(GenericUiExtensionModule.SERVICE_WORKER.hasDslModule)
+        assertFalse(GenericUiExtensionModule.MEDIA_CONTROLS.hasDslModule)
+        assertFalse(GenericUiExtensionModule.PIP.hasDslModule)
+        assertFalse(GenericUiExtensionModule.GAMEPAD.hasDslModule)
+
+        // IPC is Desktop + Android helper ONLY (never JS/Wasm/iOS)
+        assertTrue(GenericUiExtensionModule.IPC.isSupportedOn(GenericUiTargetBackend.WINDOWS))
+        assertTrue(GenericUiExtensionModule.IPC.isSupportedOn(GenericUiTargetBackend.MACOS))
+        assertTrue(GenericUiExtensionModule.IPC.isSupportedOn(GenericUiTargetBackend.GTK))
+        assertTrue(GenericUiExtensionModule.IPC.isSupportedOn(GenericUiTargetBackend.KDE))
+        assertTrue(GenericUiExtensionModule.IPC.isSupportedOn(GenericUiTargetBackend.SWING))
+        assertTrue(GenericUiExtensionModule.IPC.isSupportedOn(GenericUiTargetBackend.ANDROID))
+        assertFalse(GenericUiExtensionModule.IPC.isSupportedOn(GenericUiTargetBackend.IOS))
+        assertFalse(GenericUiExtensionModule.IPC.isSupportedOn(GenericUiTargetBackend.IPADOS))
+        assertFalse(GenericUiExtensionModule.IPC.isSupportedOn(GenericUiTargetBackend.WEB))
+
+        // Updated WEB_VIEW metadata & dependencies (zero Chromium)
+        val webViewDesc = GenericUiExtensionModule.WEB_VIEW.description
+        assertFalse(webViewDesc.lowercase().contains("chromium"))
+        assertTrue(webViewDesc.contains("Alien"))
+        assertTrue(webViewDesc.contains("SVG"))
+        assertTrue(webViewDesc.contains("Canvas2D"))
+        assertTrue(webViewDesc.contains("Canvas3D"))
+        assertTrue(webViewDesc.contains("Media"))
+        assertTrue(webViewDesc.contains("NJS"))
+        assertTrue(webViewDesc.contains("IPC"))
+        assertTrue(webViewDesc.contains("android.webkit.WebView"))
+        assertTrue(webViewDesc.contains("WKWebView"))
+        assertTrue(webViewDesc.contains("<iframe>"))
+        assertEquals(
+            setOf(
+                GenericUiExtensionModule.GPU,
+                GenericUiExtensionModule.IMAGE_PROCESSING,
+                GenericUiExtensionModule.SVG,
+                GenericUiExtensionModule.CANVAS_2D,
+                GenericUiExtensionModule.CANVAS_3D,
+                GenericUiExtensionModule.MEDIA,
+                GenericUiExtensionModule.SCHEMA,
+                GenericUiExtensionModule.IPC,
+                GenericUiExtensionModule.OVERLAY,
+                GenericUiExtensionModule.ALIEN,
+                GenericUiExtensionModule.WEB_VIEW
+            ),
+            GenericUiExtensionModule.resolveTransitive(setOf(GenericUiExtensionModule.WEB_VIEW))
+        )
+        assertFalse(
+            GenericUiExtensionModule.IPC in GenericUiExtensionModule.resolveTransitive(
+                setOf(GenericUiExtensionModule.WEB_VIEW),
+                setOf(GenericUiTargetBackend.WEB)
+            )
+        )
+        assertFalse(
+            GenericUiExtensionModule.IPC in GenericUiExtensionModule.resolveTransitive(
+                setOf(GenericUiExtensionModule.WEB_VIEW),
+                setOf(GenericUiTargetBackend.IOS, GenericUiTargetBackend.IPADOS)
+            )
+        )
 
         // Media depends on Overlay and Schema (not GPU)
         assertEquals(
@@ -218,12 +334,72 @@ class GenericUiIdeaPluginTest {
             GenericUiExtensionModule.resolveTransitive(setOf(GenericUiExtensionModule.ALIEN))
         )
 
-        // Gamepad + Engine + Engine3D + DSL resolve full module paths + companion :dsl submodules
+        // Alien companion modules: excluded when ALIEN is off, auto-included when ALIEN is on
+        val withoutAlienPaths = GenericUiExtensionModule.resolveModulePaths(
+            setOf(
+                GenericUiExtensionModule.SVG,
+                GenericUiExtensionModule.CANVAS_2D,
+                GenericUiExtensionModule.CANVAS_3D,
+                GenericUiExtensionModule.MEDIA,
+                GenericUiExtensionModule.DSL
+            )
+        )
+        assertTrue(":extensions:graphics:svg" in withoutAlienPaths)
+        assertTrue(":extensions:graphics:svg:dsl" in withoutAlienPaths)
+        assertFalse(":extensions:graphics:svg:alien" in withoutAlienPaths)
+        assertFalse(":extensions:graphics:canvas2d:alien" in withoutAlienPaths)
+        assertFalse(":extensions:graphics:canvas3d:alien" in withoutAlienPaths)
+        assertFalse(":extensions:media:media:alien" in withoutAlienPaths)
+
+        val alienOnlyPaths = GenericUiExtensionModule.resolveModulePaths(setOf(GenericUiExtensionModule.ALIEN))
+        assertTrue(":extensions:graphics:canvas2d:alien" in alienOnlyPaths)
+        assertFalse(":extensions:graphics:svg:alien" in alienOnlyPaths)
+        assertFalse(":extensions:graphics:canvas3d:alien" in alienOnlyPaths)
+        assertFalse(":extensions:media:media:alien" in alienOnlyPaths)
+
+        val webViewWithDslPaths = GenericUiExtensionModule.resolveModulePaths(
+            setOf(GenericUiExtensionModule.WEB_VIEW, GenericUiExtensionModule.DSL),
+            GenericUiTargetBackend.allExceptSwingSet()
+        )
+        assertTrue(":extensions:system:ipc" in webViewWithDslPaths)
+        assertFalse(":extensions:system:ipc:dsl" in webViewWithDslPaths)
+        assertTrue(":extensions:graphics:svg" in webViewWithDslPaths)
+        assertTrue(":extensions:graphics:svg:dsl" in webViewWithDslPaths)
+        assertTrue(":extensions:graphics:svg:alien" in webViewWithDslPaths)
+        assertTrue(":extensions:graphics:canvas2d:alien" in webViewWithDslPaths)
+        assertTrue(":extensions:graphics:canvas3d:alien" in webViewWithDslPaths)
+        assertTrue(":extensions:media:media:alien" in webViewWithDslPaths)
+
+        // Never emit removed :dsl modules even when DSL is enabled alongside those extensions
+        val noRemovedDslPaths = GenericUiExtensionModule.resolveModulePaths(
+            setOf(
+                GenericUiExtensionModule.SERVICE_WORKER,
+                GenericUiExtensionModule.MEDIA_CONTROLS,
+                GenericUiExtensionModule.PIP,
+                GenericUiExtensionModule.GAMEPAD,
+                GenericUiExtensionModule.IPC,
+                GenericUiExtensionModule.DSL
+            ),
+            GenericUiTargetBackend.desktopExceptSwingSet()
+        )
+        assertTrue(":extensions:system:serviceworker" in noRemovedDslPaths)
+        assertTrue(":extensions:media:mediacontrols" in noRemovedDslPaths)
+        assertTrue(":extensions:ui:pip" in noRemovedDslPaths)
+        assertTrue(":extensions:game:gamepad" in noRemovedDslPaths)
+        assertTrue(":extensions:system:ipc" in noRemovedDslPaths)
+        assertTrue(":extensions:ui:overlay:dsl" in noRemovedDslPaths)
+        assertFalse(":extensions:system:serviceworker:dsl" in noRemovedDslPaths)
+        assertFalse(":extensions:media:mediacontrols:dsl" in noRemovedDslPaths)
+        assertFalse(":extensions:ui:pip:dsl" in noRemovedDslPaths)
+        assertFalse(":extensions:game:gamepad:dsl" in noRemovedDslPaths)
+        assertFalse(":extensions:system:ipc:dsl" in noRemovedDslPaths)
+
+        // Gamepad + Engine + Engine3D + DSL resolve full module paths + companion :dsl submodules (no gamepad:dsl)
         val engine3dPaths = GenericUiExtensionModule.resolveModulePaths(
             setOf(GenericUiExtensionModule.ENGINE_3D, GenericUiExtensionModule.DSL)
         )
         assertTrue(":extensions:game:gamepad" in engine3dPaths)
-        assertTrue(":extensions:game:gamepad:dsl" in engine3dPaths)
+        assertFalse(":extensions:game:gamepad:dsl" in engine3dPaths)
         assertTrue(":extensions:game:engine" in engine3dPaths)
         assertTrue(":extensions:game:engine:dsl" in engine3dPaths)
         assertTrue(":extensions:game:engine3d" in engine3dPaths)
@@ -363,6 +539,29 @@ class GenericUiIdeaPluginTest {
         assertTrue(buildCustom.contains("testing {"))
         assertTrue(buildCustom.contains("enabled = true"))
         assertFalse(buildCustom.contains("kde()"))
+
+        // 4. WebView emits implied svg(), ipc(), alien(), canvas2d(), canvas3d(), media() on Desktop/Android; omits ipc() on Web-only
+        val webViewDesktopConfig = allExceptSwingConfig.copy(
+            selectedBackends = GenericUiTargetBackend.allExceptSwingSet(),
+            selectedExtensions = setOf(GenericUiExtensionModule.WEB_VIEW, GenericUiExtensionModule.DSL)
+        )
+        val buildWebViewDesktop = generator.generateBuildGradleKts(webViewDesktopConfig)
+        assertFalse(buildWebViewDesktop.lowercase().contains("chromium"))
+        assertTrue(buildWebViewDesktop.contains("svg()"))
+        assertTrue(buildWebViewDesktop.contains("ipc()"))
+        assertTrue(buildWebViewDesktop.contains("alien()"))
+        assertTrue(buildWebViewDesktop.contains("canvas2d()"))
+        assertTrue(buildWebViewDesktop.contains("canvas3d()"))
+        assertTrue(buildWebViewDesktop.contains("media()"))
+        assertTrue(buildWebViewDesktop.contains("webView()"))
+
+        val webViewWebOnlyConfig = allExceptSwingConfig.copy(
+            selectedBackends = setOf(GenericUiTargetBackend.WEB),
+            selectedExtensions = setOf(GenericUiExtensionModule.WEB_VIEW)
+        )
+        val buildWebViewWebOnly = generator.generateBuildGradleKts(webViewWebOnlyConfig)
+        assertTrue(buildWebViewWebOnly.contains("webView()"))
+        assertFalse(buildWebViewWebOnly.contains("ipc()"))
     }
 
     @Test
@@ -483,6 +682,105 @@ class GenericUiIdeaPluginTest {
             )
         )
 
+        // Verify parsing of ipc(), svg(), pip(), serviceWorker { ... }, and webView { ... } blocks accurately
+        val webViewBlockParsed = inspector.inspectBuildGradleKts(
+            """
+            genericui {
+                backends {
+                    windows()
+                    android()
+                }
+                extensions {
+                    // svg(false) <-- ignored comment
+                    /* ipc(false) <-- ignored block comment */
+                    webView {
+                        enableDevTools = true
+                        // nested ipc = false or gpu() must not disable outer calls
+                        nested {
+                            media = false
+                        }
+                    }
+                    serviceWorker {
+                        autostart = true
+                    }
+                    pip()
+                }
+            }
+            """.trimIndent()
+        )
+        assertTrue(GenericUiExtensionModule.WEB_VIEW in webViewBlockParsed.selectedExtensions)
+        assertTrue(GenericUiExtensionModule.SVG in webViewBlockParsed.selectedExtensions)
+        assertTrue(GenericUiExtensionModule.IPC in webViewBlockParsed.selectedExtensions)
+        assertTrue(GenericUiExtensionModule.ALIEN in webViewBlockParsed.selectedExtensions)
+        assertTrue(GenericUiExtensionModule.CANVAS_2D in webViewBlockParsed.selectedExtensions)
+        assertTrue(GenericUiExtensionModule.CANVAS_3D in webViewBlockParsed.selectedExtensions)
+        assertTrue(GenericUiExtensionModule.MEDIA in webViewBlockParsed.selectedExtensions)
+        assertTrue(GenericUiExtensionModule.SERVICE_WORKER in webViewBlockParsed.selectedExtensions)
+        assertTrue(GenericUiExtensionModule.PIP in webViewBlockParsed.selectedExtensions)
+
+        val directIpcAndSvgParsed = inspector.parseSelectedExtensions(
+            """
+            genericui {
+                backends {
+                    allNativeDesktop()
+                }
+                extensions {
+                    ipc()
+                    svg(true)
+                    mediaControls()
+                    gamepad()
+                    webView(enabled = false)
+                }
+            }
+            """.trimIndent()
+        )
+        assertEquals(
+            setOf(
+                GenericUiExtensionModule.SVG,
+                GenericUiExtensionModule.GAMEPAD,
+                GenericUiExtensionModule.MEDIA_CONTROLS,
+                GenericUiExtensionModule.IPC
+            ),
+            directIpcAndSvgParsed
+        )
+
+        val disabledWebViewBlockParsed = inspector.parseSelectedExtensions(
+            """
+            genericui {
+                backends {
+                    windows()
+                }
+                extensions {
+                    svg()
+                    webView {
+                        enabled = false
+                    }
+                }
+            }
+            """.trimIndent()
+        )
+        assertEquals(setOf(GenericUiExtensionModule.SVG), disabledWebViewBlockParsed)
+
+        val webOnlyParsed = inspector.parseSelectedExtensions(
+            """
+            genericui {
+                backends {
+                    web()
+                }
+                extensions {
+                    ipc()
+                    svg()
+                    webView {
+                        enableDevTools = false
+                    }
+                }
+            }
+            """.trimIndent()
+        )
+        assertTrue(GenericUiExtensionModule.WEB_VIEW in webOnlyParsed)
+        assertTrue(GenericUiExtensionModule.SVG in webOnlyParsed)
+        assertFalse(GenericUiExtensionModule.IPC in webOnlyParsed)
+
         // Verify KDE backend properties
         assertEquals(GenericUiTargetBackend.KDE, GenericUiTargetBackend.fromId("kde"))
         assertEquals("kde", GenericUiTargetBackend.KDE.id)
@@ -592,6 +890,47 @@ class GenericUiIdeaPluginTest {
             )
             assertTrue(game3dCore.contains("import com.nexustools.genericui.ext.engine3d.Game3DCanvasHost"))
             assertTrue(game3dCore.contains("Game3DCanvasHost()"))
+            assertFalse(GenericUiProjectTemplateType.GAME_2D.displayName.contains("Gamepad DSL"))
+            assertFalse(GenericUiProjectTemplateType.GAME_3D.displayName.contains("Gamepad DSL"))
+
+            // Verify ServiceWorker + WebView starter generation contains zero Chromium or deleted :dsl imports
+            val swAndWebViewConfig = initialConfig.copy(
+                templateType = GenericUiProjectTemplateType.STANDARD_FRAGMENT,
+                selectedExtensions = setOf(
+                    GenericUiExtensionModule.SERVICE_WORKER,
+                    GenericUiExtensionModule.WEB_VIEW,
+                    GenericUiExtensionModule.MEDIA_CONTROLS,
+                    GenericUiExtensionModule.PIP,
+                    GenericUiExtensionModule.GAMEPAD,
+                    GenericUiExtensionModule.DSL
+                )
+            )
+            val swWorkerSource = starterGenerator.generateServiceWorkerKt(swAndWebViewConfig)
+            assertTrue(swWorkerSource.contains("@MainServiceWorker"))
+            assertTrue(swWorkerSource.contains("class AppServiceWorker : ServiceWorker()"))
+            assertFalse(swWorkerSource.contains(".serviceworker.dsl"))
+            assertFalse(swWorkerSource.lowercase().contains("chromium"))
+
+            val swFragmentSource = starterGenerator.generateMainFragmentKt(swAndWebViewConfig)
+            assertFalse(swFragmentSource.lowercase().contains("chromium"))
+            assertFalse(swFragmentSource.contains(".serviceworker.dsl"))
+            assertFalse(swFragmentSource.contains(".mediacontrols.dsl"))
+            assertFalse(swFragmentSource.contains(".pip.dsl"))
+            assertFalse(swFragmentSource.contains(".gamepad.dsl"))
+
+            val swTempDir = Files.createTempDirectory("genericui_sw_starter_test_")
+            try {
+                val swCreatedRoot = GenericUiProjectManagerService().createProject(
+                    swAndWebViewConfig.copy(projectRootPath = swTempDir.toString())
+                )
+                assertTrue(
+                    Files.isRegularFile(
+                        swCreatedRoot.resolve("src/commonMain/kotlin/com/nexustools/sampleide/AppServiceWorker.kt")
+                    )
+                )
+            } finally {
+                deleteDirectorySafe(swTempDir)
+            }
 
             val settingsText = Files.readString(createdRoot.resolve("settings.gradle.kts"))
             assertTrue(settingsText.contains("includeBuild(\"lib/GenericUI\")"))
@@ -657,10 +996,18 @@ class GenericUiIdeaPluginTest {
         assertTrue(xmlContent.contains("GenericUI.NewProject"))
         assertTrue(xmlContent.contains("GenericUI.ManageTargets"))
         assertTrue(xmlContent.contains("ipados"))
+        assertTrue(xmlContent.contains("svg"))
+        assertTrue(xmlContent.contains("ipc"))
+        assertTrue(xmlContent.contains("pip"))
+        assertTrue(xmlContent.contains("schema"))
+        assertTrue(xmlContent.contains("serviceWorker"))
+        assertTrue(xmlContent.contains("alien"))
+        assertTrue(xmlContent.contains("webView"))
         assertTrue(xmlContent.contains("gamepad"))
         assertTrue(xmlContent.contains("engine2d"))
         assertTrue(xmlContent.contains("engine3d"))
         assertTrue(xmlContent.contains("JestElectricRunner"))
+        assertFalse(xmlContent.lowercase().contains("chromium"))
     }
 
     private fun deleteDirectorySafe(root: Path) {

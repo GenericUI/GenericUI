@@ -1121,6 +1121,7 @@ object GenericUiMultiplatformConfigurator {
 
     private fun sanitizeBinaryNamePrefix(binaryBaseName: String): String =
         binaryBaseName.replace(Regex("[^A-Za-z0-9]"), "")
+            .ifEmpty { "secondary" }
             .replaceFirstChar { it.lowercaseChar() }
 
     private fun collectDesktopContextAndSecondaryExecutables(
@@ -1132,7 +1133,9 @@ object GenericUiMultiplatformConfigurator {
     > {
         val app = extension.application
         val resolvedBaseName = app.baseName.trim().ifEmpty { project.name }
-        val enabledExtPathsSet = extension.extensions.enabledExtensionModulePaths().toSet()
+        val enabledExtPathsSet = extension.extensions
+            .enabledExtensionModulePathsForTarget(GenericUiVariantScope.DESKTOP_COMMON)
+            .toSet()
         val extraSourceDirs = extension.sourceSets.allSpecs().flatMap { spec ->
             spec.kotlinSrcDirs.mapNotNull { dir ->
                 when (dir) {
@@ -1165,6 +1168,27 @@ object GenericUiMultiplatformConfigurator {
             put(
                 com.nexustools.genericui.plugin.spi.ServiceWorkerExtensionContributor.OPTION_ENABLED_BACKENDS,
                 GenericUiGenerateLaunchersTask.enabledAllBackendScopes(extension.backends).joinToString(",") { it.id }
+            )
+            put(
+                com.nexustools.genericui.plugin.spi.ServiceWorkerExtensionContributor.OPTION_RESOURCES_ENABLED,
+                extension.resources.enabled.toString()
+            )
+            val resPkg = extension.resources.packageName.trim()
+            if (resPkg.isNotEmpty()) {
+                put(
+                    com.nexustools.genericui.plugin.spi.ServiceWorkerExtensionContributor.OPTION_RESOURCE_PACKAGE,
+                    resPkg
+                )
+            }
+            val schemaEnabled =
+                com.nexustools.genericui.plugin.spi.SchemaExtensionContributor.SCHEMA_MODULE_PATH in enabledExtPathsSet
+            put(
+                com.nexustools.genericui.plugin.spi.ServiceWorkerExtensionContributor.OPTION_SCHEMA_ENABLED,
+                schemaEnabled.toString()
+            )
+            put(
+                com.nexustools.genericui.plugin.spi.ServiceWorkerExtensionContributor.OPTION_BINARY_CODECS_ENABLED,
+                extension.includeCommon.toString()
             )
         }
         val desktopCtx = com.nexustools.genericui.plugin.spi.ExtensionBuildContext(
@@ -1440,15 +1464,15 @@ object GenericUiMultiplatformConfigurator {
      */
     internal fun isMediaExtensionEnabled(extension: GenericUiExtension): Boolean =
         extension.extensions.mediaEnabled ||
-            ":extensions:media:media" in extension.extensions.enabledExtensionModulePaths()
-
-    internal fun isWebViewExtensionEnabled(extension: GenericUiExtension): Boolean =
-        extension.extensions.webViewEnabled ||
-            ":extensions:ui:webview" in extension.extensions.enabledExtensionModulePaths()
+            ":extensions:media:media" in extension.extensions.enabledExtensionModulePathsForTarget(
+                GenericUiVariantScope.DESKTOP_COMMON
+            )
 
     internal fun isGpuExtensionEnabled(extension: GenericUiExtension): Boolean =
         extension.extensions.gpuEnabled ||
-            ":extensions:graphics:gpu" in extension.extensions.enabledExtensionModulePaths()
+            ":extensions:graphics:gpu" in extension.extensions.enabledExtensionModulePathsForTarget(
+                GenericUiVariantScope.DESKTOP_COMMON
+            )
 
     private fun ensureExtensionNativeBundleTasksRegistered(project: Project, extension: GenericUiExtension) {
         if (project.tasks.findByName("bundleGenericUiVlc") == null) {
@@ -1457,15 +1481,6 @@ object GenericUiMultiplatformConfigurator {
                 description = "Stages LibVLC native runtime libraries (libvlc, libvlccore, plugins/) for desktop media targets."
                 bundleVlcOnDesktop.set(project.provider { isMediaExtensionEnabled(extension) })
                 outputDirectory.set(project.layout.buildDirectory.dir("generated/genericui/nativeBundle/vlc"))
-            }
-        }
-        if (project.tasks.findByName("bundleGenericUiWebViewProcess") == null) {
-            project.tasks.register("bundleGenericUiWebViewProcess", WebViewNativeProcessBundleTask::class.java) {
-                group = GenericUiGradlePlugin.TASK_GROUP
-                description = "Stages the desktop WebView out-of-process helper executable (genericui-webview-process)."
-                webViewEnabled.set(project.provider { isWebViewExtensionEnabled(extension) })
-                genericUiRootPath.set(project.projectDir.absolutePath)
-                outputDirectory.set(project.layout.buildDirectory.dir("generated/genericui/nativeBundle/webview"))
             }
         }
     }
@@ -1495,8 +1510,8 @@ object GenericUiMultiplatformConfigurator {
         candidateBinDirs: List<File>,
         mode: String,
         mediaEnabled: Boolean,
-        webViewEnabled: Boolean,
-        gpuEnabled: Boolean
+        gpuEnabled: Boolean,
+        legacySecondaryBinaryNames: Set<String> = emptySet()
     ) {
         val destinations = buildList {
             add(distDir)
@@ -1508,15 +1523,6 @@ object GenericUiMultiplatformConfigurator {
             if (vlcWinDir.isDirectory) {
                 for (dest in destinations) {
                     copyFilteredDirectoryContents(vlcWinDir, dest)
-                }
-            }
-        }
-
-        if (webViewEnabled) {
-            val webViewWinDir = File(buildDir, "generated/genericui/nativeBundle/webview/windows/$mode")
-            if (webViewWinDir.isDirectory) {
-                for (dest in destinations) {
-                    copyFilteredDirectoryContents(webViewWinDir, dest)
                 }
             }
         }
@@ -1535,6 +1541,10 @@ object GenericUiMultiplatformConfigurator {
             listOf("gui", "app", "res").forEach { staleDir ->
                 File(dest, staleDir).takeIf { it.exists() }?.deleteRecursively()
             }
+            for (legacyName in legacySecondaryBinaryNames) {
+                File(dest, "$legacyName.exe").takeIf { it.exists() }?.delete()
+                File(dest, legacyName).takeIf { it.exists() }?.delete()
+            }
             dest.listFiles()?.forEach { f ->
                 if (f.isFile && f.name.lowercase().endsWith(".dll.a")) {
                     runCatching { f.delete() }
@@ -1551,8 +1561,8 @@ object GenericUiMultiplatformConfigurator {
         candidateBinDirs: List<File>,
         mode: String,
         mediaEnabled: Boolean,
-        webViewEnabled: Boolean,
-        gpuEnabled: Boolean
+        gpuEnabled: Boolean,
+        secondaryExes: List<com.nexustools.genericui.plugin.spi.SecondaryDesktopExecutableContribution> = emptyList()
     ) {
         val appName = extension.application.desktop.appName.trim().ifEmpty {
             extension.app.name.trim().ifEmpty {
@@ -1601,17 +1611,41 @@ object GenericUiMultiplatformConfigurator {
                 }
             }
         }
-        val primaryExe = exeCandidates.firstOrNull { candidate ->
-            val candName = if (candidate.extension.equals("kexe", ignoreCase = true)) {
-                candidate.nameWithoutExtension
+        fun candidateBinaryName(file: File): String =
+            if (file.extension.equals("kexe", ignoreCase = true)) {
+                file.nameWithoutExtension
             } else {
-                candidate.name
+                file.name
             }
-            candName != "serviceworker"
-        } ?: exeCandidates.firstOrNull()
+        val secondaryByBaseName = secondaryExes.associateBy { it.binaryBaseName }
+        val protectedPrimaryNames = setOf(baseName, "$baseName-gtk", "$baseName-kde")
+        val legacySecondaryNames = secondaryExes
+            .flatMap { it.legacyBinaryBaseNames }
+            .filter { it.isNotBlank() && it !in secondaryByBaseName && it !in protectedPrimaryNames }
+            .toSet()
+        val excludedPrimaryNames = secondaryByBaseName.keys + legacySecondaryNames
+        val primaryExe = exeCandidates.firstOrNull { candidate ->
+            candidateBinaryName(candidate) !in excludedPrimaryNames
+        }
         val bundleExecutableName = baseName
         val targetExeFile = File(macOsDir, bundleExecutableName)
-        File(macOsDir, "serviceworker").takeIf { it.exists() }?.delete()
+        for (staleName in legacySecondaryNames) {
+            File(macOsDir, staleName).takeIf { it.exists() }?.delete()
+            File(macOsDir, "$staleName.kexe").takeIf { it.exists() }?.delete()
+        }
+        for (sec in secondaryExes) {
+            if (!sec.macosHelperBundleSuffix.isNullOrBlank()) {
+                val helperExeName = if (sec.binaryBaseName.endsWith(".exe", ignoreCase = true)) {
+                    sec.binaryBaseName.dropLast(4)
+                } else {
+                    sec.binaryBaseName
+                }
+                if (helperExeName != bundleExecutableName) {
+                    File(macOsDir, helperExeName).takeIf { it.exists() }?.delete()
+                    File(macOsDir, "$helperExeName.kexe").takeIf { it.exists() }?.delete()
+                }
+            }
+        }
 
         val swConfig = extension.extensions.serviceWorkerConfig
         val localNetDesc = swConfig.macLocalNetworkUsageDescription?.trim()?.takeIf { it.isNotEmpty() }
@@ -1624,8 +1658,12 @@ object GenericUiMultiplatformConfigurator {
         val macCategory = extension.application.desktop.macCategory.trim().ifEmpty { "public.app-category.utilities" }
         val multipleInstancesProhibited = extension.application.desktop.macMultipleInstancesProhibited
         val helpersDir = File(contentsDir, "Helpers")
-        val swHelperBundleDir = File(helpersDir, "$appName Service Worker.app")
-        var stagedServiceWorkerExe: File? = null
+        data class StagedHelperBundle(
+            val bundleDir: File,
+            val executableFile: File,
+            val bundleIdentifier: String
+        )
+        val stagedHelperBundles = mutableListOf<StagedHelperBundle>()
 
         if (primaryExe != null && primaryExe.isFile) {
             if (targetExeFile.exists()) {
@@ -1638,90 +1676,110 @@ object GenericUiMultiplatformConfigurator {
                     runCatching { existing.delete() }
                 }
             }
-            for (secondaryExe in exeCandidates.filter { it != primaryExe }) {
-                if (!secondaryExe.isFile) continue
-                val secName = if (secondaryExe.extension.equals("kexe", ignoreCase = true)) {
-                    secondaryExe.nameWithoutExtension
-                } else {
-                    secondaryExe.name
-                }
-                if (secName.isBlank() || secName == bundleExecutableName) continue
-                if (secName == "serviceworker") {
-                    helpersDir.mkdirs()
-                    val swContentsDir = File(swHelperBundleDir, "Contents")
-                    val swMacOsDir = File(swContentsDir, "MacOS")
-                    val swResourcesDir = File(swContentsDir, "Resources")
-                    swMacOsDir.mkdirs()
-                    swResourcesDir.mkdirs()
-                    File(swContentsDir, "PkgInfo").writeText("APPL????", Charsets.US_ASCII)
-
-                    val targetWorkerExe = File(swMacOsDir, "serviceworker")
-                    if (targetWorkerExe.exists()) {
-                        targetWorkerExe.delete()
-                    }
-                    secondaryExe.copyTo(targetWorkerExe, overwrite = true)
-                    targetWorkerExe.setExecutable(true, false)
-                    stagedServiceWorkerExe = targetWorkerExe
-
-                    val helperLocalNetDesc = localNetDesc
-                        ?: "$appName uses local network access to discover and communicate with devices on your local network."
-                    File(swContentsDir, "Info.plist").writeText(
-                        buildString {
-                            appendLine("<?xml version=\"1.0\" encoding=\"UTF-8\"?>")
-                            appendLine("<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">")
-                            appendLine("<plist version=\"1.0\">")
-                            appendLine("<dict>")
-                            appendLine("    <key>CFBundleName</key>")
-                            appendLine("    <string>${escapePlistXml("$appName Service Worker")}</string>")
-                            appendLine("    <key>CFBundleDisplayName</key>")
-                            appendLine("    <string>${escapePlistXml("$appName Service Worker")}</string>")
-                            appendLine("    <key>CFBundleIdentifier</key>")
-                            appendLine("    <string>${escapePlistXml("$appId.serviceworker")}</string>")
-                            appendLine("    <key>CFBundleVersion</key>")
-                            appendLine("    <string>${escapePlistXml(appVersion)}</string>")
-                            appendLine("    <key>CFBundleShortVersionString</key>")
-                            appendLine("    <string>${escapePlistXml(appVersion)}</string>")
-                            appendLine("    <key>CFBundleExecutable</key>")
-                            appendLine("    <string>serviceworker</string>")
-                            appendLine("    <key>CFBundleIconFile</key>")
-                            appendLine("    <string>icon.icns</string>")
-                            appendLine("    <key>CFBundlePackageType</key>")
-                            appendLine("    <string>APPL</string>")
-                            appendLine("    <key>LSMinimumSystemVersion</key>")
-                            appendLine("    <string>${escapePlistXml(macMinSystemVersion)}</string>")
-                            appendLine("    <key>LSUIElement</key>")
-                            appendLine("    <true/>")
-                            appendLine("    <key>LSMultipleInstancesProhibited</key>")
-                            appendLine("    <${if (multipleInstancesProhibited) "true" else "false"}/>")
-                            appendLine("    <key>NSHighResolutionCapable</key>")
-                            appendLine("    <true/>")
-                            appendLine("    <key>NSLocalNetworkUsageDescription</key>")
-                            appendLine("    <string>${escapePlistXml(helperLocalNetDesc)}</string>")
-                            if (bonjourServices.isNotEmpty()) {
-                                appendLine("    <key>NSBonjourServices</key>")
-                                appendLine("    <array>")
-                                for (svc in bonjourServices) {
-                                    appendLine("        <string>${escapePlistXml(svc)}</string>")
-                                }
-                                appendLine("    </array>")
-                            }
-                            appendLine("</dict>")
-                            appendLine("</plist>")
-                        },
-                        Charsets.UTF_8
-                    )
-                } else {
-                    val targetSecondary = File(macOsDir, secName)
-                    secondaryExe.copyTo(targetSecondary, overwrite = true)
-                    targetSecondary.setExecutable(true, false)
-                }
-            }
         } else {
             // Ensure Contents/MacOS/<baseName> placeholder exists when cross-building on non-macOS host
             if (!targetExeFile.exists()) {
-                WebViewNativeProcessBundleTask.writeMinimalMachOArm64Executable(targetExeFile)
+                writeMinimalMachOArm64Executable(targetExeFile)
             }
             targetExeFile.setExecutable(true, false)
+        }
+
+        for (secondaryExe in exeCandidates.filter { it != primaryExe }) {
+            if (!secondaryExe.isFile) continue
+            val secName = candidateBinaryName(secondaryExe)
+            if (secName.isBlank() || secName == bundleExecutableName || secName in legacySecondaryNames) continue
+            val spec = secondaryByBaseName[secName]
+            val helperSuffix = spec?.macosHelperBundleSuffix?.trim()?.takeIf { it.isNotEmpty() }
+            if (spec != null && helperSuffix != null) {
+                helpersDir.mkdirs()
+                val helperDisplayName = "$appName $helperSuffix"
+                val helperBundleDir = File(helpersDir, "$helperDisplayName.app")
+                val helperContentsDir = File(helperBundleDir, "Contents")
+                val helperMacOsDir = File(helperContentsDir, "MacOS")
+                val helperResourcesDir = File(helperContentsDir, "Resources")
+                helperMacOsDir.mkdirs()
+                helperResourcesDir.mkdirs()
+                File(helperContentsDir, "PkgInfo").writeText("APPL????", Charsets.US_ASCII)
+
+                val helperExeName = if (spec.binaryBaseName.endsWith(".exe", ignoreCase = true)) {
+                    spec.binaryBaseName.dropLast(4)
+                } else {
+                    spec.binaryBaseName
+                }
+                for (legacyName in spec.legacyBinaryBaseNames) {
+                    if (legacyName.isNotBlank() && legacyName != helperExeName) {
+                        File(helperMacOsDir, legacyName).takeIf { it.exists() }?.delete()
+                        File(helperMacOsDir, "$legacyName.kexe").takeIf { it.exists() }?.delete()
+                    }
+                }
+                helperMacOsDir.listFiles()?.forEach { existing ->
+                    if (existing.isFile && existing.extension.equals("kexe", ignoreCase = true)) {
+                        runCatching { existing.delete() }
+                    }
+                }
+                val targetHelperExe = File(helperMacOsDir, helperExeName)
+                if (targetHelperExe.exists()) {
+                    targetHelperExe.delete()
+                }
+                secondaryExe.copyTo(targetHelperExe, overwrite = true)
+                targetHelperExe.setExecutable(true, false)
+
+                val helperBundleIdSuffix = spec.macosHelperBundleIdSuffix?.trim()?.takeIf { it.isNotEmpty() } ?: helperExeName
+                val helperBundleId = "$appId.$helperBundleIdSuffix"
+                stagedHelperBundles.add(StagedHelperBundle(helperBundleDir, targetHelperExe, helperBundleId))
+
+                val helperLocalNetDesc = localNetDesc
+                    ?: "$appName uses local network access to discover and communicate with devices on your local network."
+                File(helperContentsDir, "Info.plist").writeText(
+                    buildString {
+                        appendLine("<?xml version=\"1.0\" encoding=\"UTF-8\"?>")
+                        appendLine("<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">")
+                        appendLine("<plist version=\"1.0\">")
+                        appendLine("<dict>")
+                        appendLine("    <key>CFBundleName</key>")
+                        appendLine("    <string>${escapePlistXml(helperDisplayName)}</string>")
+                        appendLine("    <key>CFBundleDisplayName</key>")
+                        appendLine("    <string>${escapePlistXml(helperDisplayName)}</string>")
+                        appendLine("    <key>CFBundleIdentifier</key>")
+                        appendLine("    <string>${escapePlistXml(helperBundleId)}</string>")
+                        appendLine("    <key>CFBundleVersion</key>")
+                        appendLine("    <string>${escapePlistXml(appVersion)}</string>")
+                        appendLine("    <key>CFBundleShortVersionString</key>")
+                        appendLine("    <string>${escapePlistXml(appVersion)}</string>")
+                        appendLine("    <key>CFBundleExecutable</key>")
+                        appendLine("    <string>${escapePlistXml(helperExeName)}</string>")
+                        appendLine("    <key>CFBundleIconFile</key>")
+                        appendLine("    <string>icon.icns</string>")
+                        appendLine("    <key>CFBundlePackageType</key>")
+                        appendLine("    <string>APPL</string>")
+                        appendLine("    <key>LSMinimumSystemVersion</key>")
+                        appendLine("    <string>${escapePlistXml(macMinSystemVersion)}</string>")
+                        appendLine("    <key>LSUIElement</key>")
+                        appendLine("    <${if (spec.macosHelperLsUiElement) "true" else "false"}/>")
+                        appendLine("    <key>LSMultipleInstancesProhibited</key>")
+                        appendLine("    <${if (multipleInstancesProhibited) "true" else "false"}/>")
+                        appendLine("    <key>NSHighResolutionCapable</key>")
+                        appendLine("    <true/>")
+                        appendLine("    <key>NSLocalNetworkUsageDescription</key>")
+                        appendLine("    <string>${escapePlistXml(helperLocalNetDesc)}</string>")
+                        if (bonjourServices.isNotEmpty()) {
+                            appendLine("    <key>NSBonjourServices</key>")
+                            appendLine("    <array>")
+                            for (svc in bonjourServices) {
+                                appendLine("        <string>${escapePlistXml(svc)}</string>")
+                            }
+                            appendLine("    </array>")
+                        }
+                        appendLine("</dict>")
+                        appendLine("</plist>")
+                    },
+                    Charsets.UTF_8
+                )
+            } else {
+                val targetSecondary = File(macOsDir, secName)
+                secondaryExe.copyTo(targetSecondary, overwrite = true)
+                targetSecondary.setExecutable(true, false)
+            }
         }
 
         // 3. Info.plist
@@ -1784,17 +1842,7 @@ object GenericUiMultiplatformConfigurator {
             }
         }
 
-        // 4. WebView helper executable in Contents/MacOS/genericui-webview-process
-        if (webViewEnabled) {
-            val webViewMacFile = File(buildDir, "generated/genericui/nativeBundle/webview/macos/$mode/genericui-webview-process")
-            if (webViewMacFile.isFile) {
-                val dstHelper = File(macOsDir, "genericui-webview-process")
-                webViewMacFile.copyTo(dstHelper, overwrite = true)
-                dstHelper.setExecutable(true, false)
-            }
-        }
-
-        // 5. GenericUI & extension dynamic libraries + plugins in Contents/Frameworks/
+        // 4. GenericUI & extension dynamic libraries + plugins in Contents/Frameworks/
         val activeFrameworkDylibNames = buildSet {
             for (binDir in candidateBinDirs) {
                 if (!binDir.isDirectory) continue
@@ -1876,9 +1924,11 @@ object GenericUiMultiplatformConfigurator {
         val desktopIcns = File(buildDir, "generated/genericui/desktop-resources/macos/icon.icns")
         if (desktopIcns.isFile) {
             desktopIcns.copyTo(File(resourcesDir, "icon.icns"), overwrite = true)
-            if (swHelperBundleDir.isDirectory) {
-                val helperResDir = File(swHelperBundleDir, "Contents/Resources").apply { mkdirs() }
-                desktopIcns.copyTo(File(helperResDir, "icon.icns"), overwrite = true)
+            for (helperBundle in stagedHelperBundles) {
+                if (helperBundle.bundleDir.isDirectory) {
+                    val helperResDir = File(helperBundle.bundleDir, "Contents/Resources").apply { mkdirs() }
+                    desktopIcns.copyTo(File(helperResDir, "icon.icns"), overwrite = true)
+                }
             }
         }
         listOf("gui", "app", "res", "Assets.xcassets", "genericui_app_resources.c", "genericui_app_resources.o").forEach { staleName ->
@@ -1890,10 +1940,12 @@ object GenericUiMultiplatformConfigurator {
                 val icdTarget = File(resourcesDir, "vulkan/icd.d/MoltenVK_icd.json")
                 icdTarget.parentFile?.mkdirs()
                 moltenVkIcd.copyTo(icdTarget, overwrite = true)
-                if (swHelperBundleDir.isDirectory) {
-                    val helperIcdTarget = File(swHelperBundleDir, "Contents/Resources/vulkan/icd.d/MoltenVK_icd.json")
-                    helperIcdTarget.parentFile?.mkdirs()
-                    moltenVkIcd.copyTo(helperIcdTarget, overwrite = true)
+                for (helperBundle in stagedHelperBundles) {
+                    if (helperBundle.bundleDir.isDirectory) {
+                        val helperIcdTarget = File(helperBundle.bundleDir, "Contents/Resources/vulkan/icd.d/MoltenVK_icd.json")
+                        helperIcdTarget.parentFile?.mkdirs()
+                        moltenVkIcd.copyTo(helperIcdTarget, overwrite = true)
+                    }
                 }
             }
         }
@@ -1909,7 +1961,7 @@ object GenericUiMultiplatformConfigurator {
         runCatching { appBundleDir.setLastModified(nowMs) }
         val osName = System.getProperty("os.name").orEmpty().lowercase()
         if (osName.contains("mac") || osName.contains("darwin")) {
-            if (primaryExe != null && primaryExe.isFile) {
+            if ((primaryExe != null && primaryExe.isFile) || stagedHelperBundles.isNotEmpty()) {
                 val (regularBinaries, frameworkBundles) = GenericUiSymlinkPreservingCopy.collectMacCodeSignTargets(frameworksDir)
                 for (dylib in regularBinaries) {
                     GenericUiBuildNativeSharedLibsTask.signMacBinary(dylib)
@@ -1917,27 +1969,32 @@ object GenericUiMultiplatformConfigurator {
                 for (frameworkBundle in frameworkBundles) {
                     GenericUiBuildNativeSharedLibsTask.signMacBinary(frameworkBundle)
                 }
-                if (stagedServiceWorkerExe != null && stagedServiceWorkerExe.isFile) {
-                    if (isMachOBinary(stagedServiceWorkerExe)) {
-                        ensureMacBinaryHasRpath(stagedServiceWorkerExe, "@executable_path/../../../../Frameworks")
-                    }
-                    GenericUiBuildNativeSharedLibsTask.signMacBinary(
-                        stagedServiceWorkerExe,
-                        identifier = "$appId.serviceworker"
-                    )
-                    if (swHelperBundleDir.isDirectory) {
+                for (helperBundle in stagedHelperBundles) {
+                    val stagedHelperExe = helperBundle.executableFile
+                    if (stagedHelperExe.isFile) {
+                        if (isMachOBinary(stagedHelperExe)) {
+                            ensureMacBinaryHasRpath(stagedHelperExe, "@executable_path/../../../../Frameworks")
+                        }
                         GenericUiBuildNativeSharedLibsTask.signMacBinary(
-                            swHelperBundleDir,
-                            identifier = "$appId.serviceworker"
+                            stagedHelperExe,
+                            identifier = helperBundle.bundleIdentifier
                         )
+                        if (helperBundle.bundleDir.isDirectory) {
+                            GenericUiBuildNativeSharedLibsTask.signMacBinary(
+                                helperBundle.bundleDir,
+                                identifier = helperBundle.bundleIdentifier
+                            )
+                        }
                     }
                 }
-                macOsDir.listFiles()?.sortedBy { it.name }?.forEach { macExe ->
-                    if (macExe.isFile && !Files.isSymbolicLink(macExe.toPath())) {
-                        GenericUiBuildNativeSharedLibsTask.signMacBinary(macExe)
+                if (primaryExe != null && primaryExe.isFile) {
+                    macOsDir.listFiles()?.sortedBy { it.name }?.forEach { macExe ->
+                        if (macExe.isFile && !Files.isSymbolicLink(macExe.toPath())) {
+                            GenericUiBuildNativeSharedLibsTask.signMacBinary(macExe)
+                        }
                     }
+                    GenericUiBuildNativeSharedLibsTask.signMacBinary(appBundleDir)
                 }
-                GenericUiBuildNativeSharedLibsTask.signMacBinary(appBundleDir)
             }
             val lsregister = File("/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister")
             if (lsregister.isFile && lsregister.canExecute()) {
@@ -2000,14 +2057,42 @@ object GenericUiMultiplatformConfigurator {
             .replace("\"", "&quot;")
             .replace("'", "&apos;")
 
+    private fun writeMinimalMachOArm64Executable(target: File) {
+        target.parentFile?.mkdirs()
+        val buf = java.nio.ByteBuffer.allocate(4096).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+        buf.putInt(0, 0xFEEDFACF.toInt())
+        buf.putInt(4, 0x0100000C)
+        buf.putInt(8, 0)
+        buf.putInt(12, 2)
+        buf.putInt(16, 1)
+        buf.putInt(20, 72)
+        buf.putInt(24, 0x00200085)
+        buf.putInt(28, 0)
+        buf.putInt(32, 0x19)
+        buf.putInt(36, 72)
+        "__TEXT".toByteArray(Charsets.US_ASCII).forEachIndexed { idx, b -> buf.put(40 + idx, b) }
+        buf.putLong(56, 0x100000000L)
+        buf.putLong(64, 4096L)
+        buf.putLong(72, 0L)
+        buf.putLong(80, 4096L)
+        buf.putInt(88, 5)
+        buf.putInt(92, 5)
+        buf.putInt(96, 0)
+        buf.putInt(100, 0)
+        buf.putInt(256, 0x52800000)
+        buf.putInt(260, 0xD65F03C0.toInt())
+        target.writeBytes(buf.array())
+        target.setExecutable(true, false)
+    }
+
     private fun stageLinuxNativeExtensionBundles(
         buildDir: File,
         distDir: File,
         candidateBinDirs: List<File>,
         mode: String,
         mediaEnabled: Boolean,
-        webViewEnabled: Boolean,
-        gpuEnabled: Boolean
+        gpuEnabled: Boolean,
+        legacySecondaryBinaryNames: Set<String> = emptySet()
     ) {
         val destinations = buildList {
             add(distDir)
@@ -2019,15 +2104,6 @@ object GenericUiMultiplatformConfigurator {
             if (vlcLinuxDir.isDirectory) {
                 for (dest in destinations) {
                     copyFilteredDirectoryContents(vlcLinuxDir, dest, setExecutableOnBinaries = true)
-                }
-            }
-        }
-
-        if (webViewEnabled) {
-            val webViewLinuxDir = File(buildDir, "generated/genericui/nativeBundle/webview/linux/$mode")
-            if (webViewLinuxDir.isDirectory) {
-                for (dest in destinations) {
-                    copyFilteredDirectoryContents(webViewLinuxDir, dest, setExecutableOnBinaries = true)
                 }
             }
         }
@@ -2055,6 +2131,10 @@ object GenericUiMultiplatformConfigurator {
             purgeExcludedStaticCoreLibraries(dest)
             listOf("gui", "app", "res").forEach { staleDir ->
                 File(dest, staleDir).takeIf { it.exists() }?.deleteRecursively()
+            }
+            for (legacyName in legacySecondaryBinaryNames) {
+                File(dest, "$legacyName.kexe").takeIf { it.exists() }?.delete()
+                File(dest, legacyName).takeIf { it.exists() }?.delete()
             }
             dest.listFiles()?.forEach { f ->
                 if (f.isFile && f.name.lowercase().endsWith(".dll.a")) {
@@ -2172,9 +2252,6 @@ object GenericUiMultiplatformConfigurator {
                             if (isMediaExtensionEnabled(extension)) {
                                 add("bundleGenericUiVlc")
                             }
-                            if (isWebViewExtensionEnabled(extension)) {
-                                add("bundleGenericUiWebViewProcess")
-                            }
                             if (isGpuExtensionEnabled(extension)) {
                                 add("bundleGenericUiAngle")
                                 add("bundleGenericUiVulkan")
@@ -2203,6 +2280,17 @@ object GenericUiMultiplatformConfigurator {
                     } else {
                         emptyList()
                     }
+                    val resolvedMainBaseName = extension.application.baseName.trim().ifEmpty { project.name }
+                    val protectedPrimaryNames = setOf(
+                        resolvedMainBaseName,
+                        "$resolvedMainBaseName-gtk",
+                        "$resolvedMainBaseName-kde"
+                    )
+                    val secondaryBaseNames = secondaryExes.map { it.binaryBaseName }.toSet()
+                    val legacySecondaryBinaryNames = secondaryExes
+                        .flatMap { it.legacyBinaryBaseNames }
+                        .filter { it.isNotBlank() && it !in secondaryBaseNames && it !in protectedPrimaryNames }
+                        .toSet()
                     val expandedSourceDirs = if (isDesktopDist) {
                         expandDesktopCandidateSourceDirs(candidateSourceDirs, secondaryExes)
                     } else {
@@ -2219,6 +2307,14 @@ object GenericUiMultiplatformConfigurator {
                             return true
                         }
                         if (isExcludedStaticCoreLibrary(file)) return true
+                        val baseOrFull = when {
+                            lowerName.endsWith(".exe") -> lowerName.dropLast(4)
+                            lowerName.endsWith(".kexe") -> lowerName.dropLast(5)
+                            else -> lowerName
+                        }
+                        if (legacySecondaryBinaryNames.any { it.equals(baseOrFull, ignoreCase = true) }) {
+                            return true
+                        }
                         if (isLinuxKdeDist && (lowerName == "libgenericui-gtk.so" || lowerName.endsWith("-gtk.kexe"))) {
                             return true
                         }
@@ -2316,7 +2412,6 @@ object GenericUiMultiplatformConfigurator {
                     val mode = if (distRelativePath.endsWith("/production")) "production" else "development"
                     val candidateBinDirs = resolvedSourceDirs.map { File(buildDir, it) }
                     val mediaEnabled = isMediaExtensionEnabled(extension)
-                    val webViewEnabled = isWebViewExtensionEnabled(extension)
                     val gpuEnabled = isGpuExtensionEnabled(extension)
 
                     when {
@@ -2327,8 +2422,8 @@ object GenericUiMultiplatformConfigurator {
                                 candidateBinDirs = candidateBinDirs,
                                 mode = mode,
                                 mediaEnabled = mediaEnabled,
-                                webViewEnabled = webViewEnabled,
-                                gpuEnabled = gpuEnabled
+                                gpuEnabled = gpuEnabled,
+                                legacySecondaryBinaryNames = legacySecondaryBinaryNames
                             )
                         }
                         distRelativePath.startsWith("dist/mac/") -> {
@@ -2340,8 +2435,8 @@ object GenericUiMultiplatformConfigurator {
                                 candidateBinDirs = candidateBinDirs,
                                 mode = mode,
                                 mediaEnabled = mediaEnabled,
-                                webViewEnabled = webViewEnabled,
-                                gpuEnabled = gpuEnabled
+                                gpuEnabled = gpuEnabled,
+                                secondaryExes = secondaryExes
                             )
                         }
                         distRelativePath.startsWith("dist/linux-gtk/") || distRelativePath.startsWith("dist/linux-kde/") -> {
@@ -2351,8 +2446,8 @@ object GenericUiMultiplatformConfigurator {
                                 candidateBinDirs = candidateBinDirs,
                                 mode = mode,
                                 mediaEnabled = mediaEnabled,
-                                webViewEnabled = webViewEnabled,
-                                gpuEnabled = gpuEnabled
+                                gpuEnabled = gpuEnabled,
+                                legacySecondaryBinaryNames = legacySecondaryBinaryNames
                             )
                         }
                         else -> {
@@ -2527,7 +2622,6 @@ object GenericUiMultiplatformConfigurator {
                     buildList {
                         add("prepareGenericUiDesktopResources")
                         if (isMediaExtensionEnabled(extension)) add("bundleGenericUiVlc")
-                        if (isWebViewExtensionEnabled(extension)) add("bundleGenericUiWebViewProcess")
                         if (isGpuExtensionEnabled(extension)) {
                             add("bundleGenericUiAngle")
                             add("bundleGenericUiVulkan")
@@ -2545,7 +2639,6 @@ object GenericUiMultiplatformConfigurator {
                             candidateBinDirs = listOf(debugExeDir, debugTestDir),
                             mode = "development",
                             mediaEnabled = isMediaExtensionEnabled(extension),
-                            webViewEnabled = isWebViewExtensionEnabled(extension),
                             gpuEnabled = isGpuExtensionEnabled(extension)
                         )
                     }
@@ -2567,7 +2660,6 @@ object GenericUiMultiplatformConfigurator {
                             candidateBinDirs = listOf(targetBinDir),
                             mode = modeStr,
                             mediaEnabled = isMediaExtensionEnabled(extension),
-                            webViewEnabled = isWebViewExtensionEnabled(extension),
                             gpuEnabled = isGpuExtensionEnabled(extension)
                         )
                     }

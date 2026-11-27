@@ -1,5 +1,7 @@
-package com.nexustools.genericui.component.action
+package com.nexustools.genericui.component.action.styled
 
+import com.nexustools.genericui.component.action.Button
+import com.nexustools.genericui.component.action.IButton
 import com.nexustools.genericui.component.media.Image
 import com.nexustools.genericui.component.shell.Application
 import com.nexustools.genericui.core.NativeFactory
@@ -7,7 +9,6 @@ import com.nexustools.genericui.enums.bootstrap.BootstrapSize
 import com.nexustools.genericui.enums.bootstrap.BootstrapType
 import com.nexustools.genericui.enums.css.CssBorderStyle
 import com.nexustools.genericui.enums.ui.ThemeMode
-import com.nexustools.genericui.event.PointerEvent
 import com.nexustools.genericui.nativeimpl.action.StyledButtonNativeImpl
 import com.nexustools.genericui.resources.ResourceID
 import com.nexustools.genericui.resources.ResourceResolver
@@ -46,7 +47,7 @@ open class StyledButton(
     size = size,
     outline = outline,
     classPrefix = styledClassPrefix
-) {
+), IButton {
 
     override val acceptsTypographyComponentStyles: Boolean
         get() = true

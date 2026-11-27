@@ -1,7 +1,7 @@
 package com.nexustools.genericui.style.layout
 
 import com.nexustools.genericui.component.action.Button
-import com.nexustools.genericui.component.action.StyledButton
+import com.nexustools.genericui.component.action.styled.StyledButton
 import com.nexustools.genericui.component.layout.LayerAlignment
 import com.nexustools.genericui.component.lazy.LazyList
 import com.nexustools.genericui.component.navigation.BottomNavigationBar

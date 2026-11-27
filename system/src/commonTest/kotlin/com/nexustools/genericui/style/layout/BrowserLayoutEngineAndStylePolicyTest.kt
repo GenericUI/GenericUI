@@ -5,7 +5,7 @@ import com.nexustools.genericui.component.action.DropdownButton
 import com.nexustools.genericui.component.action.FloatingActionButton
 import com.nexustools.genericui.component.action.IconButton
 import com.nexustools.genericui.component.action.SplitDropdownButton
-import com.nexustools.genericui.component.action.StyledButton
+import com.nexustools.genericui.component.action.styled.StyledButton
 import com.nexustools.genericui.component.action.ToggleButton
 import com.nexustools.genericui.component.action.Toolbar
 import com.nexustools.genericui.component.composite.Composite
@@ -21,7 +21,7 @@ import com.nexustools.genericui.component.form.RadioButton
 import com.nexustools.genericui.component.form.RangeSlider
 import com.nexustools.genericui.component.form.Select
 import com.nexustools.genericui.component.form.Slider
-import com.nexustools.genericui.component.form.StyledSlider
+import com.nexustools.genericui.component.form.styled.StyledSlider
 import com.nexustools.genericui.component.form.Switch
 import com.nexustools.genericui.component.form.TextArea
 import com.nexustools.genericui.component.form.TextField
@@ -34,7 +34,7 @@ import com.nexustools.genericui.component.layout.LayeredContainer
 import com.nexustools.genericui.component.layout.LayoutBackendTarget
 import com.nexustools.genericui.component.layout.ScrollView
 import com.nexustools.genericui.component.layout.StackConstraint
-import com.nexustools.genericui.component.layout.StyledContainer
+import com.nexustools.genericui.component.layout.styled.StyledContainer
 import com.nexustools.genericui.component.layout.VStack
 import com.nexustools.genericui.component.lazy.LazyList
 import com.nexustools.genericui.component.navigation.Navbar
@@ -44,7 +44,7 @@ import com.nexustools.genericui.component.surface.CollapsiblePanel
 import com.nexustools.genericui.component.surface.Jumbotron
 import com.nexustools.genericui.component.surface.ListGroup
 import com.nexustools.genericui.component.surface.ListGroupItem
-import com.nexustools.genericui.component.surface.StyledComponent
+import com.nexustools.genericui.component.surface.styled.StyledComponent
 import com.nexustools.genericui.component.surface.Well
 import com.nexustools.genericui.component.tabs.Tab
 import com.nexustools.genericui.component.tabs.TabContainer

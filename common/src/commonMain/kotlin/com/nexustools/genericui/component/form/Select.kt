@@ -1,5 +1,6 @@
 package com.nexustools.genericui.component.form
 
+import com.nexustools.genericui.component.typography.ILabelTarget
 import com.nexustools.genericui.core.AbstractComponent
 import com.nexustools.genericui.core.NativeFactory
 import com.nexustools.genericui.nativeimpl.form.SelectNativeImpl
@@ -10,9 +11,12 @@ import com.nexustools.genericui.nativeimpl.form.SelectNativeImpl
 open class Select(
     options: List<SelectOption> = emptyList(),
     selectedValue: String? = options.firstOrNull()?.value
-) : AbstractComponent(htmlTag = "select") {
+) : AbstractComponent(htmlTag = "select"), ILabelTarget {
     override val supportsFocus: Boolean
         get() = true
+
+    override val labelTargetComponent: AbstractComponent
+        get() = this
 
     private val _options = options.toMutableList()
     val options: List<SelectOption> get() = _options

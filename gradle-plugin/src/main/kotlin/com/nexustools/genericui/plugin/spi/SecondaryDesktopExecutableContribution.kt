@@ -11,5 +11,9 @@ data class SecondaryDesktopExecutableContribution(
     val windowsSubsystem: String = "windows",
     val windowsExtraLibs: List<String> = emptyList(),
     val macosExtraLinkerOpts: List<String> = emptyList(),
-    val linuxExtraLinkerOpts: List<String> = emptyList()
+    val linuxExtraLinkerOpts: List<String> = emptyList(),
+    val macosHelperBundleSuffix: String? = null,
+    val macosHelperBundleIdSuffix: String? = null,
+    val macosHelperLsUiElement: Boolean = false,
+    val legacyBinaryBaseNames: List<String> = emptyList()
 )

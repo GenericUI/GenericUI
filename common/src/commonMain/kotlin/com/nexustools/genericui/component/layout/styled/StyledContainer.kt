@@ -1,5 +1,6 @@
-package com.nexustools.genericui.component.layout
+package com.nexustools.genericui.component.layout.styled
 
+import com.nexustools.genericui.component.layout.Container
 import com.nexustools.genericui.component.shell.Application
 import com.nexustools.genericui.core.NativeFactory
 import com.nexustools.genericui.enums.css.CssBorderStyle
@@ -22,7 +23,7 @@ import com.nexustools.genericui.style.policy.AestheticStylePolicy
  * color, corner radius), padding, opacity, and box shadows across all 8 backends (`:windows`,
  * `:macos`, `:gtk`, `:kde`, `:swing`, `:android`, `:ios`, `:web`).
  *
- * Unlike [com.nexustools.genericui.component.action.StyledButton], [StyledContainer] does not
+ * Unlike [com.nexustools.genericui.component.action.styled.StyledButton], [StyledContainer] does not
  * apply interactive `:hover` or `:focus` state overrides.
  */
 open class StyledContainer(

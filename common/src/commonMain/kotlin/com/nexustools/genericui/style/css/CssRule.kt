@@ -16,13 +16,17 @@ data class CssRule(
     val specificity: Int = computeSpecificity(selector),
     val mediaMinWidthPx: Int? = null,
     val mediaMaxWidthPx: Int? = null,
-    val backendMask: Int = BackendStyleMask.ALL
+    val backendMask: Int = BackendStyleMask.ALL,
+    val mediaQuery: CssMediaQuery? = null
 ) {
     private val subjectParsedToken: ParsedSelectorToken
 
     val pseudoClass: String?
+    val pseudoElement: String?
     val baseSelectorWithoutPseudo: String
 
+    internal val l4Segments: List<CssSelectorCompound>
+    internal val hasL4AdvancedFeatures: Boolean
     internal val isUniversalStarOnly: Boolean
 
     internal val chainTokens: List<String>
@@ -52,21 +56,27 @@ data class CssRule(
 
     init {
         val rawSegments = splitChainPreservingParens(selector)
+        val parsedL4 = CssSelectorCompound.parseChainFromTokens(rawSegments)
+        l4Segments = parsedL4
         val parsedSegments = ArrayList<ParsedSelectorToken>(rawSegments.size)
         val rawTokens = ArrayList<String>(rawSegments.size)
         val flags = ArrayList<Boolean>(rawSegments.size)
         var sIdx = 0
         while (sIdx < rawSegments.size) {
             val part = rawSegments[sIdx]
-            if (part == ">") {
+            if (part == ">" || part == "+" || part == "~") {
                 sIdx++
                 continue
             }
             val parsed = parseCompoundToken(part)
             parsedSegments.add(parsed)
             rawTokens.add(parsed.positiveToken)
-            if (sIdx + 1 < rawSegments.size && rawSegments[sIdx + 1] == ">") {
+            val nextTok = if (sIdx + 1 < rawSegments.size) rawSegments[sIdx + 1] else null
+            if (nextTok == ">") {
                 flags.add(true)
+                sIdx += 2
+            } else if (nextTok == "+" || nextTok == "~") {
+                flags.add(false)
                 sIdx += 2
             } else {
                 if (sIdx + 1 < rawSegments.size) {
@@ -80,8 +90,21 @@ data class CssRule(
         directParentFlags = BooleanArray(flags.size) { flags[it] }
 
         val lastParsed = parsedSegments.lastOrNull() ?: ParsedSelectorToken.EMPTY
+        val lastL4 = parsedL4.lastOrNull()
         subjectParsedToken = lastParsed
         pseudoClass = selectPrimaryPseudoClass(lastParsed.positivePseudos)
+        pseudoElement = lastL4?.pseudoElement
+        hasL4AdvancedFeatures = parsedL4.any { seg ->
+            seg.combinatorToLeft == CssCombinator.ADJACENT_SIBLING ||
+                seg.combinatorToLeft == CssCombinator.GENERAL_SIBLING ||
+                seg.attributes.isNotEmpty() ||
+                seg.isSelectors.isNotEmpty() ||
+                seg.whereSelectors.isNotEmpty() ||
+                seg.hasSelectors.isNotEmpty() ||
+                seg.notSelectors.isNotEmpty() ||
+                seg.pseudoElement != null ||
+                seg.positivePseudos.any { it !in INTERACTIVE_PSEUDOS_FOR_CLASSES }
+        }
 
         val baseParts = ArrayList<String>(parsedSegments.size * 2)
         for (idx in parsedSegments.indices) {
@@ -120,7 +143,9 @@ data class CssRule(
             subjectExcludedIds.isEmpty() &&
             subjectExcludedTags.isEmpty() &&
             subjectPositivePseudos.isEmpty() &&
-            subjectExcludedPseudos.isEmpty()
+            subjectExcludedPseudos.isEmpty() &&
+            !hasL4AdvancedFeatures &&
+            pseudoElement == null
 
         if (parsedSegments.size <= 1) {
             ancestorTokens = emptyList()
@@ -164,7 +189,17 @@ data class CssRule(
         }
     }
 
-    fun matchesMediaQuery(viewportWidthPx: Int): Boolean {
+    fun matchesMediaQuery(viewportWidthPx: Int): Boolean =
+        matchesMediaQuery(viewportWidthPx, viewportHeightPx = 800, isDarkTheme = false)
+
+    fun matchesMediaQuery(
+        viewportWidthPx: Int,
+        viewportHeightPx: Int,
+        isDarkTheme: Boolean = false
+    ): Boolean {
+        if (mediaQuery != null) {
+            return mediaQuery.matches(viewportWidthPx, viewportHeightPx, isDarkTheme)
+        }
         if (mediaMinWidthPx != null && viewportWidthPx < mediaMinWidthPx) return false
         if (mediaMaxWidthPx != null && viewportWidthPx > mediaMaxWidthPx) return false
         return true
@@ -185,7 +220,8 @@ data class CssRule(
             val excludedIds: Set<String>,
             val excludedClasses: Set<String>,
             val positivePseudos: Set<String>,
-            val excludedPseudos: Set<String>
+            val excludedPseudos: Set<String>,
+            val hasUnsupportedAttributeSelector: Boolean = false
         ) {
             companion object {
                 val EMPTY = ParsedSelectorToken(
@@ -204,6 +240,9 @@ data class CssRule(
 
         private val ATTR_SELECTOR_REGEX = Regex("\\[[^\\]]*\\]")
         private val INTERACTIVE_PSEUDO_PRIORITY = listOf("hover", "focus", "focus-visible", "focus-within", "active", "disabled", "checked")
+        private val INTERACTIVE_PSEUDOS_FOR_CLASSES = setOf(
+            "hover", "focus", "focus-visible", "focus-within", "active", "disabled", "enabled", "checked"
+        )
 
         internal val NOT_DISABLED_REGEX =
             Regex(":not\\(\\s*(?::disabled|\\[\\s*(?:disabled(?:\\s*=[^\\]]*)?|aria-disabled\\s*=\\s*[\"']?true[\"']?)\\s*\\]|\\.disabled)\\s*\\)", RegexOption.IGNORE_CASE)
@@ -222,6 +261,7 @@ data class CssRule(
         private val CLASS_TOKEN_REGEX = Regex("\\.([a-zA-Z0-9_-]+)")
         private val ID_TOKEN_REGEX = Regex("#([a-zA-Z0-9_-]+)")
         internal val IMPORTANT_STRIP_REGEX = Regex("!\\s*important", RegexOption.IGNORE_CASE)
+        private val GENERICUI_NAMESPACE_REGEX = Regex("\\bgenericui:", RegexOption.IGNORE_CASE)
 
         internal fun sanitizeSelectorOrNull(rawSelector: String): String? {
             val trimmed = rawSelector.trim()
@@ -234,53 +274,19 @@ data class CssRule(
             for (prio in INTERACTIVE_PSEUDO_PRIORITY) {
                 if (prio in positivePseudos) return prio
             }
-            return positivePseudos.firstOrNull { it != "enabled" }
+            return null
         }
 
-        internal fun splitChainPreservingParens(selector: String): List<String> {
-            val out = ArrayList<String>(4)
-            val cur = StringBuilder()
-            var parenDepth = 0
-            var bracketDepth = 0
-            fun flush() {
-                if (cur.isNotEmpty()) {
-                    out.add(cur.toString())
-                    cur.clear()
-                }
-            }
-            for (ch in selector.trim()) {
-                when {
-                    ch == '(' -> {
-                        parenDepth++
-                        cur.append(ch)
-                    }
-                    ch == ')' -> {
-                        if (parenDepth > 0) parenDepth--
-                        cur.append(ch)
-                    }
-                    ch == '[' -> {
-                        bracketDepth++
-                        cur.append(ch)
-                    }
-                    ch == ']' -> {
-                        if (bracketDepth > 0) bracketDepth--
-                        cur.append(ch)
-                    }
-                    parenDepth == 0 && bracketDepth == 0 && (ch == '>' || ch == '+' || ch == '~') -> {
-                        flush()
-                        out.add(ch.toString())
-                    }
-                    parenDepth == 0 && bracketDepth == 0 && ch.isWhitespace() -> flush()
-                    else -> cur.append(ch)
-                }
-            }
-            flush()
-            return out
-        }
+        internal fun splitChainPreservingParens(selector: String): List<String> =
+            CssSelectorCompound.splitSelectorTokens(selector)
 
-        private fun protectNamespaceColons(raw: String): String =
-            raw.replace("\\:", NS_COLON_SENTINEL)
-                .replace(Regex("\\bgenericui:", RegexOption.IGNORE_CASE), "genericui$NS_COLON_SENTINEL")
+        private fun protectNamespaceColons(raw: String): String {
+            var result = if ('\\' in raw) raw.replace("\\:", NS_COLON_SENTINEL) else raw
+            if (result.contains("genericui:", ignoreCase = true)) {
+                result = result.replace(GENERICUI_NAMESPACE_REGEX, "genericui$NS_COLON_SENTINEL")
+            }
+            return result
+        }
 
         private fun restoreNamespaceColons(value: String): String =
             value.replace(NS_COLON_SENTINEL, ":")
@@ -308,7 +314,28 @@ data class CssRule(
             val positivePseudos = linkedSetOf<String>()
             val excludedPseudos = linkedSetOf<String>()
 
-            val protectedRaw = protectNamespaceColons(trimmed)
+            val baseProtected = protectNamespaceColons(trimmed)
+            val protectedRaw = if (':' in baseProtected) {
+                baseProtected
+                    .replace("::before", "", ignoreCase = true)
+                    .replace("::after", "", ignoreCase = true)
+                    .replace("::first-line", "", ignoreCase = true)
+                    .replace("::first-letter", "", ignoreCase = true)
+                    .replace("::placeholder", "", ignoreCase = true)
+                    .replace(":before", "", ignoreCase = true)
+                    .replace(":after", "", ignoreCase = true)
+            } else {
+                baseProtected
+            }
+            val hadPseudoElement = protectedRaw.length != trimmed.length &&
+                (trimmed.contains(":before", ignoreCase = true) ||
+                    trimmed.contains(":after", ignoreCase = true) ||
+                    trimmed.contains(":placeholder", ignoreCase = true) ||
+                    trimmed.contains(":first-", ignoreCase = true))
+            val hadAttributeOrFunctionalPseudo = trimmed.contains("[") ||
+                trimmed.contains(":is(", ignoreCase = true) ||
+                trimmed.contains(":where(", ignoreCase = true) ||
+                trimmed.contains(":has(", ignoreCase = true)
             val remainingBuilder = StringBuilder()
             var i = 0
             while (i < protectedRaw.length) {
@@ -345,6 +372,7 @@ data class CssRule(
                 positivePseudos.add("disabled")
                 positiveWork = positiveWork.replace(DISABLED_ATTR_REGEX, "")
             }
+            val hasUnsupportedAttr = ATTR_SELECTOR_REGEX.containsMatchIn(positiveWork)
             positiveWork = positiveWork.replace(ATTR_SELECTOR_REGEX, "")
 
             // Separate trailing/interleaved :pseudo suffixes while keeping #id / .class / tag base parts
@@ -383,7 +411,8 @@ data class CssRule(
             val resolvedPositiveToken = when {
                 restoredBase.isNotEmpty() -> restoredBase
                 excludedClasses.isNotEmpty() || excludedIds.isNotEmpty() || excludedTags.isNotEmpty() ||
-                    positivePseudos.isNotEmpty() || excludedPseudos.isNotEmpty() -> "*"
+                    positivePseudos.isNotEmpty() || excludedPseudos.isNotEmpty() ||
+                    hadPseudoElement || hadAttributeOrFunctionalPseudo -> "*"
                 else -> ""
             }
 
@@ -396,7 +425,8 @@ data class CssRule(
                 excludedIds = excludedIds,
                 excludedClasses = excludedClasses,
                 positivePseudos = positivePseudos,
-                excludedPseudos = excludedPseudos
+                excludedPseudos = excludedPseudos,
+                hasUnsupportedAttributeSelector = hasUnsupportedAttr
             )
         }
 
@@ -487,24 +517,7 @@ data class CssRule(
         internal fun extractIdsFromToken(token: String): List<String> =
             ID_TOKEN_REGEX.findAll(token).map { it.groupValues[1] }.toList()
 
-        fun computeSpecificity(selector: String): Int {
-            val cleaned = selector.trim()
-            if (cleaned == "*") return 0
-            val withoutNotWrapper = cleaned
-                .replace(Regex(":not\\(", RegexOption.IGNORE_CASE), "(")
-                .replace("genericui\\:", "genericui_")
-                .replace("genericui:", "genericui_")
-            val ids = withoutNotWrapper.count { it == '#' }
-            val classes = withoutNotWrapper.count { it == '.' || it == '[' || it == ':' }
-            val elements = withoutNotWrapper.split(COMBINATOR_SPLIT_REGEX)
-                .map { it.replace(COLON_SUFFIX_REGEX, "").replace("(", "").replace(")", "") }
-                .count { token ->
-                    token.isNotEmpty() &&
-                        token != "*" &&
-                        !token.startsWith(".") &&
-                        !token.startsWith("#")
-                }
-            return ids * 10000 + classes * 100 + elements
-        }
+        fun computeSpecificity(selector: String): Int =
+            CssSelectorCompound.computeSpecificity(selector)
     }
 }

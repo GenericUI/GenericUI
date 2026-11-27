@@ -5,7 +5,7 @@ import com.nexustools.genericui.component.action.DropdownButton
 import com.nexustools.genericui.component.action.FloatingActionButton
 import com.nexustools.genericui.component.action.IconButton
 import com.nexustools.genericui.component.action.SplitDropdownButton
-import com.nexustools.genericui.component.action.StyledButton
+import com.nexustools.genericui.component.action.styled.StyledButton
 import com.nexustools.genericui.component.action.ToggleButton
 import com.nexustools.genericui.component.action.Toolbar
 import com.nexustools.genericui.component.composite.Composite
@@ -20,7 +20,7 @@ import com.nexustools.genericui.component.form.RadioButton
 import com.nexustools.genericui.component.form.RangeSlider
 import com.nexustools.genericui.component.form.Select
 import com.nexustools.genericui.component.form.Slider
-import com.nexustools.genericui.component.form.StyledSlider
+import com.nexustools.genericui.component.form.styled.StyledSlider
 import com.nexustools.genericui.component.form.Switch
 import com.nexustools.genericui.component.form.TextField
 import com.nexustools.genericui.component.fragment.Fragment
@@ -28,7 +28,7 @@ import com.nexustools.genericui.component.fragment.FragmentContainer
 import com.nexustools.genericui.component.layout.Container
 import com.nexustools.genericui.component.layout.LayoutBackendTarget
 import com.nexustools.genericui.component.layout.ScrollView
-import com.nexustools.genericui.component.layout.StyledContainer
+import com.nexustools.genericui.component.layout.styled.StyledContainer
 import com.nexustools.genericui.component.shell.Window
 import com.nexustools.genericui.component.surface.Accordion
 import com.nexustools.genericui.component.surface.Card
@@ -36,7 +36,7 @@ import com.nexustools.genericui.component.surface.CollapsiblePanel
 import com.nexustools.genericui.component.surface.Jumbotron
 import com.nexustools.genericui.component.surface.ListGroup
 import com.nexustools.genericui.component.surface.ListGroupItem
-import com.nexustools.genericui.component.surface.StyledComponent
+import com.nexustools.genericui.component.surface.styled.StyledComponent
 import com.nexustools.genericui.component.surface.Well
 import com.nexustools.genericui.component.tabs.Tab
 import com.nexustools.genericui.component.tabs.TabContainer
@@ -92,6 +92,7 @@ import com.nexustools.genericui.nativeimpl.feedback.SpinnerNativeImpl
 import com.nexustools.genericui.nativeimpl.form.CheckboxNativeImpl
 import com.nexustools.genericui.nativeimpl.form.RangeSliderNativeImpl
 import com.nexustools.genericui.nativeimpl.form.SelectNativeImpl
+import com.nexustools.genericui.nativeimpl.form.StyledTextInputNativeImpl
 import com.nexustools.genericui.nativeimpl.form.TextInputNativeImpl
 import com.nexustools.genericui.nativeimpl.layout.ContainerNativeImpl
 import com.nexustools.genericui.nativeimpl.layout.DividerNativeImpl
@@ -401,6 +402,7 @@ class WindowUndecoratedAndStateTest {
         override fun createStyledButton(classPrefix: String): StyledButtonNativeImpl<*> = unsupported()
         override fun createDropdown(): DropdownNativeImpl<*> = unsupported()
         override fun createTextInput(multiline: Boolean): TextInputNativeImpl<*> = unsupported()
+        override fun createStyledTextInput(multiline: Boolean, classPrefix: String): StyledTextInputNativeImpl<*> = unsupported()
         override fun createSelect(): SelectNativeImpl<*> = unsupported()
         override fun createCheckbox(switchStyle: Boolean, radioStyle: Boolean): CheckboxNativeImpl<*> = unsupported()
         override fun createRangeSlider(): RangeSliderNativeImpl<*> = unsupported()

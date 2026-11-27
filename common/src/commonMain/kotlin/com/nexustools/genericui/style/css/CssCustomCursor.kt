@@ -288,95 +288,98 @@ data class CssCustomCursor(
             val outlineColor = RgbaColor(0, 0, 0, 255)
             var drewAnyShape = false
 
-            // 1. Rasterize <circle cx="..." cy="..." r="..." .../>
-            for (match in Regex("<circle\\b([^>]*)/?>", RegexOption.IGNORE_CASE).findAll(svgMarkup)) {
-                val attrs = match.groupValues[1]
-                val cx = extractFloatAttr(attrs, "cx") ?: (vbW * 0.5f)
-                val cy = extractFloatAttr(attrs, "cy") ?: (vbH * 0.5f)
-                val r = extractFloatAttr(attrs, "r") ?: continue
-                val fill = extractColorAttr(attrs, "fill")
-                val stroke = extractColorAttr(attrs, "stroke") ?: defaultColor
-                val strokeWidth = (extractFloatAttr(attrs, "stroke-width") ?: 1.5f) * ((scaleX + scaleY) * 0.5f)
-                val pxCx = cx * scaleX
-                val pxCy = cy * scaleY
-                val pxR = r * ((scaleX + scaleY) * 0.5f)
-                drawCircle(buffer, pxCx, pxCy, pxR, fill, stroke, strokeWidth.coerceAtLeast(1f))
-                drewAnyShape = true
-            }
+            // Strip non-rendering definition containers (<defs>, <clipPath>) before rasterizing shapes.
+            val renderableMarkup = svgMarkup
+                .replace(Regex("<defs\\b(?:[^>]*[^/])?>[\\s\\S]*?</defs>", RegexOption.IGNORE_CASE), "")
+                .replace(Regex("<clipPath\\b(?:[^>]*[^/])?>[\\s\\S]*?</clipPath>", RegexOption.IGNORE_CASE), "")
 
-            // 2. Rasterize <rect x="..." y="..." width="..." height="..." .../>
-            for (match in Regex("<rect\\b([^>]*)/?>", RegexOption.IGNORE_CASE).findAll(svgMarkup)) {
-                val attrs = match.groupValues[1]
-                val rx = (extractFloatAttr(attrs, "x") ?: 0f) * scaleX
-                val ry = (extractFloatAttr(attrs, "y") ?: 0f) * scaleY
-                val rw = (extractFloatAttr(attrs, "width") ?: continue) * scaleX
-                val rh = (extractFloatAttr(attrs, "height") ?: continue) * scaleY
-                val fill = extractColorAttr(attrs, "fill") ?: defaultColor
-                val stroke = extractColorAttr(attrs, "stroke")
-                drawRect(buffer, rx, ry, rw, rh, fill, stroke)
-                drewAnyShape = true
-            }
-
-            // 3. Rasterize <line x1="..." y1="..." x2="..." y2="..." .../>
-            for (match in Regex("<line\\b([^>]*)/?>", RegexOption.IGNORE_CASE).findAll(svgMarkup)) {
-                val attrs = match.groupValues[1]
-                val x1 = (extractFloatAttr(attrs, "x1") ?: 0f) * scaleX
-                val y1 = (extractFloatAttr(attrs, "y1") ?: 0f) * scaleY
-                val x2 = (extractFloatAttr(attrs, "x2") ?: 0f) * scaleX
-                val y2 = (extractFloatAttr(attrs, "y2") ?: 0f) * scaleY
-                val stroke = extractColorAttr(attrs, "stroke") ?: extractColorAttr(attrs, "fill") ?: defaultColor
-                val strokeW = (extractFloatAttr(attrs, "stroke-width") ?: 1.5f) * ((scaleX + scaleY) * 0.5f)
-                drawThickLine(buffer, x1, y1, x2, y2, stroke, strokeW.coerceAtLeast(1.2f))
-                drewAnyShape = true
-            }
-
-            // 4. Rasterize <polygon points="..." /> and <polyline points="..." />
-            for (match in Regex("<poly(gon|line)\\b([^>]*)/?>", RegexOption.IGNORE_CASE).findAll(svgMarkup)) {
-                val isPolygon = match.groupValues[1].equals("gon", ignoreCase = true)
+            // Rasterize supported SVG shape elements in exact document order so later elements
+            // (e.g. circles/paths over a background rect) paint on top of earlier ones.
+            val shapeRegex = Regex(
+                "<(circle|rect|line|polygon|polyline|path)\\b([^>]*)/?>",
+                RegexOption.IGNORE_CASE
+            )
+            for (match in shapeRegex.findAll(renderableMarkup)) {
+                val tagName = match.groupValues[1].lowercase()
                 val attrs = match.groupValues[2]
-                val ptsRaw = extractStringAttr(attrs, "points") ?: continue
-                val coords = Regex("-?\\d+(?:\\.\\d+)?").findAll(ptsRaw).mapNotNull { it.value.toFloatOrNull() }.toList()
-                if (coords.size >= 4) {
-                    val stroke = extractColorAttr(attrs, "stroke") ?: extractColorAttr(attrs, "fill") ?: defaultColor
-                    val strokeW = (extractFloatAttr(attrs, "stroke-width") ?: 1.5f) * ((scaleX + scaleY) * 0.5f)
-                    var i = 0
-                    while (i + 3 < coords.size) {
-                        drawThickLine(
-                            buffer,
-                            coords[i] * scaleX,
-                            coords[i + 1] * scaleY,
-                            coords[i + 2] * scaleX,
-                            coords[i + 3] * scaleY,
-                            stroke,
-                            strokeW.coerceAtLeast(1.2f)
-                        )
-                        i += 2
+                when (tagName) {
+                    "circle" -> {
+                        val cx = extractFloatAttr(attrs, "cx") ?: (vbW * 0.5f)
+                        val cy = extractFloatAttr(attrs, "cy") ?: (vbH * 0.5f)
+                        val r = extractFloatAttr(attrs, "r") ?: continue
+                        val fill = extractColorAttr(attrs, "fill")
+                        val stroke = extractColorAttr(attrs, "stroke") ?: defaultColor
+                        val strokeWidth = (extractFloatAttr(attrs, "stroke-width") ?: 1.5f) * ((scaleX + scaleY) * 0.5f)
+                        val pxCx = cx * scaleX
+                        val pxCy = cy * scaleY
+                        val pxR = r * ((scaleX + scaleY) * 0.5f)
+                        drawCircle(buffer, pxCx, pxCy, pxR, fill, stroke, strokeWidth.coerceAtLeast(1f))
+                        drewAnyShape = true
                     }
-                    if (isPolygon && coords.size >= 6) {
-                        drawThickLine(
-                            buffer,
-                            coords[coords.size - 2] * scaleX,
-                            coords[coords.size - 1] * scaleY,
-                            coords[0] * scaleX,
-                            coords[1] * scaleY,
-                            stroke,
-                            strokeW.coerceAtLeast(1.2f)
-                        )
+                    "rect" -> {
+                        val rx = (extractFloatAttr(attrs, "x") ?: 0f) * scaleX
+                        val ry = (extractFloatAttr(attrs, "y") ?: 0f) * scaleY
+                        val rw = (extractFloatAttr(attrs, "width") ?: continue) * scaleX
+                        val rh = (extractFloatAttr(attrs, "height") ?: continue) * scaleY
+                        val fill = extractColorAttr(attrs, "fill") ?: defaultColor
+                        val stroke = extractColorAttr(attrs, "stroke")
+                        drawRect(buffer, rx, ry, rw, rh, fill, stroke)
+                        drewAnyShape = true
                     }
-                    drewAnyShape = true
-                }
-            }
-
-            // 5. Rasterize <path d="..." .../>
-            for (match in Regex("<path\\b([^>]*)/?>", RegexOption.IGNORE_CASE).findAll(svgMarkup)) {
-                val attrs = match.groupValues[1]
-                val d = extractStringAttr(attrs, "d") ?: continue
-                val color = extractColorAttr(attrs, "stroke")
-                    ?: extractColorAttr(attrs, "fill")
-                    ?: defaultColor
-                val strokeW = (extractFloatAttr(attrs, "stroke-width") ?: 1.75f) * ((scaleX + scaleY) * 0.5f)
-                if (rasterizeSvgPathD(buffer, d, scaleX, scaleY, color, strokeW.coerceAtLeast(1.25f))) {
-                    drewAnyShape = true
+                    "line" -> {
+                        val x1 = (extractFloatAttr(attrs, "x1") ?: 0f) * scaleX
+                        val y1 = (extractFloatAttr(attrs, "y1") ?: 0f) * scaleY
+                        val x2 = (extractFloatAttr(attrs, "x2") ?: 0f) * scaleX
+                        val y2 = (extractFloatAttr(attrs, "y2") ?: 0f) * scaleY
+                        val stroke = extractColorAttr(attrs, "stroke") ?: extractColorAttr(attrs, "fill") ?: defaultColor
+                        val strokeW = (extractFloatAttr(attrs, "stroke-width") ?: 1.5f) * ((scaleX + scaleY) * 0.5f)
+                        drawThickLine(buffer, x1, y1, x2, y2, stroke, strokeW.coerceAtLeast(1.2f))
+                        drewAnyShape = true
+                    }
+                    "polygon", "polyline" -> {
+                        val isPolygon = tagName == "polygon"
+                        val ptsRaw = extractStringAttr(attrs, "points") ?: continue
+                        val coords = Regex("-?\\d+(?:\\.\\d+)?").findAll(ptsRaw).mapNotNull { it.value.toFloatOrNull() }.toList()
+                        if (coords.size >= 4) {
+                            val stroke = extractColorAttr(attrs, "stroke") ?: extractColorAttr(attrs, "fill") ?: defaultColor
+                            val strokeW = (extractFloatAttr(attrs, "stroke-width") ?: 1.5f) * ((scaleX + scaleY) * 0.5f)
+                            var i = 0
+                            while (i + 3 < coords.size) {
+                                drawThickLine(
+                                    buffer,
+                                    coords[i] * scaleX,
+                                    coords[i + 1] * scaleY,
+                                    coords[i + 2] * scaleX,
+                                    coords[i + 3] * scaleY,
+                                    stroke,
+                                    strokeW.coerceAtLeast(1.2f)
+                                )
+                                i += 2
+                            }
+                            if (isPolygon && coords.size >= 6) {
+                                drawThickLine(
+                                    buffer,
+                                    coords[coords.size - 2] * scaleX,
+                                    coords[coords.size - 1] * scaleY,
+                                    coords[0] * scaleX,
+                                    coords[1] * scaleY,
+                                    stroke,
+                                    strokeW.coerceAtLeast(1.2f)
+                                )
+                            }
+                            drewAnyShape = true
+                        }
+                    }
+                    "path" -> {
+                        val d = extractStringAttr(attrs, "d") ?: continue
+                        val color = extractColorAttr(attrs, "stroke")
+                            ?: extractColorAttr(attrs, "fill")
+                            ?: defaultColor
+                        val strokeW = (extractFloatAttr(attrs, "stroke-width") ?: 1.75f) * ((scaleX + scaleY) * 0.5f)
+                        if (rasterizeSvgPathD(buffer, d, scaleX, scaleY, color, strokeW.coerceAtLeast(1.25f))) {
+                            drewAnyShape = true
+                        }
+                    }
                 }
             }
 
@@ -639,7 +642,7 @@ data class CssCustomCursor(
         }
 
         private fun extractStringAttr(attrs: String, name: String): String? =
-            Regex("\\b$name\\s*=\\s*['\"]([^'\"]*)['\"]", RegexOption.IGNORE_CASE)
+            Regex("(?:^|\\s|['\"])$name\\s*=\\s*['\"]([^'\"]*)['\"]", RegexOption.IGNORE_CASE)
                 .find(attrs)?.groupValues?.get(1)
 
         private fun extractFloatAttr(attrs: String, name: String): Float? =

@@ -65,7 +65,7 @@ data class CssEdgeLengths(
                 ?.trim()
                 ?.takeIf { it.isNotEmpty() }
                 ?: return null
-            val parts = cleaned.split(WHITESPACE_REGEX).mapNotNull { CssLength.parse(it) }
+            val parts = CssShadow.tokenizePreservingParens(cleaned).mapNotNull { CssLength.parse(it) }
             return when (parts.size) {
                 1 -> all(parts[0])
                 2 -> symmetric(parts[0], parts[1])

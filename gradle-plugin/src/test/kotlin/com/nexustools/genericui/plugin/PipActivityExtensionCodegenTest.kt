@@ -310,19 +310,19 @@ class PipActivityExtensionCodegenTest {
                 ":extensions:ui:overlay",
                 ":extensions:ui:pip",
                 ":extensions:ui:dsl",
-                ":extensions:ui:overlay:dsl",
-                ":extensions:ui:pip:dsl"
+                ":extensions:ui:overlay:dsl"
             ),
             cfg.enabledExtensionModulePaths()
         )
+        assertFalse(":extensions:ui:pip:dsl" in cfg.enabledExtensionModulePaths())
 
         val allCfg = GenericUiExtensionsConfig()
         allCfg.enableAll()
         assertTrue(allCfg.pipEnabled)
         assertTrue(":extensions:ui:pip" in allCfg.enabledExtensionModulePaths())
-        assertTrue(":extensions:ui:pip:dsl" in allCfg.enabledExtensionModulePaths())
+        assertFalse(":extensions:ui:pip:dsl" in allCfg.enabledExtensionModulePaths())
         assertTrue(":extensions:ui:pip" in GenericUiGradlePlugin.KNOWN_GENERICUI_MODULES)
-        assertTrue(":extensions:ui:pip:dsl" in GenericUiGradlePlugin.KNOWN_GENERICUI_MODULES)
+        assertFalse(":extensions:ui:pip:dsl" in GenericUiGradlePlugin.KNOWN_GENERICUI_MODULES)
 
         val expectedProviders = mapOf(
             GenericUiVariantScope.WINDOWS to "com.nexustools.genericui.ext.pip.windows.WindowsPipProvider.register()",

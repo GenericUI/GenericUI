@@ -157,8 +157,16 @@ abstract class GenericUiGenerateAndroidActivitiesTask : DefaultTask() {
     @get:Optional
     abstract val generatedRegistrarPackageName: Property<String>
 
+    @get:Input
+    @get:Optional
+    abstract val binaryCodecsEnabled: Property<Boolean>
+
     @get:OutputDirectory
     abstract val outputDirectory: DirectoryProperty
+
+    init {
+        binaryCodecsEnabled.convention(true)
+    }
 
     @TaskAction
     fun generate() {
@@ -219,7 +227,8 @@ abstract class GenericUiGenerateAndroidActivitiesTask : DefaultTask() {
             projectRootDir = rootDir,
             extraSourceDirs = customDirs,
             extensionOptions = extensionOptions.orNull.orEmpty(),
-            generatedRegistrarPackageName = generatedRegistrarPackageName.orNull.orEmpty()
+            generatedRegistrarPackageName = generatedRegistrarPackageName.orNull.orEmpty(),
+            binaryCodecsEnabled = binaryCodecsEnabled.getOrElse(true)
         )
     }
 
@@ -303,7 +312,8 @@ abstract class GenericUiGenerateAndroidActivitiesTask : DefaultTask() {
             projectRootDir: File? = null,
             extraSourceDirs: List<File> = emptyList(),
             extensionOptions: Map<String, String> = emptyMap(),
-            generatedRegistrarPackageName: String = ""
+            generatedRegistrarPackageName: String = "",
+            binaryCodecsEnabled: Boolean = true
         ): List<File> {
             if (outputDir.exists()) {
                 outputDir.deleteRecursively()
@@ -388,16 +398,24 @@ abstract class GenericUiGenerateAndroidActivitiesTask : DefaultTask() {
                 }
             }
 
+            val binaryCodecCall = if (binaryCodecsEnabled) {
+                listOf("$effectiveGeneratedPackage.GeneratedBinaryCodecRegistrar.registerAll()")
+            } else {
+                emptyList()
+            }
             val mergedInstallers = (
-                providerInstallerExpressions +
+                binaryCodecCall +
+                    providerInstallerExpressions +
                     globalSpiContributions.flatMap { it.providerInstallerCalls }
                 ).map { it.trim() }.filter { it.isNotEmpty() }.distinct()
             val extraAppImports = globalSpiContributions.flatMap { it.applicationImports }
                 .map { it.trim().removePrefix("import ").trim() }
                 .filter { it.isNotEmpty() }
                 .distinct()
-            val extraOnCreateStatements = globalSpiContributions.flatMap { it.applicationOnCreateStatements }
-                .map { it.trim() }
+            val extraOnCreateStatements = (
+                binaryCodecCall +
+                    globalSpiContributions.flatMap { it.applicationOnCreateStatements }
+                ).map { it.trim() }
                 .filter { it.isNotEmpty() }
                 .distinct()
 

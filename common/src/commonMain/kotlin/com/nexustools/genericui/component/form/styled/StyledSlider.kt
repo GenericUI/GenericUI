@@ -1,8 +1,9 @@
-package com.nexustools.genericui.component.form
+package com.nexustools.genericui.component.form.styled
 
-import com.nexustools.genericui.component.action.StyledButton
+import com.nexustools.genericui.component.action.styled.StyledButton
 import com.nexustools.genericui.component.composite.Composite
-import com.nexustools.genericui.component.surface.StyledComponent
+import com.nexustools.genericui.component.form.ISlider
+import com.nexustools.genericui.component.surface.styled.StyledComponent
 import com.nexustools.genericui.core.AbstractComponent
 import com.nexustools.genericui.event.KeyEvent
 import com.nexustools.genericui.event.PointerDragManager
@@ -29,7 +30,7 @@ open class StyledSlider(
     max: Double = 100.0,
     value: Double = 0.0,
     step: Double = 0.0
-) : Composite(classPrefix = DEFAULT_CLASS_PREFIX, tagName = DEFAULT_TAG_NAME) {
+) : Composite(classPrefix = DEFAULT_CLASS_PREFIX, tagName = DEFAULT_TAG_NAME), ISlider {
 
     protected val trackButton: StyledButton = StyledButton(
         text = "",
@@ -57,6 +58,15 @@ open class StyledSlider(
     override val focusDelegateChild: AbstractComponent
         get() = knobButton
 
+    override val labelTargetComponent: AbstractComponent
+        get() = knobButton
+
+    override fun focusFromLabel() {
+        if (isEnabled && isFocusable) {
+            isFocused = true
+        }
+    }
+
     private var activeDragSession: PointerDragSession? = null
     private var dragStartedOnKnob: Boolean = false
     private var knobDragStartScreenX: Float = 0f
@@ -67,12 +77,12 @@ open class StyledSlider(
     private val valueChangedListeners = mutableListOf<(Double) -> Unit>()
     private val userScrubListeners = mutableListOf<(Double) -> Unit>()
 
-    var onValueChanged: ((Double) -> Unit)? = null
+    override var onValueChanged: ((Double) -> Unit)? = null
     var onUserScrub: ((Double) -> Unit)? = null
     var onChange: ((Double) -> Unit)? = null
     var onScrubStateChanged: ((Boolean) -> Unit)? = null
 
-    var min: Double = min
+    override var min: Double = min
         set(newMin) {
             if (abs(field - newMin) < EPSILON) return
             field = newMin
@@ -87,7 +97,7 @@ open class StyledSlider(
             }
         }
 
-    var max: Double = max.coerceAtLeast(min)
+    override var max: Double = max.coerceAtLeast(min)
         set(newMax) {
             val coerced = newMax.coerceAtLeast(min)
             if (abs(field - coerced) < EPSILON) return
@@ -100,7 +110,7 @@ open class StyledSlider(
             }
         }
 
-    var step: Double = step.coerceAtLeast(0.0)
+    override var step: Double = step.coerceAtLeast(0.0)
         set(newStep) {
             val coerced = newStep.coerceAtLeast(0.0)
             if (abs(field - coerced) < EPSILON) return
@@ -111,7 +121,7 @@ open class StyledSlider(
             }
         }
 
-    var value: Double = 0.0
+    override var value: Double = 0.0
         set(newVal) {
             val snapped = clampAndSnap(newVal)
             val changed = abs(field - snapped) >= EPSILON

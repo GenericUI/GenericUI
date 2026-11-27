@@ -9,8 +9,8 @@ import com.nexustools.genericui.component.fragment.FragmentLaunchCoordinator
 import com.nexustools.genericui.component.fragment.FragmentRegistry
 import com.nexustools.genericui.component.fragment.IFragment
 import com.nexustools.genericui.component.layout.Container
-import com.nexustools.genericui.component.layout.StyledContainer
-import com.nexustools.genericui.component.surface.StyledComponent
+import com.nexustools.genericui.component.layout.styled.StyledContainer
+import com.nexustools.genericui.component.surface.styled.StyledComponent
 import com.nexustools.genericui.component.system.PreferenceStore
 import com.nexustools.genericui.core.GenericUI
 import com.nexustools.genericui.core.GenericUiExtensionRegistry
@@ -763,6 +763,9 @@ open class Application(
             component.onThemeChanged()
         }
         if (component is StyledComponent) {
+            component.onThemeChanged()
+        }
+        if (component is com.nexustools.genericui.component.form.styled.StyledTextField) {
             component.onThemeChanged()
         }
         if (component is Composite) {

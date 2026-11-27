@@ -42,13 +42,13 @@ data class GenericUiProjectConfig(
             null
         }
 
-    /** Returns [selectedExtensions] expanded with all transitively required extension modules. */
+    /** Returns [selectedExtensions] expanded with all transitively required extension modules compatible with [selectedBackends]. */
     fun resolvedExtensions(): Set<GenericUiExtensionModule> =
-        GenericUiExtensionModule.resolveTransitive(selectedExtensions)
+        GenericUiExtensionModule.resolveTransitive(selectedExtensions, selectedBackends)
 
-    /** Returns the ordered categorized Gradle module paths (including `:dsl` submodules when [GenericUiExtensionModule.DSL] is enabled). */
+    /** Returns the ordered categorized Gradle module paths (including `:alien` when [GenericUiExtensionModule.ALIEN] is enabled and `:dsl` submodules when [GenericUiExtensionModule.DSL] is enabled). */
     fun resolvedExtensionModulePaths(): List<String> =
-        GenericUiExtensionModule.resolveModulePaths(selectedExtensions)
+        GenericUiExtensionModule.resolveModulePaths(selectedExtensions, selectedBackends)
 
     /** True if any non-web system backend is selected (requiring `:system`). */
     fun requiresSystemModule(): Boolean =

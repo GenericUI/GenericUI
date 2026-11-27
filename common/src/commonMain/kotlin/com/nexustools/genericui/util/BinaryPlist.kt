@@ -1,5 +1,6 @@
 package com.nexustools.genericui.util
 
+import com.nexustools.genericui.component.system.DataClassCodecRegistry
 import com.nexustools.genericui.component.system.PreferenceElement
 import com.nexustools.genericui.component.system.PreferenceElementKind
 import com.nexustools.genericui.component.system.PreferenceObjectCodec
@@ -27,6 +28,7 @@ import kotlin.reflect.KClass
  *    - `0x10..0x13`: `Int` / `Long` (`2^n` bytes: 1, 2, 4, or 8 bytes big-endian)
  *    - `0x22`: `Float` (4 bytes IEEE-754 big-endian)
  *    - `0x23`: `Double` (8 bytes IEEE-754 big-endian)
+ *    - `0x4n`: `NSData` (`ByteArray`: `n` raw bytes, or `0x4F` + int count + raw bytes)
  *    - `0x5n`: ASCII `String` (`n` bytes, or `0x5F` + int count + ASCII bytes)
  *    - `0x6n`: UTF-16BE `String` (`n` UTF-16 code units, or `0x6F` + int count + UTF-16BE bytes)
  *    - `0xAn`: `Array` (`n` object reference indices of `objectRefSize` bytes each)
@@ -145,6 +147,32 @@ object BinaryPlist {
      */
     fun encodeToBuffer(value: Any?): ByteBuffer =
         encodeElementToBuffer(PreferenceObjectCodec.toElement(value))
+
+    /**
+     * Encodes a data class (or registered `@BinarySerializable` / reflected object) [value]
+     * of [targetClass] into Apple `"bplist00"` binary bytes.
+     */
+    fun <T : Any> encodeDataClass(value: T, targetClass: KClass<T>): ByteArray {
+        val element = DataClassCodecRegistry.encode(value, targetClass)
+            ?: PreferenceObjectCodec.toElement(value)
+        return encodeElement(element)
+    }
+
+    inline fun <reified T : Any> encodeDataClass(value: T): ByteArray =
+        encodeDataClass(value, T::class)
+
+    /**
+     * Decodes Apple `"bplist00"` binary bytes directly into an instance of [targetClass] using
+     * [DataClassCodecRegistry] or platform reflection, returning `null` if invalid or `null`.
+     */
+    fun <T : Any> decodeDataClass(bytes: ByteArray, targetClass: KClass<T>): T? {
+        val element = decodeElementOrNull(bytes) ?: return null
+        if (element.isNull) return null
+        return PreferenceObjectCodec.fromElement(element, targetClass, defaultValue = null)
+    }
+
+    inline fun <reified T : Any> decodeDataClass(bytes: ByteArray): T? =
+        decodeDataClass(bytes, T::class)
 
     /**
      * Asynchronously decodes a `"bplist00"` binary property list from any [Readable] stream
@@ -308,6 +336,11 @@ object BinaryPlist {
         data class IntNode(val value: Long, val byteCount: Int) : PlistNode()
         data class FloatNode(val value: Float) : PlistNode()
         data class DoubleNode(val value: Double) : PlistNode()
+        data class DataNode(val bytes: ByteArray) : PlistNode() {
+            override fun equals(other: Any?): Boolean =
+                this === other || (other is DataNode && bytes.contentEquals(other.bytes))
+            override fun hashCode(): Int = bytes.contentHashCode()
+        }
         data class StringNode(val value: String) : PlistNode()
         data class ArrayNode(val elementRefs: IntArray) : PlistNode()
         data class DictNode(val keyRefs: IntArray, val valueRefs: IntArray) : PlistNode()
@@ -334,6 +367,7 @@ object BinaryPlist {
                 }
             }
             PreferenceElementKind.STRING -> PlistNode.StringNode(element.stringValue ?: "")
+            PreferenceElementKind.BYTES -> PlistNode.DataNode(element.bytesOrNull() ?: ByteArray(0))
             PreferenceElementKind.ARRAY -> {
                 val refs = IntArray(element.arrayElements.size)
                 for (i in element.arrayElements.indices) {
@@ -392,6 +426,12 @@ object BinaryPlist {
             is PlistNode.DoubleNode -> {
                 out.writeByte(0x23)
                 out.writeDouble(node.value, ByteOrder.BIG_ENDIAN)
+            }
+            is PlistNode.DataNode -> {
+                writeMarkerAndLength(out, 0x40, node.bytes.size)
+                if (node.bytes.isNotEmpty()) {
+                    out.writeBytes(node.bytes, 0, node.bytes.size)
+                }
             }
             is PlistNode.StringNode -> {
                 val s = node.value
@@ -498,11 +538,7 @@ object BinaryPlist {
                     val (count, dataStart) = readLengthAndPayloadOffsetOrNull(buffer, pos, low, offsetTableStart)
                         ?: return null
                     if (count < 0 || dataStart.toLong() + count.toLong() > offsetTableStart.toLong()) return null
-                    val list = ArrayList<PreferenceElement>(count)
-                    for (i in 0 until count) {
-                        list.add(PreferenceElement.ofByte(buffer.readByte(dataStart + i)))
-                    }
-                    PreferenceElement.ofArray(list)
+                    PreferenceElement.ofBytes(buffer.toByteArray(dataStart, dataStart + count))
                 }
                 0x50 -> {
                     val (count, strStart) = readLengthAndPayloadOffsetOrNull(buffer, pos, low, offsetTableStart)

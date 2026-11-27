@@ -1,7 +1,9 @@
 package com.nexustools.genericui.component.form
 
 import com.nexustools.genericui.component.layout.HStack
+import com.nexustools.genericui.component.typography.ILabelTarget
 import com.nexustools.genericui.component.typography.Label
+import com.nexustools.genericui.core.AbstractComponent
 import kotlin.math.floor
 import kotlin.math.roundToInt
 
@@ -15,7 +17,16 @@ open class CompoundUnitInput(
     val subdivisionsPerPrimary: Double = 12.0,
     minTotal: Double = 0.0,
     maxTotal: Double = 1000.0
-) : HStack() {
+) : HStack(), ILabelTarget {
+
+    override val labelTargetComponent: AbstractComponent
+        get() = primaryField
+
+    override fun focusFromLabel() {
+        if (isEnabled && isFocusable && primaryField.isEnabled && primaryField.isFocusable) {
+            primaryField.isFocused = true
+        }
+    }
 
     val primaryField: NumberField = NumberField(numericValue = 0.0, minValue = 0.0, maxValue = maxTotal, step = 1.0)
     val primaryUnitLabel: Label = Label(primaryUnitSuffix, "span", "input-group-text")

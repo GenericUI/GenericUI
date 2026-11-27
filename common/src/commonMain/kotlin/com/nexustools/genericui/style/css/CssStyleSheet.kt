@@ -60,7 +60,7 @@ class CssStyleSheet(
 
         for (i in sortedRules.indices) {
             val rule = sortedRules[i]
-            val hasMedia = rule.mediaMinWidthPx != null || rule.mediaMaxWidthPx != null
+            val hasMedia = rule.mediaMinWidthPx != null || rule.mediaMaxWidthPx != null || rule.mediaQuery != null
             if (hasMedia) {
                 mediaRuleIndexList.add(i)
             }
@@ -452,6 +452,229 @@ class CssStyleSheet(
     private val styleLookupCache = linkedMapOf<String, ComputedStyle>()
 
     /**
+     * Resolves full W3C Selectors Level 4, `@media`, `--custom-property` inheritance/`var()`,
+     * interactive states, and `::before`/`::after` pseudo-element styles for a tree [node].
+     */
+    fun resolveStyleForNode(
+        node: CssSelectorNode,
+        viewportWidthPx: Int = 1280,
+        viewportHeightPx: Int = 800,
+        isDarkThemeOverride: Boolean? = null
+    ): ComputedStyle {
+        val activeTarget = resolveActiveBackendTarget()
+        val isDarkTheme = isDarkThemeOverride ?: (
+            Application.current?.getResolvedTheme() == ThemeMode.DARK ||
+                "bs-theme-dark" in node.selectorClasses ||
+                hasDarkAncestor(node)
+            )
+        val classes = node.selectorClasses
+        val tagName = node.selectorTagName.ifEmpty { "div" }
+        val normalizedTargetTag = normalizeTagName(tagName)
+        val id = node.selectorId
+
+        val matchedIndices = ArrayList<Int>(16)
+        fun checkBucket(bucket: IntArray?) {
+            if (bucket == null) return
+            for (ruleIdx in bucket) {
+                val rule = sortedRules[ruleIdx]
+                if (!rule.matchesBackend(activeTarget)) continue
+                if (!rule.matchesMediaQuery(viewportWidthPx, viewportHeightPx, isDarkTheme)) continue
+                if (matchesRuleForNode(rule, node, ignoreInteractivePseudosOnSubject = true)) {
+                    matchedIndices.add(ruleIdx)
+                }
+            }
+        }
+
+        if (!id.isNullOrEmpty()) {
+            checkBucket(idBuckets[id])
+        }
+        for (cls in classes) {
+            if (cls.isNotEmpty()) checkBucket(classBuckets[cls])
+        }
+        if (normalizedTargetTag.isNotEmpty()) {
+            checkBucket(tagBuckets[normalizedTargetTag])
+        }
+        checkBucket(universalBucket)
+
+        val matchedRules = if (matchedIndices.isEmpty()) {
+            emptyList()
+        } else {
+            matchedIndices.sort()
+            val out = ArrayList<CssRule>(matchedIndices.size)
+            var prev = -1
+            for (idx in matchedIndices) {
+                if (idx != prev) {
+                    out.add(sortedRules[idx])
+                    prev = idx
+                }
+            }
+            out
+        }
+
+        val baseRules = ArrayList<CssRule>(matchedRules.size)
+        var hoverRules: ArrayList<CssRule>? = null
+        var focusRules: ArrayList<CssRule>? = null
+        var activeRules: ArrayList<CssRule>? = null
+        var disabledRules: ArrayList<CssRule>? = null
+        var checkedRules: ArrayList<CssRule>? = null
+        var beforeRules: ArrayList<CssRule>? = null
+        var afterRules: ArrayList<CssRule>? = null
+
+        fun nodeMatchesInteractivePseudo(pseudo: String?): Boolean = when (pseudo) {
+            null -> true
+            "hover" -> node.selectorIsHovered
+            "focus", "focus-visible" -> node.selectorIsFocused
+            "focus-within" -> hasFocusWithinNode(node)
+            "active" -> node.selectorIsActive
+            "disabled" -> !node.selectorIsEnabled
+            "checked" -> node.selectorIsChecked
+            else -> true
+        }
+
+        for (rule in matchedRules) {
+            when (rule.pseudoElement) {
+                "before" -> if (nodeMatchesInteractivePseudo(rule.pseudoClass)) {
+                    (beforeRules ?: ArrayList<CssRule>(2).also { beforeRules = it }).add(rule)
+                }
+                "after" -> if (nodeMatchesInteractivePseudo(rule.pseudoClass)) {
+                    (afterRules ?: ArrayList<CssRule>(2).also { afterRules = it }).add(rule)
+                }
+                null -> when (rule.pseudoClass) {
+                    "hover" -> (hoverRules ?: ArrayList<CssRule>(4).also { hoverRules = it }).add(rule)
+                    "focus", "focus-visible", "focus-within" ->
+                        (focusRules ?: ArrayList<CssRule>(4).also { focusRules = it }).add(rule)
+                    "active" -> (activeRules ?: ArrayList<CssRule>(4).also { activeRules = it }).add(rule)
+                    "disabled" -> (disabledRules ?: ArrayList<CssRule>(4).also { disabledRules = it }).add(rule)
+                    "checked" -> (checkedRules ?: ArrayList<CssRule>(4).also { checkedRules = it }).add(rule)
+                    else -> baseRules.add(rule)
+                }
+            }
+        }
+
+        val inheritedVars = node.selectorInheritedCustomProperties
+        val rawBaseDecls = mergeRuleDeclarations(baseRules)
+        val resolvedBaseVars = CssCustomPropertyUtil.resolveVariableMap(
+            inherited = inheritedVars,
+            localDeclarations = rawBaseDecls,
+            isDarkTheme = isDarkTheme
+        )
+        val baseDecls = expandVarsInDeclarations(rawBaseDecls, resolvedBaseVars, isDarkTheme)
+        val baseImportantProps = collectImportantProperties(baseRules)
+
+        fun buildSubStateStyle(subRules: List<CssRule>?): ComputedStyle? {
+            if (subRules.isNullOrEmpty()) return null
+            val combined = baseRules + subRules
+            val rawCombined = mergeRuleDeclarations(combined)
+            val stateVars = CssCustomPropertyUtil.resolveVariableMap(
+                inherited = inheritedVars,
+                localDeclarations = rawCombined,
+                isDarkTheme = isDarkTheme
+            )
+            return buildComputedStyleFromDeclarations(
+                merged = expandVarsInDeclarations(rawCombined, stateVars, isDarkTheme),
+                importantCssProperties = collectImportantProperties(combined),
+                isDarkTheme = isDarkTheme,
+                classes = classes,
+                customProperties = stateVars
+            )
+        }
+
+        fun buildPseudoElStyle(elRules: List<CssRule>?): ComputedStyle? {
+            if (elRules.isNullOrEmpty()) return null
+            val rawDecls = mergeRuleDeclarations(elRules)
+            val elVars = CssCustomPropertyUtil.resolveVariableMap(
+                inherited = resolvedBaseVars,
+                localDeclarations = rawDecls,
+                isDarkTheme = isDarkTheme
+            )
+            return buildComputedStyleFromDeclarations(
+                merged = expandVarsInDeclarations(rawDecls, elVars, isDarkTheme),
+                importantCssProperties = collectImportantProperties(elRules),
+                isDarkTheme = isDarkTheme,
+                classes = classes,
+                customProperties = elVars
+            )
+        }
+
+        val computed = buildComputedStyleFromDeclarations(
+            merged = baseDecls,
+            hoverStyle = buildSubStateStyle(hoverRules),
+            focusStyle = buildSubStateStyle(focusRules),
+            activeStyle = buildSubStateStyle(activeRules),
+            disabledStyle = buildSubStateStyle(disabledRules),
+            checkedStyle = buildSubStateStyle(checkedRules),
+            importantCssProperties = baseImportantProps,
+            isDarkTheme = isDarkTheme,
+            classes = classes,
+            customProperties = resolvedBaseVars,
+            beforeStyle = buildPseudoElStyle(beforeRules),
+            afterStyle = buildPseudoElStyle(afterRules)
+        )
+        return if (node.selectorIsHovered || node.selectorIsFocused ||
+            node.selectorIsActive || !node.selectorIsEnabled || node.selectorIsChecked
+        ) {
+            computed.resolveForState(
+                hovered = node.selectorIsHovered,
+                focused = node.selectorIsFocused,
+                active = node.selectorIsActive,
+                enabled = node.selectorIsEnabled,
+                checked = node.selectorIsChecked
+            )
+        } else {
+            computed
+        }
+    }
+
+    private fun hasDarkAncestor(node: CssSelectorNode): Boolean {
+        var p = node.selectorParent
+        while (p != null) {
+            if ("bs-theme-dark" in p.selectorClasses) return true
+            p = p.selectorParent
+        }
+        return false
+    }
+
+    private fun hasFocusWithinNode(node: CssSelectorNode): Boolean {
+        if (node.selectorIsFocused) return true
+        for (c in node.selectorChildren) {
+            if (hasFocusWithinNode(c)) return true
+        }
+        return false
+    }
+
+    private fun matchesRuleForNode(
+        rule: CssRule,
+        node: CssSelectorNode,
+        ignoreInteractivePseudosOnSubject: Boolean
+    ): Boolean {
+        if (rule.l4Segments.isEmpty()) return false
+        if (rule.isUniversalStarOnly) return true
+        return CssSelectorCompound.matchesChain(
+            chain = rule.l4Segments,
+            subjectNode = node,
+            ignoreInteractivePseudosOnSubject = ignoreInteractivePseudosOnSubject
+        )
+    }
+
+    private fun expandVarsInDeclarations(
+        decls: Map<String, String>,
+        variables: Map<String, String>,
+        isDarkTheme: Boolean
+    ): Map<String, String> {
+        if (decls.isEmpty()) return decls
+        val out = LinkedHashMap<String, String>(decls.size)
+        for ((k, v) in decls) {
+            if (k.startsWith("--")) continue
+            out[k] = if ("var(" in v.lowercase()) {
+                CssCustomPropertyUtil.substituteVars(v, variables, isDarkTheme)
+            } else {
+                v
+            }
+        }
+        return out
+    }
+
+    /**
      * Resolves a [ComputedStyle] for a set of CSS classes, optional element tag, optional ID,
      * optional ancestor class chain, and viewport width (for `@media (min-width: ...)` rules).
      */
@@ -513,61 +736,86 @@ class CssStyleSheet(
         var checkedRules: ArrayList<CssRule>? = null
 
         for (rule in matchingRules) {
+            if (rule.pseudoElement != null) continue
             when (rule.pseudoClass) {
                 null -> baseRules.add(rule)
                 "hover" -> (hoverRules ?: ArrayList<CssRule>(4).also { hoverRules = it }).add(rule)
-                "focus", "focus-visible" -> (focusRules ?: ArrayList<CssRule>(4).also { focusRules = it }).add(rule)
+                "focus", "focus-visible", "focus-within" ->
+                    (focusRules ?: ArrayList<CssRule>(4).also { focusRules = it }).add(rule)
                 "active" -> (activeRules ?: ArrayList<CssRule>(4).also { activeRules = it }).add(rule)
                 "disabled" -> (disabledRules ?: ArrayList<CssRule>(4).also { disabledRules = it }).add(rule)
                 "checked" -> (checkedRules ?: ArrayList<CssRule>(4).also { checkedRules = it }).add(rule)
+                else -> baseRules.add(rule)
             }
         }
 
-        val baseDecls = mergeRuleDeclarations(baseRules)
+        val rootDefaultVars = collectRootCustomProperties(viewportWidthPx, isDarkTheme)
+        val rawBaseDecls = mergeRuleDeclarations(baseRules)
+        val resolvedBaseVars = CssCustomPropertyUtil.resolveVariableMap(
+            inherited = rootDefaultVars,
+            localDeclarations = rawBaseDecls,
+            isDarkTheme = isDarkTheme
+        )
+        val baseDecls = expandVarsInDeclarations(rawBaseDecls, resolvedBaseVars, isDarkTheme)
         val baseImportantProps = collectImportantProperties(baseRules)
         val hoverStyle = hoverRules?.let { rulesList ->
             val combined = baseRules + rulesList
+            val rawCombined = mergeRuleDeclarations(combined)
+            val stateVars = CssCustomPropertyUtil.resolveVariableMap(resolvedBaseVars, rawCombined, isDarkTheme)
             buildComputedStyleFromDeclarations(
-                mergeRuleDeclarations(combined),
+                expandVarsInDeclarations(rawCombined, stateVars, isDarkTheme),
                 importantCssProperties = collectImportantProperties(combined),
                 isDarkTheme = isDarkTheme,
-                classes = classes
+                classes = classes,
+                customProperties = stateVars
             )
         }
         val focusStyle = focusRules?.let { rulesList ->
             val combined = baseRules + rulesList
+            val rawCombined = mergeRuleDeclarations(combined)
+            val stateVars = CssCustomPropertyUtil.resolveVariableMap(resolvedBaseVars, rawCombined, isDarkTheme)
             buildComputedStyleFromDeclarations(
-                mergeRuleDeclarations(combined),
+                expandVarsInDeclarations(rawCombined, stateVars, isDarkTheme),
                 importantCssProperties = collectImportantProperties(combined),
                 isDarkTheme = isDarkTheme,
-                classes = classes
+                classes = classes,
+                customProperties = stateVars
             )
         }
         val activeStyle = activeRules?.let { rulesList ->
             val combined = baseRules + rulesList
+            val rawCombined = mergeRuleDeclarations(combined)
+            val stateVars = CssCustomPropertyUtil.resolveVariableMap(resolvedBaseVars, rawCombined, isDarkTheme)
             buildComputedStyleFromDeclarations(
-                mergeRuleDeclarations(combined),
+                expandVarsInDeclarations(rawCombined, stateVars, isDarkTheme),
                 importantCssProperties = collectImportantProperties(combined),
                 isDarkTheme = isDarkTheme,
-                classes = classes
+                classes = classes,
+                customProperties = stateVars
             )
         }
         val disabledStyle = disabledRules?.let { rulesList ->
             val combined = baseRules + rulesList
+            val rawCombined = mergeRuleDeclarations(combined)
+            val stateVars = CssCustomPropertyUtil.resolveVariableMap(resolvedBaseVars, rawCombined, isDarkTheme)
             buildComputedStyleFromDeclarations(
-                mergeRuleDeclarations(combined),
+                expandVarsInDeclarations(rawCombined, stateVars, isDarkTheme),
                 importantCssProperties = collectImportantProperties(combined),
                 isDarkTheme = isDarkTheme,
-                classes = classes
+                classes = classes,
+                customProperties = stateVars
             )
         }
         val checkedStyle = checkedRules?.let { rulesList ->
             val combined = baseRules + rulesList
+            val rawCombined = mergeRuleDeclarations(combined)
+            val stateVars = CssCustomPropertyUtil.resolveVariableMap(resolvedBaseVars, rawCombined, isDarkTheme)
             buildComputedStyleFromDeclarations(
-                mergeRuleDeclarations(combined),
+                expandVarsInDeclarations(rawCombined, stateVars, isDarkTheme),
                 importantCssProperties = collectImportantProperties(combined),
                 isDarkTheme = isDarkTheme,
-                classes = classes
+                classes = classes,
+                customProperties = stateVars
             )
         }
 
@@ -580,7 +828,8 @@ class CssStyleSheet(
             checkedStyle = checkedStyle,
             importantCssProperties = baseImportantProps,
             isDarkTheme = isDarkTheme,
-            classes = classes
+            classes = classes,
+            customProperties = resolvedBaseVars
         )
         if (styleLookupCache.size < 2048) {
             styleLookupCache[cacheKey] = computed
@@ -609,8 +858,9 @@ class CssStyleSheet(
             if (bucket == null) return
             for (ruleIdx in bucket) {
                 val rule = sortedRules[ruleIdx]
-                if (rule.matchesBackend(activeTarget) &&
-                    rule.matchesMediaQuery(viewportWidthPx) &&
+                if (rule.pseudoElement == null &&
+                    rule.matchesBackend(activeTarget) &&
+                    rule.matchesMediaQuery(viewportWidthPx, 800, false) &&
                     matchesRule(rule, classes, normalizedTargetTag, id, ancestorChain, subjectEnabled)
                 ) {
                     matchedIndices.add(ruleIdx)
@@ -797,6 +1047,31 @@ class CssStyleSheet(
     ): Boolean {
         if (rule.chainTokens.isEmpty() || rule.chainTokens.any { it.isEmpty() }) return false
         if (rule.isUniversalStarOnly) return true
+        for (seg in rule.l4Segments) {
+            if (seg.combinatorToLeft == CssCombinator.ADJACENT_SIBLING ||
+                seg.combinatorToLeft == CssCombinator.GENERAL_SIBLING ||
+                seg.isSelectors.isNotEmpty() ||
+                seg.whereSelectors.isNotEmpty() ||
+                seg.hasSelectors.isNotEmpty() ||
+                seg.pseudoElement != null
+            ) {
+                return false
+            }
+            for (attr in seg.attributes) {
+                val isSupportedDisabledAttr = attr.name == "disabled" ||
+                    (attr.name == "aria-disabled" &&
+                        attr.operator == CssAttributeOperator.EQUALS &&
+                        attr.value?.equals("true", ignoreCase = true) == true)
+                if (!isSupportedDisabledAttr) return false
+            }
+            for (pseudo in seg.positivePseudos) {
+                if (pseudo == "root") {
+                    if (ancestorChain.isNotEmpty()) return false
+                } else if (pseudo !in LEGACY_SIMPLE_PSEUDOS) {
+                    return false
+                }
+            }
+        }
 
         if (!matchesSubjectToken(rule, classes, normalizedTargetTag, id, subjectEnabled)) {
             return false
@@ -934,6 +1209,32 @@ class CssStyleSheet(
             exclPseudos.isNotEmpty()
     }
 
+    private fun collectRootCustomProperties(viewportWidthPx: Int, isDarkTheme: Boolean): Map<String, String> {
+        if (universalBucket.isEmpty() && tagBuckets["html"] == null && tagBuckets["body"] == null) {
+            return emptyMap()
+        }
+        val out = linkedMapOf<String, String>()
+        val activeTarget = resolveActiveBackendTarget()
+        fun scanBucket(bucket: IntArray?) {
+            if (bucket == null) return
+            for (idx in bucket) {
+                val rule = sortedRules[idx]
+                if (!rule.matchesBackend(activeTarget)) continue
+                if (!rule.matchesMediaQuery(viewportWidthPx, 800, isDarkTheme)) continue
+                val sel = rule.selector.trim().lowercase()
+                if (sel == ":root" || sel == "html" || sel == "body") {
+                    for ((k, v) in rule.cleanedDeclarations) {
+                        if (k.startsWith("--")) out[k] = v
+                    }
+                }
+            }
+        }
+        scanBucket(universalBucket)
+        scanBucket(tagBuckets["html"])
+        scanBucket(tagBuckets["body"])
+        return out
+    }
+
     private fun normalizeTagName(tag: String): String =
         normalizeCustomGenericUiTagSelector(tag)
 
@@ -985,11 +1286,41 @@ class CssStyleSheet(
         ) -> Int?)? = null
 
         private val WHITESPACE_REGEX = Regex("\\s+")
-        private val COMMENT_REGEX = Regex("/\\*[\\s\\S]*?\\*/")
+
+        /**
+         * Strips CSS block comments iteratively instead of using a backtracking regex so large
+         * native stylesheets never overflow the Kotlin/Native regex matcher stack.
+         */
+        private fun stripCssBlockComments(css: String): String {
+            val firstStart = css.indexOf("/*")
+            if (firstStart < 0) return css
+            val sb = StringBuilder(css.length)
+            var cursor = 0
+            var commentStart = firstStart
+            while (commentStart >= 0) {
+                if (commentStart > cursor) {
+                    sb.append(css, cursor, commentStart)
+                }
+                val commentEnd = css.indexOf("*/", commentStart + 2)
+                if (commentEnd < 0) {
+                    return sb.toString()
+                }
+                cursor = commentEnd + 2
+                commentStart = css.indexOf("/*", cursor)
+            }
+            if (cursor < css.length) {
+                sb.append(css, cursor, css.length)
+            }
+            return sb.toString()
+        }
         private val KEYFRAMES_PREFIX_REGEX = Regex("^@keyframes\\s+", RegexOption.IGNORE_CASE)
+        private val WEBKIT_KEYFRAMES_PREFIX_REGEX = Regex("^@-webkit-keyframes\\s+", RegexOption.IGNORE_CASE)
         private val MIN_WIDTH_REGEX = Regex("min-width\\s*:\\s*(\\d+)px", RegexOption.IGNORE_CASE)
         private val MAX_WIDTH_REGEX = Regex("max-width\\s*:\\s*(\\d+)px", RegexOption.IGNORE_CASE)
         private val URL_REGEX = Regex("url\\(\\s*['\"]?([^'\")]+)['\"]?\\s*\\)", RegexOption.IGNORE_CASE)
+        private val LEGACY_SIMPLE_PSEUDOS = setOf(
+            "hover", "focus", "focus-visible", "focus-within", "active", "disabled", "enabled", "checked"
+        )
 
         /**
          * Constructs a precompiled [CssStyleSheet] from build-time pre-parsed and specificity-sorted
@@ -1074,7 +1405,10 @@ class CssStyleSheet(
             checkedStyle: ComputedStyle? = null,
             importantCssProperties: Set<CssProperty> = emptySet(),
             isDarkTheme: Boolean = Application.current?.getResolvedTheme() == ThemeMode.DARK,
-            classes: Set<String> = emptySet()
+            classes: Set<String> = emptySet(),
+            customProperties: Map<String, String> = emptyMap(),
+            beforeStyle: ComputedStyle? = null,
+            afterStyle: ComputedStyle? = null
         ): ComputedStyle {
             val typedStyle = CssDeclarationApplyUtil.fromDeclarations(merged, isDarkTheme)
             for (impProp in importantCssProperties) {
@@ -1100,8 +1434,8 @@ class CssStyleSheet(
                 }
             }
 
-            var borderColor = merged["border-color"]?.let { resolveCssColorValue(it, isDarkTheme) } ?: baseComputed.borderColor
-            var borderWidthPx = merged["border-width"]?.removeSuffix("px")?.trim()?.toFloatOrNull() ?: baseComputed.borderWidthPx
+            var borderColor = merged["border-color"]?.let { resolveCssColorValue(it, isDarkTheme, fgColor) } ?: baseComputed.borderColor
+            var borderWidthPx = merged["border-width"]?.let { CssLength.parse(it)?.resolvePx() } ?: baseComputed.borderWidthPx
             var borderStyle = merged["border-style"] ?: baseComputed.borderStyle
             merged["border"]?.let { borderShorthand ->
                 if (borderShorthand.equals("none", ignoreCase = true) || borderShorthand == "0") {
@@ -1113,29 +1447,38 @@ class CssStyleSheet(
                         val lower = tok.lowercase()
                         when {
                             lower in setOf("solid", "dashed", "dotted", "double", "none") -> borderStyle = lower
-                            lower.endsWith("px") -> borderWidthPx = lower.removeSuffix("px").toFloatOrNull()
-                            else -> resolveCssColorValue(tok, isDarkTheme)?.let { borderColor = it }
+                            lower.endsWith("px") || lower.endsWith("rem") || lower.endsWith("em") || lower.endsWith("pt") ->
+                                CssLength.parse(lower)?.resolvePx()?.let { borderWidthPx = it }
+                            else -> resolveCssColorValue(tok, isDarkTheme, fgColor)?.let { borderColor = it }
                         }
                     }
                 }
             }
 
             val radiusRaw = merged["border-radius"]?.trim()
-            val borderRadiusPx = radiusRaw?.takeIf { it.endsWith("px") }?.removeSuffix("px")?.toFloatOrNull()
+            val parsedCornerRadius = radiusRaw?.let { CssCornerRadii.parse(it)?.topLeft }
+            val borderRadiusPx = baseComputed.borderRadiusPx
+                ?: parsedCornerRadius
+                    ?.takeIf { it.unit != com.nexustools.genericui.enums.css.CssUnit.PERCENT }
+                    ?.resolvePx()
+                ?: radiusRaw?.takeIf { it.endsWith("px") }?.removeSuffix("px")?.toFloatOrNull()
                 ?: radiusRaw?.toFloatOrNull()
-                ?: baseComputed.borderRadiusPx
-            val borderRadiusPercent = radiusRaw?.takeIf { it.endsWith("%") }?.removeSuffix("%")?.toFloatOrNull()
-                ?: baseComputed.borderRadiusPercent
+            val borderRadiusPercent = baseComputed.borderRadiusPercent
+                ?: parsedCornerRadius
+                    ?.takeIf { it.unit == com.nexustools.genericui.enums.css.CssUnit.PERCENT }
+                    ?.value
+                ?: radiusRaw?.takeIf { it.endsWith("%") }?.removeSuffix("%")?.toFloatOrNull()
 
             val fontSizeRaw = merged["font-size"]?.trim()
+            val parsedFontLen = fontSizeRaw?.let { CssLength.parse(it) }
             val fontSizePx = when {
-                fontSizeRaw == null -> baseComputed.fontSizePx
-                fontSizeRaw.endsWith("px") -> fontSizeRaw.removeSuffix("px").toFloatOrNull()
-                fontSizeRaw.endsWith("em") -> (fontSizeRaw.removeSuffix("em").toFloatOrNull() ?: 1f) * 16f
-                fontSizeRaw.endsWith("rem") -> (fontSizeRaw.removeSuffix("rem").toFloatOrNull() ?: 1f) * 16f
-                else -> fontSizeRaw.toFloatOrNull() ?: baseComputed.fontSizePx
+                parsedFontLen != null && parsedFontLen.unit != com.nexustools.genericui.enums.css.CssUnit.PERCENT ->
+                    parsedFontLen.resolvePx() ?: baseComputed.fontSizePx
+                else -> baseComputed.fontSizePx
             }
-            val fontSizePercent = fontSizeRaw?.takeIf { it.endsWith("%") }?.removeSuffix("%")?.toFloatOrNull()
+            val fontSizePercent = parsedFontLen
+                ?.takeIf { it.unit == com.nexustools.genericui.enums.css.CssUnit.PERCENT }
+                ?.value
                 ?: baseComputed.fontSizePercent
 
             val fontFamily = merged["font-family"]?.trim()?.removeSurrounding("\"")?.removeSurrounding("'")
@@ -1149,7 +1492,9 @@ class CssStyleSheet(
                 else -> fontWeightRaw?.toIntOrNull() ?: baseComputed.fontWeightNumeric
             }
 
-            val opacity = merged["opacity"]?.toFloatOrNull() ?: baseComputed.opacity
+            val opacity = merged["opacity"]?.let { rawOp ->
+                rawOp.toFloatOrNull() ?: if (CssMathEvaluator.isMathFunction(rawOp)) CssMathEvaluator.evaluateScalar(rawOp) else null
+            } ?: baseComputed.opacity
             val boxShadow = merged["box-shadow"] ?: merged["-webkit-box-shadow"] ?: baseComputed.boxShadow
             val textShadow = merged["text-shadow"] ?: baseComputed.textShadow
             val transform = merged["transform"] ?: baseComputed.transform
@@ -1165,7 +1510,15 @@ class CssStyleSheet(
                 textColor = fgColor,
                 accentColor = accentColor,
                 borderColor = borderColor,
+                borderTopColor = baseComputed.borderTopColor ?: borderColor,
+                borderRightColor = baseComputed.borderRightColor ?: borderColor,
+                borderBottomColor = baseComputed.borderBottomColor ?: borderColor,
+                borderLeftColor = baseComputed.borderLeftColor ?: borderColor,
                 borderWidthPx = borderWidthPx,
+                borderTopWidthPx = baseComputed.borderTopWidthPx ?: borderWidthPx,
+                borderRightWidthPx = baseComputed.borderRightWidthPx ?: borderWidthPx,
+                borderBottomWidthPx = baseComputed.borderBottomWidthPx ?: borderWidthPx,
+                borderLeftWidthPx = baseComputed.borderLeftWidthPx ?: borderWidthPx,
                 borderStyle = borderStyle,
                 borderRadiusPx = borderRadiusPx,
                 borderRadiusPercent = borderRadiusPercent,
@@ -1211,11 +1564,18 @@ class CssStyleSheet(
                 focusStyle = focusStyle,
                 activeStyle = activeStyle,
                 disabledStyle = disabledStyle,
-                checkedStyle = checkedStyle
+                checkedStyle = checkedStyle,
+                customProperties = if (customProperties.isEmpty()) baseComputed.customProperties else customProperties,
+                beforeStyle = beforeStyle ?: baseComputed.beforeStyle,
+                afterStyle = afterStyle ?: baseComputed.afterStyle
             )
         }
 
-        internal fun resolveCssColorValue(rawValue: String, isDarkTheme: Boolean): RgbaColor? {
+        internal fun resolveCssColorValue(
+            rawValue: String,
+            isDarkTheme: Boolean,
+            currentColor: RgbaColor? = null
+        ): RgbaColor? {
             val trimmed = rawValue.trim()
             if (trimmed.isEmpty()) return null
             if (trimmed.startsWith("@color/") || trimmed.startsWith("res://color/")) {
@@ -1229,66 +1589,13 @@ class CssStyleSheet(
                 }
             }
             if (trimmed.startsWith("var(", ignoreCase = true) && trimmed.endsWith(")")) {
-                val inner = trimmed.substring(4, trimmed.length - 1).trim()
-                val commaIdx = inner.indexOf(',')
-                val varName = (if (commaIdx >= 0) inner.substring(0, commaIdx) else inner).trim().lowercase()
-                val fallback = if (commaIdx >= 0) inner.substring(commaIdx + 1).trim() else null
-                when (varName) {
-                    "--bs-body-color",
-                    "--bs-card-color",
-                    "--bs-list-group-color",
-                    "--bs-dropdown-color",
-                    "--bs-nav-link-color",
-                    "--bs-heading-color" -> return if (isDarkTheme) {
-                        RgbaColor(222, 226, 230, 1.0f) // #dee2e6
-                    } else {
-                        RgbaColor(33, 37, 41, 1.0f) // #212529
-                    }
-                    "--bs-emphasis-color" -> return if (isDarkTheme) {
-                        RgbaColor(255, 255, 255, 1.0f) // #ffffff
-                    } else {
-                        RgbaColor(0, 0, 0, 1.0f) // #000000
-                    }
-                    "--bs-secondary-color" -> return if (isDarkTheme) {
-                        RgbaColor(222, 226, 230, 0.75f)
-                    } else {
-                        RgbaColor(33, 37, 41, 0.75f)
-                    }
-                    "--bs-tertiary-color" -> return if (isDarkTheme) {
-                        RgbaColor(222, 226, 230, 0.5f)
-                    } else {
-                        RgbaColor(33, 37, 41, 0.5f)
-                    }
-                    "--bs-body-bg",
-                    "--bs-card-bg",
-                    "--bs-list-group-bg",
-                    "--bs-dropdown-bg" -> return if (isDarkTheme) {
-                        RgbaColor(33, 37, 41, 1.0f) // #212529
-                    } else {
-                        RgbaColor(255, 255, 255, 1.0f) // #ffffff
-                    }
-                    "--bs-secondary-bg" -> return if (isDarkTheme) {
-                        RgbaColor(52, 58, 64, 1.0f) // #343a40
-                    } else {
-                        RgbaColor(233, 236, 239, 1.0f) // #e9ecef
-                    }
-                    "--bs-tertiary-bg" -> return if (isDarkTheme) {
-                        RgbaColor(43, 48, 53, 1.0f) // #2b3035
-                    } else {
-                        RgbaColor(248, 249, 250, 1.0f) // #f8f9fa
-                    }
-                    "--bs-border-color" -> return if (isDarkTheme) {
-                        RgbaColor(73, 80, 87, 1.0f) // #495057
-                    } else {
-                        RgbaColor(222, 226, 230, 1.0f) // #dee2e6
-                    }
-                }
-                if (!fallback.isNullOrEmpty()) {
-                    return resolveCssColorValue(fallback, isDarkTheme)
+                val resolved = CssCustomPropertyUtil.substituteVars(trimmed, emptyMap(), isDarkTheme)
+                if (resolved != trimmed) {
+                    return resolveCssColorValue(resolved, isDarkTheme, currentColor)
                 }
                 return null
             }
-            return RgbaColor.fromCss(trimmed)
+            return RgbaColor.fromCss(trimmed, currentColor)
         }
 
         internal fun extractColorFromBackgroundShorthand(value: String, isDarkTheme: Boolean = false): RgbaColor? {
@@ -1356,7 +1663,15 @@ class CssStyleSheet(
 
         internal fun parseDeclarations(body: String): Map<String, String> {
             val decls = linkedMapOf<String, String>()
-            for (stmt in body.split(";")) {
+            val cur = StringBuilder()
+            var pDepth = 0
+            var bDepth = 0
+            var inQuote: Char? = null
+
+            fun commitStatement() {
+                val stmt = cur.toString().trim()
+                cur.clear()
+                if (stmt.isEmpty()) return
                 val idx = stmt.indexOf(':')
                 if (idx > 0) {
                     val prop = stmt.substring(0, idx).trim().lowercase()
@@ -1366,6 +1681,48 @@ class CssStyleSheet(
                     }
                 }
             }
+
+            var i = 0
+            while (i < body.length) {
+                val ch = body[i]
+                if (inQuote != null) {
+                    cur.append(ch)
+                    if (ch == '\\' && i + 1 < body.length) {
+                        i++
+                        cur.append(body[i])
+                    } else if (ch == inQuote) {
+                        inQuote = null
+                    }
+                    i++
+                    continue
+                }
+                when {
+                    ch == '"' || ch == '\'' -> {
+                        inQuote = ch
+                        cur.append(ch)
+                    }
+                    ch == '(' -> {
+                        pDepth++
+                        cur.append(ch)
+                    }
+                    ch == ')' -> {
+                        if (pDepth > 0) pDepth--
+                        cur.append(ch)
+                    }
+                    ch == '[' -> {
+                        bDepth++
+                        cur.append(ch)
+                    }
+                    ch == ']' -> {
+                        if (bDepth > 0) bDepth--
+                        cur.append(ch)
+                    }
+                    ch == ';' && pDepth == 0 && bDepth == 0 -> commitStatement()
+                    else -> cur.append(ch)
+                }
+                i++
+            }
+            commitStatement()
             return decls
         }
 
@@ -1373,11 +1730,12 @@ class CssStyleSheet(
             val rules = mutableListOf<CssRule>()
             val keyframes = linkedMapOf<String, Map<String, Map<String, String>>>()
             val keyframeVariants = linkedMapOf<String, MutableList<Pair<Int, Map<String, Map<String, String>>>>>()
-            val cleaned = cssText.replace(COMMENT_REGEX, "")
+            val cleaned = stripCssBlockComments(cssText.removePrefix("\uFEFF"))
             parseInto(
                 cleanedCss = cleaned,
                 activeMinWidthPx = null,
                 activeMaxWidthPx = null,
+                activeMediaQuery = null,
                 activeBackendMask = BackendStyleMask.ALL,
                 targetMask = targetBackend?.let { BackendStyleMask.bitFor(it) },
                 outRules = rules,
@@ -1393,6 +1751,7 @@ class CssStyleSheet(
             cleanedCss: String,
             activeMinWidthPx: Int?,
             activeMaxWidthPx: Int?,
+            activeMediaQuery: CssMediaQuery?,
             activeBackendMask: Int,
             targetMask: Int?,
             outRules: MutableList<CssRule>,
@@ -1409,15 +1768,42 @@ class CssStyleSheet(
                 if (i >= n) break
 
                 val headerStart = i
-                while (i < n && cleanedCss[i] != '{') i++
+                var hQuote: Char? = null
+                while (i < n) {
+                    val c = cleanedCss[i]
+                    if (hQuote != null) {
+                        if (c == '\\' && i + 1 < n) {
+                            i += 2
+                            continue
+                        }
+                        if (c == hQuote) hQuote = null
+                    } else {
+                        if (c == '"' || c == '\'') hQuote = c
+                        else if (c == '{') break
+                    }
+                    i++
+                }
                 if (i >= n) break
                 val header = cleanedCss.substring(headerStart, i).trim()
                 val bodyStart = i + 1
                 var depth = 1
+                var bQuote: Char? = null
                 i++
                 while (i < n && depth > 0) {
-                    if (cleanedCss[i] == '{') depth++
-                    else if (cleanedCss[i] == '}') depth--
+                    val c = cleanedCss[i]
+                    if (bQuote != null) {
+                        if (c == '\\' && i + 1 < n) {
+                            i += 2
+                            continue
+                        }
+                        if (c == bQuote) bQuote = null
+                    } else {
+                        when (c) {
+                            '"', '\'' -> bQuote = c
+                            '{' -> depth++
+                            '}' -> depth--
+                        }
+                    }
                     i++
                 }
                 val body = cleanedCss.substring(bodyStart, (i - 1).coerceAtLeast(bodyStart)).trim()
@@ -1427,13 +1813,14 @@ class CssStyleSheet(
                         header.startsWith("@-webkit-keyframes", ignoreCase = true) -> {
                         val animName = header
                             .replace(KEYFRAMES_PREFIX_REGEX, "")
-                            .replace(Regex("^@-webkit-keyframes\\s+", RegexOption.IGNORE_CASE), "")
+                            .replace(WEBKIT_KEYFRAMES_PREFIX_REGEX, "")
                             .trim()
                         val frameRules = mutableListOf<CssRule>()
                         parseInto(
                             cleanedCss = body,
                             activeMinWidthPx = null,
                             activeMaxWidthPx = null,
+                            activeMediaQuery = null,
                             activeBackendMask = BackendStyleMask.ALL,
                             targetMask = null,
                             outRules = frameRules,
@@ -1458,6 +1845,7 @@ class CssStyleSheet(
                             cleanedCss = body,
                             activeMinWidthPx = activeMinWidthPx,
                             activeMaxWidthPx = activeMaxWidthPx,
+                            activeMediaQuery = activeMediaQuery,
                             activeBackendMask = nextMask,
                             targetMask = targetMask,
                             outRules = outRules,
@@ -1469,8 +1857,9 @@ class CssStyleSheet(
                         // Skip malformed backend directives instead of turning them into selectors
                     }
                     header.startsWith("@media", ignoreCase = true) -> {
-                        val minW = MIN_WIDTH_REGEX.find(header)?.groupValues?.get(1)?.toIntOrNull()
-                        val maxW = MAX_WIDTH_REGEX.find(header)?.groupValues?.get(1)?.toIntOrNull()
+                        val parsedMq = CssMediaQuery.parse(header)
+                        val minW = parsedMq.minWidthBoundsPx() ?: MIN_WIDTH_REGEX.find(header)?.groupValues?.get(1)?.toIntOrNull()
+                        val maxW = parsedMq.maxWidthBoundsPx() ?: MAX_WIDTH_REGEX.find(header)?.groupValues?.get(1)?.toIntOrNull()
                         val nextMin = when {
                             activeMinWidthPx != null && minW != null -> maxOf(activeMinWidthPx, minW)
                             else -> minW ?: activeMinWidthPx
@@ -1479,10 +1868,12 @@ class CssStyleSheet(
                             activeMaxWidthPx != null && maxW != null -> minOf(activeMaxWidthPx, maxW)
                             else -> maxW ?: activeMaxWidthPx
                         }
+                        val nextMediaQuery = combineMediaQueries(activeMediaQuery, parsedMq)
                         parseInto(
                             cleanedCss = body,
                             activeMinWidthPx = nextMin,
                             activeMaxWidthPx = nextMax,
+                            activeMediaQuery = nextMediaQuery,
                             activeBackendMask = activeBackendMask,
                             targetMask = targetMask,
                             outRules = outRules,
@@ -1492,7 +1883,7 @@ class CssStyleSheet(
                     }
                     header.isNotEmpty() -> {
                         val decls = parseDeclarations(body)
-                        val selectors = com.nexustools.genericui.style.transition.CssTransitionSpec.splitTopLevelCommas(header)
+                        val selectors = CssSelectorCompound.splitTopLevelSelectorList(header)
                         for (rawSel in selectors) {
                             val sel = CssRule.sanitizeSelectorOrNull(rawSel) ?: continue
                             outRules.add(
@@ -1501,13 +1892,43 @@ class CssStyleSheet(
                                     declarations = decls,
                                     mediaMinWidthPx = activeMinWidthPx,
                                     mediaMaxWidthPx = activeMaxWidthPx,
-                                    backendMask = activeBackendMask
+                                    backendMask = activeBackendMask,
+                                    mediaQuery = activeMediaQuery
                                 )
                             )
                         }
                     }
                 }
             }
+        }
+
+        private fun combineMediaQueries(parent: CssMediaQuery?, child: CssMediaQuery): CssMediaQuery {
+            if (parent == null || parent.clauses.isEmpty()) return child
+            if (child.clauses.isEmpty()) return parent
+            val combinedClauses = ArrayList<CssMediaQuery.MediaClause>(parent.clauses.size * child.clauses.size)
+            for (pc in parent.clauses) {
+                for (cc in child.clauses) {
+                    if (!pc.negated && !cc.negated) {
+                        val mediaType = when {
+                            pc.mediaType != null && cc.mediaType != null && pc.mediaType != cc.mediaType -> "print"
+                            else -> pc.mediaType ?: cc.mediaType
+                        }
+                        combinedClauses.add(
+                            CssMediaQuery.MediaClause(
+                                negated = false,
+                                mediaType = mediaType,
+                                features = pc.features + cc.features
+                            )
+                        )
+                    } else {
+                        combinedClauses.add(cc)
+                    }
+                }
+            }
+            return CssMediaQuery(
+                rawHeader = "${parent.rawHeader} and ${child.rawHeader}",
+                clauses = combinedClauses
+            )
         }
 
         fun empty(): CssStyleSheet = CssStyleSheet()

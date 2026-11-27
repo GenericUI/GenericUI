@@ -14,17 +14,30 @@ data class CssTransform(
     val translateYIsPercent: Boolean = false,
     val scaleX: Float = 1f,
     val scaleY: Float = 1f,
-    val rotateDeg: Float = 0f
+    val rotateDeg: Float = 0f,
+    val skewXDeg: Float = 0f,
+    val skewYDeg: Float = 0f,
+    val hasMatrix: Boolean = false,
+    val matrixA: Float = 1f,
+    val matrixB: Float = 0f,
+    val matrixC: Float = 0f,
+    val matrixD: Float = 1f,
+    val matrixE: Float = 0f,
+    val matrixF: Float = 0f
 ) {
     val isIdentity: Boolean
-        get() = translateX == 0f && translateY == 0f && scaleX == 1f && scaleY == 1f && rotateDeg == 0f
+        get() = translateX == 0f && translateY == 0f &&
+            scaleX == 1f && scaleY == 1f &&
+            rotateDeg == 0f && skewXDeg == 0f && skewYDeg == 0f && !hasMatrix
 
     /**
      * Resolves `(dx, dy)` in pixels against the element's own laid-out [widthPx] and [heightPx].
      */
     fun resolveTranslationPx(widthPx: Int, heightPx: Int): Pair<Float, Float> {
-        val dx = if (translateXIsPercent) (translateX / 100f) * widthPx else translateX
-        val dy = if (translateYIsPercent) (translateY / 100f) * heightPx else translateY
+        val dx = (if (translateXIsPercent) (translateX / 100f) * widthPx else translateX) +
+            if (hasMatrix) matrixE else 0f
+        val dy = (if (translateYIsPercent) (translateY / 100f) * heightPx else translateY) +
+            if (hasMatrix) matrixF else 0f
         return dx to dy
     }
 
@@ -53,7 +66,16 @@ data class CssTransform(
             translateYIsPercent = yIsPercent,
             scaleX = lerp(scaleX, target.scaleX, t),
             scaleY = lerp(scaleY, target.scaleY, t),
-            rotateDeg = lerp(rotateDeg, target.rotateDeg, t)
+            rotateDeg = lerp(rotateDeg, target.rotateDeg, t),
+            skewXDeg = lerp(skewXDeg, target.skewXDeg, t),
+            skewYDeg = lerp(skewYDeg, target.skewYDeg, t),
+            hasMatrix = hasMatrix || target.hasMatrix,
+            matrixA = lerp(matrixA, target.matrixA, t),
+            matrixB = lerp(matrixB, target.matrixB, t),
+            matrixC = lerp(matrixC, target.matrixC, t),
+            matrixD = lerp(matrixD, target.matrixD, t),
+            matrixE = lerp(matrixE, target.matrixE, t),
+            matrixF = lerp(matrixF, target.matrixF, t)
         )
     }
 
@@ -64,7 +86,16 @@ data class CssTransform(
         translateYIsPercent = translateYIsPercent,
         scaleX = scaleX,
         scaleY = scaleY,
-        rotateDeg = rotateDeg
+        rotateDeg = rotateDeg,
+        skewXDeg = skewXDeg,
+        skewYDeg = skewYDeg,
+        hasMatrix = hasMatrix,
+        matrixA = matrixA,
+        matrixB = matrixB,
+        matrixC = matrixC,
+        matrixD = matrixD,
+        matrixE = matrixE,
+        matrixF = matrixF
     )
 
     fun toCssString(): String {
@@ -83,6 +114,16 @@ data class CssTransform(
         }
         if (rotateDeg != 0f) {
             parts.add("rotate(${formatFloat(rotateDeg)}deg)")
+        }
+        if (skewXDeg != 0f || skewYDeg != 0f) {
+            parts.add("skew(${formatFloat(skewXDeg)}deg, ${formatFloat(skewYDeg)}deg)")
+        }
+        if (hasMatrix) {
+            parts.add(
+                "matrix(${formatFloat(matrixA)}, ${formatFloat(matrixB)}, " +
+                    "${formatFloat(matrixC)}, ${formatFloat(matrixD)}, " +
+                    "${formatFloat(matrixE)}, ${formatFloat(matrixF)})"
+            )
         }
         return if (parts.isEmpty()) "none" else parts.joinToString(" ")
     }
@@ -107,12 +148,21 @@ data class CssTransform(
             translateYIsPercent = transform.translateYIsPercent,
             scaleX = transform.scaleX,
             scaleY = transform.scaleY,
-            rotateDeg = transform.rotateDeg
+            rotateDeg = transform.rotateDeg,
+            skewXDeg = transform.skewXDeg,
+            skewYDeg = transform.skewYDeg,
+            hasMatrix = transform.hasMatrix,
+            matrixA = transform.matrixA,
+            matrixB = transform.matrixB,
+            matrixC = transform.matrixC,
+            matrixD = transform.matrixD,
+            matrixE = transform.matrixE,
+            matrixF = transform.matrixF
         )
 
         /**
-         * Parses a CSS `transform` value such as `"translate(0, -50%)"`, `"translate(-50%, -50%)"`,
-         * `"translateX(12px) scale(1.2)"`, or `"none"`, returning `null` if blank or invalid.
+         * Parses a CSS `transform` value such as `"translate(0, -50%)"`, `"skew(10deg, 5deg)"`,
+         * `"matrix(1, 0, 0, 1, 10, 20)"`, or `"none"`, returning `null` if blank or invalid.
          */
         fun parse(raw: String): CssTransform? {
             val cleaned = raw.replace("!important", "", ignoreCase = true).trim()
@@ -126,6 +176,15 @@ data class CssTransform(
             var sx = 1f
             var sy = 1f
             var rot = 0f
+            var skX = 0f
+            var skY = 0f
+            var hasMat = false
+            var mA = 1f
+            var mB = 0f
+            var mC = 0f
+            var mD = 1f
+            var mE = 0f
+            var mF = 0f
             var recognizedCount = 0
 
             for (match in TRANSFORM_FN_REGEX.findAll(cleaned)) {
@@ -171,15 +230,34 @@ data class CssTransform(
                         recognizedCount++
                     }
                     "rotate", "rotatez" -> {
-                        val rawAngle = args.getOrNull(0)?.lowercase() ?: return null
-                        rot = when {
-                            rawAngle.endsWith("deg") -> rawAngle.removeSuffix("deg").trim().toFloatOrNull() ?: return null
-                            rawAngle.endsWith("rad") ->
-                                (rawAngle.removeSuffix("rad").trim().toFloatOrNull() ?: return null) * RAD_TO_DEG
-                            rawAngle.endsWith("turn") ->
-                                (rawAngle.removeSuffix("turn").trim().toFloatOrNull() ?: return null) * 360f
-                            else -> rawAngle.toFloatOrNull() ?: return null
+                        val rawAngle = args.getOrNull(0) ?: return null
+                        rot = parseAngleDeg(rawAngle) ?: return null
+                        recognizedCount++
+                    }
+                    "skew" -> {
+                        skX = args.getOrNull(0)?.let(::parseAngleDeg) ?: return null
+                        if (args.size >= 2) {
+                            skY = parseAngleDeg(args[1]) ?: return null
                         }
+                        recognizedCount++
+                    }
+                    "skewx" -> {
+                        skX = args.getOrNull(0)?.let(::parseAngleDeg) ?: return null
+                        recognizedCount++
+                    }
+                    "skewy" -> {
+                        skY = args.getOrNull(0)?.let(::parseAngleDeg) ?: return null
+                        recognizedCount++
+                    }
+                    "matrix" -> {
+                        if (args.size < 6) return null
+                        mA = args[0].toFloatOrNull() ?: return null
+                        mB = args[1].toFloatOrNull() ?: return null
+                        mC = args[2].toFloatOrNull() ?: return null
+                        mD = args[3].toFloatOrNull() ?: return null
+                        mE = args[4].toFloatOrNull() ?: return null
+                        mF = args[5].toFloatOrNull() ?: return null
+                        hasMat = true
                         recognizedCount++
                     }
                 }
@@ -193,8 +271,31 @@ data class CssTransform(
                 translateYIsPercent = tyPct,
                 scaleX = sx,
                 scaleY = sy,
-                rotateDeg = rot
+                rotateDeg = rot,
+                skewXDeg = skX,
+                skewYDeg = skY,
+                hasMatrix = hasMat,
+                matrixA = mA,
+                matrixB = mB,
+                matrixC = mC,
+                matrixD = mD,
+                matrixE = mE,
+                matrixF = mF
             )
+        }
+
+        private fun parseAngleDeg(raw: String): Float? {
+            val rawAngle = raw.trim().lowercase()
+            return when {
+                rawAngle.endsWith("deg") -> rawAngle.removeSuffix("deg").trim().toFloatOrNull()
+                rawAngle.endsWith("rad") ->
+                    rawAngle.removeSuffix("rad").trim().toFloatOrNull()?.let { it * RAD_TO_DEG }
+                rawAngle.endsWith("turn") ->
+                    rawAngle.removeSuffix("turn").trim().toFloatOrNull()?.let { it * 360f }
+                rawAngle.endsWith("grad") ->
+                    rawAngle.removeSuffix("grad").trim().toFloatOrNull()?.let { it * 0.9f }
+                else -> rawAngle.toFloatOrNull()
+            }
         }
 
         private fun parseOffset(token: String): Pair<Float, Boolean>? {

@@ -1,5 +1,6 @@
 package com.nexustools.genericui.component.form
 
+import com.nexustools.genericui.component.typography.ILabelTarget
 import com.nexustools.genericui.core.AbstractComponent
 import com.nexustools.genericui.core.NativeFactory
 import com.nexustools.genericui.nativeimpl.form.CheckboxNativeImpl
@@ -12,9 +13,12 @@ open class CheckBox(
     checked: Boolean = false,
     protected val switchStyle: Boolean = false,
     protected val radioStyle: Boolean = false
-) : AbstractComponent(htmlTag = "input") {
+) : AbstractComponent(htmlTag = "input"), ILabelTarget {
     override val supportsFocus: Boolean
         get() = true
+
+    override val labelTargetComponent: AbstractComponent
+        get() = this
 
     var label: String = label
         set(value) {

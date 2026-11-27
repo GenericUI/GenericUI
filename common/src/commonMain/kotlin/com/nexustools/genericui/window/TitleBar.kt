@@ -34,6 +34,43 @@ class TitleBar(
 
     internal var activeHostEmbedsComponents: Boolean = false
     internal var onInstructionsChanged: (() -> Unit)? = null
+    internal var onHostInstructionsChanged: (() -> Unit)? = null
+    private var batchUpdateDepth: Int = 0
+    private var pendingChangeNotification: Boolean = false
+
+    private fun dispatchInstructionsChanged() {
+        if (batchUpdateDepth > 0) {
+            pendingChangeNotification = true
+            return
+        }
+        val hostListener = onHostInstructionsChanged
+        if (hostListener != null) {
+            hostListener.invoke()
+        } else {
+            onInstructionsChanged?.invoke()
+        }
+    }
+
+    internal fun beginBatchUpdate() {
+        batchUpdateDepth++
+    }
+
+    internal fun endBatchUpdate() {
+        if (batchUpdateDepth <= 0) return
+        batchUpdateDepth--
+        if (batchUpdateDepth == 0 && pendingChangeNotification) {
+            pendingChangeNotification = false
+            dispatchInstructionsChanged()
+        }
+    }
+
+    /**
+     * Notifies the host [com.nexustools.genericui.component.shell.Window] that embedded children or layout
+     * properties inside an attached [TitleBar] component have changed and need native re-sync/repaint.
+     */
+    fun notifyComponentsUpdated() {
+        dispatchInstructionsChanged()
+    }
 
     internal fun markEmbeddedComponentsMounted(mounted: Boolean) {
         for (c in _leadingComponents) c.mountedInTitleBar = mounted
@@ -46,25 +83,83 @@ class TitleBar(
         markEmbeddedComponentsMounted(embeds)
     }
 
+    fun containsComponent(component: AbstractComponent): Boolean =
+        _leadingComponents.any { it === component } ||
+            _centerComponents.any { it === component } ||
+            _trailingComponents.any { it === component }
+
     fun addLeading(component: AbstractComponent): TitleBar {
         component.mountedInTitleBar = activeHostEmbedsComponents
         _leadingComponents.add(component)
-        onInstructionsChanged?.invoke()
+        dispatchInstructionsChanged()
         return this
     }
 
     fun addCenter(component: AbstractComponent): TitleBar {
         component.mountedInTitleBar = activeHostEmbedsComponents
         _centerComponents.add(component)
-        onInstructionsChanged?.invoke()
+        dispatchInstructionsChanged()
         return this
     }
 
     fun addTrailing(component: AbstractComponent): TitleBar {
         component.mountedInTitleBar = activeHostEmbedsComponents
         _trailingComponents.add(component)
-        onInstructionsChanged?.invoke()
+        dispatchInstructionsChanged()
         return this
+    }
+
+    fun removeLeading(component: AbstractComponent): Boolean {
+        val idx = _leadingComponents.indexOfFirst { it === component }
+        if (idx < 0) return false
+        _leadingComponents.removeAt(idx)
+        component.mountedInTitleBar = false
+        dispatchInstructionsChanged()
+        return true
+    }
+
+    fun removeCenter(component: AbstractComponent): Boolean {
+        val idx = _centerComponents.indexOfFirst { it === component }
+        if (idx < 0) return false
+        _centerComponents.removeAt(idx)
+        component.mountedInTitleBar = false
+        dispatchInstructionsChanged()
+        return true
+    }
+
+    fun removeTrailing(component: AbstractComponent): Boolean {
+        val idx = _trailingComponents.indexOfFirst { it === component }
+        if (idx < 0) return false
+        _trailingComponents.removeAt(idx)
+        component.mountedInTitleBar = false
+        dispatchInstructionsChanged()
+        return true
+    }
+
+    fun removeComponent(component: AbstractComponent): Boolean {
+        var removed = false
+        for (i in _leadingComponents.lastIndex downTo 0) {
+            if (_leadingComponents[i] === component) {
+                _leadingComponents.removeAt(i)
+                removed = true
+            }
+        }
+        for (i in _centerComponents.lastIndex downTo 0) {
+            if (_centerComponents[i] === component) {
+                _centerComponents.removeAt(i)
+                removed = true
+            }
+        }
+        for (i in _trailingComponents.lastIndex downTo 0) {
+            if (_trailingComponents[i] === component) {
+                _trailingComponents.removeAt(i)
+                removed = true
+            }
+        }
+        if (!removed) return false
+        component.mountedInTitleBar = false
+        dispatchInstructionsChanged()
+        return true
     }
 
     internal fun replaceComponents(
@@ -103,7 +198,7 @@ class TitleBar(
             c.mountedInTitleBar = activeHostEmbedsComponents
             _trailingComponents.add(c)
         }
-        onInstructionsChanged?.invoke()
+        dispatchInstructionsChanged()
         return true
     }
 
@@ -115,6 +210,6 @@ class TitleBar(
         _leadingComponents.clear()
         _centerComponents.clear()
         _trailingComponents.clear()
-        onInstructionsChanged?.invoke()
+        dispatchInstructionsChanged()
     }
 }

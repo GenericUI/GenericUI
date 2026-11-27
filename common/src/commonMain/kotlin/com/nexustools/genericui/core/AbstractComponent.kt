@@ -507,6 +507,8 @@ abstract class AbstractComponent(
 
     internal open fun onComponentEnabledChanged(enabled: Boolean) {}
 
+    internal open fun onComponentPaddingChanged() {}
+
     protected open fun onAncestorHierarchyChanged() {}
 
     internal fun dispatchAncestorHierarchyChanged() {
@@ -633,26 +635,39 @@ abstract class AbstractComponent(
     }
 
     // Event listeners
-    var onClick: (() -> Unit)? = null
+    internal var internalClickAction: (() -> Unit)? = null
+        set(value) {
+            field = value
+            runOnNativeUi { it.setOnClick(buildEffectiveClickListener()) }
+        }
+
+    open var onClick: (() -> Unit)? = null
         set(value) {
             field = value
             runOnNativeUi { it.setOnClick(buildEffectiveClickListener()) }
         }
 
     private fun buildEffectiveClickListener(): (() -> Unit)? {
-        val raw = onClick ?: return null
+        val internal = internalClickAction
+        val raw = onClick
+        if (internal == null && raw == null) return null
         return {
             if (!PopupMouseCaptureManager.interceptClick(target = this)) {
-                GenericUiThreading.runOnLogic {
-                    raw()
+                internalClickAction?.invoke()
+                val userHandler = onClick
+                if (userHandler != null) {
+                    GenericUiThreading.runOnLogic {
+                        userHandler()
+                    }
                 }
             }
         }
     }
 
-    fun triggerClick() {
+    open fun triggerClick() {
         if (!isEnabled) return
         if (PopupMouseCaptureManager.interceptClick(target = this)) return
+        internalClickAction?.invoke()
         val raw = onClick ?: return
         GenericUiThreading.runOnLogic {
             raw()
@@ -1297,7 +1312,7 @@ abstract class AbstractComponent(
         get() = componentBootstrapInstance
 
     // Bootstrap Enum Helper Properties & Methods
-    var type: BootstrapType?
+    open var type: BootstrapType?
         get() = getType()
         set(value) = setType(value)
 
@@ -1309,7 +1324,7 @@ abstract class AbstractComponent(
     @kotlin.jvm.JvmName("obtainType")
     fun getType(): BootstrapType? = componentBootstrapInstance.getType()
 
-    var outline: Boolean
+    open var outline: Boolean
         get() = isOutline()
         set(value) = setOutline(value)
 
@@ -1320,7 +1335,7 @@ abstract class AbstractComponent(
 
     fun isOutline(): Boolean = componentBootstrapInstance.isOutline()
 
-    var size: BootstrapSize?
+    open var size: BootstrapSize?
         get() = getSize()
         set(value) = setSize(value)
 
@@ -1798,7 +1813,7 @@ abstract class AbstractComponent(
         }
     }
 
-    var tooltipText: String?
+    open var tooltipText: String?
         get() = tooltipTextState
         set(value) {
             tooltipTextState = value
@@ -1855,6 +1870,7 @@ abstract class AbstractComponent(
     fun setPadding(padding: EdgeInsets) {
         this.padding = padding
         runOnNativeUi { it.setPadding(padding) }
+        onComponentPaddingChanged()
     }
 
     @kotlin.jvm.JvmName("assignMargin")
@@ -2729,6 +2745,14 @@ abstract class AbstractComponent(
     }
 
     companion object {
+        private val labelTargetIdLock: PlatformReentrantLock = PlatformReentrantLock()
+        private var nextLabelTargetSeq: Long = 0L
+
+        internal fun allocateLabelTargetId(): String = labelTargetIdLock.withLock {
+            nextLabelTargetSeq += 1L
+            "genericui-label-target-$nextLabelTargetSeq"
+        }
+
         internal var systemCssAnimationHook: ((
             component: AbstractComponent,
             previous: ComputedStyle?,
