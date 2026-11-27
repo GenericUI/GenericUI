@@ -91,6 +91,13 @@ open class GenericUiApplicationConfig(
             desktop.appVersion = value
         }
 
+    /** Optional build version string (defaults to automatic short git hash when inside a git repo). */
+    var buildVersion: String
+        get() = desktop.buildVersion
+        set(value) {
+            desktop.buildVersion = value
+        }
+
     /** Organization / publisher / vendor name (e.g. `"NexusTools"`). */
     var vendor: String
         get() = desktop.vendor

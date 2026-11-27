@@ -120,6 +120,10 @@ abstract class GenericUiPackageAndroidApkTask : DefaultTask() {
 
     @get:Input
     @get:Optional
+    abstract val gitHash: Property<String>
+
+    @get:Input
+    @get:Optional
     abstract val versionCode: Property<Int>
 
     @get:Input

@@ -6,28 +6,53 @@ import com.nexustools.genericui.apple.AppleReentrantLock
 import com.nexustools.genericui.style.css.CssFilter
 import com.nexustools.genericui.style.css.CssFilterColorMatrix
 import com.nexustools.genericui.style.css.FastBackdropBlurKernel
+import kotlinx.cinterop.COpaquePointerVar
+import kotlinx.cinterop.CValue
+import kotlinx.cinterop.IntVar
 import kotlinx.cinterop.addressOf
 import kotlinx.cinterop.alloc
+import kotlinx.cinterop.allocArray
+import kotlinx.cinterop.interpretObjCPointer
 import kotlinx.cinterop.memScoped
+import kotlinx.cinterop.objcPtr
 import kotlinx.cinterop.ptr
+import kotlinx.cinterop.set
+import kotlinx.cinterop.useContents
 import kotlinx.cinterop.usePinned
+import kotlinx.cinterop.value
 import platform.Accelerate.kvImageEdgeExtend
 import platform.Accelerate.kvImageGetTempBufferSize
 import platform.Accelerate.kvImageNoFlags
 import platform.Accelerate.vImageBoxConvolve_ARGB8888
 import platform.Accelerate.vImagePremultipliedConstAlphaBlend_Planar8
 import platform.Accelerate.vImage_Buffer
+import platform.CoreFoundation.CFDictionaryCreate
+import platform.CoreFoundation.CFDictionaryRef
+import platform.CoreFoundation.CFNumberCreate
+import platform.CoreFoundation.CFPropertyListRef
+import platform.CoreFoundation.CFRelease
+import platform.CoreFoundation.CFRetain
+import platform.CoreFoundation.kCFNumberSInt32Type
+import platform.CoreFoundation.kCFTypeDictionaryKeyCallBacks
+import platform.CoreFoundation.kCFTypeDictionaryValueCallBacks
 import platform.CoreGraphics.CGAffineTransformMakeTranslation
 import platform.CoreGraphics.CGBitmapContextCreate
+import platform.CoreGraphics.CGColorSpaceCopyPropertyList
 import platform.CoreGraphics.CGColorSpaceCreateDeviceRGB
+import platform.CoreGraphics.CGColorSpaceCreateWithName
+import platform.CoreGraphics.CGColorSpaceRef
 import platform.CoreGraphics.CGColorSpaceRelease
 import platform.CoreGraphics.CGContextRelease
 import platform.CoreGraphics.CGImageAlphaInfo
 import platform.CoreGraphics.CGImageRef
+import platform.CoreGraphics.CGRect
 import platform.CoreGraphics.CGRectMake
 import platform.CoreGraphics.kCGBitmapByteOrder32Little
+import platform.CoreGraphics.kCGColorSpaceSRGB
+import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.floor
+import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
 import kotlin.math.sqrt
@@ -38,9 +63,21 @@ import platform.CoreImage.CIVector
 import platform.CoreImage.createCGImage
 import platform.CoreImage.filterWithName
 import platform.CoreImage.kCIFormatBGRA8
+import platform.Foundation.CFBridgingRelease
 import platform.Foundation.NSNumber
 import platform.Foundation.numberWithDouble
 import platform.Foundation.setValue
+import platform.IOSurface.IOSurfaceCreate
+import platform.IOSurface.IOSurfaceRef
+import platform.IOSurface.IOSurfaceSetValue
+import platform.IOSurface.kIOSurfaceAllocSize
+import platform.IOSurface.kIOSurfaceBytesPerElement
+import platform.IOSurface.kIOSurfaceBytesPerRow
+import platform.IOSurface.kIOSurfaceColorSpace
+import platform.IOSurface.kIOSurfaceHeight
+import platform.IOSurface.kIOSurfacePixelFormat
+import platform.IOSurface.kIOSurfaceWidth
+import platform.Metal.MTLCreateSystemDefaultDevice
 
 /**
  * Shared CoreImage (`CIFilter` / `CIContext`) and premultiplied `BGRA_8888` CPU backdrop-filter
@@ -55,13 +92,186 @@ import platform.Foundation.setValue
  */
 object AppleBackdropFilterController {
 
+    private const val IOSURFACE_PIXEL_FORMAT_BGRA: Int = 0x42475241 // 'BGRA'
+
+    private val contextLock = AppleReentrantLock()
     private var cachedContext: CIContext? = null
 
+    private val sharedSrgbColorSpace: CGColorSpaceRef? by lazy {
+        CGColorSpaceCreateWithName(kCGColorSpaceSRGB) ?: CGColorSpaceCreateDeviceRGB()
+    }
+
+    private val sharedSrgbColorSpacePropertyList: CFPropertyListRef? by lazy {
+        val cs = CGColorSpaceCreateWithName(kCGColorSpaceSRGB) ?: return@lazy null
+        try {
+            CGColorSpaceCopyPropertyList(cs)
+        } finally {
+            CGColorSpaceRelease(cs)
+        }
+    }
+
+    /**
+     * Returns the lazily cached Metal-backed [CIContext] (falling back to default CoreImage options
+     * only if no system Metal device is available).
+     */
     fun sharedContext(): CIContext {
         cachedContext?.let { return it }
-        val created = CIContext.contextWithOptions(null)
-        cachedContext = created
-        return created
+        return contextLock.withLock {
+            cachedContext?.let { return it }
+            val created = MTLCreateSystemDefaultDevice()?.let { device ->
+                val metalDevice = interpretObjCPointer<objcnames.protocols.MTLDeviceProtocol>(device.objcPtr())
+                CIContext.contextWithMTLDevice(metalDevice)
+            } ?: CIContext.contextWithOptions(null)
+            cachedContext = created
+            created
+        }
+    }
+
+    /**
+     * Computes the halo padding (in points) required around a backdrop-filtered view so Gaussian
+     * blur and `drop-shadow` sample real surrounding backdrop pixels without edge darkening.
+     */
+    fun computeBackdropPaddingPt(filter: CssFilter): Double {
+        if (filter.isNone || !filter.hasActiveEffects) return 0.0
+        val blurPx = (filter.blur?.resolvePx() ?: 0f).coerceAtLeast(0f).toDouble()
+        val shadow = filter.dropShadow
+        val shadowPad = if (shadow != null && shadow.color.a > 0) {
+            val sBlur = (shadow.blurRadius.resolvePx() ?: 0f).coerceAtLeast(0f).toDouble()
+            val sOx = abs((shadow.offsetX.resolvePx() ?: 0f).toDouble())
+            val sOy = abs((shadow.offsetY.resolvePx() ?: 0f).toDouble())
+            sBlur * 1.5 + max(sOx, sOy)
+        } else {
+            0.0
+        }
+        return ceil(max(blurPx * 1.5, shadowPad)).coerceIn(0.0, 128.0)
+    }
+
+    /**
+     * Allocates a BGRA8888 sRGB [IOSurfaceRef] sized [widthPx] x [heightPx] suitable for
+     * zero-copy Metal [CIContext] rendering and `CALayer.contents` presentation.
+     * Caller owns releasing the returned surface via [releaseIoSurface].
+     */
+    fun createBgraIoSurface(widthPx: Int, heightPx: Int): IOSurfaceRef? {
+        if (widthPx <= 0 || heightPx <= 0) return null
+        val alignedRowBytes = ((widthPx * 4 + 15) / 16) * 16
+        val allocSize = (alignedRowBytes.toLong() * heightPx.toLong()).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+        val props: CFDictionaryRef = memScoped {
+            val keys = allocArray<COpaquePointerVar>(6)
+            val vals = allocArray<COpaquePointerVar>(6)
+            val vWidth = alloc<IntVar>().apply { value = widthPx }
+            val vHeight = alloc<IntVar>().apply { value = heightPx }
+            val vBpe = alloc<IntVar>().apply { value = 4 }
+            val vBpr = alloc<IntVar>().apply { value = alignedRowBytes }
+            val vSize = alloc<IntVar>().apply { value = allocSize }
+            val vFmt = alloc<IntVar>().apply { value = IOSURFACE_PIXEL_FORMAT_BGRA }
+
+            val nWidth = CFNumberCreate(null, kCFNumberSInt32Type, vWidth.ptr)
+            val nHeight = CFNumberCreate(null, kCFNumberSInt32Type, vHeight.ptr)
+            val nBpe = CFNumberCreate(null, kCFNumberSInt32Type, vBpe.ptr)
+            val nBpr = CFNumberCreate(null, kCFNumberSInt32Type, vBpr.ptr)
+            val nSize = CFNumberCreate(null, kCFNumberSInt32Type, vSize.ptr)
+            val nFmt = CFNumberCreate(null, kCFNumberSInt32Type, vFmt.ptr)
+            try {
+                if (nWidth == null || nHeight == null || nBpe == null || nBpr == null || nSize == null || nFmt == null) {
+                    return@memScoped null
+                }
+                keys[0] = kIOSurfaceWidth
+                vals[0] = nWidth
+                keys[1] = kIOSurfaceHeight
+                vals[1] = nHeight
+                keys[2] = kIOSurfaceBytesPerElement
+                vals[2] = nBpe
+                keys[3] = kIOSurfaceBytesPerRow
+                vals[3] = nBpr
+                keys[4] = kIOSurfaceAllocSize
+                vals[4] = nSize
+                keys[5] = kIOSurfacePixelFormat
+                vals[5] = nFmt
+                CFDictionaryCreate(
+                    null,
+                    keys,
+                    vals,
+                    6L,
+                    kCFTypeDictionaryKeyCallBacks.ptr,
+                    kCFTypeDictionaryValueCallBacks.ptr
+                )
+            } finally {
+                nWidth?.let { CFRelease(it) }
+                nHeight?.let { CFRelease(it) }
+                nBpe?.let { CFRelease(it) }
+                nBpr?.let { CFRelease(it) }
+                nSize?.let { CFRelease(it) }
+                nFmt?.let { CFRelease(it) }
+            }
+        } ?: return null
+
+        return try {
+            val created = IOSurfaceCreate(props) ?: return null
+            val csKey = kIOSurfaceColorSpace
+            val csPlist = sharedSrgbColorSpacePropertyList
+            if (csKey != null && csPlist != null) {
+                IOSurfaceSetValue(created, csKey, csPlist)
+            }
+            created
+        } finally {
+            CFRelease(props)
+        }
+    }
+
+    /**
+     * Releases an [IOSurfaceRef] previously returned by [createBgraIoSurface].
+     */
+    fun releaseIoSurface(surface: IOSurfaceRef?) {
+        if (surface != null) {
+            CFRelease(surface)
+        }
+    }
+
+    /**
+     * Bridges a retained [IOSurfaceRef] for assignment to `CALayer.contents` without transferring
+     * ownership away from the caller's pool slot.
+     */
+    fun ioSurfaceToLayerContents(surface: IOSurfaceRef): Any? =
+        CFBridgingRelease(CFRetain(surface))
+
+    /**
+     * Reusable 2-slot ping-pong BGRA [IOSurfaceRef] pool so CoreAnimation's WindowServer can read
+     * the previous frame while Metal [CIContext] renders the next frame without stalls or tearing.
+     */
+    class IoSurfacePingPongPool {
+        private val surfaces = arrayOfNulls<IOSurfaceRef?>(2)
+        private var widthPx: Int = 0
+        private var heightPx: Int = 0
+        private var cursor: Int = 0
+
+        fun acquire(reqWidthPx: Int, reqHeightPx: Int): IOSurfaceRef? {
+            if (reqWidthPx <= 0 || reqHeightPx <= 0) return null
+            if (widthPx != reqWidthPx || heightPx != reqHeightPx) {
+                releaseAll()
+                widthPx = reqWidthPx
+                heightPx = reqHeightPx
+            }
+            val nextIdx = (cursor + 1) % surfaces.size
+            val existing = surfaces[nextIdx]
+            if (existing != null) {
+                cursor = nextIdx
+                return existing
+            }
+            val created = createBgraIoSurface(reqWidthPx, reqHeightPx) ?: return null
+            surfaces[nextIdx] = created
+            cursor = nextIdx
+            return created
+        }
+
+        fun releaseAll() {
+            for (i in surfaces.indices) {
+                releaseIoSurface(surfaces[i])
+                surfaces[i] = null
+            }
+            widthPx = 0
+            heightPx = 0
+            cursor = 0
+        }
     }
 
     /**
@@ -119,25 +329,28 @@ object AppleBackdropFilterController {
     /**
      * Applies all active operations in [filter] to [source] and returns the filtered [CIImage].
      *
-     * @param yPointsUp CoreImage's native coordinate orientation (`true` for `CGImage`-backed
+     * @param yPointsUp CoreImage's native coordinate orientation (`true` for `CGImage`/`IOSurface`-backed
      * inputs where `+y` points upward; pass `false` if [source] is pre-flipped top-down).
+     * @param scaleFactor Pixel-to-point backing scale factor applied to CSS `blur()` and `drop-shadow()` lengths.
      */
     fun applyToCiImage(
         source: CIImage,
         filter: CssFilter,
-        yPointsUp: Boolean = true
+        yPointsUp: Boolean = true,
+        scaleFactor: Double = 1.0
     ): CIImage {
         if (filter.isNone || !filter.hasActiveEffects) return source
+        val scale = scaleFactor.coerceAtLeast(1.0)
         val extent = source.extent
         var current = source
 
-        val blurPx = filter.blur?.resolvePx() ?: 0f
-        if (blurPx > 0f) {
+        val blurPx = (filter.blur?.resolvePx() ?: 0f).coerceAtLeast(0f).toDouble() * scale
+        if (blurPx > 0.0) {
             val clamped = current.imageByClampingToExtent()
             CIFilter.filterWithName("CIGaussianBlur")?.let { blurFilter ->
                 blurFilter.setDefaults()
                 blurFilter.setValue(clamped, forKey = "inputImage")
-                blurFilter.setValue(NSNumber.numberWithDouble(blurPx.toDouble()), forKey = "inputRadius")
+                blurFilter.setValue(NSNumber.numberWithDouble(blurPx), forKey = "inputRadius")
                 blurFilter.outputImage?.let { blurred ->
                     current = blurred.imageByCroppingToRect(extent)
                 }
@@ -156,10 +369,74 @@ object AppleBackdropFilterController {
 
         val shadow = filter.dropShadow
         if (shadow != null) {
-            current = applyDropShadow(current, shadow, extent, yPointsUp)
+            current = applyDropShadow(current, shadow, extent, yPointsUp, scale)
         }
 
         return current
+    }
+
+    /**
+     * Filters [source] with all 10 W3C operations in [filter] scaled by [scaleFactor], crops to
+     * [cropRectPx], and translates the origin to `(0, 0)` for direct GPU rendering via
+     * [renderCiImageToIoSurface] or [renderFilteredCiImageToCgImage].
+     */
+    fun renderFilteredCiImage(
+        source: CIImage,
+        filter: CssFilter,
+        cropRectPx: CValue<CGRect>,
+        scaleFactor: Double = 1.0,
+        yPointsUp: Boolean = true
+    ): CIImage {
+        val filtered = applyToCiImage(source, filter, yPointsUp = yPointsUp, scaleFactor = scaleFactor)
+        val cropped = filtered.imageByCroppingToRect(cropRectPx)
+        val (ox, oy) = cropRectPx.useContents { origin.x to origin.y }
+        return if (ox != 0.0 || oy != 0.0) {
+            cropped.imageByApplyingTransform(CGAffineTransformMakeTranslation(-ox, -oy))
+        } else {
+            cropped
+        }
+    }
+
+    /**
+     * Renders [ciImage] cropped to [cropRectPx] into [surface] on the Metal-backed [sharedContext].
+     * Translates [cropRectPx] origin to `(0, 0)` so `(0, 0)` aligns to the surface's origin.
+     */
+    fun renderCiImageToIoSurface(
+        ciImage: CIImage,
+        cropRectPx: CValue<CGRect>,
+        surface: IOSurfaceRef
+    ): Boolean {
+        val (ox, oy, w, h) = cropRectPx.useContents {
+            doubleArrayOf(origin.x, origin.y, size.width, size.height)
+        }
+        if (w <= 0.0 || h <= 0.0) return false
+        val cs = sharedSrgbColorSpace ?: return false
+        val aligned = if (ox != 0.0 || oy != 0.0) {
+            ciImage.imageByCroppingToRect(cropRectPx)
+                .imageByApplyingTransform(CGAffineTransformMakeTranslation(-ox, -oy))
+        } else {
+            ciImage
+        }
+        sharedContext().render(
+            aligned,
+            toIOSurface = surface,
+            bounds = CGRectMake(0.0, 0.0, w, h),
+            colorSpace = cs
+        )
+        return true
+    }
+
+    /**
+     * Renders [ciImage] inside [cropRectPx] to a `+1` retained [CGImageRef] via [sharedContext].
+     * Caller owns releasing the returned [CGImageRef] with `CGImageRelease`.
+     */
+    fun renderFilteredCiImageToCgImage(
+        ciImage: CIImage,
+        cropRectPx: CValue<CGRect>
+    ): CGImageRef? {
+        val (w, h) = cropRectPx.useContents { size.width to size.height }
+        if (w <= 0.0 || h <= 0.0) return null
+        return sharedContext().createCGImage(ciImage, fromRect = cropRectPx)
     }
 
     /**
@@ -170,11 +447,12 @@ object AppleBackdropFilterController {
         source: CGImageRef,
         filter: CssFilter,
         width: Int,
-        height: Int
+        height: Int,
+        scaleFactor: Double = 1.0
     ): CGImageRef? {
         if (width <= 0 || height <= 0 || filter.isNone || !filter.hasActiveEffects) return null
         val ciInput = CIImage.imageWithCGImage(source)
-        val filtered = applyToCiImage(ciInput, filter, yPointsUp = true)
+        val filtered = applyToCiImage(ciInput, filter, yPointsUp = true, scaleFactor = scaleFactor)
         val outRect = CGRectMake(0.0, 0.0, width.toDouble(), height.toDouble())
         return sharedContext().createCGImage(filtered, fromRect = outRect)
     }
@@ -649,24 +927,25 @@ object AppleBackdropFilterController {
         source: CIImage,
         shadow: com.nexustools.genericui.style.css.CssShadow,
         extent: kotlinx.cinterop.CValue<platform.CoreGraphics.CGRect>,
-        yPointsUp: Boolean
+        yPointsUp: Boolean,
+        scaleFactor: Double = 1.0
     ): CIImage {
         val tintFilter = createShadowTintFilter(shadow) ?: return source
         tintFilter.setValue(source, forKey = "inputImage")
         var shadowImg = tintFilter.outputImage ?: return source
 
-        val blurRadius = (shadow.blurRadius.resolvePx() ?: 0f).coerceAtLeast(0f)
-        if (blurRadius > 0f) {
+        val blurRadius = (shadow.blurRadius.resolvePx() ?: 0f).coerceAtLeast(0f).toDouble() * scaleFactor
+        if (blurRadius > 0.0) {
             CIFilter.filterWithName("CIGaussianBlur")?.let { blur ->
                 blur.setDefaults()
                 blur.setValue(shadowImg, forKey = "inputImage")
-                blur.setValue(NSNumber.numberWithDouble(blurRadius.toDouble()), forKey = "inputRadius")
+                blur.setValue(NSNumber.numberWithDouble(blurRadius), forKey = "inputRadius")
                 blur.outputImage?.let { blurred -> shadowImg = blurred }
             }
         }
 
-        val dx = (shadow.offsetX.resolvePx() ?: 0f).toDouble()
-        val rawDy = (shadow.offsetY.resolvePx() ?: 0f).toDouble()
+        val dx = (shadow.offsetX.resolvePx() ?: 0f).toDouble() * scaleFactor
+        val rawDy = (shadow.offsetY.resolvePx() ?: 0f).toDouble() * scaleFactor
         val dy = if (yPointsUp) -rawDy else rawDy
         val shifted = shadowImg.imageByApplyingTransform(CGAffineTransformMakeTranslation(dx, dy))
         return source.imageByCompositingOverImage(shifted).imageByCroppingToRect(extent)

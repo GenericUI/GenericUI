@@ -59,6 +59,10 @@ abstract class GenericUiPackageSwingJarTask : DefaultTask() {
 
     @get:Input
     @get:Optional
+    abstract val gitHash: Property<String>
+
+    @get:Input
+    @get:Optional
     abstract val mainClass: Property<String>
 
     @get:Input
@@ -116,6 +120,7 @@ abstract class GenericUiPackageSwingJarTask : DefaultTask() {
         val resolvedBaseName = baseName.orNull?.trim()?.ifEmpty { project.name } ?: project.name
         val resolvedAppName = appName.orNull?.trim()?.ifEmpty { resolvedBaseName } ?: resolvedBaseName
         val resolvedVersion = appVersion.orNull?.trim()?.ifEmpty { "1.0.0" } ?: "1.0.0"
+        val resolvedGitHash = gitHash.orNull?.trim().orEmpty()
 
         val workDir = File(buildDir, "intermediates/genericui_swing_jar/$variant")
         if (workDir.exists()) {
@@ -157,6 +162,7 @@ abstract class GenericUiPackageSwingJarTask : DefaultTask() {
             mainClass = resolvedMainClass,
             appTitle = resolvedAppName,
             appVersion = resolvedVersion,
+            gitHash = resolvedGitHash,
             outputJarFile = finalJar,
             additionalEntries = nativeJarEntries
         )
@@ -761,7 +767,8 @@ abstract class GenericUiPackageSwingJarTask : DefaultTask() {
         appTitle: String,
         appVersion: String,
         outputJarFile: File,
-        additionalEntries: Map<String, File> = emptyMap()
+        additionalEntries: Map<String, File> = emptyMap(),
+        gitHash: String = ""
     ) {
         outputJarFile.parentFile?.mkdirs()
 
@@ -769,7 +776,12 @@ abstract class GenericUiPackageSwingJarTask : DefaultTask() {
             mainAttributes[Attributes.Name.MANIFEST_VERSION] = "1.0"
             mainAttributes[Attributes.Name.MAIN_CLASS] = mainClass
             mainAttributes[Attributes.Name.IMPLEMENTATION_TITLE] = appTitle
-            mainAttributes[Attributes.Name.IMPLEMENTATION_VERSION] = appVersion
+            mainAttributes[Attributes.Name.IMPLEMENTATION_VERSION] =
+                GenericUiGitVersionResolver.formatVersionWithGitHash(appVersion, gitHash)
+            val cleanHash = gitHash.trim()
+            if (cleanHash.isNotEmpty()) {
+                mainAttributes[Attributes.Name("Implementation-Build")] = cleanHash
+            }
         }
 
         val seenEntries = HashSet<String>()

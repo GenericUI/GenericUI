@@ -19,8 +19,19 @@ open class GenericUiDesktopConfig(
     /** Reverse-DNS application / bundle identifier (e.g. `"com.nexustools.convert"`). */
     var appId: String = ""
 
-    /** Marketing / display version string (defaults to `project.version`, e.g. `"1.0.0"`). */
+    internal var appVersionExplicitlySet: Boolean = false
+
+    /** Marketing / display version string (defaults to latest git tag / `project.version`, e.g. `"1.0.0"`). */
     var appVersion: String = ""
+        set(value) {
+            field = value
+            if (value.isNotBlank()) {
+                appVersionExplicitlySet = true
+            }
+        }
+
+    /** Optional build version string (defaults to automatic short git hash when inside a git repo). */
+    var buildVersion: String = ""
 
     /** Organization / publisher / vendor name (e.g. `"NexusTools"`). */
     var vendor: String = "NexusTools"

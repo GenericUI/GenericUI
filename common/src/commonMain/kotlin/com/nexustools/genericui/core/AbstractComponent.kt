@@ -1885,31 +1885,32 @@ abstract class AbstractComponent(
             computedStyleState = style
             return
         }
-        computedStyleState = style
         lastAppliedEnabledForComputedStyle = enabledState
-        val effectiveForState = if (!enabledState && style.disabledStyle != null) {
-            style.mergeWith(style.disabledStyle)
-        } else {
-            style
-        }
-        opacityState = effectiveForState.opacity.coerceIn(0f, 1f)
         when {
             style.transitions != null -> transitionController.updateTransitionSpecs(style.transitions)
             style.transition != null -> transitionController.updateTransitionCss(style.transition)
             previous?.transitions != null || previous?.transition != null -> transitionController.updateTransitionSpecs(emptyList())
         }
         transitionController.onStyleChanged(previous, style)
+        val animatedStyle = systemCssAnimationHook?.invoke(this, previous, style, lastAppliedStyleSheet)
+        val resolvedStyle = animatedStyle ?: style
+        computedStyleState = resolvedStyle
+        val effectiveForState = if (!enabledState && resolvedStyle.disabledStyle != null) {
+            resolvedStyle.mergeWith(resolvedStyle.disabledStyle)
+        } else {
+            resolvedStyle
+        }
+        opacityState = effectiveForState.opacity.coerceIn(0f, 1f)
         val softwareOpacityAnimating = transitionController.hasActiveSoftwareTransition("opacity")
         val nativeOpacity = if (softwareOpacityAnimating) transitionController.currentFrameState.opacity else opacityState
         runOnNativeUi {
-            it.applyComputedStyle(style)
+            it.applyComputedStyle(resolvedStyle)
             it.setOpacity(nativeOpacity)
             it.setBackgroundGradient(effectiveForState.backgroundGradient)
             it.setCustomCursor(effectiveForState.customCursor)
         }
-        systemCssAnimationHook?.invoke(this, previous, style, lastAppliedStyleSheet)
         if (!suppressVisualResyncOnComputedStyleChange) {
-            onComputedStyleChanged(previous, style)
+            onComputedStyleChanged(previous, resolvedStyle)
         }
     }
 
@@ -2758,7 +2759,7 @@ abstract class AbstractComponent(
             previous: ComputedStyle?,
             current: ComputedStyle,
             sheet: CssStyleSheet?
-        ) -> Unit)? = null
+        ) -> ComputedStyle?)? = null
 
         internal var systemCssAnimationDisposeHook: ((component: AbstractComponent) -> Unit)? = null
     }

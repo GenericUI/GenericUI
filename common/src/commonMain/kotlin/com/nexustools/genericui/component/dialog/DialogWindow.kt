@@ -121,6 +121,7 @@ open class DialogWindow(
     }
 
     private var windowBoundsState: Rect = Rect(120, 120, 560, 400)
+    private var minWindowSizeState: Size? = null
     private var windowStateVal: WindowState = WindowState.NORMAL
     var fitToContent: Boolean = true
     private var hasExplicitSize: Boolean = false
@@ -155,6 +156,27 @@ open class DialogWindow(
                 isFullscreen = isFullscreen
             )
         )
+    }
+
+    override fun getMinWindowSize(): Size? = minWindowSizeState
+
+    override fun setMinWindowSize(minSize: Size?) {
+        minWindowSizeState = minSize
+        if (minSize != null) {
+            setAttribute("minWidthPx", minSize.width.toString())
+            setAttribute("minHeightPx", minSize.height.toString())
+            if (hasExplicitSize && (windowBoundsState.width < minSize.width || windowBoundsState.height < minSize.height)) {
+                setWindowSize(
+                    Size(
+                        maxOf(windowBoundsState.width, minSize.width),
+                        maxOf(windowBoundsState.height, minSize.height)
+                    )
+                )
+            }
+        } else {
+            removeAttribute("minWidthPx")
+            removeAttribute("minHeightPx")
+        }
     }
 
     override var windowBounds: Rect

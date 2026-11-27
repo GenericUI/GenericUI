@@ -19,6 +19,12 @@ class Menu(
 
     private var labelState: String = label
     private var iconState: String? = icon ?: iconRes?.toResourceUri()
+    internal var onMenuMutated: (() -> Unit)? = null
+
+    internal fun notifyMenuMutated() {
+        onMenuMutated?.invoke()
+        (parent as? Menu)?.notifyMenuMutated()
+    }
 
     protected override fun createNativeImpl(factory: NativeFactory): MenuNativeImpl<*> =
         factory.createMenu()
@@ -33,6 +39,7 @@ class Menu(
     fun setLabel(label: String) {
         labelState = label
         typedNative<MenuNativeImpl<*>>()?.setLabel(label)
+        notifyMenuMutated()
     }
 
     fun getLabel(): String = typedNative<MenuNativeImpl<*>>()?.getLabel() ?: labelState
@@ -40,6 +47,7 @@ class Menu(
     fun setIcon(icon: String?) {
         iconState = icon
         typedNative<MenuNativeImpl<*>>()?.setIcon(icon)
+        notifyMenuMutated()
     }
 
     fun setIconResource(resId: ResourceID) {
@@ -47,6 +55,44 @@ class Menu(
     }
 
     fun getIcon(): String? = typedNative<MenuNativeImpl<*>>()?.getIcon() ?: iconState
+
+    override var isVisible: Boolean
+        get() = super.isVisible
+        set(value) {
+            val changed = super.isVisible != value
+            super.isVisible = value
+            if (changed) {
+                notifyMenuMutated()
+            }
+        }
+
+    override var isEnabled: Boolean
+        get() = super.isEnabled
+        set(value) {
+            val changed = super.isEnabled != value
+            super.isEnabled = value
+            if (changed) {
+                notifyMenuMutated()
+            }
+        }
+
+    override fun addChild(child: AbstractComponent, index: Int) {
+        super.addChild(child, index)
+        notifyMenuMutated()
+    }
+
+    override fun removeChild(child: AbstractComponent): Boolean {
+        val removed = super.removeChild(child)
+        if (removed) {
+            notifyMenuMutated()
+        }
+        return removed
+    }
+
+    override fun clearChildren() {
+        super.clearChildren()
+        notifyMenuMutated()
+    }
 
     fun addItem(item: MenuItem): Menu {
         addChild(item)

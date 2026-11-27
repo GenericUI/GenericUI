@@ -1196,7 +1196,11 @@ object GenericUiMultiplatformConfigurator {
             projectName = project.name,
             appId = app.desktop.appId.trim().ifEmpty { resolvedBaseName },
             appName = app.desktop.appName.trim().ifEmpty { resolvedBaseName },
-            appVersion = app.desktop.appVersion.trim().ifEmpty { "1.0.0" },
+            appVersion = GenericUiGradlePlugin.resolveVariantWithProjectFallbacksStatic(
+                project,
+                extension,
+                GenericUiVariantScope.COMMON
+            ).appVersion,
             baseName = resolvedBaseName,
             generatedPackageName = resolvedLauncherPkg,
             enabledExtensionModulePaths = enabledExtPathsSet,
@@ -1576,13 +1580,34 @@ object GenericUiMultiplatformConfigurator {
                 if (grp.isNotEmpty() && grp != "unspecified") grp else "com.nexustools.${baseName.lowercase()}"
             }
         }
-        val appVersion = extension.application.desktop.appVersion.trim().ifEmpty {
-            extension.app.version.trim().ifEmpty {
-                val v = project.version.toString().trim()
-                if (v.isNotEmpty() && v != "unspecified") v else "1.0.0"
+        val resolvedMac = GenericUiGradlePlugin.resolveVariantWithProjectFallbacksStatic(
+            project,
+            extension,
+            GenericUiVariantScope.MACOS
+        )
+        val appVersion = resolvedMac.appVersion
+        val gitHash = resolvedMac.gitHash
+        val macosBundleVersion = GenericUiGitVersionResolver.resolveMacosBundleVersion(
+            version = appVersion,
+            buildVersion = resolvedMac.buildVersion,
+            gitHash = gitHash
+        )
+
+        val appVendor = extension.app.vendor.trim().ifEmpty {
+            extension.application.desktop.vendor.trim().ifEmpty { "NexusTools" }
+        }
+        val resolvedPackageName = extension.app.packageName.trim().ifEmpty {
+            extension.application.androidNamespace.trim().ifEmpty { appId }
+        }
+        val appCopyright = extension.app.copyright.trim().ifEmpty {
+            extension.application.desktop.copyright.trim().ifEmpty {
+                GenericUiVariantResolver.deriveDefaultCopyright(
+                    packageName = resolvedPackageName,
+                    appId = appId,
+                    fallbackVendor = appVendor
+                )
             }
         }
-
         val appBundleDir = File(distDir, "$appName.app")
         val contentsDir = File(appBundleDir, "Contents")
         val macOsDir = File(contentsDir, "MacOS")
@@ -1743,9 +1768,13 @@ object GenericUiMultiplatformConfigurator {
                         appendLine("    <key>CFBundleIdentifier</key>")
                         appendLine("    <string>${escapePlistXml(helperBundleId)}</string>")
                         appendLine("    <key>CFBundleVersion</key>")
-                        appendLine("    <string>${escapePlistXml(appVersion)}</string>")
+                        appendLine("    <string>${escapePlistXml(macosBundleVersion)}</string>")
                         appendLine("    <key>CFBundleShortVersionString</key>")
                         appendLine("    <string>${escapePlistXml(appVersion)}</string>")
+                        if (gitHash.isNotEmpty()) {
+                            appendLine("    <key>GenericUIGitCommit</key>")
+                            appendLine("    <string>${escapePlistXml(gitHash)}</string>")
+                        }
                         appendLine("    <key>CFBundleExecutable</key>")
                         appendLine("    <string>${escapePlistXml(helperExeName)}</string>")
                         appendLine("    <key>CFBundleIconFile</key>")
@@ -1760,6 +1789,8 @@ object GenericUiMultiplatformConfigurator {
                         appendLine("    <${if (multipleInstancesProhibited) "true" else "false"}/>")
                         appendLine("    <key>NSHighResolutionCapable</key>")
                         appendLine("    <true/>")
+                        appendLine("    <key>NSHumanReadableCopyright</key>")
+                        appendLine("    <string>${escapePlistXml(appCopyright)}</string>")
                         appendLine("    <key>NSLocalNetworkUsageDescription</key>")
                         appendLine("    <string>${escapePlistXml(helperLocalNetDesc)}</string>")
                         if (bonjourServices.isNotEmpty()) {
@@ -1805,9 +1836,13 @@ object GenericUiMultiplatformConfigurator {
                         appendLine("    <key>CFBundleIdentifier</key>")
                         appendLine("    <string>${escapePlistXml(appId)}</string>")
                         appendLine("    <key>CFBundleVersion</key>")
-                        appendLine("    <string>${escapePlistXml(appVersion)}</string>")
+                        appendLine("    <string>${escapePlistXml(macosBundleVersion)}</string>")
                         appendLine("    <key>CFBundleShortVersionString</key>")
                         appendLine("    <string>${escapePlistXml(appVersion)}</string>")
+                        if (gitHash.isNotEmpty()) {
+                            appendLine("    <key>GenericUIGitCommit</key>")
+                            appendLine("    <string>${escapePlistXml(gitHash)}</string>")
+                        }
                         appendLine("    <key>CFBundleExecutable</key>")
                         appendLine("    <string>${escapePlistXml(bundleExecutableName)}</string>")
                         appendLine("    <key>CFBundleIconFile</key>")
@@ -1822,6 +1857,8 @@ object GenericUiMultiplatformConfigurator {
                         appendLine("    <${if (multipleInstancesProhibited) "true" else "false"}/>")
                         appendLine("    <key>NSHighResolutionCapable</key>")
                         appendLine("    <true/>")
+                        appendLine("    <key>NSHumanReadableCopyright</key>")
+                        appendLine("    <string>${escapePlistXml(appCopyright)}</string>")
                         if (mainLocalNetDesc != null) {
                             appendLine("    <key>NSLocalNetworkUsageDescription</key>")
                             appendLine("    <string>${escapePlistXml(mainLocalNetDesc)}</string>")

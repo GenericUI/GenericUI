@@ -19,6 +19,7 @@ interface ApplicationNativeImpl<out W> : Disposable {
     fun removeStyleSheet(styleSheet: PrecompiledStyleSheet) {}
     fun isOffline(): Boolean = false
     fun setOnOfflineChanged(listener: ((Boolean) -> Unit)?) {}
+    fun setMacApplicationMenu(menuImpl: MenuNativeImpl<*>?, appTitle: String? = null) {}
     fun runEventLoop(onStarted: () -> Unit)
     fun exitApplication(exitCode: Int = 0)
 }

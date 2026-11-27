@@ -1,8 +1,10 @@
 package com.nexustools.genericui.component.dialog
 
 import com.nexustools.genericui.component.action.Button
+import com.nexustools.genericui.component.layout.Container
 import com.nexustools.genericui.component.layout.Spacer
 import com.nexustools.genericui.component.overlay.Modal
+import com.nexustools.genericui.component.shell.Window
 import com.nexustools.genericui.core.GenericUI
 import com.nexustools.genericui.core.NativeFactory
 import com.nexustools.genericui.core.NativeImpl
@@ -25,6 +27,8 @@ import com.nexustools.genericui.enums.bootstrap.TextOverflow
 import com.nexustools.genericui.enums.bootstrap.TextTransform
 import com.nexustools.genericui.enums.dialog.DialogPresentationStyle
 import com.nexustools.genericui.enums.system.BackendTarget
+import com.nexustools.genericui.enums.window.DisplayCutoutMode
+import com.nexustools.genericui.enums.window.WindowState
 import com.nexustools.genericui.event.KeyEvent
 import com.nexustools.genericui.event.PointerEvent
 import com.nexustools.genericui.event.WheelEvent
@@ -78,9 +82,14 @@ import com.nexustools.genericui.nativeimpl.tabs.TabNativeImpl
 import com.nexustools.genericui.nativeimpl.typography.MarkdownViewNativeImpl
 import com.nexustools.genericui.nativeimpl.typography.TextNativeImpl
 import com.nexustools.genericui.style.css.ComputedStyle
+import com.nexustools.genericui.window.TitleBar
+import com.nexustools.genericui.window.WindowConfiguration
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class OptionsDialogAndModalFooterTest {
@@ -116,6 +125,7 @@ class OptionsDialogAndModalFooterTest {
         private var enabled: Boolean = true
         private var opacity: Float = 1f
         private var tooltip: String? = null
+        val attributes: MutableMap<String, String> = linkedMapOf()
 
         override fun dispose() { isDisposed = true }
         override fun setClass(className: String) { this.className = className }
@@ -175,6 +185,13 @@ class OptionsDialogAndModalFooterTest {
         override fun getOpacity(): Float = opacity
         override fun setTooltipText(tooltip: String?) { this.tooltip = tooltip }
         override fun getTooltipText(): String? = tooltip
+        override fun setAttribute(name: String, value: String?) {
+            if (value == null) {
+                attributes.remove(name)
+            } else {
+                attributes[name] = value
+            }
+        }
         override fun setPreferredSize(size: Size?) {}
         override fun getBounds(): Rect = Rect.ZERO
         override fun setPadding(padding: EdgeInsets) {}
@@ -192,9 +209,53 @@ class OptionsDialogAndModalFooterTest {
     }
 
     private class FakeContainerNativeImpl(prefix: String) : StubNativeImpl(prefix), ContainerNativeImpl<Any> {
-        override fun addChildNative(childImpl: NativeImpl<*>, index: Int) {}
-        override fun removeChildNative(childImpl: NativeImpl<*>) {}
-        override fun clearChildrenNative() {}
+        val addedChildren: MutableList<NativeImpl<*>> = mutableListOf()
+        override fun addChildNative(childImpl: NativeImpl<*>, index: Int) {
+            addedChildren.add(index.coerceIn(0, addedChildren.size), childImpl)
+        }
+        override fun removeChildNative(childImpl: NativeImpl<*>) {
+            addedChildren.removeAll { it === childImpl }
+        }
+        override fun clearChildrenNative() {
+            addedChildren.clear()
+        }
+    }
+
+    private class FakeWindowNativeImpl : StubNativeImpl("window"), WindowNativeImpl<Any> {
+        val addedChildren: MutableList<NativeImpl<*>> = mutableListOf()
+        private var title: String = ""
+        private var windowSize: Size = Size(1280, 800)
+        private var windowState: WindowState = WindowState.NORMAL
+        private var fullscreen: Boolean = false
+        override val supportsCustomTitleBar: Boolean = false
+        override val supportsEmbeddedMenuBarInTitleBar: Boolean = false
+        override val supportsMultiWindow: Boolean = true
+        override fun addChildNative(childImpl: NativeImpl<*>, index: Int) {
+            addedChildren.add(index.coerceIn(0, addedChildren.size), childImpl)
+        }
+        override fun removeChildNative(childImpl: NativeImpl<*>) {
+            addedChildren.removeAll { it === childImpl }
+        }
+        override fun clearChildrenNative() {
+            addedChildren.clear()
+        }
+        override fun setTitle(title: String) { this.title = title }
+        override fun getTitle(): String = title
+        override fun setWindowSize(size: Size) { windowSize = size }
+        override fun getWindowSize(): Size = windowSize
+        override fun setWindowState(state: WindowState) { windowState = state }
+        override fun getWindowState(): WindowState = windowState
+        override fun setFullscreen(fullscreen: Boolean, cutoutMode: DisplayCutoutMode) { this.fullscreen = fullscreen }
+        override fun isFullscreen(): Boolean = fullscreen
+        override fun applyTitleBarInstructions(titleBar: TitleBar?) {}
+        override fun setMenuBarNative(menuBarImpl: MenuBarNativeImpl<*>?) {}
+        override fun setNavBarNative(navBarImpl: NativeImpl<*>?) {}
+        override fun setBottomNavigationBarNative(bottomNavImpl: NativeImpl<*>?) {}
+        override fun showWindow() {}
+        override fun closeWindow() {}
+        override fun setOnWindowResize(listener: ((WindowConfiguration) -> Unit)?) {}
+        override fun setOnWindowFocusChanged(listener: ((Boolean) -> Unit)?) {}
+        override fun setOnWindowCloseRequested(listener: (() -> Boolean)?) {}
     }
 
     private class FakeButtonNativeImpl(prefix: String) : StubNativeImpl(prefix), ButtonNativeImpl<Any> {
@@ -207,19 +268,27 @@ class OptionsDialogAndModalFooterTest {
     }
 
     private class FakeDialogWindowNativeImpl : StubNativeImpl("dialog"), DialogWindowNativeImpl<Any> {
+        val addedChildren: MutableList<NativeImpl<*>> = mutableListOf()
+        var shownWithOwner: WindowNativeImpl<*>? = null
         private var title: String = ""
         private var presentationStyle: DialogPresentationStyle = DialogPresentationStyle.MODAL_CENTERED
         private var onClosed: (() -> Unit)? = null
-        override fun addChildNative(childImpl: NativeImpl<*>, index: Int) {}
-        override fun removeChildNative(childImpl: NativeImpl<*>) {}
-        override fun clearChildrenNative() {}
+        override fun addChildNative(childImpl: NativeImpl<*>, index: Int) {
+            addedChildren.add(index.coerceIn(0, addedChildren.size), childImpl)
+        }
+        override fun removeChildNative(childImpl: NativeImpl<*>) {
+            addedChildren.removeAll { it === childImpl }
+        }
+        override fun clearChildrenNative() {
+            addedChildren.clear()
+        }
         override fun setTitle(title: String) { this.title = title }
         override fun getTitle(): String = title
         override fun setPresentationStyle(style: DialogPresentationStyle) { presentationStyle = style }
         override fun getPresentationStyle(): DialogPresentationStyle = presentationStyle
         override fun setModal(modal: Boolean) {}
         override fun setFullscreen(fullscreen: Boolean) {}
-        override fun showDialog(ownerWindow: WindowNativeImpl<*>?) {}
+        override fun showDialog(ownerWindow: WindowNativeImpl<*>?) { shownWithOwner = ownerWindow }
         override fun closeDialog() { onClosed?.invoke() }
         override fun setOnDialogClosed(listener: (() -> Unit)?) { onClosed = listener }
     }
@@ -228,7 +297,7 @@ class OptionsDialogAndModalFooterTest {
         private fun unsupported(): Nothing = throw UnsupportedOperationException("Unused in OptionsDialogAndModalFooterTest")
         override val backendTarget: BackendTarget = BackendTarget.Swing
         override fun createApplication(): ApplicationNativeImpl<*> = unsupported()
-        override fun createWindow(): WindowNativeImpl<*> = unsupported()
+        override fun createWindow(): WindowNativeImpl<*> = FakeWindowNativeImpl()
         override fun createMenuBar(): MenuBarNativeImpl<*> = unsupported()
         override fun createMenu(): MenuNativeImpl<*> = unsupported()
         override fun createMenuItem(checkable: Boolean, radio: Boolean): MenuItemNativeImpl<*> = unsupported()
@@ -399,6 +468,106 @@ class OptionsDialogAndModalFooterTest {
             secondButton.onClick?.invoke()
             assertEquals("browse_seasons", selectedOptionId)
             assertFalse(dialog.isWindowShown)
+        } finally {
+            GenericUI.resetForTests()
+            GenericUI.activeFactory = prevFactory
+        }
+    }
+
+    @Test
+    fun testOwnedDialogWindowSetsParentWithoutAttachingToOwnerNativeChildren() {
+        val prevFactory = GenericUI.activeFactory
+        try {
+            GenericUI.initialize(FakeDialogTestFactory())
+            val ownerWindow = Window(title = "Owner Window")
+            val ownerContent = Container()
+            ownerWindow.setContent(ownerContent)
+            ownerWindow.show()
+
+            val ownerWindowImpl = ownerWindow.nativeImpl as FakeWindowNativeImpl
+            val dialog = DialogWindow(title = "Owned Dialog")
+            val dialogContent = Container()
+            val dialogButton = Button("Confirm")
+            dialogContent.addChild(dialogButton)
+            dialog.setContent(dialogContent)
+
+            dialog.open(ownerWindow)
+
+            assertSame(ownerWindow, dialog.parent)
+            assertTrue(dialog.isWindowShown)
+            val dialogImpl = dialog.nativeImpl as? FakeDialogWindowNativeImpl
+            assertNotNull(dialogImpl)
+            assertNotNull(dialogContent.nativeImpl)
+            assertNotNull(dialogButton.nativeImpl)
+            assertSame(ownerWindowImpl, dialogImpl.shownWithOwner)
+            assertFalse(ownerWindowImpl.addedChildren.any { it === dialogImpl })
+            assertTrue(dialogImpl.addedChildren.any { it === dialogContent.nativeImpl })
+
+            dialog.close()
+            ownerWindow.close()
+        } finally {
+            GenericUI.resetForTests()
+            GenericUI.activeFactory = prevFactory
+        }
+    }
+
+    @Test
+    fun testParentOnlyChildDoesNotAttachToContainerNativeChildrenOnVisibilityChange() {
+        val prevFactory = GenericUI.activeFactory
+        try {
+            GenericUI.initialize(FakeDialogTestFactory())
+            val window = Window(title = "Host Window")
+            val container = Container()
+            window.setContent(container)
+            window.show()
+
+            val containerImpl = container.nativeImpl as FakeContainerNativeImpl
+            val detachedChild = Button("Detached").apply {
+                isVisible = false
+                parent = container
+            }
+
+            detachedChild.isVisible = true
+
+            val detachedImpl = detachedChild.nativeImpl
+            assertNotNull(detachedImpl)
+            assertFalse(containerImpl.addedChildren.any { it === detachedImpl })
+
+            window.close()
+        } finally {
+            GenericUI.resetForTests()
+            GenericUI.activeFactory = prevFactory
+        }
+    }
+
+    @Test
+    fun testDialogWindowMinSizeRoundTripsAndSyncsNativeAttributes() {
+        val prevFactory = GenericUI.activeFactory
+        try {
+            GenericUI.initialize(FakeDialogTestFactory())
+            val dialog = DialogWindow(title = "Sized Dialog")
+            dialog.setWindowSize(Size(300, 260))
+            dialog.setMinWindowSize(Size(480, 420))
+
+            assertEquals(Size(480, 420), dialog.getMinWindowSize())
+            assertEquals(Size(480, 420), dialog.getWindowSize())
+
+            dialog.open()
+
+            val dialogImpl = dialog.nativeImpl as FakeDialogWindowNativeImpl
+            assertEquals("480", dialogImpl.attributes["minWidthPx"])
+            assertEquals("420", dialogImpl.attributes["minHeightPx"])
+
+            dialog.syncStateToNativeInternal()
+            assertEquals("480", dialogImpl.attributes["minWidthPx"])
+            assertEquals("420", dialogImpl.attributes["minHeightPx"])
+
+            dialog.setMinWindowSize(null)
+            assertNull(dialog.getMinWindowSize())
+            assertNull(dialogImpl.attributes["minWidthPx"])
+            assertNull(dialogImpl.attributes["minHeightPx"])
+
+            dialog.close()
         } finally {
             GenericUI.resetForTests()
             GenericUI.activeFactory = prevFactory

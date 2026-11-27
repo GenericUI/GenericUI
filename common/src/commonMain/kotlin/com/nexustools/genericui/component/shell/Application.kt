@@ -17,12 +17,15 @@ import com.nexustools.genericui.core.GenericUiExtensionRegistry
 import com.nexustools.genericui.core.NativeFactory
 import com.nexustools.genericui.core.UiTimerScheduler
 import com.nexustools.genericui.enums.bootstrap.BootstrapType
+import com.nexustools.genericui.enums.system.BackendTarget
 import com.nexustools.genericui.enums.ui.ThemeMode
 import com.nexustools.genericui.enums.window.WindowState
+import com.nexustools.genericui.event.KeyShortcut
 import com.nexustools.genericui.exception.NativeUninitializedException
 import com.nexustools.genericui.geometry.Rect
 import com.nexustools.genericui.geometry.Size
 import com.nexustools.genericui.nativeimpl.shell.ApplicationNativeImpl
+import com.nexustools.genericui.nativeimpl.shell.MenuNativeImpl
 import com.nexustools.genericui.nativeimpl.system.NetworkMonitorNativeImpl
 import com.nexustools.genericui.res.Resources
 import com.nexustools.genericui.resources.ResourceID
@@ -298,6 +301,34 @@ open class Application(
     private var lastKnownOfflineState: Boolean = false
     private var defaultPreferenceStore: PreferenceStore? = null
 
+    private class ApplicationMenuAnchorContainer(
+        private var boundFactory: NativeFactory? = null
+    ) : Container("application-menu-anchor") {
+        fun bindFactory(factory: NativeFactory?) {
+            if (factory != null) {
+                boundFactory = factory
+            }
+        }
+
+        override fun resolveActiveFactory(): NativeFactory? =
+            boundFactory ?: GenericUI.activeFactory
+
+        override fun resolveChildFactory(): NativeFactory? =
+            resolveActiveFactory()
+
+        override fun resolveInitialNativeVisibility(): Boolean = false
+    }
+
+    /**
+     * macOS-specific Application Menu instance installed during [run] when running on
+     * [BackendTarget.MacOS], or `null` on all non-macOS targets (Windows, Linux, Swing,
+     * Android, iOS, iPadOS, Web).
+     */
+    var macApplicationMenu: MacApplicationMenu? = null
+        private set
+    private var applicationMenuAnchor: ApplicationMenuAnchorContainer? = null
+    private var isSyncingApplicationMenu: Boolean = false
+
     override var persistMainWindowState: Boolean = true
     override var defaultMainWindowFullscreen: Boolean = false
     private var defaultMainWindowSize: Size? = null
@@ -439,6 +470,69 @@ open class Application(
     }
 
     override fun getMenuBar(): MenuBar? = mainWindow.getMenuBar()
+
+    /**
+     * macOS-only lifecycle hook invoked by [run] exclusively when the active backend is
+     * [BackendTarget.MacOS] (`supportsSystemMenuBar = true`) to install macOS-specific items
+     * into the screen-top Application Menu (between "About <App>" and "Hide <App>").
+     *
+     * Never invoked on Windows, Linux, Swing, Android, iOS, iPadOS, or Web, keeping per-window
+     * cross-platform [Menu] / [MenuBar] instances completely isolated from the macOS App Menu.
+     */
+    protected open fun onInstallMacApplicationMenu(menu: MacApplicationMenu) {}
+
+    private fun installMacApplicationMenu(factory: NativeFactory, impl: ApplicationNativeImpl<*>) {
+        if (factory.backendTarget != BackendTarget.MacOS || !factory.supportsSystemMenuBar) {
+            return
+        }
+        macApplicationMenu?.dispose()
+        val menuTitle = mainWindow.getTitle()
+            .takeIf { it.isNotBlank() && it != "GenericUI Application" }
+            ?: GenericUI.applicationName.takeIf { it.isNotBlank() && it != "GenericUI" }
+            ?: mainWindow.getTitle().ifBlank { "Application" }
+        val macMenu = MacApplicationMenu(label = menuTitle)
+        macApplicationMenu = macMenu
+        onInstallMacApplicationMenu(macMenu)
+        macMenu.onMutated = { syncMacApplicationMenuToNative() }
+        syncMacApplicationMenuToNative(factory = factory, impl = impl, appTitle = menuTitle)
+    }
+
+    private fun syncMacApplicationMenuToNative(
+        factory: NativeFactory? = activeFactory ?: GenericUI.activeFactory,
+        impl: ApplicationNativeImpl<*>? = appNativeImpl,
+        appTitle: String = mainWindow.getTitle()
+    ) {
+        if (isSyncingApplicationMenu) return
+        val resolvedImpl = impl ?: return
+        val resolvedFactory = factory ?: return
+        if (resolvedFactory.backendTarget != BackendTarget.MacOS || !resolvedFactory.supportsSystemMenuBar) return
+        val macMenu = macApplicationMenu ?: return
+        isSyncingApplicationMenu = true
+        try {
+            val anchor = applicationMenuAnchor ?: ApplicationMenuAnchorContainer(resolvedFactory).also {
+                applicationMenuAnchor = it
+            }
+            anchor.bindFactory(resolvedFactory)
+            anchor.ensureNativeImpl()
+            val backingMenu = macMenu.internalMenu()
+            if (backingMenu.parent == null) {
+                backingMenu.parent = anchor
+            }
+            realizeMenuSubtree(backingMenu)
+            resolvedImpl.setMacApplicationMenu(backingMenu.nativeImpl as? MenuNativeImpl<*>, appTitle)
+        } finally {
+            isSyncingApplicationMenu = false
+        }
+    }
+
+    private fun realizeMenuSubtree(component: com.nexustools.genericui.core.AbstractComponent) {
+        component.ensureNativeImpl()
+        if (component is com.nexustools.genericui.core.AbstractContainer) {
+            for (child in component.children) {
+                realizeMenuSubtree(child)
+            }
+        }
+    }
 
     override fun setTitleBar(titleBar: TitleBar?) {
         mainWindow.setTitleBar(titleBar)
@@ -1097,6 +1191,7 @@ open class Application(
         if (themeColorState != null) {
             impl.setThemeColor(themeColorState)
         }
+        installMacApplicationMenu(factory, impl)
         for (builtInId in listOf(Resources.GENERICUI, Resources.BOOTSTRAP, Resources.BOOTSTRAP_ICONS)) {
             val builtInSheet = StyleSheetRegistry.resolveByResourceId(builtInId) ?: Resources.getStyleSheet(builtInId)
             if (builtInSheet != null) {
@@ -1247,6 +1342,10 @@ open class Application(
         networkMonitorFactory = null
         offlineListeners.clear()
         onOfflineChangedCallback = null
+        macApplicationMenu?.dispose()
+        macApplicationMenu = null
+        applicationMenuAnchor?.dispose()
+        applicationMenuAnchor = null
         mainWindow.dispose()
         appNativeImpl?.dispose()
         appNativeImpl = null

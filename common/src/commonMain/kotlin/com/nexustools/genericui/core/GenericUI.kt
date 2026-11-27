@@ -20,6 +20,9 @@ import kotlin.reflect.KClass
 object GenericUI {
     var activeFactory: NativeFactory? = null
     var applicationName: String = "GenericUI"
+    var appVersion: String = "1.0.0"
+    var appGitHash: String = ""
+    var appCopyright: String = ""
     var defaultThemeMode: ThemeMode = ThemeMode.AUTO
     var defaultThemeConfig: ThemeConfig = ThemeConfig.DEFAULT
     var appleIconExplicitlyProvided: Boolean = false
@@ -97,6 +100,9 @@ object GenericUI {
         FragmentLaunchCoordinator.resetForTests()
         FragmentRegistry.clear()
         applicationName = "GenericUI"
+        appVersion = "1.0.0"
+        appGitHash = ""
+        appCopyright = ""
         defaultThemeMode = ThemeMode.AUTO
         defaultThemeConfig = ThemeConfig.DEFAULT
         appleIconExplicitlyProvided = false

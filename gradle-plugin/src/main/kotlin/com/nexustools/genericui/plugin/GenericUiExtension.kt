@@ -613,8 +613,10 @@ open class GenericUiExtension {
         if (app.id.isNotBlank()) application.appId = app.id
         if (app.name.isNotBlank()) application.appName = app.name
         if (app.versionExplicitlySet && app.version.isNotBlank()) application.appVersion = app.version
+        if (app.buildVersion.isNotBlank()) application.buildVersion = app.buildVersion
         if (app.description.isNotBlank()) application.description = app.description
         if (app.vendor.isNotBlank()) application.vendor = app.vendor
+        if (app.copyright.isNotBlank()) application.copyright = app.copyright
         if (app.packageName.isNotBlank() && application.androidNamespace.isBlank()) {
             application.androidNamespace = app.packageName
         }

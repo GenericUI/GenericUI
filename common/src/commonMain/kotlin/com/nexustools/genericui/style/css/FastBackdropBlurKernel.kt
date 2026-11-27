@@ -25,7 +25,7 @@ import kotlin.math.sqrt
 object FastBackdropBlurKernel {
 
     private const val SCRATCH_POOL_SIZE = 4
-    private const val MAX_BLUR_RADIUS_PX = 48f
+    private const val MAX_BLUR_RADIUS_PX = 128f
     private const val DOWNSAMPLE_2X_THRESHOLD_PX = 4f
     private const val DOWNSAMPLE_4X_THRESHOLD_PX = 10f
 
@@ -289,11 +289,11 @@ object FastBackdropBlurKernel {
             return true
         }
 
-        val blurPad = if (blurPx > 0f) ceil(blurPx * 1.5f).toInt().coerceIn(1, 32) else 0
+        val blurPad = if (blurPx > 0f) ceil(blurPx * 1.5f).toInt().coerceIn(1, 96) else 0
         val shadowBlurPx = if (shadow != null) (shadow.blurRadius.resolvePx() ?: 0f).coerceIn(0f, MAX_BLUR_RADIUS_PX) else 0f
         val shadowOffX = shadow?.offsetX?.resolvePx() ?: 0f
         val shadowOffY = shadow?.offsetY?.resolvePx() ?: 0f
-        val shadowBlurPad = if (shadow != null && shadowBlurPx > 0f) ceil(shadowBlurPx * 1.5f).toInt().coerceIn(1, 32) else 0
+        val shadowBlurPad = if (shadow != null && shadowBlurPx > 0f) ceil(shadowBlurPx * 1.5f).toInt().coerceIn(1, 96) else 0
         val padLeft = if (shadow != null) max(blurPad, shadowBlurPad + ceil(max(0f, shadowOffX)).toInt().coerceAtMost(64)) else blurPad
         val padRight = if (shadow != null) max(blurPad, shadowBlurPad + ceil(max(0f, -shadowOffX)).toInt().coerceAtMost(64)) else blurPad
         val padTop = if (shadow != null) max(blurPad, shadowBlurPad + ceil(max(0f, shadowOffY)).toInt().coerceAtMost(64)) else blurPad
@@ -375,7 +375,7 @@ object FastBackdropBlurKernel {
 
             val shadowAlpha = scratch.shadowAlphaBuf
             if (shadow != null) {
-                val filterOp = (filter.opacity ?: 1f).coerceIn(0f, 1f)
+                val filterOp = if (premultiplied) (filter.opacity ?: 1f).coerceIn(0f, 1f) else 1f
                 var sp = 0
                 while (sp < pixelCount) {
                     shadowAlpha[sp] = (aBuf[sp].coerceIn(0f, 1f) * filterOp).coerceIn(0f, 1f)
@@ -387,6 +387,8 @@ object FastBackdropBlurKernel {
             }
 
             val hasOps = filter.hasPixelOps
+            val filterOpacity255 = ((filter.opacity ?: 1f).coerceIn(0f, 1f) * 255f + 0.5f).toInt().coerceIn(0, 255)
+            val argbBlendOp255 = if (!premultiplied) ((filterOpacity255 * op255 + 127) / 255).coerceIn(0, 255) else 255
             val hueDeg = filter.hueRotateDeg
             val hasHue = hueDeg != null && hueDeg != 0f
             val hueRad = if (hasHue) hueDeg!! * (PI.toFloat() / 180f) else 0f
@@ -429,14 +431,14 @@ object FastBackdropBlurKernel {
                         val sy = (y - capY0).toFloat() - shadowOffY
                         val maskA = sampleShadowAlpha(shadowAlpha, capW, capH, sx, sy)
                         if (hasOps) {
-                            evaluateColorOps(filter, r, g, b, a, hasHue, cosH, sinH) { fgR, fgG, fgB, fgA ->
+                            evaluateColorOps(filter, r, g, b, a, hasHue, cosH, sinH, applyOpacity = premultiplied) { fgR, fgG, fgB, fgA ->
                                 compositeShadowAndPack(fgR, fgG, fgB, fgA, maskA, scR, scG, scB, scA, premultiplied)
                             }
                         } else {
                             compositeShadowAndPack(r, g, b, a, maskA, scR, scG, scB, scA, premultiplied)
                         }
                     } else if (hasOps) {
-                        evaluateColorOps(filter, r, g, b, a, hasHue, cosH, sinH) { fgR, fgG, fgB, fgA ->
+                        evaluateColorOps(filter, r, g, b, a, hasHue, cosH, sinH, applyOpacity = premultiplied) { fgR, fgG, fgB, fgA ->
                             packRgbaFloats(fgR, fgG, fgB, fgA, premultiplied)
                         }
                     } else {
@@ -445,6 +447,8 @@ object FastBackdropBlurKernel {
 
                     pixels[dstRow + x] = if (premultiplied && op255 < 255) {
                         blendPremulWords(pixels[dstRow + x], filtWord, op255)
+                    } else if (!premultiplied && argbBlendOp255 < 255) {
+                        blendStraightArgbWords(pixels[dstRow + x], filtWord, argbBlendOp255)
                     } else {
                         filtWord
                     }
@@ -1051,6 +1055,8 @@ object FastBackdropBlurKernel {
         val hueRad = if (hasHue) hueDeg!! * (PI.toFloat() / 180f) else 0f
         val cosH = if (hasHue) cos(hueRad) else 1f
         val sinH = if (hasHue) sin(hueRad) else 0f
+        val filterOpacity255 = ((filter.opacity ?: 1f).coerceIn(0f, 1f) * 255f + 0.5f).toInt().coerceIn(0, 255)
+        val argbBlendOp255 = if (!premultiplied) ((filterOpacity255 * op255 + 127) / 255).coerceIn(0, 255) else 255
 
         for (y in y0 until y1) {
             val rowOff = y * strideWords
@@ -1088,16 +1094,40 @@ object FastBackdropBlurKernel {
                     g = ((px ushr 8) and 0xFF) / 255f
                     b = (px and 0xFF) / 255f
                 }
-                val filtWord = evaluateColorOps(filter, r, g, b, a, hasHue, cosH, sinH) { fgR, fgG, fgB, fgA ->
+                val filtWord = evaluateColorOps(filter, r, g, b, a, hasHue, cosH, sinH, applyOpacity = premultiplied) { fgR, fgG, fgB, fgA ->
                     packRgbaFloats(fgR, fgG, fgB, fgA, premultiplied)
                 }
                 pixels[rowOff + x] = if (premultiplied && op255 < 255) {
                     blendPremulWords(px, filtWord, op255)
+                } else if (!premultiplied && argbBlendOp255 < 255) {
+                    blendStraightArgbWords(px, filtWord, argbBlendOp255)
                 } else {
                     filtWord
                 }
             }
         }
+    }
+
+    private fun blendStraightArgbWords(orig: Int, filtered: Int, op255: Int): Int {
+        if (op255 >= 255) return filtered
+        if (op255 <= 0) return orig
+        val invOp = 255 - op255
+        val oa = (orig ushr 24) and 0xFF
+        val fa = (filtered ushr 24) and 0xFF
+        val outA = ((oa * invOp + fa * op255 + 127) / 255).coerceIn(0, 255)
+        if (outA == 0) return 0
+        val or = ((orig ushr 16) and 0xFF) * oa
+        val og = ((orig ushr 8) and 0xFF) * oa
+        val ob = (orig and 0xFF) * oa
+        val fr = ((filtered ushr 16) and 0xFF) * fa
+        val fg = ((filtered ushr 8) and 0xFF) * fa
+        val fb = (filtered and 0xFF) * fa
+        val denom = outA * 255
+        val half = denom ushr 1
+        val outR = ((or * invOp + fr * op255 + half) / denom).coerceIn(0, 255)
+        val outG = ((og * invOp + fg * op255 + half) / denom).coerceIn(0, 255)
+        val outB = ((ob * invOp + fb * op255 + half) / denom).coerceIn(0, 255)
+        return (outA shl 24) or (outR shl 16) or (outG shl 8) or outB
     }
 
     private fun blendPremulWords(orig: Int, filtered: Int, op255: Int): Int {
@@ -1146,6 +1176,7 @@ object FastBackdropBlurKernel {
         hasHue: Boolean,
         cosH: Float,
         sinH: Float,
+        applyOpacity: Boolean = true,
         onResult: (r: Float, g: Float, b: Float, a: Float) -> T
     ): T {
         var r = inR
@@ -1229,9 +1260,11 @@ object FastBackdropBlurKernel {
             b = ((b - 0.5f) * ct + 0.5f).coerceIn(0f, 1f)
         }
 
-        val opVal = filter.opacity
-        if (opVal != null && opVal != 1f) {
-            a = (a * opVal.coerceIn(0f, 1f)).coerceIn(0f, 1f)
+        if (applyOpacity) {
+            val opVal = filter.opacity
+            if (opVal != null && opVal != 1f) {
+                a = (a * opVal.coerceIn(0f, 1f)).coerceIn(0f, 1f)
+            }
         }
 
         return onResult(r, g, b, a)

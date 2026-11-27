@@ -54,6 +54,10 @@ abstract class GenericUiGenerateAndroidActivitiesTask : DefaultTask() {
 
     @get:Input
     @get:Optional
+    abstract val gitHash: Property<String>
+
+    @get:Input
+    @get:Optional
     abstract val packageName: Property<String>
 
     @get:Input
@@ -193,6 +197,7 @@ abstract class GenericUiGenerateAndroidActivitiesTask : DefaultTask() {
             appId = resolvedAppId,
             appName = resolvedAppName,
             appVersion = appVersion.orNull?.takeIf { it.isNotBlank() } ?: "1.0.0",
+            gitHash = gitHash.orNull?.trim().orEmpty(),
             packageName = resolvedPkg,
             windowTitle = windowTitle.orNull?.takeIf { it.isNotBlank() } ?: resolvedAppName,
             windowWidth = windowWidth.orNull ?: 1280,
@@ -648,6 +653,9 @@ abstract class GenericUiGenerateAndroidActivitiesTask : DefaultTask() {
             appendLine("        appId = ${quoteKotlin(resolvedConfig.appId)},")
             appendLine("        appName = ${quoteKotlin(resolvedConfig.appName)},")
             appendLine("        appVersion = ${quoteKotlin(resolvedConfig.appVersion)},")
+            if (resolvedConfig.gitHash.isNotBlank()) {
+                appendLine("        gitHash = ${quoteKotlin(resolvedConfig.gitHash)},")
+            }
             appendLine("        windowTitle = ${quoteKotlin(resolvedConfig.windowTitle)},")
             appendLine("        windowWidth = ${resolvedConfig.windowWidth},")
             appendLine("        windowHeight = ${resolvedConfig.windowHeight},")

@@ -54,6 +54,14 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
 
     @get:Input
     @get:Optional
+    abstract val backendGitHashes: MapProperty<String, String>
+
+    @get:Input
+    @get:Optional
+    abstract val backendCopyrights: MapProperty<String, String>
+
+    @get:Input
+    @get:Optional
     abstract val backendWindowTitles: MapProperty<String, String>
 
     @get:Input
@@ -237,6 +245,8 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
         val appIdsMap = backendAppIds.getOrElse(emptyMap())
         val appNamesMap = backendAppNames.getOrElse(emptyMap())
         val appVersionsMap = backendAppVersions.getOrElse(emptyMap())
+        val gitHashesMap = backendGitHashes.getOrElse(emptyMap())
+        val copyrightsMap = backendCopyrights.getOrElse(emptyMap())
         val winTitlesMap = backendWindowTitles.getOrElse(emptyMap())
         val winWidthsMap = backendWindowWidths.getOrElse(emptyMap())
         val winHeightsMap = backendWindowHeights.getOrElse(emptyMap())
@@ -327,6 +337,8 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
                 appId = appIdsMap[key] ?: "com.nexustools.genericui.app",
                 appName = appNamesMap[key] ?: "GenericUI",
                 appVersion = appVersionsMap[key] ?: "1.0.0",
+                gitHash = gitHashesMap[key] ?: "",
+                copyright = copyrightsMap[key] ?: "",
                 windowTitle = winTitlesMap[key] ?: (appNamesMap[key] ?: "GenericUI"),
                 windowWidth = winWidthsMap[key] ?: 1280,
                 windowHeight = winHeightsMap[key] ?: 800,
@@ -578,7 +590,10 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
                     extension.includeCommon.toString()
                 )
             }
-            val firstVariant = targetScopes.firstOrNull()?.let { GenericUiVariantResolver.resolve(extension, it) }
+            val gitInfo = GenericUiGitVersionResolver.resolveFromDirectory(projectDir)
+            val firstVariant = targetScopes.firstOrNull()?.let {
+                GenericUiVariantResolver.resolve(extension, it, gitInfo = gitInfo)
+            }
             val validationContext = com.nexustools.genericui.plugin.spi.ExtensionBuildContext(
                 projectRootDir = projectDir,
                 projectName = projectDir.name,
@@ -597,7 +612,7 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
 
             for (scope in targetScopes) {
                 val scopeExtPathsSet = perTargetExtPaths[scope] ?: commonExtPathsSet
-                val variantConfig = GenericUiVariantResolver.resolve(extension, scope)
+                val variantConfig = GenericUiVariantResolver.resolve(extension, scope, gitInfo = gitInfo)
                 val extContext = com.nexustools.genericui.plugin.spi.ExtensionBuildContext(
                     projectRootDir = projectDir,
                     projectName = projectDir.name,
@@ -901,6 +916,12 @@ abstract class GenericUiGenerateLaunchersTask : DefaultTask() {
             appendLine("        appId = ${escapeKotlinString(variantConfig.appId)},")
             appendLine("        appName = ${escapeKotlinString(variantConfig.appName)},")
             appendLine("        appVersion = ${escapeKotlinString(variantConfig.appVersion)},")
+            if (variantConfig.gitHash.isNotBlank()) {
+                appendLine("        gitHash = ${escapeKotlinString(variantConfig.gitHash)},")
+            }
+            if (variantConfig.copyright.isNotBlank()) {
+                appendLine("        copyright = ${escapeKotlinString(variantConfig.copyright)},")
+            }
             appendLine("        windowTitle = ${escapeKotlinString(variantConfig.windowTitle)},")
             appendLine("        windowWidth = ${variantConfig.windowWidth},")
             appendLine("        windowHeight = ${variantConfig.windowHeight},")

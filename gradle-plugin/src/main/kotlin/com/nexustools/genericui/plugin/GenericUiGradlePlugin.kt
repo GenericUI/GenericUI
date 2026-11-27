@@ -339,6 +339,12 @@ class GenericUiGradlePlugin : Plugin<Project> {
             backendAppVersions.set(project.provider {
                 resolveBackendVariantMap(project, extension) { it.appVersion }
             })
+            backendGitHashes.set(project.provider {
+                resolveBackendVariantMap(project, extension) { it.gitHash }
+            })
+            backendCopyrights.set(project.provider {
+                resolveBackendVariantMap(project, extension) { it.copyright }
+            })
             backendWindowTitles.set(project.provider {
                 resolveBackendVariantMap(project, extension) { it.windowTitle }
             })
@@ -568,6 +574,7 @@ class GenericUiGradlePlugin : Plugin<Project> {
             appId.set(project.provider { resolveAndroidVariant(project, extension).appId })
             appName.set(project.provider { resolveAndroidVariant(project, extension).appName })
             appVersion.set(project.provider { resolveAndroidVariant(project, extension).appVersion })
+            gitHash.set(project.provider { resolveAndroidVariant(project, extension).gitHash })
             packageName.set(project.provider { resolveAndroidVariant(project, extension).packageName })
             windowTitle.set(project.provider { resolveAndroidVariant(project, extension).windowTitle })
             windowWidth.set(project.provider { resolveAndroidVariant(project, extension).windowWidth })
@@ -659,6 +666,7 @@ class GenericUiGradlePlugin : Plugin<Project> {
             appId.set(project.provider { resolveAndroidVariant(project, extension).appId })
             appName.set(project.provider { resolveAndroidVariant(project, extension).appName })
             appVersion.set(project.provider { resolveAndroidVariant(project, extension).appVersion })
+            gitHash.set(project.provider { resolveAndroidVariant(project, extension).gitHash })
             packageName.set(project.provider { resolveAndroidVariant(project, extension).packageName })
             manifestModelJson.set(project.provider {
                 GenericUiAndroidManifestModelSerializer.toJson(
@@ -694,6 +702,9 @@ class GenericUiGradlePlugin : Plugin<Project> {
             appName.set(project.provider { resolveIosVariant(project, extension).appName })
             appId.set(project.provider { resolveIosVariant(project, extension).appId })
             appVersion.set(project.provider { resolveIosVariant(project, extension).appVersion })
+            buildVersion.set(project.provider { resolveIosVariant(project, extension).buildVersion })
+            gitHash.set(project.provider { resolveIosVariant(project, extension).gitHash })
+            copyright.set(project.provider { resolveIosVariant(project, extension).copyright })
             frameworkName.set(project.provider {
                 GenericUiGenerateIosAppTask.sanitizeFrameworkName(
                     extension.application.baseName.trim().ifEmpty { project.name }
@@ -732,6 +743,9 @@ class GenericUiGradlePlugin : Plugin<Project> {
             appName.set(project.provider { resolveIpadosVariant(project, extension).appName })
             appId.set(project.provider { resolveIpadosVariant(project, extension).appId })
             appVersion.set(project.provider { resolveIpadosVariant(project, extension).appVersion })
+            buildVersion.set(project.provider { resolveIpadosVariant(project, extension).buildVersion })
+            gitHash.set(project.provider { resolveIpadosVariant(project, extension).gitHash })
+            copyright.set(project.provider { resolveIpadosVariant(project, extension).copyright })
             frameworkName.set(project.provider {
                 GenericUiGenerateIosAppTask.sanitizeFrameworkName(
                     extension.application.baseName.trim().ifEmpty { project.name }
@@ -780,14 +794,36 @@ class GenericUiGradlePlugin : Plugin<Project> {
                 }
             })
             appVersion.set(project.provider {
-                extension.application.desktop.appVersion.trim().ifEmpty {
-                    val v = project.version.toString().trim()
-                    if (v.isNotEmpty() && v != "unspecified") v else "1.0.0"
+                resolveVariantWithProjectFallbacks(project, extension, GenericUiVariantScope.MACOS).appVersion
+            })
+            buildVersion.set(project.provider {
+                resolveVariantWithProjectFallbacks(project, extension, GenericUiVariantScope.MACOS).buildVersion
+            })
+            gitHash.set(project.provider {
+                resolveVariantWithProjectFallbacks(project, extension, GenericUiVariantScope.MACOS).gitHash
+            })
+            vendor.set(project.provider {
+                extension.app.vendor.trim().ifEmpty { extension.application.desktop.vendor.trim() }
+            })
+            appDescription.set(project.provider {
+                extension.app.description.trim().ifEmpty { extension.application.desktop.description.trim() }
+            })
+            copyright.set(project.provider {
+                extension.app.copyright.trim().ifEmpty {
+                    extension.application.desktop.copyright.trim().ifEmpty {
+                        val pkg = extension.app.packageName.trim().ifEmpty {
+                            extension.application.androidNamespace.trim()
+                        }
+                        val id = extension.application.desktop.appId.trim().ifEmpty {
+                            extension.app.id.trim().ifEmpty {
+                                project.group.toString().trim().takeIf { it.isNotEmpty() && it != "unspecified" }.orEmpty()
+                            }
+                        }
+                        val vend = extension.app.vendor.trim().ifEmpty { extension.application.desktop.vendor.trim() }
+                        GenericUiVariantResolver.deriveDefaultCopyright(pkg, id, vend)
+                    }
                 }
             })
-            vendor.set(project.provider { extension.application.desktop.vendor })
-            appDescription.set(project.provider { extension.application.desktop.description })
-            copyright.set(project.provider { extension.application.desktop.copyright })
             license.set(project.provider { extension.application.desktop.license })
             homepageUrl.set(project.provider { extension.application.desktop.homepageUrl })
             issuesUrl.set(project.provider { extension.application.desktop.issuesUrl })
@@ -910,13 +946,19 @@ class GenericUiGradlePlugin : Plugin<Project> {
                 baseId + suffix
             })
             task.appVersion.set(project.provider {
+                val resolvedVariant = resolveAndroidVariant(project, extension)
                 val variantCfg = extension.android.variants[variant]
                 val explicitName = variantCfg?.manifestConfig?.versionName?.trim()?.takeIf { it.isNotEmpty() }
                     ?: extension.android.manifestConfig.versionName?.trim()?.takeIf { it.isNotEmpty() }
-                    ?: resolveAndroidVariant(project, extension).appVersion
+                val baseName = explicitName ?: resolvedVariant.appVersion
                 val suffix = variantCfg?.versionNameSuffix.orEmpty()
-                explicitName + suffix
+                if (explicitName != null) {
+                    baseName + suffix
+                } else {
+                    GenericUiGitVersionResolver.formatVersionWithGitHash(baseName + suffix, resolvedVariant.gitHash)
+                }
             })
+            task.gitHash.set(project.provider { resolveAndroidVariant(project, extension).gitHash })
             task.versionCode.set(project.provider {
                 val variantCfg = extension.android.variants[variant]
                 val resolvedVerName = variantCfg?.manifestConfig?.versionName?.trim()?.takeIf { it.isNotEmpty() }
@@ -1119,6 +1161,9 @@ class GenericUiGradlePlugin : Plugin<Project> {
             })
             task.appVersion.set(project.provider {
                 resolveVariantWithProjectFallbacks(project, extension, GenericUiVariantScope.SWING).appVersion
+            })
+            task.gitHash.set(project.provider {
+                resolveVariantWithProjectFallbacks(project, extension, GenericUiVariantScope.SWING).gitHash
             })
             task.mainClass.set(project.provider {
                 extension.application.mainClass.trim()
@@ -1611,9 +1656,15 @@ class GenericUiGradlePlugin : Plugin<Project> {
         extension: GenericUiExtension,
         backend: GenericUiVariantScope
     ): GenericUiResolvedVariantConfig {
-        val base = GenericUiVariantResolver.resolve(extension, backend)
         val projectGroup = project.group.toString().trim().takeIf { it.isNotEmpty() && it != "unspecified" }
         val projectVersion = project.version.toString().trim().takeIf { it.isNotEmpty() && it != "unspecified" }
+        val gitInfo = GenericUiGitVersionResolver.resolveForProject(project)
+        val base = GenericUiVariantResolver.resolve(
+            extension = extension,
+            targetScope = backend,
+            projectVersion = projectVersion,
+            gitInfo = gitInfo
+        )
         val fallbackAppId = if (base.appId == "com.nexustools.genericui.app" && projectGroup != null) {
             projectGroup
         } else {
@@ -1624,15 +1675,9 @@ class GenericUiGradlePlugin : Plugin<Project> {
         } else {
             base.appName
         }
-        val fallbackVersion = if (base.appVersion == "1.0.0" && projectVersion != null) {
-            projectVersion
-        } else {
-            base.appVersion
-        }
         return base.copy(
             appId = fallbackAppId,
             appName = fallbackAppName,
-            appVersion = fallbackVersion,
             packageName = base.packageName.ifBlank { fallbackAppId }
         )
     }
@@ -2881,6 +2926,12 @@ class GenericUiGradlePlugin : Plugin<Project> {
                     extension.application.baseName.trim().ifEmpty { project.name }
                 }
             })
+            task.appVersion.set(project.provider {
+                resolveVariantWithProjectFallbacksStatic(project, extension, GenericUiVariantScope.WEB).appVersion
+            })
+            task.gitHash.set(project.provider {
+                resolveVariantWithProjectFallbacksStatic(project, extension, GenericUiVariantScope.WEB).gitHash
+            })
             task.appDescription.set(project.provider { extension.application.desktop.description })
             task.themeColor.set(project.provider {
                 resolveVariantWithProjectFallbacksStatic(project, extension, GenericUiVariantScope.WEB).themeColor
@@ -3000,14 +3051,20 @@ class GenericUiGradlePlugin : Plugin<Project> {
             task.outputs.upToDateWhen { false }
         }
 
-        private fun resolveVariantWithProjectFallbacksStatic(
+        internal fun resolveVariantWithProjectFallbacksStatic(
             project: Project,
             extension: GenericUiExtension,
             backend: GenericUiVariantScope
         ): GenericUiResolvedVariantConfig {
-            val base = GenericUiVariantResolver.resolve(extension, backend)
             val projectGroup = project.group.toString().trim().takeIf { it.isNotEmpty() && it != "unspecified" }
             val projectVersion = project.version.toString().trim().takeIf { it.isNotEmpty() && it != "unspecified" }
+            val gitInfo = GenericUiGitVersionResolver.resolveForProject(project)
+            val base = GenericUiVariantResolver.resolve(
+                extension = extension,
+                targetScope = backend,
+                projectVersion = projectVersion,
+                gitInfo = gitInfo
+            )
             val fallbackAppId = if (base.appId == "com.nexustools.genericui.app" && projectGroup != null) {
                 projectGroup
             } else {
@@ -3018,15 +3075,9 @@ class GenericUiGradlePlugin : Plugin<Project> {
             } else {
                 base.appName
             }
-            val fallbackVersion = if (base.appVersion == "1.0.0" && projectVersion != null) {
-                projectVersion
-            } else {
-                base.appVersion
-            }
             return base.copy(
                 appId = fallbackAppId,
                 appName = fallbackAppName,
-                appVersion = fallbackVersion,
                 packageName = base.packageName.ifBlank { fallbackAppId }
             )
         }

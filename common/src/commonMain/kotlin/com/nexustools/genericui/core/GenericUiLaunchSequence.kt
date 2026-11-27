@@ -38,6 +38,9 @@ object GenericUiLaunchSequence {
         initialLaunchArgs: FragmentBundle? = null
     ): IApplication {
         GenericUI.applicationName = descriptor.appName
+        GenericUI.appVersion = descriptor.appVersion
+        GenericUI.appGitHash = descriptor.gitHash
+        GenericUI.appCopyright = descriptor.copyright
         GenericUI.appleIconExplicitlyProvided = descriptor.appleIconExplicitlyProvided
         if (factory != null) {
             GenericUI.initialize(factory, descriptor.appName)

@@ -302,7 +302,7 @@ data class CssFilter(
          * Computes 3 box-blur half-radii approximating a Gaussian kernel with standard deviation [sigmaPx].
          */
         fun boxBlurRadiiForGaussianSigma(sigmaPx: Float, passes: Int = 3): IntArray {
-            val sigma = sigmaPx.coerceIn(0f, 48f)
+            val sigma = sigmaPx.coerceIn(0f, 128f)
             if (sigma <= 0f || passes <= 0) return IntArray(0)
             val n = passes
             val wIdeal = sqrt((12f * sigma * sigma / n.toFloat()) + 1f)
@@ -342,10 +342,8 @@ data class CssFilter(
             var dropShadow: CssShadow? = null
             var anyMatched = false
 
-            val fnRegex = Regex("([a-zA-Z-]+)\\(([^)]*)\\)")
-            for (match in fnRegex.findAll(cleaned)) {
-                val fnName = match.groupValues[1].trim().lowercase()
-                val arg = match.groupValues[2].trim()
+            for ((rawFnName, arg) in tokenizeFilterFunctions(cleaned)) {
+                val fnName = rawFnName.lowercase()
                 when (fnName) {
                     "blur" -> {
                         blur = CssLength.parse(arg)
@@ -406,6 +404,41 @@ data class CssFilter(
             )
         }
 
+        private fun tokenizeFilterFunctions(input: String): List<Pair<String, String>> {
+            val result = mutableListOf<Pair<String, String>>()
+            val len = input.length
+            var i = 0
+            while (i < len) {
+                while (i < len && input[i].isWhitespace()) i++
+                if (i >= len) break
+                val nameStart = i
+                while (i < len && (input[i].isLetter() || input[i] == '-')) i++
+                if (i == nameStart) {
+                    i++
+                    continue
+                }
+                val fnName = input.substring(nameStart, i).trim()
+                if (i >= len || input[i] != '(') {
+                    continue
+                }
+                i++ // skip '('
+                val argStart = i
+                var depth = 1
+                while (i < len && depth > 0) {
+                    when (input[i]) {
+                        '(' -> depth++
+                        ')' -> depth--
+                    }
+                    if (depth > 0) i++
+                }
+                if (depth != 0) break
+                val arg = input.substring(argStart, i).trim()
+                result.add(fnName to arg)
+                i++ // skip matching ')'
+            }
+            return result
+        }
+
         private fun parseRatioOrPercent(raw: String): Float? {
             val clean = raw.trim()
             if (clean.endsWith("%")) {
@@ -419,6 +452,7 @@ data class CssFilter(
             val clean = raw.trim().lowercase()
             return when {
                 clean.endsWith("deg") -> clean.removeSuffix("deg").trim().toFloatOrNull()
+                clean.endsWith("grad") -> clean.removeSuffix("grad").trim().toFloatOrNull()?.times(0.9f)
                 clean.endsWith("turn") -> clean.removeSuffix("turn").trim().toFloatOrNull()?.times(360f)
                 clean.endsWith("rad") -> clean.removeSuffix("rad").trim().toFloatOrNull()?.times(57.29578f)
                 else -> clean.toFloatOrNull()

@@ -2,9 +2,12 @@ package com.nexustools.genericui.style
 
 import com.nexustools.genericui.image.ImageBuffer
 import com.nexustools.genericui.image.PixelFormat
+import com.nexustools.genericui.style.color.RgbaColor
 import com.nexustools.genericui.style.css.CssFilter
 import com.nexustools.genericui.style.css.CssLength
+import com.nexustools.genericui.style.css.CssShadow
 import com.nexustools.genericui.style.css.FastBackdropBlurKernel
+import kotlin.math.abs
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -117,5 +120,130 @@ class CssFilterBackdropBlurTest {
                 assertEquals(0xFFFF1010.toInt(), work[10 * w + 10])
             }
         }
+    }
+
+    @Test
+    fun testParseNestedDropShadowGradHueRotateAndCombinedTenOpChain() {
+        val nestedShadow = CssFilter.parse("drop-shadow(0 2px 4px rgba(0, 0, 0, 0.5))")
+        assertNotNull(nestedShadow)
+        val ds = assertNotNull(nestedShadow.dropShadow)
+        assertEquals(0f, ds.offsetX.resolvePx())
+        assertEquals(2f, ds.offsetY.resolvePx())
+        assertEquals(4f, ds.blurRadius.resolvePx())
+        assertEquals(0, ds.color.r)
+        assertEquals(0, ds.color.g)
+        assertEquals(0, ds.color.b)
+        assertTrue(ds.color.a in 127..128)
+
+        val gradHue = CssFilter.parse("hue-rotate(100grad)")
+        assertNotNull(gradHue)
+        assertEquals(90f, gradHue.hueRotateDeg)
+
+        val turnHue = CssFilter.parse("hue-rotate(0.5turn)")
+        assertNotNull(turnHue)
+        assertEquals(180f, turnHue.hueRotateDeg)
+
+        val radHue = CssFilter.parse("hue-rotate(3.1415927rad)")
+        assertNotNull(radHue)
+        assertTrue(abs((radHue.hueRotateDeg ?: 0f) - 180f) < 0.01f)
+
+        val chained = CssFilter.parse(
+            "blur(64px) brightness(1.1) contrast(1.2) grayscale(0.2) hue-rotate(100grad) " +
+                "invert(0.1) opacity(0.8) saturate(1.5) sepia(0.3) drop-shadow(0 2px 4px rgba(0, 0, 0, 0.5))"
+        )
+        assertNotNull(chained)
+        assertEquals(64f, chained.blur?.resolvePx())
+        assertEquals(1.1f, chained.brightness)
+        assertEquals(1.2f, chained.contrast)
+        assertEquals(0.2f, chained.grayscale)
+        assertEquals(90f, chained.hueRotateDeg)
+        assertEquals(0.1f, chained.invert)
+        assertEquals(0.8f, chained.opacity)
+        assertEquals(1.5f, chained.saturate)
+        assertEquals(0.3f, chained.sepia)
+        assertNotNull(chained.dropShadow)
+    }
+
+    @Test
+    fun testBlurAbove48pxAllTenOpsAndOpacityBlendingBehavior() {
+        assertTrue(
+            CssFilter.boxBlurRadiiForGaussianSigma(96f).sum() >
+                CssFilter.boxBlurRadiiForGaussianSigma(48f).sum()
+        )
+
+        val w = 240
+        val h = 160
+        val argbSplit = IntArray(w * h) { idx ->
+            val x = idx % w
+            if (x < w / 2) 0xFFFF0000.toInt() else 0xFF0000FF.toInt()
+        }
+        val largeBlur = CssFilter.blur(CssLength.px(96f))
+        assertTrue(
+            largeBlur.applyBackdropToArgbRegion(
+                argbPixels = argbSplit,
+                bufferWidth = w,
+                bufferHeight = h,
+                regionX = 20,
+                regionY = 20,
+                regionWidth = 200,
+                regionHeight = 120
+            )
+        )
+        val farFromSeam = argbSplit[80 * w + (w / 2 - 40)]
+        val farBlue = farFromSeam and 0xFF
+        assertTrue(farBlue > 25, "Expected 96px blur to bleed blue 40px past seam, got B=$farBlue")
+
+        // Verify opacity(...) blends proportionally over backing pixels in applyBackdropToArgbRegion
+        // without creating low-alpha holes, while premul/rgba offscreen outputs keep exact filtered alpha.
+        val opacityFilter = CssFilter(brightness = 0.5f, opacity = 0.5f)
+        val argbOpaqueWhite = IntArray(16 * 16) { 0xFFFFFFFF.toInt() }
+        assertTrue(opacityFilter.applyBackdropToArgbRegion(argbOpaqueWhite, 16, 16, 2, 2, 12, 12))
+        val blendedPx = argbOpaqueWhite[8 * 16 + 8]
+        assertEquals(255, (blendedPx ushr 24) and 0xFF)
+        assertTrue(((blendedPx ushr 16) and 0xFF) in 188..194)
+
+        val premulOpaqueWhite = IntArray(16 * 16) { 0xFFFFFFFF.toInt() }
+        assertTrue(opacityFilter.applyBackdropToPremulBgraRegion(premulOpaqueWhite, 16, 16, 16, 2, 2, 12, 12))
+        val premulPx = premulOpaqueWhite[8 * 16 + 8]
+        assertTrue(((premulPx ushr 24) and 0xFF) in 126..130)
+        assertTrue(((premulPx ushr 16) and 0xFF) in 62..66)
+
+        val rgbaOpaqueWhite = ByteArray(16 * 16 * 4) { 0xFF.toByte() }
+        val rgbaFiltered = opacityFilter.applyBackdropToRgbaBytes(rgbaOpaqueWhite, 16, 16)
+        val rgbaIdx = (8 * 16 + 8) * 4
+        assertTrue((rgbaFiltered[rgbaIdx].toInt() and 0xFF) in 126..130)
+        assertTrue((rgbaFiltered[rgbaIdx + 3].toInt() and 0xFF) in 126..130)
+
+        // All 10 ops combined
+        val allTen = CssFilter(
+            blur = CssLength.px(12f),
+            brightness = 1.1f,
+            contrast = 1.15f,
+            grayscale = 0.25f,
+            hueRotateDeg = 90f,
+            invert = 0.1f,
+            opacity = 0.75f,
+            saturate = 1.3f,
+            sepia = 0.2f,
+            dropShadow = CssShadow.px(2f, 3f, 4f, color = RgbaColor(0, 0, 0, 128))
+        )
+        val argbTen = IntArray(32 * 32) { 0xFF336699.toInt() }
+        assertTrue(allTen.applyBackdropToArgbRegion(argbTen, 32, 32, 4, 4, 24, 24))
+        assertEquals(255, (argbTen[16 * 32 + 16] ushr 24) and 0xFF)
+
+        val premulTen = IntArray(32 * 32) { 0xFF336699.toInt() }
+        assertTrue(allTen.applyBackdropToPremulBgraRegion(premulTen, 32, 32, 32, 4, 4, 24, 24))
+        assertTrue(((premulTen[16 * 32 + 16] ushr 24) and 0xFF) in 180..220)
+
+        val rgbaTenInput = ByteArray(32 * 32 * 4) { idx ->
+            when (idx % 4) {
+                0 -> 0x33
+                1 -> 0x66
+                2 -> 0x99.toByte()
+                else -> 0xFF.toByte()
+            }
+        }
+        val rgbaTenOut = allTen.applyBackdropToRgbaBytes(rgbaTenInput, 32, 32)
+        assertTrue((rgbaTenOut[(16 * 32 + 16) * 4 + 3].toInt() and 0xFF) in 180..220)
     }
 }

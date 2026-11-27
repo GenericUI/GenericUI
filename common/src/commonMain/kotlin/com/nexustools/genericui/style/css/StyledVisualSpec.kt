@@ -76,6 +76,11 @@ data class StyledVisualSpec(
      */
     fun mergeWith(overrideSpec: StyledVisualSpec?): StyledVisualSpec {
         if (overrideSpec == null) return this
+        val resolvedBackdropBlurPx = when {
+            overrideSpec.backdropBlurPx != null -> overrideSpec.backdropBlurPx
+            overrideSpec.backdropFilter != null -> overrideSpec.backdropFilter.blur?.resolvePx()
+            else -> backdropBlurPx
+        }
         return StyledVisualSpec(
             backgroundColor = overrideSpec.backgroundColor ?: backgroundColor,
             backgroundGradient = overrideSpec.backgroundGradient ?: backgroundGradient,
@@ -95,7 +100,7 @@ data class StyledVisualSpec(
             boxShadowBlurPx = overrideSpec.boxShadowBlurPx ?: boxShadowBlurPx,
             focusRingColor = overrideSpec.focusRingColor ?: focusRingColor,
             focusRingWidthPx = overrideSpec.focusRingWidthPx ?: focusRingWidthPx,
-            backdropBlurPx = overrideSpec.backdropBlurPx ?: backdropBlurPx,
+            backdropBlurPx = resolvedBackdropBlurPx,
             backdropFilter = overrideSpec.backdropFilter ?: backdropFilter,
             filter = overrideSpec.filter ?: filter,
             placeholderColor = overrideSpec.placeholderColor ?: placeholderColor,

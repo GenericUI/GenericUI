@@ -11,6 +11,7 @@ import com.nexustools.genericui.core.NativeFactory
 import com.nexustools.genericui.enums.bootstrap.BootstrapType
 import com.nexustools.genericui.enums.system.BackendTarget
 import com.nexustools.genericui.enums.ui.ThemeMode
+import com.nexustools.genericui.event.KeyShortcut
 import com.nexustools.genericui.exception.NativeUninitializedException
 import com.nexustools.genericui.resources.ResourceID
 import com.nexustools.genericui.style.color.BootstrapColorPalette

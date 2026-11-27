@@ -7,9 +7,36 @@ package com.nexustools.genericui.plugin
  */
 object GenericUiVariantResolver {
 
+    /**
+     * Derives the default copyright string from the second segment of [packageName] (falling back
+     * to [appId]), e.g. `com.nexustools.*` -> `"Copyright (c) nexustools"` and
+     * `com.katelynslater.*` -> `"Copyright (c) katelynslater"`.
+     */
+    fun deriveDefaultCopyright(
+        packageName: String?,
+        appId: String?,
+        fallbackVendor: String? = null
+    ): String {
+        val candidate = packageName?.trim()?.takeIf { it.isNotEmpty() }
+            ?: appId?.trim()?.takeIf { it.isNotEmpty() }
+        val segments = candidate
+            ?.split('.')
+            ?.map { it.trim() }
+            ?.filter { it.isNotEmpty() }
+            .orEmpty()
+        val owner = when {
+            segments.size >= 2 -> segments[1]
+            segments.size == 1 -> segments[0]
+            else -> fallbackVendor?.trim()?.takeIf { it.isNotEmpty() } ?: "NexusTools"
+        }
+        return "Copyright (c) $owner"
+    }
+
     fun resolve(
         extension: GenericUiExtension,
-        targetScope: GenericUiVariantScope
+        targetScope: GenericUiVariantScope,
+        projectVersion: String? = null,
+        gitInfo: GenericUiGitInfo? = null
     ): GenericUiResolvedVariantConfig {
         val desktop = extension.application.desktop
         val resources = extension.resources
@@ -25,17 +52,33 @@ object GenericUiVariantResolver {
                 extension.application.baseName.trim().ifEmpty { "GenericUI" }
             }
         }
+        val cleanProjectVersion = projectVersion?.trim()?.takeIf { it.isNotEmpty() && it != "unspecified" }
+        val cleanTagVersion = if (app.useGitTagVersion) gitInfo?.normalizedTagVersion?.trim()?.takeIf { it.isNotEmpty() } else null
         val resolvedAppVersion = when {
             app.versionExplicitlySet && app.version.isNotBlank() -> app.version.trim()
-            desktop.appVersion.isNotBlank() -> desktop.appVersion.trim()
-            app.version.isNotBlank() -> app.version.trim()
+            desktop.appVersionExplicitlySet && desktop.appVersion.isNotBlank() -> desktop.appVersion.trim()
+            cleanTagVersion != null -> cleanTagVersion
+            cleanProjectVersion != null -> cleanProjectVersion
             else -> "1.0.0"
+        }
+        val resolvedGitHash = if (app.includeGitHash) gitInfo?.shortHash?.trim().orEmpty() else ""
+        val resolvedBuildVersion = app.buildVersion.trim().ifEmpty {
+            desktop.buildVersion.trim().ifEmpty { resolvedGitHash }
         }
         val resolvedPackageName = app.packageName.trim().ifEmpty {
             extension.application.androidNamespace.trim().ifEmpty { resolvedAppId }
         }
         val resolvedDescription = app.description.trim().ifEmpty { desktop.description.trim() }
         val resolvedVendor = app.vendor.trim().ifEmpty { desktop.vendor.trim().ifEmpty { "NexusTools" } }
+        val resolvedCopyright = app.copyright.trim().ifEmpty {
+            desktop.copyright.trim().ifEmpty {
+                deriveDefaultCopyright(
+                    packageName = resolvedPackageName,
+                    appId = resolvedAppId,
+                    fallbackVendor = resolvedVendor
+                )
+            }
+        }
 
         var windowTitle: String = desktop.windowTitle.trim().ifEmpty { resolvedAppName }
         var windowWidth: Int = desktop.windowWidth
@@ -171,9 +214,12 @@ object GenericUiVariantResolver {
             appId = resolvedAppId,
             appName = resolvedAppName,
             appVersion = resolvedAppVersion,
+            buildVersion = resolvedBuildVersion,
+            gitHash = resolvedGitHash,
             packageName = resolvedPackageName,
             description = resolvedDescription,
             vendor = resolvedVendor,
+            copyright = resolvedCopyright,
             windowTitle = windowTitle,
             windowWidth = windowWidth,
             windowHeight = windowHeight,

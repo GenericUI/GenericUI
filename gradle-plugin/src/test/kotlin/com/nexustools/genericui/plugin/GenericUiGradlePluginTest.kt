@@ -1334,4 +1334,415 @@ class GenericUiGradlePluginTest {
             "Expected index.html to inject #genericui-build-theme-css after bootstrap.min.css and genericui.css"
         )
     }
+
+    @Test
+    fun `configurable app copyright propagates across desktop rc macos plists ios plists and descriptor with vendor fallback`() {
+        fun verifyCopyrightPropagation(
+            projectName: String,
+            configuredPackageName: String = "com.example.copytest",
+            configuredVendor: String,
+            configuredCopyright: String?,
+            expectedCopyright: String
+        ) {
+            val tempDir = java.nio.file.Files.createTempDirectory("genericui-copyright-$projectName").toFile()
+            try {
+                val srcRel = configuredPackageName.replace('.', '/')
+                val srcDir = java.io.File(tempDir, "src/commonMain/kotlin/$srcRel").apply { mkdirs() }
+                java.io.File(srcDir, "MainFrag.kt").writeText(
+                    """
+                    package $configuredPackageName
+                    import com.nexustools.genericui.component.fragment.Fragment
+                    import com.nexustools.genericui.component.fragment.MainAppFragment
+                    @MainAppFragment
+                    class MainFrag : Fragment()
+                    """.trimIndent()
+                )
+                java.io.File(srcDir, "CopyWorker.kt").writeText(
+                    """
+                    package $configuredPackageName
+                    import com.nexustools.genericui.ext.serviceworker.MainServiceWorker
+                    import com.nexustools.genericui.ext.serviceworker.ServiceWorker
+                    @MainServiceWorker
+                    class CopyWorker : ServiceWorker()
+                    """.trimIndent()
+                )
+
+                val project = ProjectBuilder.builder().withProjectDir(tempDir).withName(projectName).build()
+                project.group = configuredPackageName
+                project.version = "1.0.0"
+                project.pluginManager.apply("com.nexustools.genericui")
+                val ext = project.extensions.getByType(GenericUiExtension::class.java)
+
+                ext.app {
+                    id = configuredPackageName
+                    name = "CopyTest"
+                    version = "1.0.0"
+                    packageName = configuredPackageName
+                    vendor = configuredVendor
+                    if (configuredCopyright != null) {
+                        copyright = configuredCopyright
+                    }
+                }
+                ext.application {
+                    baseName = "copytest"
+                }
+                ext.backends {
+                    windows()
+                    macos()
+                    ios()
+                    ipados()
+                }
+                ext.extensions {
+                    serviceWorker {
+                        autostart = true
+                    }
+                }
+
+                // Variant resolution check
+                assertEquals(
+                    expectedCopyright,
+                    GenericUiVariantResolver.resolve(ext, GenericUiVariantScope.WINDOWS).copyright
+                )
+                assertEquals(
+                    expectedCopyright,
+                    GenericUiVariantResolver.resolve(ext, GenericUiVariantScope.MACOS).copyright
+                )
+
+                // 1. Windows .rc LegalCopyright and macOS desktop-resources Info.plist
+                val desktopTask = project.tasks.getByName("prepareGenericUiDesktopResources") as GenericUiDesktopResourceTask
+                desktopTask.embedWindowsResources.set(false)
+                desktopTask.generateDesktopResources()
+                val desktopOut = desktopTask.outputDirectory.get().asFile
+                val winRc = java.io.File(desktopOut, "windows/app_resources.rc").readText(Charsets.UTF_8)
+                assertTrue(winRc.contains("VALUE \"LegalCopyright\", \"$expectedCopyright\\0\""), "Windows .rc missing LegalCopyright:\n$winRc")
+                val desktopMacPlist = java.io.File(desktopOut, "macos/Info.plist").readText(Charsets.UTF_8)
+                assertTrue(desktopMacPlist.contains("<key>NSHumanReadableCopyright</key>"))
+                assertTrue(desktopMacPlist.contains("<string>$expectedCopyright</string>"))
+
+                // 2. macOS main .app Info.plist (fallback path without desktop-resources Info.plist) + Service Worker helper Info.plist
+                desktopOut.deleteRecursively()
+                val buildDir = project.layout.buildDirectory.asFile.get()
+                fun writeStub(rel: String) {
+                    val f = java.io.File(buildDir, rel)
+                    f.parentFile?.mkdirs()
+                    f.writeBytes(byteArrayOf(1, 2, 3, 4))
+                }
+                writeStub("bin/macosArm64/debugExecutable/copytest.kexe")
+                writeStub("bin/macosArm64/debugExecutable/copytest-sw.kexe")
+
+                val devMac = project.tasks.getByName("developmentMac")
+                devMac.actions.forEach { it.execute(devMac) }
+                val appBundle = java.io.File(buildDir, "dist/mac/development/CopyTest.app")
+                val mainMacPlist = java.io.File(appBundle, "Contents/Info.plist").readText(Charsets.UTF_8)
+                assertTrue(mainMacPlist.contains("<key>NSHumanReadableCopyright</key>"), "macOS main Info.plist missing copyright:\n$mainMacPlist")
+                assertTrue(mainMacPlist.contains("<string>$expectedCopyright</string>"))
+                val helperMacPlist = java.io.File(appBundle, "Contents/Helpers/CopyTest Service Worker.app/Contents/Info.plist").readText(Charsets.UTF_8)
+                assertTrue(helperMacPlist.contains("<key>NSHumanReadableCopyright</key>"), "macOS helper Info.plist missing copyright:\n$helperMacPlist")
+                assertTrue(helperMacPlist.contains("<string>$expectedCopyright</string>"))
+
+                // 3. iOS & iPadOS Info.plist
+                val iosTask = project.tasks.getByName("generateGenericUiIosApp") as GenericUiGenerateIosAppTask
+                iosTask.generateIosApp()
+                val iosPlist = java.io.File(iosTask.outputDirectory.get().asFile, "Info.plist").readText(Charsets.UTF_8)
+                assertTrue(iosPlist.contains("<key>NSHumanReadableCopyright</key>"))
+                assertTrue(iosPlist.contains("<string>$expectedCopyright</string>"))
+
+                val ipadosTask = project.tasks.getByName("generateGenericUiIpadosApp") as GenericUiGenerateIosAppTask
+                ipadosTask.generateIosApp()
+                val ipadosPlist = java.io.File(ipadosTask.outputDirectory.get().asFile, "Info.plist").readText(Charsets.UTF_8)
+                assertTrue(ipadosPlist.contains("<key>NSHumanReadableCopyright</key>"))
+                assertTrue(ipadosPlist.contains("<string>$expectedCopyright</string>"))
+
+                // 4. GenericUiAppDescriptor
+                val launchersTask = project.tasks.getByName("generateGenericUiLaunchers") as GenericUiGenerateLaunchersTask
+                launchersTask.generateLaunchers()
+                val winDescriptor = java.io.File(
+                    launchersTask.outputDirectory.get().asFile,
+                    "windows/kotlin/$srcRel/generated/GeneratedWindowsAppDescriptor.kt"
+                ).readText(Charsets.UTF_8)
+                assertTrue(winDescriptor.contains("copyright = \"$expectedCopyright\""))
+            } finally {
+                tempDir.deleteRecursively()
+            }
+        }
+
+        assertEquals(
+            "Copyright (c) nexustools",
+            GenericUiVariantResolver.deriveDefaultCopyright("com.nexustools", null, "Acme")
+        )
+        assertEquals(
+            "Copyright (c) katelynslater",
+            GenericUiVariantResolver.deriveDefaultCopyright("com.katelynslater", null, "Acme")
+        )
+        assertEquals(
+            "Copyright (c) myorg",
+            GenericUiVariantResolver.deriveDefaultCopyright("myorg", null, "Acme")
+        )
+        assertEquals(
+            "Copyright (c) Acme",
+            GenericUiVariantResolver.deriveDefaultCopyright("", "", "Acme")
+        )
+
+        verifyCopyrightPropagation(
+            projectName = "explicit-copy",
+            configuredVendor = "Katelyn Slater",
+            configuredCopyright = "Copyright © Katelyn Slater",
+            expectedCopyright = "Copyright © Katelyn Slater"
+        )
+        verifyCopyrightPropagation(
+            projectName = "default-nexustools",
+            configuredPackageName = "com.nexustools.demo",
+            configuredVendor = "Acme Corp",
+            configuredCopyright = null,
+            expectedCopyright = "Copyright (c) nexustools"
+        )
+        verifyCopyrightPropagation(
+            projectName = "default-katelynslater",
+            configuredPackageName = "com.katelynslater.episodecaster",
+            configuredVendor = "Episode Caster",
+            configuredCopyright = null,
+            expectedCopyright = "Copyright (c) katelynslater"
+        )
+    }
+
+    @Test
+    fun `configurable app version defaults to latest git tag and includes git hash across all backends with override support`() {
+        assertEquals("1.0.0-beta.1", GenericUiGitVersionResolver.normalizeTagVersion("v1.0.0-beta.1"))
+        assertEquals("2.3.4", GenericUiGitVersionResolver.normalizeTagVersion("V2.3.4"))
+        assertEquals("1.2.3", GenericUiGitVersionResolver.normalizeTagVersion("1.2.3"))
+        assertEquals(
+            "1.0.0-beta.1+abc1234",
+            GenericUiGitVersionResolver.formatVersionWithGitHash("1.0.0-beta.1", "abc1234")
+        )
+        assertEquals(
+            "1.0.0-beta.1",
+            GenericUiGitVersionResolver.formatVersionWithGitHash("1.0.0-beta.1", "")
+        )
+        assertEquals(
+            "abc1234",
+            GenericUiGitVersionResolver.resolveMacosBundleVersion("1.0.0-beta.1", "", "abc1234")
+        )
+        assertEquals(
+            "42",
+            GenericUiGitVersionResolver.resolveMacosBundleVersion("1.0.0-beta.1", "42", "abc1234")
+        )
+        assertEquals(
+            "1.0.0",
+            GenericUiGitVersionResolver.resolveNumericAppleBuildVersion("1.0.0-beta.1", "")
+        )
+
+        fun runGit(dir: java.io.File, vararg args: String): String {
+            val proc = ProcessBuilder(listOf("git") + args.toList())
+                .directory(dir)
+                .redirectErrorStream(true)
+                .start()
+            val out = proc.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }.trim()
+            assertEquals(0, proc.waitFor(), "git ${args.joinToString(" ")} failed:\n$out")
+            return out
+        }
+
+        val repoDir = java.nio.file.Files.createTempDirectory("genericui-git-version-repo").toFile()
+        val nonGitDir = java.nio.file.Files.createTempDirectory("genericui-nongit-version").toFile()
+        try {
+            runGit(repoDir, "init")
+            runGit(repoDir, "config", "user.email", "test@example.com")
+            runGit(repoDir, "config", "user.name", "Test User")
+            val srcRel = "com/example/vertest"
+            val srcDir = java.io.File(repoDir, "src/commonMain/kotlin/$srcRel").apply { mkdirs() }
+            java.io.File(srcDir, "MainFrag.kt").writeText(
+                """
+                package com.example.vertest
+                import com.nexustools.genericui.component.fragment.Fragment
+                import com.nexustools.genericui.component.fragment.MainAppFragment
+                @MainAppFragment
+                class MainFrag : Fragment()
+                """.trimIndent()
+            )
+            java.io.File(srcDir, "VerWorker.kt").writeText(
+                """
+                package com.example.vertest
+                import com.nexustools.genericui.ext.serviceworker.MainServiceWorker
+                import com.nexustools.genericui.ext.serviceworker.ServiceWorker
+                @MainServiceWorker
+                class VerWorker : ServiceWorker()
+                """.trimIndent()
+            )
+            runGit(repoDir, "add", ".")
+            runGit(repoDir, "commit", "-m", "Initial commit")
+            runGit(repoDir, "tag", "v2.4.0-beta.1")
+            val expectedHash = runGit(repoDir, "rev-parse", "--short", "HEAD")
+
+            val gitInfo = GenericUiGitVersionResolver.resolveFromDirectory(repoDir)
+            assertEquals(expectedHash, gitInfo.shortHash)
+            assertEquals("v2.4.0-beta.1", gitInfo.latestTag)
+            assertEquals("2.4.0-beta.1", gitInfo.normalizedTagVersion)
+
+            // 1. Default consumer project inside git repo: inherits tag 2.4.0-beta.1 and git hash
+            val defaultProject = ProjectBuilder.builder().withProjectDir(repoDir).withName("vertest").build()
+            defaultProject.group = "com.example.vertest"
+            defaultProject.version = "0.9.0"
+            defaultProject.pluginManager.apply("com.nexustools.genericui")
+            val ext = defaultProject.extensions.getByType(GenericUiExtension::class.java)
+            ext.app {
+                id = "com.example.vertest"
+                name = "VerTest"
+                packageName = "com.example.vertest"
+            }
+            ext.application {
+                baseName = "vertest"
+            }
+            ext.backends {
+                all()
+            }
+            ext.extensions {
+                serviceWorker {
+                    autostart = true
+                }
+            }
+
+            val resolvedMac = GenericUiGradlePlugin.resolveVariantWithProjectFallbacksStatic(
+                defaultProject,
+                ext,
+                GenericUiVariantScope.MACOS
+            )
+            assertEquals("2.4.0-beta.1", resolvedMac.appVersion)
+            assertEquals(expectedHash, resolvedMac.gitHash)
+            assertEquals(expectedHash, resolvedMac.buildVersion)
+
+            // Desktop resources: Windows .rc, macOS Info.plist, Linux .desktop
+            val desktopTask = defaultProject.tasks.getByName("prepareGenericUiDesktopResources") as GenericUiDesktopResourceTask
+            desktopTask.embedWindowsResources.set(false)
+            desktopTask.generateDesktopResources()
+            val desktopOut = desktopTask.outputDirectory.get().asFile
+            val winRc = java.io.File(desktopOut, "windows/app_resources.rc").readText(Charsets.UTF_8)
+            assertTrue(winRc.contains("FILEVERSION 2,4,0,0"), "Windows FILEVERSION:\n$winRc")
+            assertTrue(winRc.contains("PRODUCTVERSION 2,4,0,0"))
+            assertTrue(winRc.contains("VALUE \"FileVersion\", \"2.4.0-beta.1+$expectedHash\\0\""))
+            assertTrue(winRc.contains("VALUE \"ProductVersion\", \"2.4.0-beta.1+$expectedHash\\0\""))
+            assertTrue(winRc.contains("VALUE \"GitCommit\", \"$expectedHash\\0\""))
+
+            val macPlist = java.io.File(desktopOut, "macos/Info.plist").readText(Charsets.UTF_8)
+            assertTrue(macPlist.contains("<key>CFBundleShortVersionString</key>\n    <string>2.4.0-beta.1</string>"))
+            assertTrue(macPlist.contains("<key>CFBundleVersion</key>\n    <string>$expectedHash</string>"))
+            assertTrue(macPlist.contains("<key>GenericUIGitCommit</key>\n    <string>$expectedHash</string>"))
+
+            val linuxDesktop = java.io.File(desktopOut, "linux/vertest.desktop").readText(Charsets.UTF_8)
+            assertTrue(linuxDesktop.contains("Version=1.0"))
+            assertTrue(linuxDesktop.contains("X-GenericUI-AppVersion=2.4.0-beta.1"))
+            assertTrue(linuxDesktop.contains("X-GenericUI-GitCommit=$expectedHash"))
+
+            // macOS bundle + Service Worker helper Info.plist
+            desktopOut.deleteRecursively()
+            val buildDir = defaultProject.layout.buildDirectory.asFile.get()
+            fun writeStub(rel: String) {
+                val f = java.io.File(buildDir, rel)
+                f.parentFile?.mkdirs()
+                f.writeBytes(byteArrayOf(1, 2, 3, 4))
+            }
+            writeStub("bin/macosArm64/debugExecutable/vertest.kexe")
+            writeStub("bin/macosArm64/debugExecutable/vertest-sw.kexe")
+            val devMac = defaultProject.tasks.getByName("developmentMac")
+            devMac.actions.forEach { it.execute(devMac) }
+            val helperPlist = java.io.File(
+                buildDir,
+                "dist/mac/development/VerTest.app/Contents/Helpers/VerTest Service Worker.app/Contents/Info.plist"
+            ).readText(Charsets.UTF_8)
+            assertTrue(helperPlist.contains("<key>CFBundleShortVersionString</key>\n    <string>2.4.0-beta.1</string>"))
+            assertTrue(helperPlist.contains("<key>CFBundleVersion</key>\n    <string>$expectedHash</string>"))
+            assertTrue(helperPlist.contains("<key>GenericUIGitCommit</key>\n    <string>$expectedHash</string>"))
+
+            // Android manifest + iOS Info.plist + Launchers descriptor + Swing MANIFEST.MF + Web index.html check
+            val manifestTask = defaultProject.tasks.getByName("generateGenericUiAndroidManifest") as GenericUiGenerateAndroidManifestTask
+            manifestTask.generate()
+            val androidManifest = manifestTask.outputManifestFile.get().asFile.readText(Charsets.UTF_8)
+            assertTrue(androidManifest.contains("android:versionName=\"2.4.0-beta.1+$expectedHash\""), androidManifest)
+            assertTrue(androidManifest.contains("android:versionCode=\"20400\""), androidManifest)
+
+            val iosTask = defaultProject.tasks.getByName("generateGenericUiIosApp") as GenericUiGenerateIosAppTask
+            iosTask.generateIosApp()
+            val iosPlist = java.io.File(iosTask.outputDirectory.get().asFile, "Info.plist").readText(Charsets.UTF_8)
+            assertTrue(iosPlist.contains("<key>CFBundleShortVersionString</key>\n    <string>2.4.0-beta.1</string>"))
+            assertTrue(iosPlist.contains("<key>CFBundleVersion</key>\n    <string>2.4.0</string>"))
+            assertTrue(iosPlist.contains("<key>GenericUIGitCommit</key>\n    <string>$expectedHash</string>"))
+
+            val launchersTask = defaultProject.tasks.getByName("generateGenericUiLaunchers") as GenericUiGenerateLaunchersTask
+            launchersTask.generateLaunchers()
+            val macDescriptor = java.io.File(
+                launchersTask.outputDirectory.get().asFile,
+                "macos/kotlin/$srcRel/generated/GeneratedMacosAppDescriptor.kt"
+            ).readText(Charsets.UTF_8)
+            assertTrue(macDescriptor.contains("appVersion = \"2.4.0-beta.1\""))
+            assertTrue(macDescriptor.contains("gitHash = \"$expectedHash\""))
+
+            val swingJarOut = java.io.File(buildDir, "test-swing.jar")
+            val swingTask = defaultProject.tasks.getByName("packageGenericUiSwingDevelopmentJar") as GenericUiPackageSwingJarTask
+            swingTask.buildFatSwingJar(
+                inputJars = emptyList(),
+                mainClass = "com.example.vertest.Main",
+                appTitle = "VerTest",
+                appVersion = resolvedMac.appVersion,
+                outputJarFile = swingJarOut,
+                gitHash = resolvedMac.gitHash
+            )
+            java.util.jar.JarFile(swingJarOut).use { jf ->
+                val attrs = jf.manifest.mainAttributes
+                assertEquals("2.4.0-beta.1+$expectedHash", attrs.getValue("Implementation-Version"))
+                assertEquals(expectedHash, attrs.getValue("Implementation-Build"))
+            }
+
+            val webTask = defaultProject.tasks.getByName("packageGenericUiWebDevelopmentDistribution") as GenericUiWebDistributionTask
+            assertEquals("2.4.0-beta.1", webTask.appVersion.orNull)
+            assertEquals(expectedHash, webTask.gitHash.orNull)
+
+            // 2. Explicit consumer override (including explicit "1.0.0") must not be clobbered by tag or project.version
+            val explicitExt = GenericUiExtension().apply {
+                app {
+                    id = "com.example.explicit"
+                    name = "ExplicitApp"
+                    version = "1.0.0"
+                }
+            }
+            val explicitResolved = GenericUiVariantResolver.resolve(
+                extension = explicitExt,
+                targetScope = GenericUiVariantScope.MACOS,
+                projectVersion = "0.9.0",
+                gitInfo = gitInfo
+            )
+            assertEquals("1.0.0", explicitResolved.appVersion)
+            assertEquals(expectedHash, explicitResolved.gitHash)
+
+            // Opt-out flags
+            val optOutExt = GenericUiExtension().apply {
+                app {
+                    useGitTagVersion = false
+                    includeGitHash = false
+                }
+            }
+            val optOutResolved = GenericUiVariantResolver.resolve(
+                extension = optOutExt,
+                targetScope = GenericUiVariantScope.MACOS,
+                projectVersion = "0.9.0",
+                gitInfo = gitInfo
+            )
+            assertEquals("0.9.0", optOutResolved.appVersion)
+            assertEquals("", optOutResolved.gitHash)
+
+            // 3. Non-git directory falls back cleanly to project.version -> "1.0.0" with empty hash
+            val nonGitInfo = GenericUiGitVersionResolver.resolveFromDirectory(nonGitDir)
+            assertNull(nonGitInfo.shortHash)
+            assertNull(nonGitInfo.normalizedTagVersion)
+            val nonGitResolved = GenericUiVariantResolver.resolve(
+                extension = GenericUiExtension(),
+                targetScope = GenericUiVariantScope.MACOS,
+                projectVersion = null,
+                gitInfo = nonGitInfo
+            )
+            assertEquals("1.0.0", nonGitResolved.appVersion)
+            assertEquals("", nonGitResolved.gitHash)
+            assertEquals("1.0.0", GenericUiGitVersionResolver.resolveMacosBundleVersion("1.0.0", "", nonGitResolved.gitHash))
+        } finally {
+            repoDir.deleteRecursively()
+            nonGitDir.deleteRecursively()
+        }
+    }
 }

@@ -18,6 +18,12 @@ open class MenuItem(
     private var iconState: String? = icon
     private var shortcutState: KeyShortcut? = shortcut
     protected var checkedState: Boolean = false
+    internal var onMenuMutated: (() -> Unit)? = null
+
+    internal fun notifyMenuMutated() {
+        onMenuMutated?.invoke()
+        (parent as? Menu)?.notifyMenuMutated()
+    }
 
     constructor(
         label: String,
@@ -79,6 +85,7 @@ open class MenuItem(
     fun setLabel(label: String) {
         labelState = label
         typedNative<MenuItemNativeImpl<*>>()?.setLabel(label)
+        notifyMenuMutated()
     }
 
     fun getLabel(): String = typedNative<MenuItemNativeImpl<*>>()?.getLabel() ?: labelState
@@ -86,6 +93,7 @@ open class MenuItem(
     fun setIcon(icon: String?) {
         iconState = icon
         typedNative<MenuItemNativeImpl<*>>()?.setIcon(icon)
+        notifyMenuMutated()
     }
 
     fun setIconResource(resId: ResourceID) {
@@ -97,6 +105,7 @@ open class MenuItem(
     fun setShortcut(shortcut: KeyShortcut?) {
         shortcutState = shortcut
         typedNative<MenuItemNativeImpl<*>>()?.setShortcut(shortcut)
+        notifyMenuMutated()
     }
 
     fun setShortcutText(shortcutText: String?) {
@@ -110,7 +119,28 @@ open class MenuItem(
     open fun setChecked(checked: Boolean) {
         checkedState = checked
         typedNative<MenuItemNativeImpl<*>>()?.setChecked(checked)
+        notifyMenuMutated()
     }
 
     open fun isChecked(): Boolean = typedNative<MenuItemNativeImpl<*>>()?.isChecked() ?: checkedState
+
+    override var isVisible: Boolean
+        get() = super.isVisible
+        set(value) {
+            val changed = super.isVisible != value
+            super.isVisible = value
+            if (changed) {
+                notifyMenuMutated()
+            }
+        }
+
+    override var isEnabled: Boolean
+        get() = super.isEnabled
+        set(value) {
+            val changed = super.isEnabled != value
+            super.isEnabled = value
+            if (changed) {
+                notifyMenuMutated()
+            }
+        }
 }

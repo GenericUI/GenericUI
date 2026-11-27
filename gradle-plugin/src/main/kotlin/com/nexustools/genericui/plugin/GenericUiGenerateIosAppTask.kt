@@ -38,6 +38,18 @@ abstract class GenericUiGenerateIosAppTask : DefaultTask() {
 
     @get:Input
     @get:Optional
+    abstract val buildVersion: Property<String>
+
+    @get:Input
+    @get:Optional
+    abstract val gitHash: Property<String>
+
+    @get:Input
+    @get:Optional
+    abstract val copyright: Property<String>
+
+    @get:Input
+    @get:Optional
     abstract val frameworkName: Property<String>
 
     @get:Input
@@ -107,6 +119,12 @@ abstract class GenericUiGenerateIosAppTask : DefaultTask() {
         val resolvedAppName = appName.orNull?.trim().orEmpty().ifEmpty { resolvedBaseName }
         val resolvedAppId = appId.orNull?.trim().orEmpty().ifEmpty { "com.nexustools.genericui.app" }
         val resolvedAppVersion = appVersion.orNull?.trim().orEmpty().ifEmpty { "1.0.0" }
+        val resolvedCopyright = copyright.orNull?.trim().orEmpty().ifEmpty {
+            GenericUiVariantResolver.deriveDefaultCopyright(
+                packageName = null,
+                appId = resolvedAppId
+            )
+        }
         val resolvedFramework = sanitizeFrameworkName(
             frameworkName.orNull?.trim().orEmpty().ifEmpty { resolvedBaseName }
         )
@@ -131,6 +149,8 @@ abstract class GenericUiGenerateIosAppTask : DefaultTask() {
             appName = resolvedAppName,
             appId = resolvedAppId,
             appVersion = resolvedAppVersion,
+            buildVersion = buildVersion.orNull?.trim().orEmpty(),
+            gitHash = gitHash.orNull?.trim().orEmpty(),
             frameworkName = resolvedFramework,
             minimumOsVersion = resolvedMinOs,
             orientations = resolvedOrientations,
@@ -142,7 +162,8 @@ abstract class GenericUiGenerateIosAppTask : DefaultTask() {
             appleIconExplicitlyProvided = appleIconExplicitlyProvided.getOrElse(false),
             enabledExtensionModulePaths = enabledExtensionModulePaths.orNull.orEmpty(),
             extensionOptions = extensionOptions.getOrElse(emptyMap()),
-            compiledBackendResourceDir = compiledBackendResDir
+            compiledBackendResourceDir = compiledBackendResDir,
+            copyright = resolvedCopyright
         )
     }
 
@@ -198,11 +219,18 @@ abstract class GenericUiGenerateIosAppTask : DefaultTask() {
             appleIconExplicitlyProvided: Boolean = false,
             enabledExtensionModulePaths: List<String> = emptyList(),
             extensionOptions: Map<String, String> = emptyMap(),
-            compiledBackendResourceDir: File? = null
+            compiledBackendResourceDir: File? = null,
+            copyright: String = "",
+            buildVersion: String = "",
+            gitHash: String = ""
         ): List<File> {
             outputDir.mkdirs()
             val sanitizedFramework = sanitizeFrameworkName(frameworkName)
             val xcodeProjName = if (deviceFamily == DEVICE_FAMILY_IPAD) "ipadosApp" else "iosApp"
+            val resolvedAppleBuildVersion = GenericUiGitVersionResolver.resolveNumericAppleBuildVersion(
+                version = appVersion,
+                buildVersion = buildVersion
+            )
             val generatedFiles = mutableListOf<File>()
 
             val infoPlistFile = File(outputDir, "Info.plist")
@@ -211,11 +239,14 @@ abstract class GenericUiGenerateIosAppTask : DefaultTask() {
                     appName = appName,
                     appId = appId,
                     appVersion = appVersion,
+                    buildVersion = resolvedAppleBuildVersion,
+                    gitHash = gitHash,
                     orientations = orientations,
                     deviceFamily = deviceFamily,
                     enabledExtensionModulePaths = enabledExtensionModulePaths,
                     extensionOptions = extensionOptions,
-                    projectRootDir = projectRootDir
+                    projectRootDir = projectRootDir,
+                    copyright = copyright
                 ),
                 Charsets.UTF_8
             )
@@ -318,6 +349,7 @@ abstract class GenericUiGenerateIosAppTask : DefaultTask() {
                     appName = appName,
                     appId = appId,
                     appVersion = appVersion,
+                    buildVersion = resolvedAppleBuildVersion,
                     frameworkName = sanitizedFramework,
                     minimumOsVersion = minimumOsVersion,
                     deviceFamily = deviceFamily,
@@ -336,6 +368,7 @@ abstract class GenericUiGenerateIosAppTask : DefaultTask() {
                     appName = appName,
                     appId = appId,
                     appVersion = appVersion,
+                    buildVersion = resolvedAppleBuildVersion,
                     frameworkName = sanitizedFramework,
                     minimumOsVersion = minimumOsVersion,
                     deviceFamily = deviceFamily,
@@ -379,7 +412,10 @@ abstract class GenericUiGenerateIosAppTask : DefaultTask() {
             deviceFamily: Int = DEVICE_FAMILY_IPHONE,
             enabledExtensionModulePaths: List<String> = emptyList(),
             projectRootDir: File? = null,
-            extensionOptions: Map<String, String> = emptyMap()
+            extensionOptions: Map<String, String> = emptyMap(),
+            copyright: String = "",
+            buildVersion: String = "",
+            gitHash: String = ""
         ): String {
             val orientationEntries = orientations.joinToString("\n") {
                 "        <string>${escapeXml(it)}</string>"
@@ -430,7 +466,27 @@ abstract class GenericUiGenerateIosAppTask : DefaultTask() {
                 extraPlistEntries.putAll(c.infoPlistEntries)
             }
 
+            val trimmedCopyright = copyright.trim()
+            val trimmedGitHash = gitHash.trim()
+            val resolvedPlistBuildVersion = GenericUiGitVersionResolver.resolveNumericAppleBuildVersion(
+                version = appVersion,
+                buildVersion = buildVersion
+            )
+            val fullVersionWithHash = GenericUiGitVersionResolver.formatVersionWithGitHash(
+                version = appVersion,
+                gitHash = trimmedGitHash
+            )
             val backgroundModesBlock = buildString {
+                if (trimmedCopyright.isNotEmpty()) {
+                    appendLine("    <key>NSHumanReadableCopyright</key>")
+                    appendLine("    <string>${escapeXml(trimmedCopyright)}</string>")
+                }
+                if (trimmedGitHash.isNotEmpty()) {
+                    appendLine("    <key>GenericUIGitCommit</key>")
+                    appendLine("    <string>${escapeXml(trimmedGitHash)}</string>")
+                    appendLine("    <key>GenericUIFullVersion</key>")
+                    appendLine("    <string>${escapeXml(fullVersionWithHash)}</string>")
+                }
                 if (backgroundModes.isNotEmpty()) {
                     appendLine("    <key>UIBackgroundModes</key>")
                     appendLine("    <array>")
@@ -480,7 +536,7 @@ abstract class GenericUiGenerateIosAppTask : DefaultTask() {
                 |    <key>CFBundleShortVersionString</key>
                 |    <string>${escapeXml(appVersion)}</string>
                 |    <key>CFBundleVersion</key>
-                |    <string>${escapeXml(appVersion)}</string>
+                |    <string>${escapeXml(resolvedPlistBuildVersion)}</string>
                 |    <key>LSRequiresIPhoneOS</key>
                 |    <true/>
                 |    <key>UIDeviceFamily</key>
@@ -561,7 +617,8 @@ abstract class GenericUiGenerateIosAppTask : DefaultTask() {
             deviceFamily: Int = DEVICE_FAMILY_IPHONE,
             projectName: String = if (deviceFamily == DEVICE_FAMILY_IPAD) "ipadosApp" else "iosApp",
             frameworkSearchSubdirDebug: String = "debugFramework",
-            frameworkSearchSubdirRelease: String = "releaseFramework"
+            frameworkSearchSubdirRelease: String = "releaseFramework",
+            buildVersion: String = appVersion
         ): String =
             """
                 |# AUTO-GENERATED BY GenericUI Gradle Plugin — DO NOT EDIT.
@@ -590,7 +647,7 @@ abstract class GenericUiGenerateIosAppTask : DefaultTask() {
                 |        PRODUCT_NAME: "$appName"
                 |        PRODUCT_BUNDLE_IDENTIFIER: "$appId"
                 |        MARKETING_VERSION: "$appVersion"
-                |        CURRENT_PROJECT_VERSION: "$appVersion"
+                |        CURRENT_PROJECT_VERSION: "$buildVersion"
                 |        TARGETED_DEVICE_FAMILY: "$deviceFamily"
                 |        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
                 |        FRAMEWORK_SEARCH_PATHS:
@@ -615,7 +672,8 @@ abstract class GenericUiGenerateIosAppTask : DefaultTask() {
             deviceFamily: Int = DEVICE_FAMILY_IPHONE,
             projectName: String = if (deviceFamily == DEVICE_FAMILY_IPAD) "ipadosApp" else "iosApp",
             frameworkSearchSubdirDebug: String = "debugFramework",
-            frameworkSearchSubdirRelease: String = "releaseFramework"
+            frameworkSearchSubdirRelease: String = "releaseFramework",
+            buildVersion: String = appVersion
         ): String =
             """
                 |// !$*UTF8*$!
@@ -730,7 +788,7 @@ abstract class GenericUiGenerateIosAppTask : DefaultTask() {
                 |			buildSettings = {
                 |				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
                 |				CLANG_ENABLE_MODULES = YES;
-                |				CURRENT_PROJECT_VERSION = "$appVersion";
+                |				CURRENT_PROJECT_VERSION = "$buildVersion";
                 |				FRAMEWORK_SEARCH_PATHS = (
                 |					"$(inherited)",
                 |					"$(SRCROOT)/../bin/iosArm64/$frameworkSearchSubdirDebug",
@@ -757,7 +815,7 @@ abstract class GenericUiGenerateIosAppTask : DefaultTask() {
                 |			buildSettings = {
                 |				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
                 |				CLANG_ENABLE_MODULES = YES;
-                |				CURRENT_PROJECT_VERSION = "$appVersion";
+                |				CURRENT_PROJECT_VERSION = "$buildVersion";
                 |				FRAMEWORK_SEARCH_PATHS = (
                 |					"$(inherited)",
                 |					"$(SRCROOT)/../bin/iosArm64/$frameworkSearchSubdirRelease",

@@ -44,5 +44,15 @@ data class GenericUiAppDescriptor(
     val fullscreenExplicitlySet: Boolean = fullscreen,
     val fragmentIds: Map<KClass<out Fragment>, String> = emptyMap(),
     val fragmentRoutes: Map<KClass<out Fragment>, String> = emptyMap(),
-    val fragmentMetadata: Map<KClass<out Fragment>, FragmentMetadata> = emptyMap()
-)
+    val fragmentMetadata: Map<KClass<out Fragment>, FragmentMetadata> = emptyMap(),
+    val copyright: String = "",
+    val gitHash: String = ""
+) {
+    /** Version combined with [gitHash] when available (e.g., `"1.0.0-beta.1+e2cc8fc"`). */
+    val fullVersion: String
+        get() = if (gitHash.isNotBlank() && !appVersion.contains(gitHash)) {
+            "$appVersion+$gitHash"
+        } else {
+            appVersion
+        }
+}

@@ -14,6 +14,8 @@ import com.nexustools.genericui.style.css.StyleSheetRegistry
 import com.nexustools.genericui.style.theme.ThemeStyleSheetRegistry
 import com.nexustools.genericui.style.transition.CssTimingFunction
 import com.nexustools.genericui.style.transition.CssTransitionSpec
+import com.nexustools.genericui.threading.PlatformReentrantLock
+import com.nexustools.genericui.threading.withLock
 import kotlin.math.floor
 import kotlin.math.roundToInt
 
@@ -31,10 +33,10 @@ object SystemCssAnimationController {
 
     private data class ComponentAnimationTrack(
         val component: AbstractComponent,
-        val spec: CssAnimationSpec,
+        var spec: CssAnimationSpec,
         val signature: String,
         val stops: List<ParsedStop>,
-        val baseStyleSnapshot: ComputedStyle,
+        var baseStyleSnapshot: ComputedStyle,
         var elapsedActiveMs: Float = 0f,
         var delayRemainingMs: Float = 0f,
         var handle: AnimationHandle? = null,
@@ -42,6 +44,7 @@ object SystemCssAnimationController {
         var finished: Boolean = false
     )
 
+    private val trackLock = PlatformReentrantLock()
     private val activeTracksByComponent = linkedMapOf<AbstractComponent, MutableList<ComponentAnimationTrack>>()
     private var hooksInstalled: Boolean = false
 
@@ -78,19 +81,26 @@ object SystemCssAnimationController {
     }
 
     fun clear() {
-        val entries = activeTracksByComponent.values.flatten()
-        activeTracksByComponent.clear()
+        val entries = trackLock.withLock {
+            val flattened = activeTracksByComponent.values.flatten()
+            activeTracksByComponent.clear()
+            flattened
+        }
         for (track in entries) {
             stopTrackHandles(track)
         }
     }
 
-    fun activeTrackCount(): Int = activeTracksByComponent.values.sumOf { tracks ->
-        tracks.count { !it.finished }
+    fun activeTrackCount(): Int = trackLock.withLock {
+        activeTracksByComponent.values.sumOf { tracks ->
+            tracks.count { !it.finished }
+        }
     }
 
     fun cancelForComponent(component: AbstractComponent) {
-        val removed = activeTracksByComponent.remove(component) ?: return
+        val removed = trackLock.withLock {
+            activeTracksByComponent.remove(component)?.toList()
+        } ?: return
         for (track in removed) {
             stopTrackHandles(track)
         }
@@ -101,21 +111,25 @@ object SystemCssAnimationController {
         previous: ComputedStyle?,
         current: ComputedStyle,
         sheet: CssStyleSheet?
-    ) {
+    ): ComputedStyle? {
         if (component.isDisposed) {
             cancelForComponent(component)
-            return
+            return null
         }
 
         val resolvedSpecs = current.resolveEffectiveAnimations()
         if (resolvedSpecs.isEmpty()) {
-            val previousWasAnimating = activeTracksByComponent[component]?.any { !it.finished } == true
-            val existingTransitionBase = activeTracksByComponent[component]
-                ?.takeIf { list -> list.isNotEmpty() && list.all { it.spec.name.startsWith("__transition_") } }
-                ?.firstOrNull()
-                ?.baseStyleSnapshot
-            if (existingTransitionBase === current) {
-                return
+            val (previousWasAnimating, sameTransitionBase) = trackLock.withLock {
+                val existingList = activeTracksByComponent[component]
+                val wasAnimating = existingList?.any { !it.finished } == true
+                val transitionBase = existingList
+                    ?.takeIf { list -> list.isNotEmpty() && list.all { it.spec.name.startsWith("__transition_") } }
+                    ?.firstOrNull()
+                    ?.baseStyleSnapshot
+                wasAnimating to (transitionBase === current)
+            }
+            if (sameTransitionBase) {
+                return null
             }
             cancelForComponent(component)
             if (previous != null) {
@@ -123,7 +137,7 @@ object SystemCssAnimationController {
                     ?: current.transition?.let { CssTransitionSpec.parseList(it) }
                     ?: emptyList()
                 if (transSpecs.isNotEmpty()) {
-                    startTransitionTracks(
+                    return startTransitionTracks(
                         component = component,
                         previous = previous,
                         current = current,
@@ -132,36 +146,46 @@ object SystemCssAnimationController {
                     )
                 }
             }
-            return
+            return null
         }
 
-        val existing = activeTracksByComponent[component]
-        val existingSignature = existing?.joinToString("|") { it.spec.name }
-        val targetSignature = resolvedSpecs.joinToString("|") { it.name }
+        var matchedSnapshot: ComputedStyle? = null
+        var matched = false
+        val toPause = mutableListOf<ComponentAnimationTrack>()
+        val toStart = mutableListOf<ComponentAnimationTrack>()
 
-        if (existing != null && existing.size == resolvedSpecs.size && existingSignature == targetSignature) {
-            var restarted = false
-            for (idx in resolvedSpecs.indices) {
-                val track = existing[idx]
-                val nextSpec = resolvedSpecs[idx]
-                if (track.spec.playState != nextSpec.playState) {
-                    val updatedTrack = track.copy(spec = nextSpec)
-                    existing[idx] = updatedTrack
-                    if (nextSpec.isPaused) {
-                        stopTrackHandles(updatedTrack)
-                    } else if (!updatedTrack.finished) {
-                        startTrackDriver(updatedTrack)
-                    }
-                    restarted = true
-                }
-            }
-            if (restarted) return
-            if (previous?.animation == current.animation &&
-                previous?.animationName == current.animationName &&
-                previous?.animations == current.animations
+        trackLock.withLock {
+            val existing = activeTracksByComponent[component]
+            if (existing != null &&
+                existing.size == resolvedSpecs.size &&
+                existing.indices.all { idx -> specsMatchIgnoringPlayState(existing[idx].spec, resolvedSpecs[idx]) }
             ) {
-                return
+                matched = true
+                for (idx in resolvedSpecs.indices) {
+                    val track = existing[idx]
+                    val nextSpec = resolvedSpecs[idx]
+                    track.baseStyleSnapshot = current
+                    if (track.spec.playState != nextSpec.playState) {
+                        track.spec = nextSpec
+                        if (nextSpec.isPaused) {
+                            toPause.add(track)
+                        } else if (!track.finished) {
+                            toStart.add(track)
+                        }
+                    }
+                }
+                matchedSnapshot = buildTracksFrameLocked(existing, current)
             }
+        }
+
+        if (matched) {
+            for (track in toPause) {
+                stopTrackHandles(track)
+            }
+            for (track in toStart) {
+                startTrackDriver(track)
+            }
+            return matchedSnapshot
         }
 
         cancelForComponent(component)
@@ -172,6 +196,7 @@ object SystemCssAnimationController {
             if (stops.isEmpty()) continue
             val initialDelay = if (spec.delayMs < 0f) 0f else spec.delayMs
             val initialElapsed = if (spec.delayMs < 0f) -spec.delayMs else 0f
+            val finishedImmediately = spec.durationMs <= 0f || spec.iterationCount == 0f
             val track = ComponentAnimationTrack(
                 component = component,
                 spec = spec,
@@ -179,19 +204,33 @@ object SystemCssAnimationController {
                 stops = stops,
                 baseStyleSnapshot = current,
                 elapsedActiveMs = initialElapsed,
-                delayRemainingMs = initialDelay
+                delayRemainingMs = initialDelay,
+                finished = finishedImmediately
             )
             newTracks.add(track)
         }
-        if (newTracks.isEmpty()) return
+        if (newTracks.isEmpty()) return null
 
-        activeTracksByComponent[component] = newTracks
+        val initialSnapshot = trackLock.withLock {
+            activeTracksByComponent[component] = newTracks
+            buildTracksFrameLocked(newTracks, current)
+        }
         for (track in newTracks) {
-            applyTrackInitialFrameIfNeeded(track)
             if (!track.spec.isPaused && !track.finished) {
                 startTrackDriver(track)
             }
         }
+        return initialSnapshot
+    }
+
+    private fun specsMatchIgnoringPlayState(a: CssAnimationSpec, b: CssAnimationSpec): Boolean {
+        return a.name == b.name &&
+            a.durationMs == b.durationMs &&
+            a.delayMs == b.delayMs &&
+            a.iterationCount == b.iterationCount &&
+            a.direction == b.direction &&
+            a.fillMode == b.fillMode &&
+            a.timingFunction == b.timingFunction
     }
 
     private fun startTransitionTracks(
@@ -200,7 +239,7 @@ object SystemCssAnimationController {
         current: ComputedStyle,
         transSpecs: List<CssTransitionSpec>,
         includeOpacityWithLayout: Boolean
-    ) {
+    ): ComputedStyle? {
         val grouped = linkedMapOf<Triple<Float, Float, CssTimingFunction>, Pair<MutableMap<String, String>, MutableMap<String, String>>>()
         var hasLayoutTransition = false
         for (prop in LAYOUT_TRANSITION_PROPERTIES) {
@@ -229,7 +268,7 @@ object SystemCssAnimationController {
                 }
             }
         }
-        if (grouped.isEmpty()) return
+        if (grouped.isEmpty()) return null
 
         val newTracks = ArrayList<ComponentAnimationTrack>(grouped.size)
         var idx = 0
@@ -259,92 +298,99 @@ object SystemCssAnimationController {
             )
             idx++
         }
-        activeTracksByComponent[component] = newTracks
+        val initialSnapshot = trackLock.withLock {
+            activeTracksByComponent[component] = newTracks
+            buildTracksFrameLocked(newTracks, current)
+        }
         for (track in newTracks) {
-            applyTrackInitialFrameIfNeeded(track)
             if (!track.finished) {
                 startTrackDriver(track)
             }
         }
+        return initialSnapshot
     }
 
     private fun stopTrackHandles(track: ComponentAnimationTrack) {
-        track.handle?.cancel()
-        track.handle = null
-        track.vblankWatcherId?.let { Animator.unwatchVBlank(it) }
-        track.vblankWatcherId = null
-    }
-
-    private fun applyTrackInitialFrameIfNeeded(track: ComponentAnimationTrack) {
-        val spec = track.spec
-        if (spec.durationMs <= 0f || spec.iterationCount == 0f) {
-            if (spec.fillMode == CssAnimationSpec.FILL_FORWARDS || spec.fillMode == CssAnimationSpec.FILL_BOTH) {
-                val iterIdx = if (spec.iterationCount > 0f && !spec.isInfinite) {
-                    (floor(spec.iterationCount.toDouble()).toInt() - 1).coerceAtLeast(0)
-                } else 0
-                val directed = applyDirection(1f, iterIdx, spec.direction)
-                val eased = spec.timingFunction.evaluate(directed)
-                commitTrackFrame(track, eased)
-            }
-            track.finished = true
-            return
+        val (handle, watcherId) = trackLock.withLock {
+            val h = track.handle
+            val w = track.vblankWatcherId
+            track.handle = null
+            track.vblankWatcherId = null
+            h to w
         }
-
-        val hasBackwards = spec.fillMode == CssAnimationSpec.FILL_BACKWARDS || spec.fillMode == CssAnimationSpec.FILL_BOTH
-        if (spec.delayMs <= 0f || hasBackwards) {
-            val rawIterT = if (track.elapsedActiveMs > 0f) {
-                computeIterationFraction(track.elapsedActiveMs, spec)
-            } else {
-                0f
-            }
-            val iterIndex = if (spec.durationMs > 0f) floor((track.elapsedActiveMs / spec.durationMs).toDouble()).toInt() else 0
-            val directed = applyDirection(rawIterT, iterIndex, spec.direction)
-            val eased = spec.timingFunction.evaluate(directed)
-            commitTrackFrame(track, eased)
-        }
+        handle?.cancel()
+        watcherId?.let { Animator.unwatchVBlank(it) }
     }
 
     private fun startTrackDriver(track: ComponentAnimationTrack) {
-        val spec = track.spec
-        if (spec.durationMs <= 0f || spec.iterationCount == 0f) {
-            track.finished = true
-            return
+        val spec = trackLock.withLock {
+            if (track.component.isDisposed || track.finished || track.spec.isPaused) return
+            if (track.spec.durationMs <= 0f || track.spec.iterationCount == 0f) {
+                track.finished = true
+                return
+            }
+            track.spec
         }
 
         if (spec.isInfinite) {
             val watcherId = Animator.watchVBlank { deltaMs, _, _ ->
-                if (track.component.isDisposed || track.finished || track.spec.isPaused) {
+                var shouldStop = false
+                val frameToApply = trackLock.withLock {
+                    val curSpec = track.spec
+                    val activeList = activeTracksByComponent[track.component]
+                    if (track.component.isDisposed || track.finished || curSpec.isPaused || activeList == null || track !in activeList) {
+                        shouldStop = true
+                        return@withLock null
+                    }
+                    var dt = deltaMs.toFloat().coerceAtLeast(0f)
+                    if (track.delayRemainingMs > 0f) {
+                        val consumed = minOf(dt, track.delayRemainingMs)
+                        track.delayRemainingMs -= consumed
+                        dt -= consumed
+                    }
+                    if (dt > 0f || track.delayRemainingMs <= 0f) {
+                        track.elapsedActiveMs += dt
+                        val cyclePos = track.elapsedActiveMs / curSpec.durationMs
+                        val iterIndex = floor(cyclePos.toDouble()).toInt().coerceAtLeast(0)
+                        val iterFraction = (cyclePos - iterIndex).coerceIn(0f, 1f)
+                        val directed = applyDirection(iterFraction, iterIndex, curSpec.direction)
+                        val eased = curSpec.timingFunction.evaluate(directed)
+                        buildTracksFrameLocked(activeList, track.baseStyleSnapshot, track, eased)
+                    } else {
+                        null
+                    }
+                }
+                if (shouldStop) {
                     stopTrackHandles(track)
                     return@watchVBlank
                 }
-                val activeList = activeTracksByComponent[track.component]
-                if (activeList == null || track !in activeList) {
-                    stopTrackHandles(track)
-                    return@watchVBlank
-                }
-                var dt = deltaMs.toFloat().coerceAtLeast(0f)
-                if (track.delayRemainingMs > 0f) {
-                    val consumed = minOf(dt, track.delayRemainingMs)
-                    track.delayRemainingMs -= consumed
-                    dt -= consumed
-                }
-                if (dt > 0f || track.delayRemainingMs <= 0f) {
-                    track.elapsedActiveMs += dt
-                    val cyclePos = track.elapsedActiveMs / spec.durationMs
-                    val iterIndex = floor(cyclePos.toDouble()).toInt().coerceAtLeast(0)
-                    val iterFraction = (cyclePos - iterIndex).coerceIn(0f, 1f)
-                    val directed = applyDirection(iterFraction, iterIndex, spec.direction)
-                    val eased = spec.timingFunction.evaluate(directed)
-                    commitTrackFrame(track, eased)
+                if (frameToApply != null) {
+                    track.component.applyCssAnimationFrameInternal(frameToApply)
                 }
             }
-            track.vblankWatcherId = watcherId
+            val cancelImmediately = trackLock.withLock {
+                val activeList = activeTracksByComponent[track.component]
+                val stillActive = !track.finished && !track.component.isDisposed && !track.spec.isPaused &&
+                    activeList != null && track in activeList
+                if (stillActive) {
+                    track.vblankWatcherId = watcherId
+                    false
+                } else {
+                    true
+                }
+            }
+            if (cancelImmediately) {
+                Animator.unwatchVBlank(watcherId)
+            }
         } else {
-            val totalMs = (spec.durationMs * spec.iterationCount).coerceAtLeast(1f)
-            val remainingMs = (totalMs - track.elapsedActiveMs).coerceAtLeast(1f)
-            val startElapsed = track.elapsedActiveMs
-            val delayMsInt = track.delayRemainingMs.roundToInt().coerceAtLeast(0)
-            val animSpanMs = remainingMs.roundToInt().coerceAtLeast(1)
+            val (totalMs, startElapsed, delayMsInt, animSpanMs) = trackLock.withLock {
+                val curSpec = track.spec
+                val total = (curSpec.durationMs * curSpec.iterationCount).coerceAtLeast(1f)
+                val remaining = (total - track.elapsedActiveMs).coerceAtLeast(1f)
+                val delayInt = track.delayRemainingMs.roundToInt().coerceAtLeast(0)
+                val spanInt = remaining.roundToInt().coerceAtLeast(1)
+                TrackTimingArgs(total, track.elapsedActiveMs, delayInt, spanInt)
+            }
 
             val handle = Animator.animateFloat(
                 from = 0f,
@@ -354,64 +400,140 @@ object SystemCssAnimationController {
                 timingFunction = CssTimingFunction.LINEAR,
                 target = track.component.nativeImpl,
                 onUpdate = { linearProgress ->
-                    if (track.component.isDisposed || track.finished || track.spec.isPaused) return@animateFloat
-                    val activeList = activeTracksByComponent[track.component]
-                    if (activeList == null || track !in activeList) return@animateFloat
-
-                    track.delayRemainingMs = 0f
-                    val curTotalElapsed = startElapsed + (totalMs - startElapsed) * linearProgress.coerceIn(0f, 1f)
-                    track.elapsedActiveMs = curTotalElapsed
-                    val cyclePos = (curTotalElapsed / spec.durationMs).coerceIn(0f, spec.iterationCount)
-                    val rawIndex = floor(cyclePos.toDouble()).toInt().coerceAtLeast(0)
-                    val atExactEnd = kotlin.math.abs(cyclePos - spec.iterationCount) < 1e-4f
-                    val iterIndex = if (atExactEnd && cyclePos > 0f && cyclePos == floor(cyclePos.toDouble()).toFloat()) {
-                        (rawIndex - 1).coerceAtLeast(0)
-                    } else {
-                        rawIndex
+                    val frameToApply = trackLock.withLock {
+                        val curSpec = track.spec
+                        val activeList = activeTracksByComponent[track.component]
+                        if (track.component.isDisposed || track.finished || curSpec.isPaused || activeList == null || track !in activeList) {
+                            return@withLock null
+                        }
+                        track.delayRemainingMs = 0f
+                        val curTotalElapsed = startElapsed + (totalMs - startElapsed) * linearProgress.coerceIn(0f, 1f)
+                        track.elapsedActiveMs = curTotalElapsed
+                        val eased = evaluateActiveProgress(curTotalElapsed, curSpec)
+                        buildTracksFrameLocked(activeList, track.baseStyleSnapshot, track, eased)
                     }
-                    val iterFraction = if (atExactEnd && cyclePos == floor(cyclePos.toDouble()).toFloat() && cyclePos > 0f) {
-                        1f
-                    } else {
-                        (cyclePos - iterIndex).coerceIn(0f, 1f)
+                    if (frameToApply != null) {
+                        track.component.applyCssAnimationFrameInternal(frameToApply)
                     }
-                    val directed = applyDirection(iterFraction, iterIndex, spec.direction)
-                    val eased = spec.timingFunction.evaluate(directed)
-                    commitTrackFrame(track, eased)
                 },
                 onComplete = { cancelled ->
-                    if (track.finished) return@animateFloat
-                    track.finished = true
-                    track.handle = null
-                    if (cancelled || track.component.isDisposed) return@animateFloat
-                    val activeList = activeTracksByComponent[track.component]
-                    if (activeList == null || track !in activeList) return@animateFloat
-                    val keepForwards = spec.fillMode == CssAnimationSpec.FILL_FORWARDS ||
-                        spec.fillMode == CssAnimationSpec.FILL_BOTH
-                    if (keepForwards) {
-                        val finalIterIndex = (kotlin.math.ceil(spec.iterationCount.toDouble()).toInt() - 1).coerceAtLeast(0)
-                        val frac = spec.iterationCount - floor(spec.iterationCount.toDouble()).toFloat()
-                        val endIterT = if (frac <= 1e-4f) 1f else frac
-                        val directed = applyDirection(endIterT, finalIterIndex, spec.direction)
-                        val eased = spec.timingFunction.evaluate(directed)
-                        commitTrackFrame(track, eased)
-                    } else {
-                        track.component.applyCssAnimationFrameInternal(track.baseStyleSnapshot)
-                        activeList.remove(track)
-                        if (activeList.isEmpty()) {
-                            activeTracksByComponent.remove(track.component)
+                    val frameToApply = trackLock.withLock {
+                        if (track.finished) return@withLock null
+                        track.finished = true
+                        track.handle = null
+                        if (cancelled || track.component.isDisposed) return@withLock null
+                        val activeList = activeTracksByComponent[track.component]
+                        if (activeList == null || track !in activeList) return@withLock null
+                        val curSpec = track.spec
+                        val keepForwards = curSpec.fillMode == CssAnimationSpec.FILL_FORWARDS ||
+                            curSpec.fillMode == CssAnimationSpec.FILL_BOTH
+                        if (keepForwards) {
+                            val eased = evaluateFinalProgress(curSpec)
+                            buildTracksFrameLocked(activeList, track.baseStyleSnapshot, track, eased)
+                        } else {
+                            val base = track.baseStyleSnapshot
+                            activeList.remove(track)
+                            if (activeList.isEmpty()) {
+                                activeTracksByComponent.remove(track.component)
+                                base
+                            } else {
+                                buildTracksFrameLocked(activeList, base) ?: base
+                            }
                         }
+                    }
+                    if (frameToApply != null) {
+                        track.component.applyCssAnimationFrameInternal(frameToApply)
                     }
                 }
             )
-            track.handle = handle
+            val cancelImmediately = trackLock.withLock {
+                val activeList = activeTracksByComponent[track.component]
+                val stillActive = !track.finished && !track.component.isDisposed && !track.spec.isPaused &&
+                    activeList != null && track in activeList
+                if (stillActive) {
+                    track.handle = handle
+                    false
+                } else {
+                    true
+                }
+            }
+            if (cancelImmediately) {
+                handle.cancel()
+            }
         }
     }
 
-    private fun computeIterationFraction(elapsedMs: Float, spec: CssAnimationSpec): Float {
-        if (spec.durationMs <= 0f) return 1f
-        val cyclePos = elapsedMs / spec.durationMs
-        val idx = floor(cyclePos.toDouble()).toInt().coerceAtLeast(0)
-        return (cyclePos - idx).coerceIn(0f, 1f)
+    private data class TrackTimingArgs(
+        val totalMs: Float,
+        val startElapsed: Float,
+        val delayMsInt: Int,
+        val animSpanMs: Int
+    )
+
+    private fun evaluateActiveProgress(elapsedMs: Float, spec: CssAnimationSpec): Float {
+        if (spec.durationMs <= 0f) return spec.timingFunction.evaluate(applyDirection(1f, 0, spec.direction))
+        val cyclePos = if (spec.isInfinite) {
+            elapsedMs / spec.durationMs
+        } else {
+            (elapsedMs / spec.durationMs).coerceIn(0f, spec.iterationCount)
+        }
+        val rawIndex = floor(cyclePos.toDouble()).toInt().coerceAtLeast(0)
+        val atExactEnd = !spec.isInfinite && kotlin.math.abs(cyclePos - spec.iterationCount) < 1e-4f
+        val iterIndex = if (atExactEnd && cyclePos > 0f && cyclePos == floor(cyclePos.toDouble()).toFloat()) {
+            (rawIndex - 1).coerceAtLeast(0)
+        } else {
+            rawIndex
+        }
+        val iterFraction = if (atExactEnd && cyclePos == floor(cyclePos.toDouble()).toFloat() && cyclePos > 0f) {
+            1f
+        } else {
+            (cyclePos - iterIndex).coerceIn(0f, 1f)
+        }
+        val directed = applyDirection(iterFraction, iterIndex, spec.direction)
+        return spec.timingFunction.evaluate(directed)
+    }
+
+    private fun evaluateFinalProgress(spec: CssAnimationSpec): Float {
+        val finalIterIndex = if (spec.iterationCount > 0f && !spec.isInfinite) {
+            (kotlin.math.ceil(spec.iterationCount.toDouble()).toInt() - 1).coerceAtLeast(0)
+        } else {
+            0
+        }
+        val frac = spec.iterationCount - floor(spec.iterationCount.toDouble()).toFloat()
+        val endIterT = if (spec.durationMs <= 0f || spec.iterationCount == 0f || frac <= 1e-4f) 1f else frac
+        val directed = applyDirection(endIterT, finalIterIndex, spec.direction)
+        return spec.timingFunction.evaluate(directed)
+    }
+
+    private fun evaluateTrackEasedT(track: ComponentAnimationTrack): Float? {
+        val spec = track.spec
+        val hasBackwards = spec.fillMode == CssAnimationSpec.FILL_BACKWARDS || spec.fillMode == CssAnimationSpec.FILL_BOTH
+        val hasForwards = spec.fillMode == CssAnimationSpec.FILL_FORWARDS || spec.fillMode == CssAnimationSpec.FILL_BOTH
+        if (track.delayRemainingMs > 0f && track.elapsedActiveMs <= 0f && !hasBackwards) {
+            return null
+        }
+        if (spec.durationMs <= 0f || spec.iterationCount == 0f || (track.finished && !spec.isInfinite)) {
+            return if (hasForwards) evaluateFinalProgress(spec) else null
+        }
+        return evaluateActiveProgress(track.elapsedActiveMs, spec)
+    }
+
+    private fun buildTracksFrameLocked(
+        tracks: List<ComponentAnimationTrack>,
+        base: ComputedStyle,
+        overrideTrack: ComponentAnimationTrack? = null,
+        overrideEasedT: Float? = null
+    ): ComputedStyle? {
+        var acc: ComputedStyle? = null
+        for (track in tracks) {
+            val easedT = if (track === overrideTrack && overrideEasedT != null) {
+                overrideEasedT
+            } else {
+                evaluateTrackEasedT(track)
+            } ?: continue
+            acc = evaluateStopsAt(track.stops, easedT.coerceIn(0f, 1f), acc ?: base)
+        }
+        return acc
     }
 
     private fun applyDirection(iterFraction: Float, iterationIndex: Int, direction: String): Float {
@@ -421,29 +543,6 @@ object SystemCssAnimationController {
             CssAnimationSpec.DIRECTION_ALTERNATE -> if (iterationIndex % 2 == 1) 1f - f else f
             CssAnimationSpec.DIRECTION_ALTERNATE_REVERSE -> if (iterationIndex % 2 == 0) 1f - f else f
             else -> f
-        }
-    }
-
-    private fun commitTrackFrame(track: ComponentAnimationTrack, easedT: Float) {
-        val allTracks = activeTracksByComponent[track.component]
-        val base = track.baseStyleSnapshot
-        val mergedStyle = evaluateStopsAt(track.stops, easedT.coerceIn(0f, 1f), base)
-        if (allTracks != null && allTracks.size > 1) {
-            var acc = base
-            for (other in allTracks) {
-                val otherT = if (other === track) {
-                    easedT
-                } else {
-                    val oCycle = if (other.spec.durationMs > 0f) other.elapsedActiveMs / other.spec.durationMs else 1f
-                    val oIdx = floor(oCycle.toDouble()).toInt().coerceAtLeast(0)
-                    val oFrac = (oCycle - oIdx).coerceIn(0f, 1f)
-                    other.spec.timingFunction.evaluate(applyDirection(oFrac, oIdx, other.spec.direction))
-                }
-                acc = evaluateStopsAt(other.stops, otherT.coerceIn(0f, 1f), acc)
-            }
-            track.component.applyCssAnimationFrameInternal(acc)
-        } else {
-            track.component.applyCssAnimationFrameInternal(mergedStyle)
         }
     }
 

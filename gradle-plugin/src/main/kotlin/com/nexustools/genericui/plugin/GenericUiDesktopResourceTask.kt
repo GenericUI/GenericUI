@@ -39,6 +39,14 @@ abstract class GenericUiDesktopResourceTask : DefaultTask() {
     abstract val appVersion: Property<String>
 
     @get:Input
+    @get:Optional
+    abstract val buildVersion: Property<String>
+
+    @get:Input
+    @get:Optional
+    abstract val gitHash: Property<String>
+
+    @get:Input
     abstract val vendor: Property<String>
 
     @get:Input
@@ -161,9 +169,26 @@ abstract class GenericUiDesktopResourceTask : DefaultTask() {
         val resolvedAppName = appName.get().trim().ifEmpty { resolvedBase }
         val resolvedAppId = appId.get().trim().ifEmpty { "com.nexustools.${resolvedBase.lowercase()}" }
         val resolvedVersion = appVersion.get().trim().ifEmpty { "1.0.0" }
+        val resolvedBuildVersion = buildVersion.orNull?.trim().orEmpty()
+        val resolvedGitHash = gitHash.orNull?.trim().orEmpty()
+        val resolvedWindowsDisplayVersion = GenericUiGitVersionResolver.formatVersionWithGitHash(
+            version = resolvedVersion,
+            gitHash = resolvedGitHash
+        )
+        val resolvedMacBundleVersion = GenericUiGitVersionResolver.resolveMacosBundleVersion(
+            version = resolvedVersion,
+            buildVersion = resolvedBuildVersion,
+            gitHash = resolvedGitHash
+        )
         val resolvedVendor = vendor.get().trim().ifEmpty { "NexusTools" }
         val resolvedDesc = appDescription.orNull?.trim().orEmpty().ifEmpty { resolvedAppName }
-        val resolvedCopyright = copyright.orNull?.trim().orEmpty().ifEmpty { "Copyright (c) $resolvedVendor" }
+        val resolvedCopyright = copyright.orNull?.trim().orEmpty().ifEmpty {
+            GenericUiVariantResolver.deriveDefaultCopyright(
+                packageName = null,
+                appId = resolvedAppId,
+                fallbackVendor = resolvedVendor
+            )
+        }
         val resolvedThemeColor = themeColor.orNull?.trim()?.takeIf { it.isNotEmpty() }
 
         // 1. Resolve icon files on disk (falling back to the default GenericUI icon when none are provided)
@@ -392,12 +417,15 @@ abstract class GenericUiDesktopResourceTask : DefaultTask() {
             appendLine("        BEGIN")
             appendLine("            VALUE \"CompanyName\", \"${escapeRcString(resolvedVendor)}\\0\"")
             appendLine("            VALUE \"FileDescription\", \"${escapeRcString(resolvedDesc)}\\0\"")
-            appendLine("            VALUE \"FileVersion\", \"${escapeRcString(resolvedVersion)}\\0\"")
+            appendLine("            VALUE \"FileVersion\", \"${escapeRcString(resolvedWindowsDisplayVersion)}\\0\"")
             appendLine("            VALUE \"InternalName\", \"${escapeRcString(resolvedBase)}\\0\"")
             appendLine("            VALUE \"LegalCopyright\", \"${escapeRcString(resolvedCopyright)}\\0\"")
             appendLine("            VALUE \"OriginalFilename\", \"${escapeRcString(resolvedBase)}.exe\\0\"")
             appendLine("            VALUE \"ProductName\", \"${escapeRcString(resolvedAppName)}\\0\"")
-            appendLine("            VALUE \"ProductVersion\", \"${escapeRcString(resolvedVersion)}\\0\"")
+            appendLine("            VALUE \"ProductVersion\", \"${escapeRcString(resolvedWindowsDisplayVersion)}\\0\"")
+            if (resolvedGitHash.isNotEmpty()) {
+                appendLine("            VALUE \"GitCommit\", \"${escapeRcString(resolvedGitHash)}\\0\"")
+            }
             val customEntries = customResourceEntries.getOrElse(emptyMap())
             if (resolvedThemeColor != null && "ThemeColor" !in customEntries) {
                 appendLine("            VALUE \"ThemeColor\", \"${escapeRcString(resolvedThemeColor)}\\0\"")
@@ -460,9 +488,13 @@ abstract class GenericUiDesktopResourceTask : DefaultTask() {
                 appendLine("    <key>CFBundleIdentifier</key>")
                 appendLine("    <string>${escapeXml(resolvedAppId)}</string>")
                 appendLine("    <key>CFBundleVersion</key>")
-                appendLine("    <string>${escapeXml(resolvedVersion)}</string>")
+                appendLine("    <string>${escapeXml(resolvedMacBundleVersion)}</string>")
                 appendLine("    <key>CFBundleShortVersionString</key>")
                 appendLine("    <string>${escapeXml(resolvedVersion)}</string>")
+                if (resolvedGitHash.isNotEmpty()) {
+                    appendLine("    <key>GenericUIGitCommit</key>")
+                    appendLine("    <string>${escapeXml(resolvedGitHash)}</string>")
+                }
                 appendLine("    <key>CFBundleExecutable</key>")
                 appendLine("    <string>${escapeXml(resolvedBase)}</string>")
                 appendLine("    <key>CFBundleIconFile</key>")
@@ -519,6 +551,10 @@ abstract class GenericUiDesktopResourceTask : DefaultTask() {
                 appendLine("Terminal=${linuxTerminal.getOrElse(false)}")
                 appendLine("Categories=${linuxCategories.getOrElse("Utility;Application;")}")
                 appendLine("StartupWMClass=$wmClass")
+                appendLine("X-GenericUI-AppVersion=$resolvedVersion")
+                if (resolvedGitHash.isNotEmpty()) {
+                    appendLine("X-GenericUI-GitCommit=$resolvedGitHash")
+                }
                 if (resolvedThemeColor != null) {
                     appendLine("X-GenericUI-ThemeColor=$resolvedThemeColor")
                 }
@@ -624,9 +660,16 @@ abstract class GenericUiDesktopResourceTask : DefaultTask() {
 
     private fun parseFourPartVersion(versionStr: String): List<Int> {
         val numericParts = versionStr
+            .trim()
+            .removePrefix("v")
+            .removePrefix("V")
+            .substringBefore('+')
             .substringBefore('-')
             .split('.')
-            .mapNotNull { it.trim().toIntOrNull() }
+            .mapNotNull { segment ->
+                val digits = segment.trim().takeWhile { it.isDigit() }
+                digits.toIntOrNull()
+            }
         return List(4) { idx -> numericParts.getOrElse(idx) { 0 } }
     }
 

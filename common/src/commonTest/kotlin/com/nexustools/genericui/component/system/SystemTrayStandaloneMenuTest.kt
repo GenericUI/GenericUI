@@ -1,11 +1,21 @@
 package com.nexustools.genericui.component.system
 
+import com.nexustools.genericui.component.shell.Application
 import com.nexustools.genericui.component.shell.ContextMenu
+import com.nexustools.genericui.component.shell.MacApplicationMenu
 import com.nexustools.genericui.component.shell.Menu
+import com.nexustools.genericui.component.shell.MenuBar
 import com.nexustools.genericui.component.shell.MenuItem
 import com.nexustools.genericui.core.GenericUI
 import com.nexustools.genericui.core.NativeFactory
 import com.nexustools.genericui.core.NativeImpl
+import com.nexustools.genericui.enums.ui.ThemeMode
+import com.nexustools.genericui.enums.window.DisplayCutoutMode
+import com.nexustools.genericui.enums.window.WindowState
+import com.nexustools.genericui.geometry.Point
+import com.nexustools.genericui.window.TitleBar
+import com.nexustools.genericui.window.TitleCapabilities
+import com.nexustools.genericui.window.WindowConfiguration
 import com.nexustools.genericui.enums.bootstrap.AlignItems
 import com.nexustools.genericui.enums.bootstrap.AlignSelf
 import com.nexustools.genericui.enums.bootstrap.BootstrapSize
@@ -84,6 +94,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
@@ -202,6 +213,13 @@ class SystemTrayStandaloneMenuTest {
         override fun clearChildrenNative() { addedChildren.clear() }
     }
 
+    private class FakeMenuBarNativeImpl : StubNativeImpl("menubar"), MenuBarNativeImpl<Any> {
+        val addedChildren = mutableListOf<NativeImpl<*>>()
+        override fun addChildNative(childImpl: NativeImpl<*>, index: Int) { addedChildren.add(childImpl) }
+        override fun removeChildNative(childImpl: NativeImpl<*>) { addedChildren.remove(childImpl) }
+        override fun clearChildrenNative() { addedChildren.clear() }
+    }
+
     private class FakeContextMenuNativeImpl : StubNativeImpl("context-menu"), ContextMenuNativeImpl<Any> {
         val children = mutableListOf<NativeImpl<*>>()
         override fun addChildNative(childImpl: NativeImpl<*>, index: Int) { children.add(childImpl) }
@@ -256,14 +274,70 @@ class SystemTrayStandaloneMenuTest {
         override fun setOnTrayIconClicked(listener: (() -> Unit)?) {}
     }
 
-    private class FakeTrayFactory : NativeFactory {
+    private class FakeApplicationNativeImpl : ApplicationNativeImpl<Any> {
+        override val nativeApplication: Any = "app"
+        override var isDisposed: Boolean = false
+        private var themeMode: ThemeMode = ThemeMode.AUTO
+        val applicationMenuCalls = mutableListOf<Pair<MenuNativeImpl<*>?, String?>>()
+        override fun dispose() { isDisposed = true }
+        override fun setThemeMode(mode: ThemeMode) { themeMode = mode }
+        override fun getThemeMode(): ThemeMode = themeMode
+        override fun setMacApplicationMenu(menuImpl: MenuNativeImpl<*>?, appTitle: String?) {
+            applicationMenuCalls.add(menuImpl to appTitle)
+        }
+        override fun runEventLoop(onStarted: () -> Unit) { onStarted() }
+        override fun exitApplication(exitCode: Int) {}
+    }
+
+    private class FakeWindowNativeImpl : StubNativeImpl("window"), WindowNativeImpl<Any> {
+        override val supportsCustomTitleBar: Boolean = false
+        override val supportsEmbeddedMenuBarInTitleBar: Boolean = false
+        override val supportsMultiWindow: Boolean = true
+        private var title: String = ""
+        private var size: Size = Size(800, 600)
+        private var state: WindowState = WindowState.NORMAL
+        private var fullscreen: Boolean = false
+        override fun addChildNative(childImpl: NativeImpl<*>, index: Int) {}
+        override fun removeChildNative(childImpl: NativeImpl<*>) {}
+        override fun clearChildrenNative() {}
+        override fun setTitle(title: String) { this.title = title }
+        override fun getTitle(): String = title
+        override fun setWindowSize(size: Size) { this.size = size }
+        override fun getWindowSize(): Size = size
+        override fun setWindowState(state: WindowState) { this.state = state }
+        override fun getWindowState(): WindowState = state
+        override fun setFullscreen(fullscreen: Boolean, cutoutMode: DisplayCutoutMode) { this.fullscreen = fullscreen }
+        override fun isFullscreen(): Boolean = fullscreen
+        override fun applyTitleBarInstructions(titleBar: TitleBar?) {}
+        override fun setMenuBarNative(menuBarImpl: MenuBarNativeImpl<*>?) {}
+        override fun setNavBarNative(navBarImpl: NativeImpl<*>?) {}
+        override fun setBottomNavigationBarNative(bottomNavImpl: NativeImpl<*>?) {}
+        override fun showWindow() {}
+        override fun closeWindow() {}
+        override fun setOnWindowResize(listener: ((WindowConfiguration) -> Unit)?) {}
+        override fun setOnWindowFocusChanged(listener: ((Boolean) -> Unit)?) {}
+        override fun setOnWindowCloseRequested(listener: (() -> Boolean)?) {}
+    }
+
+    private class FakeNetworkMonitorNativeImpl : NetworkMonitorNativeImpl {
+        override var isDisposed: Boolean = false
+        override fun dispose() { isDisposed = true }
+        override fun isOnline(): Boolean = true
+        override fun setOnConnectivityChanged(listener: ((Boolean) -> Unit)?) {}
+    }
+
+    private class FakeTrayFactory(
+        override val supportsSystemMenuBar: Boolean = false,
+        override val backendTarget: BackendTarget = BackendTarget.Swing
+    ) : NativeFactory {
         val anchorContainers = mutableListOf<FakeContainerNativeImpl>()
         val trayImpls = mutableListOf<FakeSystemTrayNativeImpl>()
+        val appImpls = mutableListOf<FakeApplicationNativeImpl>()
         private fun unsupported(): Nothing = throw UnsupportedOperationException("Unused in test")
-        override val backendTarget: BackendTarget = BackendTarget.Swing
-        override fun createApplication(): ApplicationNativeImpl<*> = unsupported()
-        override fun createWindow(): WindowNativeImpl<*> = unsupported()
-        override fun createMenuBar(): MenuBarNativeImpl<*> = unsupported()
+        override fun createApplication(): ApplicationNativeImpl<*> =
+            FakeApplicationNativeImpl().also { appImpls.add(it) }
+        override fun createWindow(): WindowNativeImpl<*> = FakeWindowNativeImpl()
+        override fun createMenuBar(): MenuBarNativeImpl<*> = FakeMenuBarNativeImpl()
         override fun createMenu(): MenuNativeImpl<*> = FakeMenuNativeImpl()
         override fun createMenuItem(checkable: Boolean, radio: Boolean): MenuItemNativeImpl<*> = FakeMenuItemNativeImpl()
         override fun createContextMenu(): ContextMenuNativeImpl<*> = FakeContextMenuNativeImpl()
@@ -312,7 +386,7 @@ class SystemTrayStandaloneMenuTest {
         override fun createSystemTray(): SystemTrayNativeImpl =
             FakeSystemTrayNativeImpl().also { trayImpls.add(it) }
         override fun createNotificationManager(): NotificationManagerNativeImpl = unsupported()
-        override fun createNetworkMonitor(): NetworkMonitorNativeImpl = unsupported()
+        override fun createNetworkMonitor(): NetworkMonitorNativeImpl = FakeNetworkMonitorNativeImpl()
         override fun supportsTcp(): Boolean = false
         override fun supportsUdp(): Boolean = false
 
@@ -384,5 +458,84 @@ class SystemTrayStandaloneMenuTest {
         assertSame(menu.nativeImpl, trayImpl.boundContextMenu)
 
         tray.dispose()
+    }
+
+    @Test
+    fun `mac application menu hook is skipped on non-macos backends and isolated from window menu bar`() {
+        val factory = FakeTrayFactory(supportsSystemMenuBar = false, backendTarget = BackendTarget.Windows)
+        var macHookCalled = false
+        val app = object : Application(title = "WindowsApp") {
+            override fun onInstallMacApplicationMenu(menu: MacApplicationMenu) {
+                macHookCalled = true
+                menu.addItem("Mac Preferences", shortcut = KeyShortcut.parse("Cmd+,")) {}
+            }
+        }
+        val winMenuBar = MenuBar().addMenu(Menu("File").also { it.addItem("Open") })
+        app.setMenuBar(winMenuBar)
+
+        app.run(factory)
+
+        assertFalse(app.supportsSystemMenuBar)
+        assertFalse(macHookCalled, "onInstallMacApplicationMenu must never run on Windows")
+        assertNull(app.macApplicationMenu)
+        assertTrue(factory.appImpls.single().applicationMenuCalls.isEmpty())
+        assertTrue(factory.anchorContainers.isEmpty())
+        assertSame(winMenuBar, app.getMenuBar())
+
+        app.dispose()
+    }
+
+    @Test
+    fun `mac application menu hook realizes only on macOS and resyncs mutations without changing window menu bar`() {
+        val factory = FakeTrayFactory(supportsSystemMenuBar = true, backendTarget = BackendTarget.MacOS)
+        lateinit var prefsItem: MenuItem
+        lateinit var monoItem: MenuItem
+        lateinit var audioSub: Menu
+        var macHookCalls = 0
+
+        val app = object : Application(title = "Episode Caster") {
+            override fun onInstallMacApplicationMenu(menu: MacApplicationMenu) {
+                macHookCalls++
+                prefsItem = menu.addItem("Preferences") {}
+                menu.addSeparator()
+                audioSub = Menu("Audio")
+                monoItem = audioSub.addItem("Mono")
+                menu.addSubmenu(audioSub)
+            }
+        }
+        val winMenuBar = MenuBar().addMenu(Menu("WindowFile").also { it.addItem("New Tab") })
+        app.setMenuBar(winMenuBar)
+
+        app.run(factory)
+
+        assertTrue(app.supportsSystemMenuBar)
+        assertEquals(1, macHookCalls)
+        val macMenu = assertNotNull(app.macApplicationMenu)
+        val appImpl = factory.appImpls.single()
+        assertEquals(1, appImpl.applicationMenuCalls.size)
+        assertEquals("Episode Caster", appImpl.applicationMenuCalls.last().second)
+        assertNotNull(appImpl.applicationMenuCalls.last().first)
+        assertNotNull(prefsItem.nativeImpl)
+        assertNotNull(audioSub.nativeImpl)
+        assertNotNull(monoItem.nativeImpl)
+        assertFalse(factory.anchorContainers.single().visibleState)
+
+        // Mutating the window's MenuBar must not mutate macApplicationMenu items
+        winMenuBar.addMenu(Menu("Edit"))
+        assertEquals(3, macMenu.items.size)
+
+        // Live mutations on items and nested submenus inside MacApplicationMenu re-sync setMacApplicationMenu
+        monoItem.setLabel("Stereo")
+        prefsItem.isEnabled = false
+        prefsItem.setShortcut(KeyShortcut.parse("Cmd+,"))
+        prefsItem.setChecked(true)
+        prefsItem.isVisible = false
+        assertEquals(6, appImpl.applicationMenuCalls.size)
+
+        macMenu.clear()
+        assertEquals(7, appImpl.applicationMenuCalls.size)
+        assertTrue(macMenu.items.isEmpty())
+
+        app.dispose()
     }
 }

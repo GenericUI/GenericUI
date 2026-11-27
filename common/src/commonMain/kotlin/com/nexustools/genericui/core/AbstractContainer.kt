@@ -227,7 +227,7 @@ abstract class AbstractContainer(
     internal fun attachRealizedChildToNative(child: AbstractComponent, childImpl: NativeImpl<*>) {
         val containerImpl = typedNative<AbstractContainerNativeImpl<*>>() ?: return
         containerChildrenLock.withLock {
-            if (child.parent !== this || !child.visibleStateOrIsVisible() || child.nativeImpl !== childImpl) return
+            if (child.parent !== this || _children.none { it === child } || !child.visibleStateOrIsVisible() || child.nativeImpl !== childImpl) return
             if (attachedContainerNativeImpl !== containerImpl) {
                 attachedNativeChildren.clear()
                 attachedContainerNativeImpl = containerImpl

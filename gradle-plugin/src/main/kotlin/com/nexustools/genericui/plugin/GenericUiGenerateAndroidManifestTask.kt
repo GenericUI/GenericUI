@@ -61,6 +61,10 @@ abstract class GenericUiGenerateAndroidManifestTask : DefaultTask() {
 
     @get:Input
     @get:Optional
+    abstract val gitHash: Property<String>
+
+    @get:Input
+    @get:Optional
     abstract val packageName: Property<String>
 
     @get:Input
@@ -131,7 +135,12 @@ abstract class GenericUiGenerateAndroidManifestTask : DefaultTask() {
 
         val resolvedAppId = appId.orNull?.takeIf { it.isNotBlank() } ?: "com.nexustools.genericui.app"
         val resolvedAppName = appName.orNull?.takeIf { it.isNotBlank() } ?: "GenericUI"
-        val resolvedAppVersion = appVersion.orNull?.takeIf { it.isNotBlank() } ?: "1.0.0"
+        val rawBaseAppVersion = appVersion.orNull?.takeIf { it.isNotBlank() } ?: "1.0.0"
+        val resolvedGitHash = gitHash.orNull?.trim().orEmpty()
+        val resolvedAppVersion = GenericUiGitVersionResolver.formatVersionWithGitHash(
+            version = rawBaseAppVersion,
+            gitHash = resolvedGitHash
+        )
         val resolvedPkg = packageName.orNull?.takeIf { it.isNotBlank() } ?: resolvedAppId
 
         val rawJson = manifestModelJson.orNull?.trim().orEmpty()
@@ -195,7 +204,10 @@ abstract class GenericUiGenerateAndroidManifestTask : DefaultTask() {
             }
             for ((variantName, variantModel) in model.variantOverrides) {
                 val variantAppId = resolvedAppId + variantModel.applicationIdSuffix
-                val variantAppVersion = resolvedAppVersion + variantModel.versionNameSuffix
+                val variantAppVersion = GenericUiGitVersionResolver.formatVersionWithGitHash(
+                    version = rawBaseAppVersion + variantModel.versionNameSuffix,
+                    gitHash = resolvedGitHash
+                )
                 val variantOutput = GenericUiAndroidManifestXmlGenerator.generate(
                     appId = variantAppId,
                     appName = resolvedAppName,

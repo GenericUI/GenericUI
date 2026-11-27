@@ -40,6 +40,14 @@ abstract class GenericUiWebDistributionTask : DefaultTask() {
 
     @get:Input
     @get:Optional
+    abstract val appVersion: Property<String>
+
+    @get:Input
+    @get:Optional
+    abstract val gitHash: Property<String>
+
+    @get:Input
+    @get:Optional
     abstract val appDescription: Property<String>
 
     @get:Input
@@ -574,6 +582,14 @@ abstract class GenericUiWebDistributionTask : DefaultTask() {
 
         val webManifestAndPwaLinks = run {
             val headTags = mutableListOf<String>()
+            val resolvedWebAppVersion = appVersion.orNull?.trim().orEmpty()
+            val resolvedWebGitHash = gitHash.orNull?.trim().orEmpty()
+            if (resolvedWebAppVersion.isNotEmpty()) {
+                headTags.add("""    <meta id="genericui-app-version" name="genericui-app-version" content="${escapeHtml(resolvedWebAppVersion)}">""")
+            }
+            if (resolvedWebGitHash.isNotEmpty()) {
+                headTags.add("""    <meta id="genericui-git-commit" name="genericui-git-commit" content="${escapeHtml(resolvedWebGitHash)}">""")
+            }
             headTags.add("""    <meta id="genericui-build-hash" content="${escapeHtml(buildHash)}">""")
             if (isSwActive) {
                 headTags.add("""    <meta id="genericui-sw-enabled" content="true">""")

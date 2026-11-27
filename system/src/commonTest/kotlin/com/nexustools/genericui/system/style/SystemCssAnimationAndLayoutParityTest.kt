@@ -6,12 +6,21 @@ import com.nexustools.genericui.component.form.styled.StyledSlider
 import com.nexustools.genericui.component.layout.Container
 import com.nexustools.genericui.component.layout.styled.StyledContainer
 import com.nexustools.genericui.component.surface.styled.StyledComponent
+import com.nexustools.genericui.core.NativeImpl
+import com.nexustools.genericui.enums.bootstrap.*
+import com.nexustools.genericui.enums.css.CssCursor
+import com.nexustools.genericui.event.KeyEvent
+import com.nexustools.genericui.event.PointerEvent
+import com.nexustools.genericui.event.WheelEvent
+import com.nexustools.genericui.geometry.EdgeInsets
 import com.nexustools.genericui.geometry.Rect
+import com.nexustools.genericui.geometry.Size
 import com.nexustools.genericui.nativeimpl.system.DefaultAnimationNativeImpl
 import com.nexustools.genericui.style.color.RgbaColor
 import com.nexustools.genericui.style.css.CompiledSelectorSegment
 import com.nexustools.genericui.style.css.CompiledStyleRule
 import com.nexustools.genericui.style.css.ComponentStyle
+import com.nexustools.genericui.style.css.ComputedStyle
 import com.nexustools.genericui.style.css.CssCombinator
 import com.nexustools.genericui.style.css.CssStyleSheet
 import com.nexustools.genericui.style.css.CssTransform
@@ -676,5 +685,200 @@ class SystemCssAnimationAndLayoutParityTest {
         overlay.removeClass("visible")
         assertEquals(0f, overlay.opacity, 0.001f)
         assertFalse(overlay.resolveEffectiveStyle().pointerEventsEnabled)
+    }
+
+    private class RecordingOpacityNativeImpl : NativeImpl<Unit> {
+        val recordedNativeOpacities = mutableListOf<Float>()
+        val recordedNativeStyles = mutableListOf<ComputedStyle>()
+        override val nativeWidget: Unit = Unit
+        override val componentClassPrefix: String = "spy"
+        private var disposed = false
+        private var classes = ""
+        private var visible = true
+        private var enabled = true
+        private var opacityValue = 1f
+        private var tooltip: String? = null
+        override val isDisposed: Boolean get() = disposed
+        override fun dispose() { disposed = true }
+        override fun setClass(className: String) { classes = className }
+        override fun getClass(): String = classes
+        override fun addClass(className: String) {}
+        override fun removeClass(className: String) {}
+        override fun hasClass(className: String): Boolean = false
+        override fun setType(type: BootstrapType?) {}
+        override fun getType(): BootstrapType? = null
+        override fun setOutline(outline: Boolean) {}
+        override fun isOutline(): Boolean = false
+        override fun setSize(size: BootstrapSize?) {}
+        override fun getSize(): BootstrapSize? = null
+        override fun setBackgroundType(type: BootstrapType?) {}
+        override fun getBackgroundType(): BootstrapType? = null
+        override fun setTextColorType(type: BootstrapType?) {}
+        override fun getTextColorType(): BootstrapType? = null
+        override fun setBorderType(type: BootstrapType?) {}
+        override fun getBorderType(): BootstrapType? = null
+        override fun setTextAlignment(alignment: TextAlignment?) {}
+        override fun getTextAlignment(): TextAlignment? = null
+        override fun setFontWeight(weight: FontWeight?) {}
+        override fun getFontWeight(): FontWeight? = null
+        override fun setTextTransform(transform: TextTransform?) {}
+        override fun getTextTransform(): TextTransform? = null
+        override fun setTextOverflow(overflow: TextOverflow?) {}
+        override fun getTextOverflow(): TextOverflow? = null
+        override fun setBorderRadius(radius: BorderRadiusStyle?) {}
+        override fun getBorderRadius(): BorderRadiusStyle? = null
+        override fun setShadow(shadow: ShadowElevation?) {}
+        override fun getShadow(): ShadowElevation? = null
+        override fun setDisplay(display: DisplayMode?) {}
+        override fun getDisplay(): DisplayMode? = null
+        override fun setFlexDirection(direction: FlexDirection?) {}
+        override fun getFlexDirection(): FlexDirection? = null
+        override fun setFlexWrap(wrap: FlexWrap?) {}
+        override fun getFlexWrap(): FlexWrap? = null
+        override fun setJustifyContent(justify: JustifyContent?) {}
+        override fun getJustifyContent(): JustifyContent? = null
+        override fun setAlignItems(align: AlignItems?) {}
+        override fun getAlignItems(): AlignItems? = null
+        override fun setAlignSelf(align: AlignSelf?) {}
+        override fun getAlignSelf(): AlignSelf? = null
+        override fun setOverflow(overflow: OverflowBehavior?) {}
+        override fun getOverflow(): OverflowBehavior? = null
+        override fun setPosition(position: PositionMode?) {}
+        override fun getPosition(): PositionMode? = null
+        override fun setMarginAll(scale: SpacingScale?) {}
+        override fun getMarginAll(): SpacingScale? = null
+        override fun setPaddingAll(scale: SpacingScale?) {}
+        override fun getPaddingAll(): SpacingScale? = null
+        override fun setVisible(visible: Boolean) { this.visible = visible }
+        override fun isVisible(): Boolean = visible
+        override fun setEnabled(enabled: Boolean) { this.enabled = enabled }
+        override fun isEnabled(): Boolean = enabled
+        override fun setOpacity(opacity: Float) {
+            opacityValue = opacity
+            recordedNativeOpacities.add(opacity)
+        }
+        override fun getOpacity(): Float = opacityValue
+        override fun setTooltipText(tooltip: String?) { this.tooltip = tooltip }
+        override fun getTooltipText(): String? = tooltip
+        override fun setPreferredSize(size: Size?) {}
+        override fun getBounds(): Rect = Rect.ZERO
+        override fun setPadding(padding: EdgeInsets) {}
+        override fun setMargin(margin: EdgeInsets) {}
+        override fun applyComputedStyle(style: ComputedStyle) {
+            recordedNativeStyles.add(style)
+        }
+        override fun setOnClick(listener: (() -> Unit)?) {}
+        override fun setOnDoubleClick(listener: (() -> Unit)?) {}
+        override fun setOnContextMenu(listener: ((PointerEvent) -> Unit)?) {}
+        override fun setOnPointerDown(listener: ((PointerEvent) -> Unit)?) {}
+        override fun setOnPointerMove(listener: ((PointerEvent) -> Unit)?) {}
+        override fun setOnPointerUp(listener: ((PointerEvent) -> Unit)?) {}
+        override fun setOnWheel(listener: ((WheelEvent) -> Unit)?) {}
+        override fun setOnKeyDown(listener: ((KeyEvent) -> Unit)?) {}
+        override fun setOnKeyUp(listener: ((KeyEvent) -> Unit)?) {}
+    }
+
+    @Test
+    fun testOverlayFadeOutNeverFlashesZeroOpacityOnStartOrFollowUpClassMutations() {
+        val sheet = CssStyleSheet.parse(
+            """
+            @keyframes overlayFadeOut {
+                0% { opacity: 1; }
+                100% { opacity: 0; }
+            }
+            @keyframes overlayFadeIn {
+                0% { opacity: 0; }
+                100% { opacity: 1; }
+            }
+            .overlay-fading-root {
+                opacity: 1;
+                animation: overlayFadeIn 200ms ease-out forwards;
+            }
+            .overlay-fading-root.hidden {
+                opacity: 0;
+                pointer-events: none;
+                animation: overlayFadeOut 200ms ease-in forwards;
+            }
+            .overlay-fading-root.hidden.hud-cursor-hidden {
+                cursor: none;
+            }
+            .overlay-fading-root.hidden.overlay-keep-cursor {
+                cursor: default;
+            }
+            .overlay-fading-root.overlay-instant-fade {
+                animation-duration: 0ms;
+            }
+            """.trimIndent()
+        )
+
+        val spy = RecordingOpacityNativeImpl()
+        val root = StyledContainer("overlay-fading-root").apply {
+            addClass("overlay-fading-root")
+            nativeImpl = spy
+            nativeImplInitialized = true
+        }
+
+        sheet.applyToTree(root)
+        Animator.advanceTimeBy(250.0)
+        assertEquals(1f, root.opacity, 0.001f)
+
+        // 1. Start fade-out (.hidden): must start at 1.0f without ever flushing 0.0f before animation starts.
+        spy.recordedNativeOpacities.clear()
+        spy.recordedNativeStyles.clear()
+        root.addClass("hidden")
+        assertEquals(1f, root.opacity, 0.001f)
+        assertTrue(spy.recordedNativeOpacities.isNotEmpty(), "Expected native setOpacity call on .hidden transition")
+        assertTrue(
+            spy.recordedNativeOpacities.all { it >= 0.99f } && spy.recordedNativeStyles.all { it.opacity >= 0.99f },
+            "Adding .hidden must never flush opacity < 0.99 at t=0: native=${spy.recordedNativeOpacities} styles=${spy.recordedNativeStyles.map { it.opacity }}"
+        )
+
+        // 2. Same-tick follow-up cursor class mutation (.hud-cursor-hidden) must preserve t=0 opacity and pick up cursor: none.
+        spy.recordedNativeOpacities.clear()
+        spy.recordedNativeStyles.clear()
+        root.addClass("hud-cursor-hidden")
+        assertEquals(1f, root.opacity, 0.001f)
+        assertEquals(CssCursor.NONE, root.computedStyle?.customCursor)
+        assertEquals(1, SystemCssAnimationController.activeTrackCount())
+        assertTrue(spy.recordedNativeOpacities.isNotEmpty(), "Expected native setOpacity call on .hud-cursor-hidden cascade")
+        assertTrue(
+            spy.recordedNativeOpacities.all { it >= 0.99f } && spy.recordedNativeStyles.all { it.opacity >= 0.99f },
+            "Follow-up .hud-cursor-hidden at t=0 must never flash 0.0f: native=${spy.recordedNativeOpacities} styles=${spy.recordedNativeStyles.map { it.opacity }}"
+        )
+
+        // 3. Advance mid-fade and toggle cursor class: active opacity must remain monotonic (no 0f flash, no reset to 1f).
+        Animator.advanceTimeBy(100.0)
+        val midOpacityBeforeToggle = root.opacity
+        assertTrue(midOpacityBeforeToggle in 0.1f..0.9f, "Expected mid-fade opacity at 100ms, got $midOpacityBeforeToggle")
+
+        spy.recordedNativeOpacities.clear()
+        spy.recordedNativeStyles.clear()
+        root.removeClass("hud-cursor-hidden")
+        root.addClass("overlay-keep-cursor")
+        assertEquals(CssCursor.DEFAULT, root.computedStyle?.customCursor)
+        assertEquals(midOpacityBeforeToggle, root.opacity, 0.01f)
+        assertTrue(spy.recordedNativeOpacities.isNotEmpty(), "Expected native setOpacity call on mid-fade class toggle")
+        assertTrue(
+            spy.recordedNativeOpacities.all { abs(it - midOpacityBeforeToggle) < 0.02f } &&
+                spy.recordedNativeStyles.all { abs(it.opacity - midOpacityBeforeToggle) < 0.02f },
+            "Follow-up class toggle mid-fade must preserve active opacity ~$midOpacityBeforeToggle: native=${spy.recordedNativeOpacities} styles=${spy.recordedNativeStyles.map { it.opacity }}"
+        )
+
+        // 4. Complete fade-out with fill-mode: forwards and verify post-completion cursor toggle stays at 0f.
+        Animator.advanceTimeBy(150.0)
+        assertEquals(0f, root.opacity, 0.001f)
+        root.addClass("hud-cursor-hidden")
+        assertEquals(0f, root.opacity, 0.001f)
+
+        // 5. Return visible and verify .overlay-instant-fade (0ms duration) is NOT mistakenly reused as a 200ms track.
+        root.removeClass("hidden")
+        root.removeClass("hud-cursor-hidden")
+        root.removeClass("overlay-keep-cursor")
+        Animator.advanceTimeBy(250.0)
+        assertEquals(1f, root.opacity, 0.001f)
+
+        root.addClass("hidden")
+        root.addClass("overlay-instant-fade")
+        assertEquals(0f, root.opacity, 0.001f)
     }
 }
